@@ -13,6 +13,7 @@ use tower_lsp::lsp_types::{Diagnostic, Range, Position, DiagnosticSeverity};
 use std::collections::HashMap;
 use std::fs;
 
+use clarity::functions::{NativeFunctions, DefineFunctions, NativeVariables, BlockInfoProperty};
 
 #[derive(Debug, Default)]
 struct Backend {
@@ -44,10 +45,18 @@ impl LanguageServer for Backend {
             capabilities: ServerCapabilities {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::Full)),
                 hover_provider: Some(true),
-                completion_provider: None,
+                completion_provider: Some(CompletionOptions {
+                    /// The server provides support to resolve additional information for a completion item.
+                    resolve_provider: Some(true),
+                        /// The characters that trigger completion automatically.
+                    trigger_characters: None,
+                    work_done_progress_options: WorkDoneProgressOptions {
+                        work_done_progress: None,
+                    },
+                }),
                 signature_help_provider: None,
                 definition_provider: None,
-                type_definition_provider: None,
+                type_definition_provider: Some(TypeDefinitionProviderCapability::Simple(true)),
                 implementation_provider: None,        
                 references_provider: None,
                 document_highlight_provider: None,
@@ -84,7 +93,7 @@ impl LanguageServer for Backend {
         Box::new(future::ok(()))
     }
 
-    fn symbol(&self, _: WorkspaceSymbolParams) -> Self::SymbolFuture {
+    fn symbol(&self, params: WorkspaceSymbolParams) -> Self::SymbolFuture {
         Box::new(future::ok(None))
     }
 
@@ -94,8 +103,91 @@ impl LanguageServer for Backend {
     }
 
     fn completion(&self, params: CompletionParams) -> Self::CompletionFuture {
-        let result = CompletionResponse::from(vec![CompletionItem::new_simple("Label".to_string(), "Lorem ipsum dolor sit amet".to_string())]);
-        Box::new(future::ok(None))
+        use clarity::docs::{make_api_reference, make_define_reference, make_keyword_reference};
+
+        let native_functions: Vec<CompletionItem> = NativeFunctions::ALL.iter().map(|func| {
+            let api = make_api_reference(&func);
+            let insert = format!("({} ${{1:foo}} ${{2:bar}})", api.name);
+            CompletionItem {
+                label: api.name.to_string(),
+                kind: Some(CompletionItemKind::Function),
+                detail: Some(api.name.to_string()),
+                documentation: Some(Documentation::MarkupContent(MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: api.description.to_string(),
+                })),
+                deprecated: None,
+                preselect: None,
+                sort_text: None,
+                filter_text: None,
+                insert_text: Some(insert.to_string()),
+                insert_text_format: Some(InsertTextFormat::Snippet),
+                text_edit: None,
+                additional_text_edits: None,
+                command: None,
+                data: None,
+                tags: None,
+            }
+        }).collect();
+        
+        let define_functions: Vec<CompletionItem> = DefineFunctions::ALL.iter().map(|func| {
+            let api = make_define_reference(&func);
+            let insert = format!("({} ${{1:foo}} ${{2:bar}})", api.name);
+            CompletionItem {
+                label: api.name.to_string(),
+                kind: Some(CompletionItemKind::Class),
+                detail: Some(api.name.to_string()),
+                documentation: Some(Documentation::MarkupContent(MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: api.description.to_string(),
+                })),
+                deprecated: None,
+                preselect: None,
+                sort_text: None,
+                filter_text: None,
+                insert_text: Some(insert.to_string()),
+                insert_text_format: Some(InsertTextFormat::Snippet),
+                text_edit: None,
+                additional_text_edits: None,
+                command: None,
+                data: None,
+                tags: None,
+            }
+        }).collect();
+
+        let native_variables: Vec<CompletionItem> = NativeVariables::ALL.iter().map(|var| {
+            let api = make_keyword_reference(&var);
+            CompletionItem {
+                label: api.name.to_string(),
+                kind: Some(CompletionItemKind::Field),
+                detail: Some(api.name.to_string()),
+                documentation: Some(Documentation::MarkupContent(MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: api.description.to_string(),
+                })),
+                deprecated: None,
+                preselect: None,
+                sort_text: None,
+                filter_text: None,
+                insert_text: Some(api.name.to_string()),
+                insert_text_format: Some(InsertTextFormat::PlainText),
+                text_edit: None,
+                additional_text_edits: None,
+                command: None,
+                data: None,
+                tags: None,
+            }
+        }).collect();
+
+        let block_properties: Vec<CompletionItem> = BlockInfoProperty::ALL_NAMES.to_vec().iter().map(|func| {
+            CompletionItem::new_simple(func.to_string(), "".to_string())
+        }).collect();
+
+        let items = vec![native_functions, define_functions, native_variables, block_properties];
+        let items = items.into_iter().flatten().collect::<Vec<CompletionItem>>();
+
+        let result = CompletionResponse::from(items);
+        Box::new(future::ok(Some(result)))
     }
 
     fn goto_declaration(&self, _: TextDocumentPositionParams) -> Self::DeclarationFuture {

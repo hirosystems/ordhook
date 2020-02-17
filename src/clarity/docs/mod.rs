@@ -12,24 +12,24 @@ struct ReferenceAPIs {
 }
 
 #[derive(Serialize, Clone)]
-struct KeywordAPI {
-    name: &'static str,
-    output_type: &'static str,
-    description: &'static str,
-    example: &'static str
+pub struct KeywordAPI {
+    pub name: &'static str,
+    pub output_type: &'static str,
+    pub description: &'static str,
+    pub example: &'static str
 }
 
 #[derive(Serialize)]
-struct FunctionAPI {
-    name: String,
-    input_type: String,
-    output_type: String,
-    signature: String,
-    description: String,
-    example: String
+pub struct FunctionAPI {
+    pub name: String,
+    pub input_type: String,
+    pub output_type: String,
+    pub signature: String,
+    pub description: String,
+    pub example: String
 }
 
-struct SimpleFunctionAPI {
+pub struct SimpleFunctionAPI {
     name: Option<&'static str>,
     signature: &'static str,
     description: &'static str,
@@ -44,7 +44,7 @@ struct SpecialAPI {
     example: &'static str,
 }
 
-struct DefineAPI {
+pub struct DefineAPI {
     output_type: &'static str,
     input_type: &'static str,
     signature: &'static str,
@@ -54,6 +54,13 @@ struct DefineAPI {
 
 const BLOCK_HEIGHT: KeywordAPI = KeywordAPI {
     name: "block-height",
+    output_type: "uint",
+    description: "Returns the current block height of the Stacks blockchain as an int",
+    example: "(> block-height 1000) ;; returns true if the current block-height has passed 1000 blocks."
+};
+
+const BURN_BLOCK_HEIGHT: KeywordAPI = KeywordAPI {
+    name: "burn-block-height",
     output_type: "uint",
     description: "Returns the current block height of the Stacks blockchain as an int",
     example: "(> block-height 1000) ;; returns true if the current block-height has passed 1000 blocks."
@@ -1218,7 +1225,7 @@ one of the following error codes:
 "
 };
 
-fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
+pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
     use crate::clarity::functions::NativeFunctions::*;
     let name = function.get_name();
     match function {
@@ -1296,13 +1303,13 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
     }
 }
 
-fn make_keyword_reference(variable: &NativeVariables) -> Option<KeywordAPI> {
+pub fn make_keyword_reference(variable: &NativeVariables) -> KeywordAPI {
     match variable {
-        NativeVariables::TxSender => Some(TX_SENDER_KEYWORD.clone()),
-        NativeVariables::ContractCaller => Some(CONTRACT_CALLER_KEYWORD.clone()),
-        NativeVariables::NativeNone => Some(NONE_KEYWORD.clone()),
-        NativeVariables::BlockHeight => Some(BLOCK_HEIGHT.clone()),
-        NativeVariables::BurnBlockHeight => None,
+        NativeVariables::TxSender => TX_SENDER_KEYWORD.clone(),
+        NativeVariables::ContractCaller => CONTRACT_CALLER_KEYWORD.clone(),
+        NativeVariables::NativeNone => NONE_KEYWORD.clone(),
+        NativeVariables::BlockHeight => BLOCK_HEIGHT.clone(),
+        NativeVariables::BurnBlockHeight => BURN_BLOCK_HEIGHT.clone(),
     }
 }
 
@@ -1317,7 +1324,7 @@ fn make_for_special(api: &SpecialAPI, name: String) -> FunctionAPI {
     }
 }
 
-fn make_for_define(api: &DefineAPI, name: String) -> FunctionAPI {
+pub fn make_for_define(api: &DefineAPI, name: String) -> FunctionAPI {
     FunctionAPI {
         name,
         input_type: api.input_type.to_string(),
@@ -1328,7 +1335,7 @@ fn make_for_define(api: &DefineAPI, name: String) -> FunctionAPI {
     }
 }
 
-fn make_define_reference(define_type: &DefineFunctions) -> FunctionAPI {
+pub fn make_define_reference(define_type: &DefineFunctions) -> FunctionAPI {
     let name = define_type.get_name();
     match define_type {
         Constant => make_for_define(&DEFINE_CONSTANT_API, name),
@@ -1356,10 +1363,8 @@ pub fn make_json_api_reference() -> String {
 
     let mut keywords = Vec::new();
     for variable in NativeVariables::ALL.iter() {
-        let output = make_keyword_reference(variable);
-        if let Some(api_ref) = output {
-            keywords.push(api_ref)
-        }
+        let api_ref = make_keyword_reference(variable);
+        keywords.push(api_ref);
     }
 
     let api_out = ReferenceAPIs { functions, keywords };
