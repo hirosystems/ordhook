@@ -120,7 +120,7 @@ impl LanguageServer for Backend {
                 preselect: None,
                 sort_text: None,
                 filter_text: None,
-                insert_text: Some(insert.to_string()),
+                insert_text: Some(api.snippet.clone()),
                 insert_text_format: Some(InsertTextFormat::Snippet),
                 text_edit: None,
                 additional_text_edits: None,
@@ -132,7 +132,6 @@ impl LanguageServer for Backend {
         
         let define_functions: Vec<CompletionItem> = DefineFunctions::ALL.iter().map(|func| {
             let api = make_define_reference(&func);
-            let insert = format!("({} ${{1:foo}} ${{2:bar}})", api.name);
             CompletionItem {
                 label: api.name.to_string(),
                 kind: Some(CompletionItemKind::Class),
@@ -145,7 +144,7 @@ impl LanguageServer for Backend {
                 preselect: None,
                 sort_text: None,
                 filter_text: None,
-                insert_text: Some(insert.to_string()),
+                insert_text: Some(api.snippet.clone()),
                 insert_text_format: Some(InsertTextFormat::Snippet),
                 text_edit: None,
                 additional_text_edits: None,
@@ -169,7 +168,7 @@ impl LanguageServer for Backend {
                 preselect: None,
                 sort_text: None,
                 filter_text: None,
-                insert_text: Some(api.name.to_string()),
+                insert_text: Some(api.snippet.to_string()),
                 insert_text_format: Some(InsertTextFormat::PlainText),
                 text_edit: None,
                 additional_text_edits: None,
