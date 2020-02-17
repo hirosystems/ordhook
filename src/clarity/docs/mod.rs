@@ -934,7 +934,7 @@ Tokens defined using `define-fungible-token` may be used in `ft-transfer?`, `ft-
 
 const DEFINE_ASSET_API: DefineAPI = DefineAPI {
     input_type: "AssetName, TypeSignature",
-    snippet: "",
+    snippet: "(define-non-fungible-token ${1:nft-name} ${2:nft-identifier-type})",
     output_type: "Not Applicable",
     signature: "(define-non-fungible-token asset-name asset-identifier-type)",
     description: "`define-non-fungible-token` is used to define a new non-fungible token class for use in the current contract.
@@ -952,7 +952,7 @@ Assets defined using `define-non-fungible-token` may be used in `nft-transfer?`,
 
 const DEFINE_PUBLIC_API: DefineAPI = DefineAPI {
     input_type: "MethodSignature, MethodBody",
-    snippet: "",
+    snippet: "(define-public ${1:func-name} ${2:body})",
     output_type: "Not Applicable",
     signature: "(define-public (function-name (arg-name-0 arg-type-0) (arg-name-1 arg-type-1) ...) function-body)",
     description: "`define-public` is used to define a _public_ function and transaction for a smart contract. Public
@@ -974,7 +974,7 @@ contracts via `contract-call?`.",
 
 const DEFINE_CONSTANT_API: DefineAPI = DefineAPI {
     input_type: "MethodSignature, MethodBody",
-    snippet: "",
+    snippet: "(define-constant ${1:name} ${2:exprs})",
     output_type: "Not Applicable",
     signature: "(define-constant name expression)",
     description: "`define-constant` is used to define a private constant value in a smart contract.
@@ -993,7 +993,7 @@ definition (i.e., you cannot put a define statement in the middle of a function 
 
 const DEFINE_PRIVATE_API: DefineAPI = DefineAPI {
     input_type: "MethodSignature, MethodBody",
-    snippet: "",
+    snippet: "(define-private ${1:func-name} ${2:body})",
     output_type: "Not Applicable",
     signature: "(define-private (function-name (arg-name-0 arg-type-0) (arg-name-1 arg-type-1) ...) function-body)",
     description: "`define-private` is used to define _private_ functions for a smart contract. Private
@@ -1015,7 +1015,7 @@ Private functions may return any type.",
 
 const DEFINE_READ_ONLY_API: DefineAPI = DefineAPI {
     input_type: "MethodSignature, MethodBody",
-    snippet: "",
+    snippet: "(define-read-only ${1:func-name} ${2:body})",
     output_type: "Not Applicable",
     signature: "(define-read-only (function-name (arg-name-0 arg-type-0) (arg-name-1 arg-type-1) ...) function-body)",
     description: "`define-read-only` is used to define a _public read-only_ function for a smart contract. Such
@@ -1036,7 +1036,7 @@ be invoked by other contracts via `contract-call?`.",
 
 const DEFINE_MAP_API: DefineAPI = DefineAPI {
     input_type: "MapName, KeyTupleDefinition, MapTupleDefinition",
-    snippet: "",
+    snippet: "(define-map ${1:map-name} ((${2:key-name-1} ${3:key-type-1})) ((${4:val-name-1} ${5:vals-type-1})))",
     output_type: "Not Applicable",
     signature: "(define-map map-name ((key-name-0 key-type-0) ...) ((val-name-0 val-type-0) ...))",
     description: "`define-map` is used to define a new datamap for use in a smart contract. Such
@@ -1062,7 +1062,7 @@ definition (i.e., you cannot put a define statement in the middle of a function 
 
 const DEFINE_DATA_VAR_API: DefineAPI = DefineAPI {
     input_type: "VarName, TypeDefinition, Value",
-    snippet: "",
+    snippet: "(define-data-var ${1:name} ${2:type} ${3:value})",
     output_type: "Not Applicable",
     signature: "(define-data-var var-name type value)",
     description: "`define-data-var` is used to define a new persisted variable for use in a smart contract. Such
@@ -1083,7 +1083,7 @@ definition (i.e., you cannot put a define statement in the middle of a function 
 
 const DEFINE_TRAIT_API: DefineAPI = DefineAPI {
     input_type: "VarName, [MethodSignature]",
-    snippet: "",
+    snippet: "(define-trait ${1:trait-name} ${2:trait-definition})",
     output_type: "Not Applicable",
     signature: "(define-trait trait-name ((func1-name (arg1-type arg2-type ...) (return-type))))",
     description: "`define-trait` is used to define a new trait definition for use in a smart contract. Other contracts 
@@ -1104,7 +1104,7 @@ definition (i.e., you cannot put a define statement in the middle of a function 
 
 const USE_TRAIT_API: DefineAPI = DefineAPI {
     input_type: "VarName, TraitIdentifier",
-    snippet: "",
+    snippet: "(use-trait ${1:trait-alias} ${2:trait-identifier})",
     output_type: "Not Applicable",
     signature: "(use-trait trait-alias trait-identifier)",
     description: "`use-trait` is used to bring a trait, defined in another contract, to the current contract. Subsequent 
@@ -1126,7 +1126,7 @@ definition (i.e., you cannot put such a statement in the middle of a function bo
 
 const IMPL_TRAIT_API: DefineAPI = DefineAPI {
     input_type: "TraitIdentifier",
-    snippet: "",
+    snippet: "(impl-trait ${2:trait-identifier})",
     output_type: "Not Applicable",
     signature: "(impl-trait trait-identifier)",
     description: "`impl-trait` can be use for asserting that a contract is fully implementing a given trait. 
@@ -1146,7 +1146,7 @@ definition (i.e., you cannot put such a statement in the middle of a function bo
 
 const PRINCIPAL_OF_API: SpecialAPI = SpecialAPI {
     input_type: "<A>",
-    snippet: "",
+    snippet: "(principal-of ${1:trait-reference})",
     output_type: "callable-principal",
     signature: "(principal-of trait-reference)",
     description: "`principal-of` is used in conjuncture with trait-reference, to obtain the principal of given
@@ -1164,7 +1164,7 @@ trait reference instance.
 
 const MINT_TOKEN: SpecialAPI = SpecialAPI {
     input_type: "TokenName, uint, principal",
-    snippet: "",
+    snippet: "(ft-mint? ${1:token-name} ${2:amount} ${3:recipient})",
     output_type: "(response bool uint)",
     signature: "(ft-mint? token-name amount recipient)",
     description: "`ft-mint?` is used to increase the token balance for the `recipient` principal for a token
@@ -1182,7 +1182,7 @@ returns `(ok 'true 1)`.
 
 const MINT_ASSET: SpecialAPI = SpecialAPI {
     input_type: "AssetName, A, principal",
-    snippet: "",
+    snippet: "(nft-mint? ${1:asset-name} ${2:asset-identifier} ${3:recipient})",
     output_type: "(response bool uint)",
     signature: "(nft-mint? asset-class asset-identifier recipient)",
     description: "`nft-mint?` is used to instantiate an asset and set that asset's owner to the `recipient` principal.
@@ -1203,7 +1203,7 @@ Otherwise, on successfuly mint, it returns `(ok 'true 1)`.
 
 const GET_OWNER: SpecialAPI = SpecialAPI {
     input_type: "AssetName, A",
-    snippet: "",
+    snippet: "(nft-get-owner? ${1:asset-name} ${2:asset-identifier})",
     output_type: "(optional principal)",
     signature: "(nft-get-owner? asset-class asset-identifier)",
     description: "`nft-get-owner?` returns the owner of an asset, identified by `asset-identifier`, or `none` if the asset does not exist.
@@ -1218,7 +1218,7 @@ that definition.",
 
 const GET_BALANCE: SpecialAPI = SpecialAPI {
     input_type: "TokenName, principal",
-    snippet: "",
+    snippet: "(ft-get-balance ${1:token-name} ${2:principal})",
     output_type: "uint",
     signature: "(ft-get-balance token-name principal)",
     description: "`ft-get-balance` returns `token-name` balance of the principal `principal`.
@@ -1231,7 +1231,7 @@ The token type must have been defined using `define-fungible-token`.",
 
 const TOKEN_TRANSFER: SpecialAPI = SpecialAPI {
     input_type: "TokenName, uint, principal, principal",
-    snippet: "",
+    snippet: "(ft-transfer? ${1:token-name} ${2:amount} ${3:sender} ${4:recipient})",
     output_type: "(response bool uint)",
     signature: "(ft-transfer? token-name amount sender recipient)",
     description: "`ft-transfer?` is used to increase the token balance for the `recipient` principal for a token
@@ -1254,7 +1254,7 @@ one of the following error codes:
 
 const ASSET_TRANSFER: SpecialAPI = SpecialAPI {
     input_type: "AssetName, A, principal, principal",
-    snippet: "",
+    snippet: "(nft-transfer? ${1:asset-name} ${2:asset-identifier} ${3:sender} ${4:recipient})",
     output_type: "(response bool uint)",
     signature: "(nft-transfer? asset-class asset-identifier sender recipient)",
     description: "`nft-transfer?` is used to change the owner of an asset identified by `asset-identifier`
@@ -1279,7 +1279,7 @@ one of the following error codes:
 
 const STX_TRANSFER: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
-    snippet: "",
+    snippet: "(stx-transfer? ${1:amount} ${2:sender} ${3:recipient})",
     signature: "(stx-transfer? amount sender recipient)",
     description: "`stx-transfer?` is used to increase the STX balance for the `recipient` principal 
 by debiting the `sender` principal. The `sender` principal _must_ be equal to the current context's `tx-sender`.
@@ -1300,7 +1300,7 @@ one of the following error codes:
 
 const STX_BURN: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
-    snippet: "",
+    snippet: "(stx-burn? ${1:amount} ${2:sender})",
     signature: "(stx-burn? amount sender)",
     description: "`stx-burn?` debits the `sender` principal's STX holdings by `amount`, destroying
 the STX. The `sender` principal _must_ be equal to the current context's `tx-sender`.
