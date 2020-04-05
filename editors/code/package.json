@@ -1,0 +1,160 @@
+{
+    "name": "clarity-lsp",
+    "displayName": "clarity-lsp",
+    "description": "Language server for Clarity",
+    "preview": true,
+    "private": true,
+    "version": "0.1.0",
+    "releaseTag": null,
+    "publisher": "lgalabru",
+    "repository": {
+        "url": "https://github.com/lgalabru/clarity-lsp.git",
+        "type": "git"
+    },
+    "homepage": "https://github.com/lgalabru/clarity-lsp.git",
+    "license": "GPL-3.0-only",
+    "keywords": [
+        "clarity",
+        "blockstack",
+        "blockchain",
+        "smart-contract"
+    ],
+    "categories": [
+        "Programming Languages"
+    ],
+    "engines": {
+        "vscode": "^1.43.0"
+    },
+    "enableProposedApi": true,
+    "scripts": {
+        "vscode:prepublish": "tsc && rollup -c",
+        "package": "vsce package -o clarity-lsp.vsix",
+        "compile": "tsc -b",
+        "watch": "tsc --watch",
+        "lint": "tsfmt --verify && eslint -c .eslintrc.js --ext ts ./src",
+        "fix": "tsfmt -r && eslint -c .eslintrc.js --ext ts ./src --fix"
+    },
+    "dependencies": {
+        "jsonc-parser": "^2.2.1",
+        "node-fetch": "^2.6.0",
+        "vscode-languageclient": "6.1.3"
+    },
+    "devDependencies": {
+        "@rollup/plugin-commonjs": "^11.0.2",
+        "@rollup/plugin-node-resolve": "^7.1.1",
+        "@types/node": "^12.12.34",
+        "@types/node-fetch": "^2.5.5",
+        "@types/vscode": "^1.43.0",
+        "@typescript-eslint/eslint-plugin": "^2.26.0",
+        "@typescript-eslint/parser": "^2.26.0",
+        "eslint": "^6.8.0",
+        "rollup": "^2.3.2",
+        "tslib": "^1.11.1",
+        "typescript": "^3.8.3",
+        "typescript-formatter": "^7.2.2",
+        "vsce": "^1.75.0"
+    },
+    "activationEvents": [
+        "onLanguage:plaintext",
+        "onLanguage:clarity",
+        "onCommand:clarity-lsp.analyzerStatus"
+    ],
+    "main": "./out/main",
+    "contributes": {
+        "taskDefinitions": [
+            {
+                "type": "cargo",
+                "required": [
+                    "command"
+                ],
+                "properties": {
+                    "label": {
+                        "type": "string"
+                    },
+                    "command": {
+                        "type": "string"
+                    },
+                    "args": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "env": {
+                        "type": "object",
+                        "patternProperties": {
+                            ".+": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        ],
+        "commands": [],
+        "keybindings": [],
+        "configuration": {
+            "type": "object",
+            "title": "Clarity Language Server",
+            "properties": {
+                "clarity-lsp.diagnostics.enable": {
+                    "type": "boolean",
+                    "default": true,
+                    "markdownDescription": "Whether to show native clarity-cli diagnostics."
+                },
+                "clarity-lsp.checkOnSave.allTargets": {
+                    "type": "boolean",
+                    "default": true,
+                    "markdownDescription": "Check all targets and tests (will be passed as `--all-targets`)"
+                },
+                "clarity-lsp.updates.channel": {
+                    "type": "string",
+                    "enum": [
+                        "stable",
+                        "nightly"
+                    ],
+                    "default": "stable",
+                    "markdownEnumDescriptions": [
+                        "`\"stable\"` updates are shipped weekly, they don't contain cutting-edge features from VSCode proposed APIs but have less bugs in general",
+                        "`\"nightly\"` updates are shipped daily (extension updates automatically by downloading artifacts directly from GitHub), they contain cutting-edge features and latest bug fixes. These releases help us get your feedback very quickly and speed up clarity-cli development **drastically**"
+                    ],
+                    "markdownDescription": "Choose `\"nightly\"` updates to get the latest features and bug fixes every day. While `\"stable\"` releases occur weekly and don't contain cutting-edge features from VSCode proposed APIs"
+                },
+                "clarity-lsp.updates.askBeforeDownload": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Whether to ask for permission before downloading any files from the Internet"
+                },
+                "clarity-lsp.serverPath": {
+                    "type": [
+                        "null",
+                        "string"
+                    ],
+                    "default": null,
+                    "description": "Path to ruclarity-lsp-analyzer executable (points to bundled binary by default). If this is set, then \"clarity-lsp.updates.channel\" setting is not used"
+                },
+                "clarity-lsp.trace.server": {
+                    "type": "string",
+                    "scope": "window",
+                    "enum": [
+                        "off",
+                        "messages",
+                        "verbose"
+                    ],
+                    "enumDescriptions": [
+                        "No traces",
+                        "Error only",
+                        "Full log"
+                    ],
+                    "default": "off",
+                    "description": "Trace requests to the clarity-lsp"
+                },
+                "clarity-lsp.trace.extension": {
+                    "description": "Enable logging of VS Code extensions itself",
+                    "type": "boolean",
+                    "default": false
+                }
+            }
+        }
+    }
+}

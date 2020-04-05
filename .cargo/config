@@ -1,0 +1,5 @@
+[alias]
+xtask = "run --package xtask --bin xtask --"
+install-ra = "run --package xtask --bin xtask -- install" # for backwards compat
+tq = "test -- -q"
+qt = "tq"
