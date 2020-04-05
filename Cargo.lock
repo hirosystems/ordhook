@@ -86,6 +86,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4785bdd1c96b2a846b2bd7cc02e86b6b3dbf14e7e53446c4f54c92a361040822"
 
 [[package]]
+name = "clarity-lsp"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "jsonrpc-core",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "tokio-codec",
+ "tokio-executor",
+ "tokio-io",
+ "tower-lsp",
+]
+
+[[package]]
 name = "cloudabi"
 version = "0.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -137,23 +154,6 @@ dependencies = [
  "autocfg",
  "cfg-if",
  "lazy_static",
-]
-
-[[package]]
-name = "csp"
-version = "0.1.0"
-dependencies = [
- "futures",
- "jsonrpc-core",
- "regex",
- "serde",
- "serde_json",
- "sha2",
- "tokio",
- "tokio-codec",
- "tokio-executor",
- "tokio-io",
- "tower-lsp",
 ]
 
 [[package]]

@@ -1,10 +1,15 @@
 [package]
-name = "csp"
+name = "clarity-lsp"
+description = "Language server for Clarity"
 version = "0.1.0"
 authors = ["Ludo Galabru <ludovic@galabru.com>"]
 edition = "2018"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+license = "GPL-3.0-only"
+keywords = ["blockstack", "blockchain", "clarity", "smart-contract"]
+exclude = ["vs-client/**"]
+homepage = "https://github.com/lgalabru/clarity-lsp"
+repository = "https://github.com/lgalabru/clarity-lsp"
+categories = ["command-line-utilities", "development-tools", "development-tools::build-utils"]
 
 [dependencies]
 tower-lsp = "0.6.0"
