@@ -1432,18 +1432,19 @@ pub fn make_for_define(api: &DefineAPI, name: String) -> FunctionAPI {
 
 pub fn make_define_reference(define_type: &DefineFunctions) -> FunctionAPI {
     let name = define_type.get_name();
-    match define_type {
-        Constant => make_for_define(&DEFINE_CONSTANT_API, name),
-        PrivateFunction => make_for_define(&DEFINE_PRIVATE_API, name),
-        PublicFunction => make_for_define(&DEFINE_PUBLIC_API, name),
-        Map => make_for_define(&DEFINE_MAP_API, name),
-        NonFungibleToken => make_for_define(&DEFINE_ASSET_API, name),
-        FungibleToken => make_for_define(&DEFINE_TOKEN_API, name),
-        ReadOnlyFunction => make_for_define(&DEFINE_READ_ONLY_API, name),
-        PersistedVariable => make_for_define(&DEFINE_DATA_VAR_API, name),
-        Trait => make_for_define(&DEFINE_TRAIT_API, name),
-        UseTrait => make_for_define(&USE_TRAIT_API, name),
-        ImplTrait => make_for_define(&IMPL_TRAIT_API, name),
+    match &*define_type.get_name() {
+        "define-constant" => make_for_define(&DEFINE_CONSTANT_API, name),
+        "define-private" => make_for_define(&DEFINE_PRIVATE_API, name),
+        "define-public" => make_for_define(&DEFINE_PUBLIC_API, name),
+        "define-read-only" => make_for_define(&DEFINE_READ_ONLY_API, name),
+        "define-map" =>  make_for_define(&DEFINE_MAP_API, name),
+        "define-data-var" => make_for_define(&DEFINE_DATA_VAR_API, name),
+        "define-fungible-token" => make_for_define(&DEFINE_TOKEN_API, name),
+        "define-non-fungible-token" => make_for_define(&DEFINE_ASSET_API, name),
+        "define-trait" => make_for_define(&DEFINE_TRAIT_API, name),
+        "use-trait" => make_for_define(&USE_TRAIT_API, name),
+        "impl-trait" => make_for_define(&IMPL_TRAIT_API, name),
+        _ => unreachable!()
     }
 }
 

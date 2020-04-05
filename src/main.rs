@@ -57,7 +57,7 @@ impl LanguageServer for Backend {
                 signature_help_provider: None,
                 definition_provider: None,
                 type_definition_provider: Some(TypeDefinitionProviderCapability::Simple(true)),
-                implementation_provider: None,        
+                implementation_provider: None,
                 references_provider: None,
                 document_highlight_provider: None,
                 document_symbol_provider: None,

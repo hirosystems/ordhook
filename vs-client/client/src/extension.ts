@@ -19,7 +19,7 @@ let client: LanguageClient;
 export function activate(context: ExtensionContext) {
 	// The server is implemented in node
 	let serverExecutable = context.asAbsolutePath(
-		path.join('..', 'csp', 'target', 'debug', 'csp')
+		path.join('..', 'target', 'debug', 'csp')
 	);
 	// The debug options for the server
 	// --inspect=6009: runs the server in Node's Inspector mode so VS Code can attach to the server for debugging
@@ -35,7 +35,7 @@ export function activate(context: ExtensionContext) {
 	// Options to control the language client
 	let clientOptions: LanguageClientOptions = {
 		// Register the server for plain text documents
-		documentSelector: [{ scheme: 'file', language: 'plaintext' }],
+		documentSelector: [{ scheme: 'file', language: 'clarity' }],
 		synchronize: {
 			// Notify the server about file changes to '.clientrc files contained in the workspace
 			fileEvents: workspace.createFileSystemWatcher('**/.clientrc')
