@@ -197,11 +197,11 @@ impl LanguageServer for Backend {
                     /// The range at which the message applies.
                     range: Range {
                         start: Position {
-                            line: check_error.diagnostic.spans[0].start_line as u64,
+                            line: check_error.diagnostic.spans[0].start_line as u64 - 1,
                             character: check_error.diagnostic.spans[0].start_column as u64,
                         },
                         end: Position {
-                            line: check_error.diagnostic.spans[0].end_line as u64,
+                            line: check_error.diagnostic.spans[0].end_line as u64 - 1,
                             character: check_error.diagnostic.spans[0].end_column as u64,
                         },
                     },
