@@ -48,7 +48,7 @@ impl LanguageServer for Backend {
                     TextDocumentSyncKind::Full,
                 )),
                 completion_provider: Some(CompletionOptions {
-                    resolve_provider: Some(true),
+                    resolve_provider: Some(false),
                     trigger_characters: None,
                     work_done_progress_options: Default::default(),
                 }),
