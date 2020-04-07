@@ -237,16 +237,16 @@ impl LanguageServer for Backend {
         let diags = match result {
             Ok(_) => vec![],
             Err(check_error) => {
-                let range = match parse_error.diagnostic.spans.len() {
+                let range = match check_error.diagnostic.spans.len() {
                     0 => Range::default(),
                     _ => Range {
                         start: Position {
-                            line: parse_error.diagnostic.spans[0].start_line as u64 - 1,
-                            character: parse_error.diagnostic.spans[0].start_column as u64,
+                            line: check_error.diagnostic.spans[0].start_line as u64 - 1,
+                            character: check_error.diagnostic.spans[0].start_column as u64,
                         },
                         end: Position {
-                            line: parse_error.diagnostic.spans[0].end_line as u64 - 1,
-                            character: parse_error.diagnostic.spans[0].end_column as u64,
+                            line: check_error.diagnostic.spans[0].end_line as u64 - 1,
+                            character: check_error.diagnostic.spans[0].end_column as u64,
                         },
                     }
                 };
