@@ -47,21 +47,20 @@ impl LanguageServer for Backend {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
                     TextDocumentSyncKind::Full,
                 )),
-                hover_provider: Some(true),
                 completion_provider: Some(CompletionOptions {
-                    resolve_provider: Some(true),
+                    resolve_provider: Some(false),
                     trigger_characters: None,
                     work_done_progress_options: Default::default(),
                 }),
-                type_definition_provider: Some(TypeDefinitionProviderCapability::Simple(true)),
-                declaration_provider: Some(true),
+                type_definition_provider: None,
+                hover_provider: Some(false),
+                declaration_provider: Some(false),
                 ..ServerCapabilities::default()
             },
         })
     }
 
     async fn initialized(&self, client: &Client, _: InitializedParams) {
-        client.log_message(MessageType::Info, "server initialized 1");
     }
 
     async fn shutdown(&self) -> Result<()> {
