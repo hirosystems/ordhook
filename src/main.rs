@@ -178,7 +178,51 @@ impl LanguageServer for Backend {
             .expect("Something went wrong reading the file");
         
         let contract_identifier = QualifiedContractIdentifier::transient();
-        let mut contract_ast = ast::build_ast(&contract_identifier, &contract).unwrap();
+        let mut contract_ast = match ast::build_ast(&contract_identifier, &contract) {
+            Ok(res) => res,
+            Err(parse_error) => {
+                let range = match parse_error.diagnostic.spans.len() {
+                    0 => Range::default(),
+                    _ => Range {
+                        start: Position {
+                            line: parse_error.diagnostic.spans[0].start_line as u64 - 1,
+                            character: parse_error.diagnostic.spans[0].start_column as u64,
+                        },
+                        end: Position {
+                            line: parse_error.diagnostic.spans[0].end_line as u64 - 1,
+                            character: parse_error.diagnostic.spans[0].end_column as u64,
+                        },
+                    }
+                };
+                let diag = Diagnostic {
+                    /// The range at which the message applies.
+                    range,
+
+                    /// The diagnostic's severity. Can be omitted. If omitted it is up to the
+                    /// client to interpret diagnostics as error, warning, info or hint.
+                    severity: Some(DiagnosticSeverity::Error),
+
+                    /// The diagnostic's code. Can be omitted.
+                    code: None,
+
+                    /// A human-readable string describing the source of this
+                    /// diagnostic, e.g. 'typescript' or 'super lint'.
+                    source: Some("clarity".to_string()),
+
+                    /// The diagnostic's message.
+                    message: parse_error.diagnostic.message,
+
+                    /// An array of related diagnostic information, e.g. when symbol-names within
+                    /// a scope collide all definitions can be marked via this property.
+                    related_information: None,
+
+                    /// Additional metadata about the diagnostic.
+                    tags: None,
+                }; 
+                client.publish_diagnostics(params.text_document.uri, vec![diag], None);
+                return
+            }
+        };
 
         let mut db = AnalysisDatabase::new();
         let result = analysis::run_analysis(
