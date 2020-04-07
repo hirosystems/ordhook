@@ -48,7 +48,7 @@ impl LanguageServer for Backend {
                     TextDocumentSyncKind::Full,
                 )),
                 completion_provider: Some(CompletionOptions {
-                    resolve_provider: Some(false),
+                    resolve_provider: Some(true),
                     trigger_characters: None,
                     work_done_progress_options: Default::default(),
                 }),
@@ -172,10 +172,11 @@ impl LanguageServer for Backend {
         use clarity::analysis;
         
         let uri = format!("{:?}", params.text_document.uri);
-        let file_path = params.text_document.uri.to_file_path().unwrap();
+        let file_path = params.text_document.uri.to_file_path()
+            .expect("Unable to locate file");
 
         let contract = fs::read_to_string(file_path)
-            .expect("Something went wrong reading the file");
+            .expect("Unable to read file");
         
         let contract_identifier = QualifiedContractIdentifier::transient();
         let mut contract_ast = match ast::build_ast(&contract_identifier, &contract) {
@@ -236,38 +237,26 @@ impl LanguageServer for Backend {
         let diags = match result {
             Ok(_) => vec![],
             Err(check_error) => {
-                let diag = Diagnostic {
-                    /// The range at which the message applies.
-                    range: Range {
+                let range = match parse_error.diagnostic.spans.len() {
+                    0 => Range::default(),
+                    _ => Range {
                         start: Position {
-                            line: check_error.diagnostic.spans[0].start_line as u64 - 1,
-                            character: check_error.diagnostic.spans[0].start_column as u64,
+                            line: parse_error.diagnostic.spans[0].start_line as u64 - 1,
+                            character: parse_error.diagnostic.spans[0].start_column as u64,
                         },
                         end: Position {
-                            line: check_error.diagnostic.spans[0].end_line as u64 - 1,
-                            character: check_error.diagnostic.spans[0].end_column as u64,
+                            line: parse_error.diagnostic.spans[0].end_line as u64 - 1,
+                            character: parse_error.diagnostic.spans[0].end_column as u64,
                         },
-                    },
-
-                    /// The diagnostic's severity. Can be omitted. If omitted it is up to the
-                    /// client to interpret diagnostics as error, warning, info or hint.
+                    }
+                };
+                let diag = Diagnostic {
+                    range,
                     severity: Some(DiagnosticSeverity::Error),
-
-                    /// The diagnostic's code. Can be omitted.
                     code: None,
-
-                    /// A human-readable string describing the source of this
-                    /// diagnostic, e.g. 'typescript' or 'super lint'.
                     source: Some("clarity".to_string()),
-
-                    /// The diagnostic's message.
                     message: check_error.diagnostic.message,
-
-                    /// An array of related diagnostic information, e.g. when symbol-names within
-                    /// a scope collide all definitions can be marked via this property.
                     related_information: None,
-
-                    /// Additional metadata about the diagnostic.
                     tags: None,
                 }; 
                 vec![diag]
