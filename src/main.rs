@@ -7,14 +7,15 @@
 
 #[macro_use] extern crate serde_json;
 
+use async_trait::async_trait;
+use tokio;
+
 mod clarity;
 
-use futures::future;
-use jsonrpc_core::{BoxFuture, Result};
 use serde_json::Value;
-use tower_lsp::lsp_types::request::GotoDefinitionResponse;
+use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
-use tower_lsp::{LanguageServer, LspService, Printer, Server};
+use tower_lsp::{LanguageServer, LspService, Client, Server};
 use tower_lsp::lsp_types::{Diagnostic, Range, Position, DiagnosticSeverity};
 
 use std::collections::HashMap;
@@ -36,85 +37,50 @@ impl Backend {
     }
 }
 
+#[async_trait]
 impl LanguageServer for Backend {
-    type ShutdownFuture = BoxFuture<()>;
-    type SymbolFuture = BoxFuture<Option<Vec<SymbolInformation>>>;
-    type ExecuteFuture = BoxFuture<Option<Value>>;
-    type CompletionFuture = BoxFuture<Option<CompletionResponse>>;
-    type HoverFuture = BoxFuture<Option<Hover>>;
-    type DeclarationFuture = BoxFuture<Option<GotoDefinitionResponse>>;
-    type DefinitionFuture = BoxFuture<Option<GotoDefinitionResponse>>;
-    type TypeDefinitionFuture = BoxFuture<Option<GotoDefinitionResponse>>;
-    type HighlightFuture = BoxFuture<Option<Vec<DocumentHighlight>>>;
 
-    fn initialize(&self, _: &Printer, _: InitializeParams) -> Result<InitializeResult> {
-        let res = InitializeResult {
+    fn initialize(&self, _: &Client, _: InitializeParams) -> Result<InitializeResult> {
+        Ok(InitializeResult {
+            server_info: None,
             capabilities: ServerCapabilities {
-                text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::Full)),
+                text_document_sync: Some(TextDocumentSyncCapability::Kind(
+                    TextDocumentSyncKind::Full,
+                )),
                 hover_provider: Some(true),
                 completion_provider: Some(CompletionOptions {
-                    /// The server provides support to resolve additional information for a completion item.
                     resolve_provider: Some(true),
-                        /// The characters that trigger completion automatically.
                     trigger_characters: None,
-                    work_done_progress_options: WorkDoneProgressOptions {
-                        work_done_progress: None,
-                    },
+                    work_done_progress_options: Default::default(),
                 }),
-                signature_help_provider: None,
-                definition_provider: None,
                 type_definition_provider: Some(TypeDefinitionProviderCapability::Simple(true)),
-                implementation_provider: None,
-                references_provider: None,
-                document_highlight_provider: None,
-                document_symbol_provider: None,
-                workspace_symbol_provider: None,
-                code_action_provider: None,
-                code_lens_provider: None,
-                document_formatting_provider: Some(true),
-                document_range_formatting_provider: None,
-                document_on_type_formatting_provider: None,
-                rename_provider: None,
-                document_link_provider: None,
-                color_provider: None,
-                folding_range_provider: None,
                 declaration_provider: Some(true),
-                execute_command_provider: None,
-                workspace: None,
-                experimental: None,
-                // selection_range_provider: None,
-                // semantic_highlighting: None,
-                // call_hierarchy_provider: None,
+                ..ServerCapabilities::default()
             },
-            server_info: None,
-        };
-
-        Ok(res)
+        })
     }
 
-    fn initialized(&self, printer: &Printer, _: InitializedParams) {
-        printer.log_message(MessageType::Info, "server initialized 1");
+    async fn initialized(&self, client: &Client, _: InitializedParams) {
+        client.log_message(MessageType::Info, "server initialized 1");
     }
 
-    fn shutdown(&self) -> Self::ShutdownFuture {
-        Box::new(future::ok(()))
+    async fn shutdown(&self) -> Result<()> {
+        Ok(())
     }
 
-    fn symbol(&self, params: WorkspaceSymbolParams) -> Self::SymbolFuture {
-        Box::new(future::ok(None))
+    async fn execute_command(
+        &self,
+        client: &Client,
+        _: ExecuteCommandParams,
+    ) -> Result<Option<Value>> {
+        Ok(None)
     }
 
-    fn execute_command(&self, printer: &Printer, _: ExecuteCommandParams) -> Self::ExecuteFuture {
-        printer.log_message(MessageType::Info, "execute_command!");
-        Box::new(future::ok(None))
-    }
-
-    fn completion(&self, params: CompletionParams) -> Self::CompletionFuture {
+    async fn completion(&self, _: CompletionParams) -> Result<Option<CompletionResponse>> {
         use clarity::docs::{make_api_reference, make_define_reference, make_keyword_reference};
 
         let native_functions: Vec<CompletionItem> = NativeFunctions::ALL.iter().map(|func| {
             let api = make_api_reference(&func);
-            let insert = format!("({} ${{1:foo}} ${{2:bar}})", api.name);
             CompletionItem {
                 label: api.name.to_string(),
                 kind: Some(CompletionItemKind::Function),
@@ -193,43 +159,14 @@ impl LanguageServer for Backend {
         let items = items.into_iter().flatten().collect::<Vec<CompletionItem>>();
 
         let result = CompletionResponse::from(items);
-        Box::new(future::ok(Some(result)))
+        Ok(Some(result))
     }
 
-    fn goto_declaration(&self, _: TextDocumentPositionParams) -> Self::DeclarationFuture {
-        Box::new(future::ok(None))
-    }
+    async fn did_open(&self, client: &Client, _: DidOpenTextDocumentParams) {}
 
-    fn goto_definition(&self, _: TextDocumentPositionParams) -> Self::DefinitionFuture {
-        Box::new(future::ok(None))
-    }
+    async fn did_change(&self, client: &Client, _: DidChangeTextDocumentParams) {}
 
-    fn goto_type_definition(&self, _: TextDocumentPositionParams) -> Self::TypeDefinitionFuture {
-        Box::new(future::ok(None))
-    }
-
-    fn hover(&self, _: TextDocumentPositionParams) -> Self::HoverFuture {
-        let result = Hover {
-            contents: HoverContents::Scalar(MarkedString::String("Lorem ipsum dolor sit amet".to_string())),
-            range: None,
-        };
-        Box::new(future::ok(None))
-    }
-
-    fn document_highlight(&self, _: TextDocumentPositionParams) -> Self::HighlightFuture {
-        Box::new(future::ok(None))
-    }
-
-    fn did_open(&self, printer: &Printer, params: DidOpenTextDocumentParams) {
-        printer.log_message(MessageType::Info, format!("Did opens: {:?}", params));
-    }
-
-    fn did_change(&self, printer: &Printer, params: DidChangeTextDocumentParams) {
-        printer.log_message(MessageType::Info, format!("Did change: {:?}", params));
-    }
-
-    fn did_save(&self, printer: &Printer, params: DidSaveTextDocumentParams) {
-
+    async fn did_save(&self, client: &Client, params: DidSaveTextDocumentParams) {
         use clarity::analysis::AnalysisDatabase;
         use clarity::types::QualifiedContractIdentifier;
         use clarity::ast;
@@ -293,23 +230,50 @@ impl LanguageServer for Backend {
                 vec![diag]
             },
         };        
-        
-        printer.publish_diagnostics(params.text_document.uri, diags, None);
 
-        printer.log_message(MessageType::Info, raw_output);
+        client.publish_diagnostics(params.text_document.uri, diags, None);
     }
 
+    async fn did_close(&self, client: &Client, _: DidCloseTextDocumentParams) {}
+
+    // fn symbol(&self, params: WorkspaceSymbolParams) -> Self::SymbolFuture {
+    //     Box::new(future::ok(None))
+    // }
+
+    // fn goto_declaration(&self, _: TextDocumentPositionParams) -> Self::DeclarationFuture {
+    //     Box::new(future::ok(None))
+    // }
+
+    // fn goto_definition(&self, _: TextDocumentPositionParams) -> Self::DefinitionFuture {
+    //     Box::new(future::ok(None))
+    // }
+
+    // fn goto_type_definition(&self, _: TextDocumentPositionParams) -> Self::TypeDefinitionFuture {
+    //     Box::new(future::ok(None))
+    // }
+
+    // fn hover(&self, _: TextDocumentPositionParams) -> Self::HoverFuture {
+    //     // todo(ludo): to implement
+    //     let result = Hover {
+    //         contents: HoverContents::Scalar(MarkedString::String("".to_string())),
+    //         range: None,
+    //     };
+    //     Box::new(future::ok(None))
+    // }
+
+    // fn document_highlight(&self, _: TextDocumentPositionParams) -> Self::HighlightFuture {
+    //     Box::new(future::ok(None))
+    // }
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
-    let (service, messages) = LspService::new(Backend::new());
-    let handle = service.close_handle();
-    let server = Server::new(stdin, stdout)
+    let (service, messages) = LspService::new(Backend::default());
+    Server::new(stdin, stdout)
         .interleave(messages)
-        .serve(service);
-
-    tokio::run(handle.run_until_exit(server));
+        .serve(service)
+        .await;
 }
