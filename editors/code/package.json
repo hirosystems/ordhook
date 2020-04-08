@@ -1,7 +1,7 @@
 {
     "name": "clarity-lsp",
     "displayName": "clarity-lsp",
-    "description": "Language server for Clarity",
+    "description": "Language Server Protocol implementation for Clarity",
     "preview": true,
     "private": true,
     "version": "0.1.0",
@@ -17,7 +17,9 @@
         "clarity",
         "blockstack",
         "blockchain",
-        "smart-contract"
+        "smart-contract",
+        "lsp",
+        "language-server"
     ],
     "categories": [
         "Programming Languages"
@@ -55,7 +57,6 @@
         "vsce": "^1.75.0"
     },
     "activationEvents": [
-        "onLanguage:plaintext",
         "onLanguage:clarity",
         "onCommand:clarity-lsp.analyzerStatus"
     ],
@@ -89,6 +90,19 @@
                         }
                     }
                 }
+            }
+        ],
+        "languages": [
+            {
+                "id": "clarity",
+                "aliases": [
+                    "Clarity",
+                    "clarity"
+                ],
+                "extensions": [
+                    ".clar"
+                ],
+                "configuration": "./language-configuration.json"
             }
         ],
         "commands": [],
