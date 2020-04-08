@@ -79,84 +79,99 @@ impl LanguageServer for ClarityLanguageBackend {
 
     async fn completion(&self, _: CompletionParams) -> Result<Option<CompletionResponse>> {
 
-        let native_functions: Vec<CompletionItem> = NativeFunctions::ALL.iter().map(|func| {
-            let api = make_api_reference(&func);
-            CompletionItem {
-                label: api.name.to_string(),
-                kind: Some(CompletionItemKind::Function),
-                detail: Some(api.name.to_string()),
-                documentation: Some(Documentation::MarkupContent(MarkupContent {
-                    kind: MarkupKind::Markdown,
-                    value: api.description.to_string(),
-                })),
-                deprecated: None,
-                preselect: None,
-                sort_text: None,
-                filter_text: None,
-                insert_text: Some(api.snippet.clone()),
-                insert_text_format: Some(InsertTextFormat::Snippet),
-                text_edit: None,
-                additional_text_edits: None,
-                command: None,
-                data: None,
-                tags: None,
-            }
-        }).collect();
+        let native_functions: Vec<CompletionItem> = NativeFunctions::ALL
+            .iter()
+            .map(|func| {
+                let api = make_api_reference(&func);
+                CompletionItem {
+                    label: api.name.to_string(),
+                    kind: Some(CompletionItemKind::Function),
+                    detail: Some(api.name.to_string()),
+                    documentation: Some(Documentation::MarkupContent(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value: api.description.to_string(),
+                    })),
+                    deprecated: None,
+                    preselect: None,
+                    sort_text: None,
+                    filter_text: None,
+                    insert_text: Some(api.snippet.clone()),
+                    insert_text_format: Some(InsertTextFormat::Snippet),
+                    text_edit: None,
+                    additional_text_edits: None,
+                    command: None,
+                    data: None,
+                    tags: None,
+                }})
+            .collect();
         
-        let define_functions: Vec<CompletionItem> = DefineFunctions::ALL.iter().map(|func| {
-            let api = make_define_reference(&func);
-            CompletionItem {
-                label: api.name.to_string(),
-                kind: Some(CompletionItemKind::Class),
-                detail: Some(api.name.to_string()),
-                documentation: Some(Documentation::MarkupContent(MarkupContent {
-                    kind: MarkupKind::Markdown,
-                    value: api.description.to_string(),
-                })),
-                deprecated: None,
-                preselect: None,
-                sort_text: None,
-                filter_text: None,
-                insert_text: Some(api.snippet.clone()),
-                insert_text_format: Some(InsertTextFormat::Snippet),
-                text_edit: None,
-                additional_text_edits: None,
-                command: None,
-                data: None,
-                tags: None,
-            }
-        }).collect();
+        let define_functions: Vec<CompletionItem> = DefineFunctions::ALL
+            .iter()
+            .map(|func| {
+                let api = make_define_reference(&func);
+                CompletionItem {
+                    label: api.name.to_string(),
+                    kind: Some(CompletionItemKind::Class),
+                    detail: Some(api.name.to_string()),
+                    documentation: Some(Documentation::MarkupContent(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value: api.description.to_string(),
+                    })),
+                    deprecated: None,
+                    preselect: None,
+                    sort_text: None,
+                    filter_text: None,
+                    insert_text: Some(api.snippet.clone()),
+                    insert_text_format: Some(InsertTextFormat::Snippet),
+                    text_edit: None,
+                    additional_text_edits: None,
+                    command: None,
+                    data: None,
+                    tags: None,
+                }})
+            .collect();
 
-        let native_variables: Vec<CompletionItem> = NativeVariables::ALL.iter().map(|var| {
-            let api = make_keyword_reference(&var);
-            CompletionItem {
-                label: api.name.to_string(),
-                kind: Some(CompletionItemKind::Field),
-                detail: Some(api.name.to_string()),
-                documentation: Some(Documentation::MarkupContent(MarkupContent {
-                    kind: MarkupKind::Markdown,
-                    value: api.description.to_string(),
-                })),
-                deprecated: None,
-                preselect: None,
-                sort_text: None,
-                filter_text: None,
-                insert_text: Some(api.snippet.to_string()),
-                insert_text_format: Some(InsertTextFormat::PlainText),
-                text_edit: None,
-                additional_text_edits: None,
-                command: None,
-                data: None,
-                tags: None,
-            }
-        }).collect();
+        let native_variables: Vec<CompletionItem> = NativeVariables::ALL
+            .iter()
+            .map(|var| {
+                let api = make_keyword_reference(&var);
+                CompletionItem {
+                    label: api.name.to_string(),
+                    kind: Some(CompletionItemKind::Field),
+                    detail: Some(api.name.to_string()),
+                    documentation: Some(Documentation::MarkupContent(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value: api.description.to_string(),
+                    })),
+                    deprecated: None,
+                    preselect: None,
+                    sort_text: None,
+                    filter_text: None,
+                    insert_text: Some(api.snippet.to_string()),
+                    insert_text_format: Some(InsertTextFormat::PlainText),
+                    text_edit: None,
+                    additional_text_edits: None,
+                    command: None,
+                    data: None,
+                    tags: None,
+                }})
+            .collect();
 
-        let block_properties: Vec<CompletionItem> = BlockInfoProperty::ALL_NAMES.to_vec().iter().map(|func| {
-            CompletionItem::new_simple(func.to_string(), "".to_string())
-        }).collect();
+        let block_properties: Vec<CompletionItem> = BlockInfoProperty::ALL_NAMES
+            .to_vec()
+            .iter()
+            .map(|func| {
+                CompletionItem::new_simple(func.to_string(), "".to_string())})
+            .collect();
 
-        let items = vec![native_functions, define_functions, native_variables, block_properties];
-        let items = items.into_iter().flatten().collect::<Vec<CompletionItem>>();
+        let items = vec![
+                native_functions, 
+                define_functions, 
+                native_variables, 
+                block_properties]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<CompletionItem>>();
 
         let result = CompletionResponse::from(items);
         Ok(Some(result))
