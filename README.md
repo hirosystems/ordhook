@@ -50,7 +50,7 @@ cargo xtask install
 - [x] VS-Code support
 
 ## Additional desired features (not exhaustive, not prioritized)
-- [ ] Inline documentation
+- [x] Inline documentation
 - [ ] Auto-complete user defined functions
 - [ ] Return and display cost analysis
 - [ ] Resolve contract-call targeting local contracts 
