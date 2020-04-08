@@ -109,7 +109,7 @@ jobs:
     - run: npm ci
       working-directory: ./editors/code
 
-    # - name: Publish Extension
-      # if: github.ref == 'refs/heads/release'
-      # working-directory: ./editors/code
-      # run: npx vsce publish --pat ${{ secrets.MARKETPLACE_TOKEN }} --packagePath ../../dist/clarity-lsp.vsix
+    - name: Publish Extension
+      if: github.ref == 'refs/heads/release'
+      working-directory: ./editors/code
+      run: npx vsce publish --pat ${{ secrets.MARKETPLACE_TOKEN }} --packagePath ../../dist/clarity-lsp.vsix
