@@ -5,6 +5,8 @@
 #![allow(non_snake_case)]
 #![allow(non_upper_case_globals)]
 
+#[macro_use] extern crate lazy_static;
+
 pub mod clarity;
 mod clarity_language_backend;
 

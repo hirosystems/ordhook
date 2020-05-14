@@ -13,15 +13,12 @@ use crate::clarity::analysis::AnalysisDatabase;
 pub use super::errors::{CheckResult, CheckError};
 pub use crate::clarity::errors::{CheckErrors, check_argument_count, check_arguments_at_least};
 
-#[cfg(test)]
-mod tests;
-
-pub struct ReadOnlyChecker <'a> {
-    db: &'a mut AnalysisDatabase,
+pub struct ReadOnlyChecker <'a, 'b> {
+    db: &'a mut AnalysisDatabase<'b>,
     defined_functions: HashMap<ClarityName, bool>
 }
 
-impl <'a> AnalysisPass for ReadOnlyChecker <'a> {
+impl <'a, 'b> AnalysisPass for ReadOnlyChecker <'a, 'b> {
 
     fn run_pass(contract_analysis: &mut ContractAnalysis, analysis_db: &mut AnalysisDatabase) -> CheckResult<()> {
         let mut command = ReadOnlyChecker::new(analysis_db);
@@ -30,9 +27,9 @@ impl <'a> AnalysisPass for ReadOnlyChecker <'a> {
     }
 }
 
-impl <'a> ReadOnlyChecker <'a> {
+impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
     
-    fn new(db: &'a mut AnalysisDatabase) -> ReadOnlyChecker<'a> {
+    fn new(db: &'a mut AnalysisDatabase<'b>) -> ReadOnlyChecker<'a, 'b> {
         Self { 
             db, 
             defined_functions: HashMap::new() 
@@ -41,7 +38,7 @@ impl <'a> ReadOnlyChecker <'a> {
 
     pub fn run(& mut self, contract_analysis: &mut ContractAnalysis) -> CheckResult<()> {
 
-        for exp in contract_analysis.expressions_iter() {
+        for exp in contract_analysis.expressions.iter() {
             let mut result = self.check_reads_only_valid(&exp);
             if let Err(ref mut error) = result {
                 if !error.has_expression() {
@@ -111,7 +108,7 @@ impl <'a> ReadOnlyChecker <'a> {
     /// Note that because of (1), this function _cannot_ short-circuit on read-only.
     fn check_read_only(&mut self, expr: &SymbolicExpression) -> CheckResult<bool> {
         match expr.expr {
-            AtomValue(_) | LiteralValue(_) | Atom(_) | TraitReference(_) | Field(_) => {
+            AtomValue(_) | LiteralValue(_) | Atom(_) | TraitReference(_, _) | Field(_) => {
                 Ok(true)
             },
             List(ref expression) => {
@@ -163,11 +160,13 @@ impl <'a> ReadOnlyChecker <'a> {
             Sha512 | Sha512Trunc256 |
             ConsSome | ConsOkay | ConsError | DefaultTo | UnwrapRet | UnwrapErrRet | IsOkay | IsNone | Asserts |
             Unwrap | UnwrapErr | Match | IsErr | IsSome | TryRet |
-            ToUInt | ToInt | Append | Concat | AsMaxLen | PrincipalOf |
+            ToUInt | ToInt | Append | Concat | AsMaxLen |
             ListCons | GetBlockInfo | TupleGet | Len | Print | AsContract | Begin | FetchVar | GetTokenBalance | GetAssetOwner => {
                 self.check_all_read_only(args)
             },
             AtBlock => {
+                check_argument_count(2, args)?;
+                
                 let is_block_arg_read_only = self.check_read_only(&args[0])?;
                 let closure_read_only = self.check_read_only(&args[1])?;
                 if !closure_read_only {
@@ -175,19 +174,10 @@ impl <'a> ReadOnlyChecker <'a> {
                 }
                 Ok(is_block_arg_read_only)
             },
-            FetchEntry => {                
+            FetchEntry => {
+                check_argument_count(2, args)?;
+
                 let res = match get_definition_type_of_tuple_argument(&args[1]) {
-                    Implicit(ref tuple_expr) => {
-                        self.is_implicit_tuple_definition_read_only(tuple_expr)
-                    },
-                    Explicit => {
-                        self.check_all_read_only(args)
-                    }
-                };
-                res
-            },
-            FetchContractEntry => {                
-                let res = match get_definition_type_of_tuple_argument(&args[2]) {
                     Implicit(ref tuple_expr) => {
                         self.is_implicit_tuple_definition_read_only(tuple_expr)
                     },
@@ -267,7 +257,7 @@ impl <'a> ReadOnlyChecker <'a> {
                     SymbolicExpressionType::LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))) => {
                         self.db.get_read_only_function_type(&contract_identifier, function_name)?.is_some()
                     },
-                    SymbolicExpressionType::Atom(trait_reference) => {
+                    SymbolicExpressionType::Atom(_trait_reference) => {
                         // Dynamic dispatch from a readonly-function can only be guaranteed at runtime,
                         // which would defeat granting a static readonly stamp. 
                         // As such dynamic dispatch is currently forbidden.

@@ -24,6 +24,7 @@ use super::clarity::docs::{
 use super::clarity::analysis::AnalysisDatabase;
 use super::clarity::types::QualifiedContractIdentifier;
 use super::clarity::{ast, analysis};
+use super::clarity::costs::LimitedCostTracker;
 
 #[derive(Debug, Default)]
 pub struct ClarityLanguageBackend {
@@ -191,7 +192,7 @@ impl LanguageServer for ClarityLanguageBackend {
             .expect("Unable to read file");
         
         let contract_identifier = QualifiedContractIdentifier::transient();
-        let mut contract_ast = match ast::build_ast(&contract_identifier, &contract) {
+        let mut contract_ast = match ast::build_ast(&contract_identifier, &contract, &mut ()) {
             Ok(res) => res,
             Err(parse_error) => {
                 let range = match parse_error.diagnostic.spans.len() {
@@ -242,13 +243,14 @@ impl LanguageServer for ClarityLanguageBackend {
             &contract_identifier, 
             &mut contract_ast.expressions,
             &mut db, 
-            false);
+            false,
+            LimitedCostTracker::new_max_limit());
     
         let raw_output = format!("{:?}", result);
 
         let diags = match result {
             Ok(_) => vec![],
-            Err(check_error) => {
+            Err((check_error, cost_tracker)) => {
                 let range = match check_error.diagnostic.spans.len() {
                     0 => Range::default(),
                     _ => Range {

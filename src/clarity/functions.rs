@@ -65,7 +65,6 @@ define_named_enum!(NativeFunctions {
     FetchVar("var-get"),
     SetVar("var-set"),
     FetchEntry("map-get?"),
-    FetchContractEntry("contract-map-get?"),
     SetEntry("map-set"),
     InsertEntry("map-insert"),
     DeleteEntry("map-delete"),
@@ -104,7 +103,6 @@ define_named_enum!(NativeFunctions {
     TransferAsset("nft-transfer?"),
     MintAsset("nft-mint?"),
     MintToken("ft-mint?"),
-    PrincipalOf("principal-of"),
     StxTransfer("stx-transfer?"),
     StxBurn("stx-burn?"),
 });
@@ -126,6 +124,7 @@ define_named_enum!(DefineFunctions {
 define_named_enum!(NativeVariables {
     ContractCaller("contract-caller"), TxSender("tx-sender"), BlockHeight("block-height"),
     BurnBlockHeight("burn-block-height"), NativeNone("none"),
+    NativeTrue("true"), NativeFalse("false"),
 });
 
 define_named_enum!(BlockInfoProperty {
@@ -248,4 +247,23 @@ impl <'a> DefineFunctionsParsed <'a> {
         };
         Ok(Some(result))
     }
+}
+
+pub fn handle_binding_list <F, E> (bindings: &[SymbolicExpression], mut handler: F) -> std::result::Result<(), E>
+where F: FnMut(&ClarityName, &SymbolicExpression) -> std::result::Result<(), E>,
+      E: From<CheckErrors>
+{
+    for binding in bindings.iter() {
+        let binding_expression = binding.match_list()
+            .ok_or(CheckErrors::BadSyntaxBinding)?;
+        if binding_expression.len() != 2 {
+            return Err(CheckErrors::BadSyntaxBinding.into());
+        }
+        let var_name = binding_expression[0].match_atom()
+            .ok_or(CheckErrors::BadSyntaxBinding)?;
+        let var_sexp = &binding_expression[1];
+
+        handler(var_name, var_sexp)?;
+    }
+    Ok(())
 }

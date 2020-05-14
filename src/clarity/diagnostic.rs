@@ -1,11 +1,9 @@
 use super::representations::{Span};
 use std::fmt;
-use serde::{Serialize, Deserialize};
 
 /// In a near future, we can go further in our static analysis and provide different levels 
 /// of diagnostics, such as warnings, hints, best practices, etc.
 #[derive(Debug)]
-#[derive(Serialize, Deserialize)]
 #[derive(PartialEq)]
 pub enum Level {
     Error,
@@ -17,7 +15,6 @@ pub trait DiagnosableError {
 }
 
 #[derive(Debug)]
-#[derive(Serialize, Deserialize)]
 #[derive(PartialEq)]
 pub struct Diagnostic {
     pub level: Level,

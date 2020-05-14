@@ -1,6 +1,7 @@
 use crate::clarity::representations::SymbolicExpression;
 use crate::clarity::diagnostic::{Diagnostic, DiagnosableError};
 use crate::clarity::types::{TypeSignature, TupleTypeSignature, Value};
+use crate::clarity::costs::{ExecutionCost, CostErrors};
 use std::error;
 use std::fmt;
 
@@ -10,8 +11,11 @@ pub type CheckResult <T> = Result<T, CheckError>;
 pub enum CheckErrors {
     // cost checker errors
     CostOverflow,
+    CostBalanceExceeded(ExecutionCost, ExecutionCost),
+    MemoryBalanceExceeded(u64, u64),
 
     ValueTooLarge,
+    TypeSignatureTooDeep,
     ExpectedName,
 
     // match errors
@@ -37,6 +41,7 @@ pub enum CheckErrors {
     UnionTypeError(Vec<TypeSignature>, TypeSignature),
     UnionTypeValueError(Vec<TypeSignature>, Value),
 
+    ExpectedLiteral,
     ExpectedOptionalType(TypeSignature),
     ExpectedResponseType(TypeSignature),
     ExpectedOptionalOrResponseType(TypeSignature),
@@ -93,6 +98,7 @@ pub enum CheckErrors {
     // contract-call errors
     NoSuchContract(String),
     NoSuchPublicFunction(String, String),
+    PublicFunctionNotReadOnly(String, String),
     ContractAlreadyExists(String),
     ContractCallExpectName,
 
@@ -137,6 +143,8 @@ pub enum CheckErrors {
     TraitReferenceNotAllowed,
     BadTraitImplementation(String, String),
     DefineTraitBadSignature,
+    UnexpectedTraitOrFieldReference,
+    TraitBasedContractCallInReadOnly,
 
     WriteAttemptedInReadOnly,
     AtBlockClosureMustBeReadOnly
@@ -194,6 +202,22 @@ impl fmt::Display for CheckError {
     }
 }
 
+impl From<CostErrors> for CheckError {
+    fn from(err: CostErrors) -> Self {
+        CheckError::from(CheckErrors::from(err))
+    }
+}
+
+impl From<CostErrors> for CheckErrors {
+    fn from(err: CostErrors) -> Self {
+        match err {
+            CostErrors::CostOverflow => CheckErrors::CostOverflow,
+            CostErrors::CostBalanceExceeded(a, b) => CheckErrors::CostBalanceExceeded(a, b),
+            CostErrors::MemoryBalanceExceeded(a, b) => CheckErrors::MemoryBalanceExceeded(a, b),
+        }
+    }
+}
+
 impl error::Error for CheckError {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         None
@@ -244,6 +268,7 @@ impl DiagnosableError for CheckErrors {
 
     fn message(&self) -> String {
         match &self {
+            CheckErrors::ExpectedLiteral => "expected a literal argument".into(),
             CheckErrors::BadMatchOptionSyntax(source) =>
                 format!("match on a optional type uses the following syntax: (match input some-name if-some-expression if-none-expression). Caused by: {}",
                         source.message()),
@@ -254,11 +279,14 @@ impl DiagnosableError for CheckErrors {
                 format!("match requires an input of either a response or optional, found input: '{}'", t),
             CheckErrors::TypeAnnotationExpectedFailure => "analysis expected type to already be annotated for expression".into(),
             CheckErrors::CostOverflow => "contract execution cost overflowed cost counter".into(),
+            CheckErrors::CostBalanceExceeded(a, b) => format!("contract execution cost exceeded budget: {:?} > {:?}", a, b),
+            CheckErrors::MemoryBalanceExceeded(a, b) => format!("contract execution cost exceeded memory budget: {:?} > {:?}", a, b),
             CheckErrors::InvalidTypeDescription => "supplied type description is invalid".into(),
             CheckErrors::EmptyTuplesNotAllowed => "tuple types may not be empty".into(),
             CheckErrors::BadSyntaxExpectedListOfPairs => "bad syntax: function expects a list of pairs to bind names, e.g., ((name-0 a) (name-1 b) ...)".into(),
             CheckErrors::UnknownTypeName(name) => format!("failed to parse type: '{}'", name),
-            CheckErrors::ValueTooLarge => format!("created a type which was great than maximum allowed value size"),
+            CheckErrors::ValueTooLarge => format!("created a type which was greater than maximum allowed value size"),
+            CheckErrors::TypeSignatureTooDeep => "created a type which was deeper than maximum allowed type depth".into(),
             CheckErrors::ExpectedName => format!("expected a name argument to this function"),
             CheckErrors::NoSuperType(a, b) => format!("unable to create a supertype for the two types: '{}' and '{}'", a, b),
             CheckErrors::UnknownListConstructionFailure => format!("invalid syntax for list definition"),
@@ -298,6 +326,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::ReturnTypesMustMatch(type_1, type_2) => format!("detected two execution paths, returning two different expression types (got '{}' and '{}')", type_1, type_2),
             CheckErrors::NoSuchContract(contract_identifier) => format!("use of unresolved contract '{}'", contract_identifier),
             CheckErrors::NoSuchPublicFunction(contract_identifier, function_name) => format!("contract '{}' has no public function '{}'", contract_identifier, function_name),
+            CheckErrors::PublicFunctionNotReadOnly(contract_identifier, function_name) => format!("function '{}' in '{}' is not read-only", contract_identifier, function_name),
             CheckErrors::ContractAlreadyExists(contract_identifier) => format!("contract name '{}' conflicts with existing contract", contract_identifier),
             CheckErrors::ContractCallExpectName => format!("missing contract name for call"),
             CheckErrors::NoSuchBlockInfoProperty(property_name) => format!("use of block unknown property '{}'", property_name),
@@ -321,6 +350,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::TooManyExpressions => format!("reached limit of expressions"),
             CheckErrors::IllegalOrUnknownFunctionApplication(function_name) => format!("use of illegal / unresolved function '{}", function_name),
             CheckErrors::UnknownFunction(function_name) => format!("use of unresolved function '{}'", function_name),
+            CheckErrors::TraitBasedContractCallInReadOnly => format!("use of trait based contract calls are not allowed in read-only context"),
             CheckErrors::WriteAttemptedInReadOnly => format!("expecting read-only statements, detected a writing operation"),
             CheckErrors::AtBlockClosureMustBeReadOnly => format!("(at-block ...) closures expect read-only statements, but detected a writing operation"),
             CheckErrors::BadTokenName => format!("expecting an token name as an argument"),
@@ -333,6 +363,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::ImportTraitBadSignature => format!("(use-trait ...) expects a trait name and a trait identifier"),
             CheckErrors::BadTraitImplementation(trait_name, func_name) => format!("invalid signature for method '{}' regarding trait's specification <{}>", func_name, trait_name),
             CheckErrors::ExpectedTraitIdentifier => format!("expecting expression of type trait identifier"),
+            CheckErrors::UnexpectedTraitOrFieldReference => format!("unexpected use of trait reference or field"),
             CheckErrors::DefineTraitBadSignature => format!("invalid trait definition"),
             CheckErrors::TraitReferenceNotAllowed => format!("trait references can not be stored"),
             CheckErrors::TypeAlreadyAnnotatedFailure | CheckErrors::CheckerImplementationFailure => {

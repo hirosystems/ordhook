@@ -18,6 +18,8 @@ pub use super::types::signatures::{
 };
 
 pub const MAX_VALUE_SIZE: u32 = 1024 * 1024; // 1MB
+pub const BOUND_VALUE_SERIALIZATION_BYTES: u32 = MAX_VALUE_SIZE * 2;
+pub const BOUND_VALUE_SERIALIZATION_HEX: u32 = BOUND_VALUE_SERIALIZATION_BYTES * 2;
 
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub enum DefineType {
@@ -51,9 +53,13 @@ impl DefineFunctions {
 pub struct FunctionIdentifier {
     identifier: String
 }
+pub const MAX_TYPE_DEPTH: u8 = 32;
+// this is the charged size for wrapped values, i.e., response or optionals
+pub const WRAPPER_VALUE_SIZE: u32 = 1;
 
 #[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 pub struct TupleData {
+    // todo: remove type_signature
     pub type_signature: TupleTypeSignature,
     pub data_map: BTreeMap<ClarityName, Value>
 }
@@ -66,6 +72,7 @@ pub struct BuffData {
 #[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 pub struct ListData {
     pub data: Vec<Value>,
+    // todo: remove type_signature
     pub type_signature: ListTypeData
 }
 
@@ -116,7 +123,7 @@ impl QualifiedContractIdentifier {
     }
 
     pub fn to_string(&self) -> String {
-        format!("'{}.{}", self.issuer, self.name.to_string())
+        format!("{}.{}", self.issuer, self.name.to_string())
     }
 }
 
@@ -210,21 +217,23 @@ pub enum Value {
 
 impl OptionalData {
     pub fn type_signature(&self) -> TypeSignature {
-        match self.data {
+        let type_result = match self.data {
             Some(ref v) => TypeSignature::new_option(TypeSignature::type_of(&v)),
             None => TypeSignature::new_option(TypeSignature::NoType)
-        }
+        };
+        type_result.expect("Should not have constructed too large of a type.")
     }
 }
 
 impl ResponseData {
     pub fn type_signature(&self) -> TypeSignature {
-        match self.committed {
+        let type_result = match self.committed {
             true => TypeSignature::new_response(
                 TypeSignature::type_of(&self.data), TypeSignature::NoType),
             false => TypeSignature::new_response(
                 TypeSignature::NoType, TypeSignature::type_of(&self.data))
-        }
+        };
+        type_result.expect("Should not have constructed too large of a type.")        
     }
 }
 
@@ -254,29 +263,63 @@ impl PartialEq for TupleData {
 pub const NONE: Value = Value::Optional(OptionalData { data: None });
 
 impl Value {
-    pub fn some(data: Value) -> Value {
-        Value::Optional(OptionalData {
-            data: Some(Box::new(data)) })
+    pub fn some(data: Value) -> Result<Value> {
+        if data.size() + WRAPPER_VALUE_SIZE > MAX_VALUE_SIZE {
+            Err(CheckErrors::ValueTooLarge.into())
+        } else if data.depth() + 1 > MAX_TYPE_DEPTH {
+            Err(CheckErrors::TypeSignatureTooDeep.into())
+        } else {
+            Ok(Value::Optional(OptionalData {
+                data: Some(Box::new(data)) }))
+        }
     }
 
     pub fn none() -> Value {
         NONE.clone()
     }
 
-    pub fn okay(data: Value) -> Value {
-        Value::Response(ResponseData { 
-            committed: true,
-            data: Box::new(data) })
+    pub fn okay_true() -> Value {
+        Value::Response(ResponseData { committed: true, data: Box::new(Value::Bool(true)) })
     }
 
-    pub fn error(data: Value) -> Value {
-        Value::Response(ResponseData { 
-            committed: false,
-            data: Box::new(data) })
+    pub fn err_uint(ecode: u128) -> Value {
+        Value::Response(ResponseData { committed: false, data: Box::new(Value::UInt(ecode)) })
+    }
+
+    pub fn err_none() -> Value {
+        Value::Response(ResponseData { committed: false, data: Box::new(NONE.clone()) })
+    }
+
+    pub fn okay(data: Value) -> Result<Value> {
+        if data.size() + WRAPPER_VALUE_SIZE > MAX_VALUE_SIZE {
+            Err(CheckErrors::ValueTooLarge.into())
+        } else if data.depth() + 1 > MAX_TYPE_DEPTH {
+            Err(CheckErrors::TypeSignatureTooDeep.into())
+        } else {
+            Ok(Value::Response(ResponseData { 
+                committed: true,
+                data: Box::new(data) }))
+        }
+    }
+
+    pub fn error(data: Value) -> Result<Value> {
+        if data.size() + WRAPPER_VALUE_SIZE > MAX_VALUE_SIZE {
+            Err(CheckErrors::ValueTooLarge.into())
+        } else if data.depth() + 1 > MAX_TYPE_DEPTH {
+            Err(CheckErrors::TypeSignatureTooDeep.into())
+        } else {
+            Ok(Value::Response(ResponseData { 
+                committed: false,
+                data: Box::new(data) }))
+        }
     }
 
     pub fn size(&self) -> u32 {
         TypeSignature::type_of(self).size()
+    }
+
+    pub fn depth(&self) -> u8 {
+        TypeSignature::type_of(self).depth()
     }
 
     pub fn list_from(list_data: Vec<Value>) -> Result<Value> {
@@ -370,6 +413,31 @@ impl fmt::Display for Value {
 }
 
 impl PrincipalData {
+    pub fn version(&self) -> u8 {
+        match self {
+            PrincipalData::Standard(StandardPrincipalData(version, _)) => *version,
+            PrincipalData::Contract(QualifiedContractIdentifier { issuer, name: _ }) => {
+                issuer.0
+            }
+        }
+    }
+
+    pub fn parse(literal: &str) -> Result<PrincipalData> {
+        // be permissive about leading single-quote
+        let literal = if literal.starts_with("'") {
+            &literal[1..]
+        } else {
+            literal
+        };
+
+        if literal.contains(".") {
+            PrincipalData::parse_qualified_contract_principal(literal)
+        } else {
+            PrincipalData::parse_standard_principal(literal)
+                .map(PrincipalData::from)
+        }
+    }
+
     pub fn parse_qualified_contract_principal(literal: &str) -> Result<PrincipalData> {
         let contract_id = QualifiedContractIdentifier::parse(literal)?;
         Ok(PrincipalData::Contract(contract_id))
@@ -377,7 +445,7 @@ impl PrincipalData {
 
     pub fn parse_standard_principal(literal: &str) -> Result<StandardPrincipalData> {
         let (version, data) = c32::c32_address_decode(&literal)
-            .map_err(|x| { RuntimeErrorType::ParseError(format!("Invalid principal literal")) })?;
+            .map_err(|x| { RuntimeErrorType::ParseError(format!("Invalid principal literal: {:?}", x)) })?;
         if data.len() != 20 {
             return Err(RuntimeErrorType::ParseError(
                 "Invalid principal literal: Expected 20 data bytes.".to_string()).into());
@@ -406,10 +474,10 @@ impl fmt::Display for PrincipalData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             PrincipalData::Standard(sender) => {
-                write!(f, "'{}", sender)                
+                write!(f, "{}", sender)                
             },
             PrincipalData::Contract(contract_identifier) => {
-                write!(f, "'{}.{}", contract_identifier.issuer, contract_identifier.name.to_string())
+                write!(f, "{}.{}", contract_identifier.issuer, contract_identifier.name.to_string())
             }
         }
     }
@@ -461,6 +529,10 @@ impl TupleData {
     fn new(type_signature: TupleTypeSignature, data_map: BTreeMap<ClarityName, Value>) -> Result<TupleData> {
         let t = TupleData { type_signature, data_map };
         Ok(t)
+    }
+
+    pub fn len(&self) -> u64 {
+        self.data_map.len() as u64
     }
 
     pub fn from_data(mut data: Vec<(ClarityName, Value)>) -> Result<TupleData> {
