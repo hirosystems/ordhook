@@ -1,11 +1,13 @@
 use crate::clarity::errors::{Error as InterpError, RuntimeErrorType};
 use crate::clarity::functions::{NativeFunctions};
 use crate::clarity::{ClarityName, SymbolicExpression, SymbolicExpressionType};
-use crate::clarity::functions::BlockInfoProperty;
+use crate::clarity::functions::{BlockInfoProperty, FunctionSignature, handle_binding_list};
 use crate::clarity::types::{BUFF_32, BUFF_20, BUFF_64, TypeSignature, TupleTypeSignature, Value, PrincipalData, MAX_VALUE_SIZE, FunctionArg, FunctionType, FixedFunction};
 use super::{TypeChecker, TypingContext, TypeResult, no_type, check_argument_count, check_arguments_at_least}; 
 use crate::clarity::analysis::errors::{CheckError, CheckErrors, CheckResult};
 use std::convert::TryFrom;
+
+use crate::clarity::costs::{cost_functions, analysis_typecheck_cost, CostOverflowingMath};
 
 mod assets;
 mod iterables;
@@ -20,27 +22,11 @@ pub enum TypedNativeFunction {
 pub struct SpecialNativeFunction(&'static dyn Fn(&mut TypeChecker, &[SymbolicExpression], &TypingContext) -> TypeResult);
 pub struct SimpleNativeFunction(pub FunctionType);
 
-pub fn handle_binding_list <F, E> (bindings: &[SymbolicExpression], mut handler: F) -> std::result::Result<(), E>
-where F: FnMut(&ClarityName, &SymbolicExpression) -> std::result::Result<(), E>,
-      E: From<CheckErrors>
-{
-    for binding in bindings.iter() {
-        let binding_expression = binding.match_list()
-            .ok_or(CheckErrors::BadSyntaxBinding)?;
-        if binding_expression.len() != 2 {
-            return Err(CheckErrors::BadSyntaxBinding.into());
-        }
-        let var_name = binding_expression[0].match_atom()
-            .ok_or(CheckErrors::BadSyntaxBinding)?;
-        let var_sexp = &binding_expression[1];
-
-        handler(var_name, var_sexp)?;
-    }
-    Ok(())
-}
-
 fn check_special_list_cons(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     let typed_args = checker.type_check_all(args, context)?;
+    for type_arg in typed_args.iter() {
+        runtime_cost!(cost_functions::ANALYSIS_LIST_ITEMS_CHECK, checker, type_arg.type_size()?)?;
+    }
     TypeSignature::parent_list_type(&typed_args)
         .map_err(|x| x.into())
         .map(TypeSignature::from)
@@ -73,7 +59,9 @@ fn check_special_begin(checker: &mut TypeChecker, args: &[SymbolicExpression], c
     Ok(last_return)
 }
 
-fn inner_handle_tuple_get(tuple_type_sig: &TupleTypeSignature, field_to_get: &str) -> TypeResult {
+fn inner_handle_tuple_get(tuple_type_sig: &TupleTypeSignature, field_to_get: &str, checker: &mut TypeChecker) -> TypeResult {
+    runtime_cost!(cost_functions::ANALYSIS_CHECK_TUPLE_GET, checker, tuple_type_sig.len())?;
+
     let return_type = tuple_type_sig.field_type(field_to_get)
         .ok_or(CheckError::new(CheckErrors::NoSuchTupleField(field_to_get.to_string(), tuple_type_sig.clone())))?
         .clone();
@@ -89,11 +77,11 @@ fn check_special_get(checker: &mut TypeChecker, args: &[SymbolicExpression], con
     let argument_type = checker.type_check(&args[1], context)?;
     
     if let TypeSignature::TupleType(tuple_type_sig) = argument_type {
-        inner_handle_tuple_get(&tuple_type_sig, field_to_get)
+        inner_handle_tuple_get(&tuple_type_sig, field_to_get, checker)
     } else if let TypeSignature::OptionalType(value_type_sig) = argument_type {
         if let TypeSignature::TupleType(tuple_type_sig) = *value_type_sig {
-            let inner_type = inner_handle_tuple_get(&tuple_type_sig, field_to_get)?;
-            let option_type = TypeSignature::new_option(inner_type);
+            let inner_type = inner_handle_tuple_get(&tuple_type_sig, field_to_get, checker)?;
+            let option_type = TypeSignature::new_option(inner_type)?;
             Ok(option_type)
         } else {
             Err(CheckErrors::ExpectedTuple(*value_type_sig).into())
@@ -108,9 +96,12 @@ pub fn check_special_tuple_cons(checker: &mut TypeChecker, args: &[SymbolicExpre
     
     let mut tuple_type_data = Vec::new();
 
+    runtime_cost!(cost_functions::ANALYSIS_CHECK_TUPLE_CONS, checker, args.len())?;
+
     handle_binding_list(args, |var_name, var_sexp| {
         checker.type_check(var_sexp, context)
             .and_then(|var_type| {
+                runtime_cost!(cost_functions::ANALYSIS_TUPLE_ITEMS_CHECK, checker, var_type.type_size()?)?;
                 tuple_type_data.push((var_name.clone(), var_type));
                 Ok(())
             })
@@ -130,6 +121,8 @@ fn check_special_let(checker: &mut TypeChecker, args: &[SymbolicExpression], con
     
     let mut out_context = context.extend()?;
 
+    runtime_cost!(cost_functions::ANALYSIS_CHECK_LET, checker, args.len())?;
+
     handle_binding_list(binding_list, |var_name, var_sexp| {
         checker.contract_context.check_name_used(var_name)?;
         if out_context.lookup_variable_type(var_name).is_some() {
@@ -137,6 +130,7 @@ fn check_special_let(checker: &mut TypeChecker, args: &[SymbolicExpression], con
         }
 
         let typed_result = checker.type_check(var_sexp, context)?;
+        runtime_cost!(cost_functions::ANALYSIS_BIND_NAME, checker, typed_result.type_size()?)?;
         out_context.variable_types.insert(var_name.clone(), typed_result);
         Ok(())
     })?;
@@ -154,9 +148,11 @@ fn check_special_fetch_var(checker: &mut TypeChecker, args: &[SymbolicExpression
     
     let var_name = args[0].match_atom()
         .ok_or(CheckError::new(CheckErrors::BadMapName))?;
-            
+
     let value_type = checker.contract_context.get_persisted_variable_type(var_name)
         .ok_or(CheckError::new(CheckErrors::NoSuchDataVariable(var_name.to_string())))?;
+
+    runtime_cost!(cost_functions::ANALYSIS_TYPE_LOOKUP, &mut checker.cost_track, value_type.type_size()?)?;
 
     Ok(value_type.clone())
 }
@@ -171,7 +167,10 @@ fn check_special_set_var(checker: &mut TypeChecker, args: &[SymbolicExpression],
     
     let expected_value_type = checker.contract_context.get_persisted_variable_type(var_name)
         .ok_or(CheckErrors::NoSuchDataVariable(var_name.to_string()))?;
-    
+
+    runtime_cost!(cost_functions::ANALYSIS_TYPE_LOOKUP, &mut checker.cost_track, expected_value_type.type_size()?)?;
+    analysis_typecheck_cost(&mut checker.cost_track, &value_type, &expected_value_type)?;
+
     if !expected_value_type.admits_type(&value_type) {
         return Err(CheckError::new(CheckErrors::TypeError(expected_value_type.clone(), value_type)))
     } else {
@@ -186,9 +185,9 @@ fn check_special_equals(checker: &mut TypeChecker, args: &[SymbolicExpression], 
 
     let mut arg_type = arg_types[0].clone();
     for x_type in arg_types.drain(..) {
+        analysis_typecheck_cost(checker, &x_type, &arg_type)?;
         arg_type = TypeSignature::least_supertype(&x_type, &arg_type)
             .map_err(|_| CheckErrors::TypeError(x_type, arg_type))?;
-
     }
 
     Ok(TypeSignature::BoolType)
@@ -204,6 +203,8 @@ fn check_special_if(checker: &mut TypeChecker, args: &[SymbolicExpression], cont
     let expr1 = &arg_types[0];
     let expr2 = &arg_types[1];
 
+    analysis_typecheck_cost(checker, expr1, expr2)?;
+
     TypeSignature::least_supertype(expr1, expr2)
         .map_err(|_| CheckErrors::IfArmsMustMatch(expr1.clone(), expr2.clone()).into())
 }
@@ -215,41 +216,53 @@ fn check_contract_call(checker: &mut TypeChecker, args: &[SymbolicExpression], c
         .ok_or(CheckError::new(CheckErrors::ContractCallExpectName))?;
     checker.type_map.set_type(&args[1], no_type())?;
 
-    let mut contract_call_args = Vec::new();
-    for arg in args[2..].iter() {
-        if let Some(var_name) = arg.match_trait_reference() {
-            if let Some(trait_reference) = context.lookup_trait_reference_type(var_name) {
-                contract_call_args.push(trait_reference.clone());
-                continue;
-            }
-        }
-        contract_call_args.push(checker.type_check(arg, context)?);
-    }
-
-    let return_type = match &args[0].expr {
+    let expected_sig = match &args[0].expr {
         SymbolicExpressionType::LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))) => {
             // Static dispatch
-            let contract_call_function_type = {
-                if let Some(function_type) = checker.db.get_public_function_type(&contract_identifier, func_name)? {
-                    Ok(function_type)
-                } else if let Some(function_type) = checker.db.get_read_only_function_type(&contract_identifier, func_name)? {
-                    Ok(function_type)
+            let contract_call_function = {
+                if let Some(FunctionType::Fixed(function)) = checker.db.get_public_function_type(&contract_identifier, func_name)? {
+                    Ok(function)
+                } else if let Some(FunctionType::Fixed(function)) = checker.db.get_read_only_function_type(&contract_identifier, func_name)? {
+                    Ok(function)
                 } else {
                     Err(CheckError::new(CheckErrors::NoSuchPublicFunction(contract_identifier.to_string(),
                                                                           func_name.to_string())))
                 }
             }?;
-        
-            contract_call_function_type.check_args(&contract_call_args)?
+
+            let func_signature = FunctionSignature::from(contract_call_function);
+
+            runtime_cost!(cost_functions::ANALYSIS_GET_FUNCTION_ENTRY, checker, func_signature.total_type_size()?)?;
+
+            func_signature
         },
-        SymbolicExpressionType::Atom(trait_ref_instance_name) => {
+        SymbolicExpressionType::Atom(trait_instance) => {
             // Dynamic dispatch
-            checker.check_method_from_trait(trait_ref_instance_name, func_name, &contract_call_args, context)?
-        }, 
+            let trait_id = match context.lookup_trait_reference_type(trait_instance) {
+                Some(trait_id) => trait_id,
+                _ => return Err(CheckErrors::TraitReferenceUnknown(trait_instance.to_string()).into())
+            };
+
+            runtime_cost!(cost_functions::ANALYSIS_LOOKUP_FUNCTION, checker, 1)?;
+
+            let trait_signature = checker.contract_context.get_trait(&trait_id.name)
+                .ok_or(CheckErrors::TraitReferenceUnknown(trait_id.name.to_string()))?;
+            let func_signature = trait_signature.get(func_name)
+                .ok_or(CheckErrors::TraitMethodUnknown(trait_id.name.to_string(), func_name.to_string()))?;
+
+            runtime_cost!(cost_functions::ANALYSIS_LOOKUP_FUNCTION_TYPES, &mut checker.cost_track, func_signature.total_type_size()?)?;
+
+            func_signature.clone()
+        },
         _ => return Err(CheckError::new(CheckErrors::ContractCallExpectName))
     };
-    
-    Ok(return_type)
+
+    check_argument_count(expected_sig.args.len(), &args[2..])?;
+    for (expected_type, arg) in expected_sig.args.iter().zip(&args[2..]) {
+        checker.type_check_expects(arg, context, expected_type)?;
+    }
+
+    Ok(expected_sig.returns)
 }
 
 fn check_get_block_info(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
@@ -263,22 +276,7 @@ fn check_get_block_info(checker: &mut TypeChecker, args: &[SymbolicExpression], 
 
     checker.type_check_expects(&args[1], &context, &TypeSignature::UIntType)?;
 
-    Ok(TypeSignature::new_option(block_info_prop.type_result()))
-}
-
-fn check_special_principal_of(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
-    check_arguments_at_least(1, args)?;
-    let trait_reference_instance = args[0].match_atom()
-        .ok_or(CheckErrors::ExpectedTraitIdentifier)?;
-
-    let trait_reference = match context.lookup_trait_reference_type(trait_reference_instance) {
-        Some(TypeSignature::TraitReferenceType(trait_reference)) => trait_reference,
-        _ => return Err(CheckErrors::TraitReferenceUnknown(trait_reference_instance.to_string()).into())
-    };
-    let trait_signature = checker.contract_context.get_trait(trait_reference)
-        .ok_or(CheckErrors::TraitReferenceUnknown(trait_reference.to_string()))?;
-
-    Ok(TypeSignature::PrincipalType)
+    Ok(TypeSignature::new_option(block_info_prop.type_result())?)
 }
 
 impl TypedNativeFunction {
@@ -363,7 +361,7 @@ impl TypedNativeFunction {
                                          ClarityName::try_from("recipient".to_owned())
                                          .expect("FAIL: ClarityName failed to accept default arg name")),
                     ],
-                    returns: TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType) }))),
+                    returns: TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap() }))),
             StxBurn =>
                 Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                     args: vec![
@@ -374,7 +372,7 @@ impl TypedNativeFunction {
                                          ClarityName::try_from("sender".to_owned())
                                          .expect("FAIL: ClarityName failed to accept default arg name")),
                     ],
-                    returns: TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType) }))),
+                    returns: TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap() }))),
             GetTokenBalance => Special(SpecialNativeFunction(&assets::check_special_get_balance)),
             GetAssetOwner => Special(SpecialNativeFunction(&assets::check_special_get_owner)),
             TransferToken => Special(SpecialNativeFunction(&assets::check_special_transfer_token)),
@@ -395,7 +393,6 @@ impl TypedNativeFunction {
             Len => Special(SpecialNativeFunction(&iterables::check_special_len)),
             ListCons => Special(SpecialNativeFunction(&check_special_list_cons)),
             FetchEntry => Special(SpecialNativeFunction(&maps::check_special_fetch_entry)),
-            FetchContractEntry => Special(SpecialNativeFunction(&maps::check_special_fetch_contract_entry)),
             SetEntry => Special(SpecialNativeFunction(&maps::check_special_set_entry)),
             InsertEntry => Special(SpecialNativeFunction(&maps::check_special_insert_entry)),
             DeleteEntry => Special(SpecialNativeFunction(&maps::check_special_delete_entry)),
@@ -422,7 +419,6 @@ impl TypedNativeFunction {
             IsNone => Special(SpecialNativeFunction(&options::check_special_is_optional)),
             IsSome => Special(SpecialNativeFunction(&options::check_special_is_optional)),
             AtBlock => Special(SpecialNativeFunction(&check_special_at_block)),
-            PrincipalOf => Special(SpecialNativeFunction(&check_special_principal_of))
         }
     }
 }

@@ -3,9 +3,11 @@ use crate::clarity::{SymbolicExpression, ClarityName};
 use crate::clarity::types::{TypeSignature, FunctionType, QualifiedContractIdentifier, TraitIdentifier};
 use crate::clarity::types::signatures::FunctionSignature;
 use crate::clarity::analysis::analysis_db::{AnalysisDatabase};
-use crate::clarity::analysis::errors::{CheckResult};
+use crate::clarity::analysis::errors::{CheckResult, CheckErrors};
+use crate::clarity::analysis::contract_interface_builder::ContractInterface;
 use crate::clarity::analysis::type_checker::contexts::TypeMap;
 use serde::{Serialize, Deserialize};
+use crate::clarity::costs::{CostTracker, ExecutionCost, LimitedCostTracker};
 
 const DESERIALIZE_FAIL_MESSAGE: &str = "PANIC: Failed to deserialize bad database data in contract analysis.";
 const SERIALIZE_FAIL_MESSAGE: &str = "PANIC: Failed to deserialize bad database data in contract analysis.";
@@ -14,7 +16,7 @@ pub trait AnalysisPass {
     fn run_pass(contract_analysis: &mut ContractAnalysis, analysis_db: &mut AnalysisDatabase) -> CheckResult<()>;
 }
 
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Clone, PartialEq)]
 pub struct ContractAnalysis {
     pub contract_identifier: QualifiedContractIdentifier,
     pub private_function_types: BTreeMap<ClarityName, FunctionType>,
@@ -26,22 +28,23 @@ pub struct ContractAnalysis {
     pub fungible_tokens: BTreeSet<ClarityName>,
     pub non_fungible_tokens: BTreeMap<ClarityName, TypeSignature>,
     pub defined_traits: BTreeMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>,
-    pub referenced_traits: BTreeMap<ClarityName, TraitIdentifier>,
-    pub implemented_traits: BTreeSet<TraitIdentifier>,
-    #[serde(skip)]
-    pub top_level_expression_sorting: Option<Vec<usize>>,
+    pub implemented_traits: BTreeSet<TraitIdentifier>,    
+    pub contract_interface: Option<ContractInterface>,
     #[serde(skip)]
     pub expressions: Vec<SymbolicExpression>,
     #[serde(skip)]
     pub type_map: Option<TypeMap>,
+    #[serde(skip)]
+    pub cost_track: Option<LimitedCostTracker>
 }
 
 impl ContractAnalysis {
-    pub fn new(contract_identifier: QualifiedContractIdentifier, expressions: Vec<SymbolicExpression>) -> ContractAnalysis {
+    pub fn new(contract_identifier: QualifiedContractIdentifier, expressions: Vec<SymbolicExpression>, cost_track: LimitedCostTracker) -> ContractAnalysis {
         ContractAnalysis {
             contract_identifier,
             expressions,
             type_map: None,
+            contract_interface: None,
             private_function_types: BTreeMap::new(),
             public_function_types: BTreeMap::new(),
             read_only_function_types: BTreeMap::new(),
@@ -49,12 +52,21 @@ impl ContractAnalysis {
             map_types: BTreeMap::new(),
             persisted_variable_types: BTreeMap::new(),
             defined_traits: BTreeMap::new(),
-            referenced_traits: BTreeMap::new(),
             implemented_traits: BTreeSet::new(),
-            top_level_expression_sorting: Some(Vec::new()),
             fungible_tokens: BTreeSet::new(),
             non_fungible_tokens: BTreeMap::new(),
+            cost_track: Some(cost_track)
         }
+    }
+
+    pub fn take_contract_cost_tracker(&mut self) -> LimitedCostTracker {
+        self.cost_track.take()
+            .expect("BUG: contract analysis attempted to take a cost tracker already claimed.")
+    }
+
+    pub fn replace_contract_cost_tracker(&mut self, cost_track: LimitedCostTracker) {
+        assert!(self.cost_track.is_none());
+        self.cost_track.replace(cost_track);
     }
 
     pub fn add_map_type(&mut self, name: ClarityName, key_type: TypeSignature, map_type: TypeSignature) {
@@ -125,44 +137,28 @@ impl ContractAnalysis {
         self.defined_traits.get(name)
     }
 
-    pub fn get_referenced_trait(&self, name: &str) -> Option<&TraitIdentifier> {
-        self.referenced_traits.get(name)
-    }
+    pub fn check_trait_compliance(&self, trait_identifier: &TraitIdentifier, trait_definition: &BTreeMap<ClarityName, FunctionSignature>) -> CheckResult<()> {
 
-    pub fn expressions_iter(&self) -> ExpressionsIterator {
-        let expressions = &self.expressions[..];
-        let sorting = match self.top_level_expression_sorting {
-            Some(ref exprs_ids) => Some(exprs_ids[..].to_vec()),
-            None => None
-        };
+        let trait_name = trait_identifier.name.to_string(); 
 
-        ExpressionsIterator {
-            expressions: expressions,
-            sorting: sorting,
-            index: 0,
+        for (func_name, expected_sig) in trait_definition.iter() {
+            match (self.get_public_function_type(func_name), self.get_read_only_function_type(func_name)) {
+                (Some(FunctionType::Fixed(func)), None) | (None, Some(FunctionType::Fixed(func))) => {
+
+                    let args_sig = func.args.iter().map(|a| a.signature.clone()).collect();
+                    if !expected_sig.check_args_trait_compliance(args_sig) {
+                        return Err(CheckErrors::BadTraitImplementation(trait_name.clone(), func_name.to_string()).into())
+                    }
+            
+                    if !expected_sig.returns.admits_type(&func.returns) {
+                        return Err(CheckErrors::BadTraitImplementation(trait_name, func_name.to_string()).into())
+                    }
+                }
+                (_, _) => {
+                    return Err(CheckErrors::BadTraitImplementation(trait_name, func_name.to_string()).into())
+                }
+            }
         }
-    }
-}
-
-pub struct ExpressionsIterator <'a> {
-    expressions: &'a [SymbolicExpression],
-    sorting: Option<Vec<usize>>,
-    index: usize,
-}
-
-impl <'a> Iterator for ExpressionsIterator <'a> {
-    type Item = &'a SymbolicExpression;
-
-    fn next(&mut self) -> Option<&'a SymbolicExpression> {
-        if self.index >= self.expressions.len() {
-            return None;
-        }
-        let expr_index = match self.sorting {
-            Some(ref indirections) => indirections[self.index],
-            None => self.index
-        };
-        let result = &self.expressions[expr_index];
-        self.index += 1;
-        Some(result)
+        Ok(())
     }
 }

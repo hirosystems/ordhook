@@ -18,6 +18,7 @@ members = [".", "xtask/"]
 async-trait = "0.1"
 tower-lsp = "0.10.0"
 jsonrpc-core = "14.0.5"
+lazy_static = "1.4.0"
 serde_json = "1.0.47"
 tokio = { version = "0.2", features = ["rt-core"] }
 tokio-util = { version = "0.3", features = ["codec"] }

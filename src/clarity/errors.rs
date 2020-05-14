@@ -1,9 +1,11 @@
 use std::fmt;
 use std::error;
 pub use super::analysis::errors::{CheckErrors};
+pub use super::ast::errors::{ParseErrors};
 pub use super::analysis::errors::{check_argument_count, check_arguments_at_least};
 use super::types::{Value};
 use super::ast::errors::ParseError;
+use super::costs::CostErrors;
 
 #[derive(Debug)]
 pub struct IncomparableError<T> {
@@ -12,6 +14,7 @@ pub struct IncomparableError<T> {
 
 #[derive(Debug)]
 pub enum Error {
+    Parser(ParseErrors),
     Runtime(RuntimeErrorType),
     Unchecked(CheckErrors),
     ShortReturn(ShortReturnType)
@@ -82,6 +85,30 @@ impl error::Error for Error {
         None
     }
 }
+
+// impl error::Error for RuntimeErrorType {
+//     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+//         None
+//     }
+// }
+
+// impl From<CostErrors> for Error {
+//     fn from(err: CostErrors) -> Self {
+//         Error::from(CheckErrors::from(err))
+//     }
+// }
+
+// impl From<ParseError> for Error {
+//     fn from(err: ParseError) -> Self {
+//         Error::from(ParseErrors::from(err))
+//     }
+// }
+
+// impl From<RuntimeErrorType> for Error {
+//     fn from(err: RuntimeErrorType) -> Self {
+//         Error::Runtime(err, None)
+//     }
+// }
 
 impl From<CheckErrors> for Error {
     fn from(err: CheckErrors) -> Self {

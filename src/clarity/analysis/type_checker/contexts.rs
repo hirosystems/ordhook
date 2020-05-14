@@ -7,15 +7,14 @@ use crate::clarity::analysis::types::{ContractAnalysis};
 
 pub const MAX_CONTEXT_DEPTH: u16 = 256;
 
-
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct TypeMap {
     map: HashMap<u64, TypeSignature>
 }
 
 pub struct TypingContext <'a> {
     pub variable_types: HashMap<ClarityName, TypeSignature>,
-    pub traits_references: HashMap<ClarityName, TypeSignature>,
+    pub traits_references: HashMap<ClarityName, TraitIdentifier>,
     pub parent: Option<&'a TypingContext<'a>>,
     pub depth: u16
 }
@@ -153,7 +152,7 @@ impl ContractContext {
         Ok(())
     }
 
-    pub fn get_trait(&mut self, trait_name: &str) -> Option<&BTreeMap<ClarityName, FunctionSignature>> {
+    pub fn get_trait(&self, trait_name: &str) -> Option<&BTreeMap<ClarityName, FunctionSignature>> {
         self.traits.get(trait_name)
     }
 
@@ -218,6 +217,10 @@ impl ContractContext {
         for (name, trait_signature) in self.traits.drain() {
             contract_analysis.add_defined_trait(name, trait_signature);
         }
+
+        for trait_identifier in self.implemented_traits.drain() {
+            contract_analysis.add_implemented_trait(trait_identifier);
+        }
     }
 }
 
@@ -256,11 +259,11 @@ impl <'a> TypingContext <'a> {
         }
     }
 
-    pub fn add_trait_reference(&mut self, name: &ClarityName, value: &ClarityName) {
-        self.traits_references.insert(name.clone(), TypeSignature::TraitReferenceType(value.clone()));
+    pub fn add_trait_reference(&mut self, name: &ClarityName, value: &TraitIdentifier) {
+        self.traits_references.insert(name.clone(), value.clone());
     }
 
-    pub fn lookup_trait_reference_type(&self, name: &str) -> Option<&TypeSignature> {
+    pub fn lookup_trait_reference_type(&self, name: &str) -> Option<&TraitIdentifier> {
         match self.traits_references.get(name) {
             Some(value) => Some(value),
             None => {

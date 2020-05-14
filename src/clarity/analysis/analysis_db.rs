@@ -5,13 +5,16 @@ use crate::clarity::types::signatures::FunctionSignature;
 use crate::clarity::analysis::errors::{CheckError, CheckErrors, CheckResult};
 use crate::clarity::analysis::type_checker::{ContractAnalysis};
 use crate::clarity::representations::{ClarityName};
+use std::marker::PhantomData;
 
-pub struct AnalysisDatabase {
+pub struct AnalysisDatabase <'a> {
+    phantom: &'a str
 }
 
-impl AnalysisDatabase {
-    pub fn new() -> AnalysisDatabase {
+impl <'a> AnalysisDatabase <'a> {
+    pub fn new() -> AnalysisDatabase<'a> {
         AnalysisDatabase {
+            phantom: &"phantom"
         }
     }
 

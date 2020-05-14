@@ -98,6 +98,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "jsonrpc-core",
+ "lazy_static",
  "regex",
  "serde",
  "serde_json",

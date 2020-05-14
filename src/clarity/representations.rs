@@ -59,7 +59,6 @@ macro_rules! guarded_string {
             }
         }
 
-        #[cfg(test)]
         impl From<&'_ str> for $Name {
             fn from(value: &str) -> Self {
                 Self::try_from(value.to_string()).unwrap()
@@ -77,6 +76,7 @@ pub enum PreSymbolicExpressionType {
     AtomValue(Value),
     Atom(ClarityName),
     List(Box<[PreSymbolicExpression]>),
+    Tuple(Box<[PreSymbolicExpression]>),
     SugaredContractIdentifier(ContractName),
     SugaredFieldIdentifier(ContractName, ClarityName),
     FieldIdentifier(TraitIdentifier),
@@ -86,13 +86,49 @@ pub enum PreSymbolicExpressionType {
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct PreSymbolicExpression {
     pub pre_expr: PreSymbolicExpressionType,
+    pub id: u64,
 
     pub span: Span,
+}
+
+pub trait SymbolicExpressionCommon {
+    type S: SymbolicExpressionCommon;
+    fn set_id(&mut self, id: u64);
+    fn match_list_mut(&mut self) -> Option<&mut [Self::S]>;
+}
+
+impl SymbolicExpressionCommon for PreSymbolicExpression {
+    type S = PreSymbolicExpression;
+    fn set_id(&mut self, id: u64) {
+        self.id = id;
+    }
+    fn match_list_mut(&mut self) -> Option<&mut [PreSymbolicExpression]> {
+        if let PreSymbolicExpressionType::List(ref mut list) = self.pre_expr {
+            Some(list)
+        } else {
+            None
+        }
+    }
+}
+
+impl SymbolicExpressionCommon for SymbolicExpression {
+    type S = SymbolicExpression;
+    fn set_id(&mut self, id: u64) {
+        self.id = id;
+    }
+    fn match_list_mut(&mut self) -> Option<&mut [SymbolicExpression]> {
+        if let SymbolicExpressionType::List(ref mut list) = self.expr {
+            Some(list)
+        } else {
+            None
+        }
+    }
 }
 
 impl PreSymbolicExpression {
     fn cons() -> PreSymbolicExpression {
         PreSymbolicExpression {
+            id: 0,
             span: Span::zero(),
             pre_expr: PreSymbolicExpressionType::AtomValue(Value::Bool(false))
         }
@@ -156,6 +192,13 @@ impl PreSymbolicExpression {
         }
     }
 
+    pub fn tuple(val: Box<[PreSymbolicExpression]>) -> PreSymbolicExpression {
+        PreSymbolicExpression {
+            pre_expr: PreSymbolicExpressionType::Tuple(val),
+            .. PreSymbolicExpression::cons()
+        }
+    }
+
     pub fn match_trait_reference(&self) -> Option<&ClarityName> {
         if let PreSymbolicExpressionType::TraitReference(ref value) = self.pre_expr {
             Some(value)
@@ -167,6 +210,22 @@ impl PreSymbolicExpression {
     pub fn match_atom_value(&self) -> Option<&Value> {
         if let PreSymbolicExpressionType::AtomValue(ref value) = self.pre_expr {
             Some(value)
+        } else {
+            None
+        }
+    }
+
+    pub fn match_atom(&self) -> Option<&ClarityName> {
+        if let PreSymbolicExpressionType::Atom(ref value) = self.pre_expr {
+            Some(value)
+        } else {
+            None
+        }
+    }
+
+    pub fn match_list(&self) -> Option<&[PreSymbolicExpression]> {
+        if let PreSymbolicExpressionType::List(ref list) = self.pre_expr {
+            Some(list)
         } else {
             None
         }
@@ -187,8 +246,31 @@ pub enum SymbolicExpressionType {
     Atom(ClarityName),
     List(Box<[SymbolicExpression]>),
     LiteralValue(Value),
-    TraitReference(ClarityName),
     Field(TraitIdentifier),
+    TraitReference(ClarityName, TraitDefinition),
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub enum TraitDefinition {
+    Defined(TraitIdentifier),
+    Imported(TraitIdentifier)
+}
+
+pub fn depth_traverse<F,T,E>(expr: &SymbolicExpression, mut visit: F) -> Result<T, E>
+where F: FnMut(&SymbolicExpression) -> Result<T, E> {
+    let mut stack = vec![];
+    let mut last = None;
+    stack.push(expr);
+    while let Some(current) = stack.pop() {
+        last = Some(visit(current)?);
+        if let Some(list) = current.match_list() {
+            for item in list.iter() {
+                stack.push(item);
+            }
+        }
+    }
+
+    Ok(last.unwrap())
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -251,9 +333,9 @@ impl SymbolicExpression {
         }
     }
 
-    pub fn trait_reference(val: ClarityName) -> SymbolicExpression {
+    pub fn trait_reference(val: ClarityName, trait_definition: TraitDefinition) -> SymbolicExpression {
         SymbolicExpression {
-            expr: SymbolicExpressionType::TraitReference(val),
+            expr: SymbolicExpressionType::TraitReference(val, trait_definition),
             .. SymbolicExpression::cons()
         }
     }
@@ -303,7 +385,7 @@ impl SymbolicExpression {
     }
 
     pub fn match_trait_reference(&self) -> Option<&ClarityName> {
-        if let SymbolicExpressionType::TraitReference(ref value) = self.expr {
+        if let SymbolicExpressionType::TraitReference(ref value, _) = self.expr {
             Some(value)
         } else {
             None
@@ -335,7 +417,7 @@ impl fmt::Display for SymbolicExpression {
             SymbolicExpressionType::AtomValue(ref value) | SymbolicExpressionType::LiteralValue(ref value) => {
                 write!(f, "{}", value)?;
             },
-            SymbolicExpressionType::TraitReference(ref value) => { write!(f, "<{}>", &**value)?; },
+            SymbolicExpressionType::TraitReference(ref value, _) => { write!(f, "<{}>", &**value)?; },
             SymbolicExpressionType::Field(ref value) => { write!(f, "<{}>", value)?; },
         };
         
