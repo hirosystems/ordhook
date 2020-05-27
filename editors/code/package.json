@@ -145,7 +145,7 @@
                         "string"
                     ],
                     "default": null,
-                    "description": "Path to ruclarity-lsp-analyzer executable (points to bundled binary by default). If this is set, then \"clarity-lsp.updates.channel\" setting is not used"
+                    "description": "Path to clarity-lsp executable (points to bundled binary by default). If this is set, then \"clarity-lsp.updates.channel\" setting is not used"
                 },
                 "clarity-lsp.trace.server": {
                     "type": "string",
