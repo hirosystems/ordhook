@@ -1,0 +1,2 @@
+[alias]
+chainhook-install = "install --path components/chainhook-cli --locked --force"
