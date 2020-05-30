@@ -32,7 +32,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 From there, you can clone this repository:
 
 ```bash
-git clone https://github.com/blockstack/lgalabru/clarity-lsp.git
+git clone https://github.com/lgalabru/clarity-lsp.git
 
 cd clarity-lsp
 ```
