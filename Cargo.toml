@@ -1,11 +1,13 @@
 [package]
 name = "clarity-lsp"
-description = "Language server for Clarity"
+displayName = "Clarity LSP"
+description = "Language Server Protocol implementation for Blockstack's Clarity smart contracting language"
 version = "0.1.0"
+publisher = 
 authors = ["Ludo Galabru <ludovic@galabru.com>"]
 edition = "2018"
 license = "GPL-3.0-only"
-keywords = ["blockstack", "blockchain", "clarity", "smart-contract"]
+keywords = ["Blockstack", "Stacks 2.0", "Smart Contract", "Blockchain", "LISP"]
 exclude = ["vs-client/**"]
 homepage = "https://github.com/lgalabru/clarity-lsp"
 repository = "https://github.com/lgalabru/clarity-lsp"
