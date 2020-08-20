@@ -1,11 +1,9 @@
-use async_trait::async_trait;
-
 use tokio;
 
 use serde_json::Value;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
-use tower_lsp::{LanguageServer, LspService, Client, Server};
+use tower_lsp::{async_trait, LanguageServer, LspService, Client, Server};
 
 use std::collections::HashMap;
 use std::fs;
@@ -26,16 +24,18 @@ use super::clarity::types::QualifiedContractIdentifier;
 use super::clarity::{ast, analysis};
 use super::clarity::costs::LimitedCostTracker;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct ClarityLanguageBackend {
     tracked_documents: HashMap<String, String>,
+    client: Client,
 }
 
 impl ClarityLanguageBackend {
 
-    pub fn new() -> Self {
+    pub fn new(client: Client) -> Self {
         Self {
             tracked_documents: HashMap::new(),
+            client,
         }
     }
 }
@@ -43,7 +43,7 @@ impl ClarityLanguageBackend {
 #[async_trait]
 impl LanguageServer for ClarityLanguageBackend {
 
-    fn initialize(&self, _: &Client, _: InitializeParams) -> Result<InitializeResult> {
+    async fn initialize(&self, _: InitializeParams) -> Result<InitializeResult> {
         Ok(InitializeResult {
             server_info: None,
             capabilities: ServerCapabilities {
@@ -56,14 +56,14 @@ impl LanguageServer for ClarityLanguageBackend {
                     work_done_progress_options: Default::default(),
                 }),
                 type_definition_provider: None,
-                hover_provider: Some(false),
+                hover_provider: Some(HoverProviderCapability::Simple(false)),
                 declaration_provider: Some(false),
                 ..ServerCapabilities::default()
             },
         })
     }
 
-    async fn initialized(&self, client: &Client, _: InitializedParams) {
+    async fn initialized(&self, _: InitializedParams) {
     }
 
     async fn shutdown(&self) -> Result<()> {
@@ -72,7 +72,6 @@ impl LanguageServer for ClarityLanguageBackend {
 
     async fn execute_command(
         &self,
-        client: &Client,
         _: ExecuteCommandParams,
     ) -> Result<Option<Value>> {
         Ok(None)
@@ -178,11 +177,11 @@ impl LanguageServer for ClarityLanguageBackend {
         Ok(Some(result))
     }
 
-    async fn did_open(&self, client: &Client, _: DidOpenTextDocumentParams) {}
+    async fn did_open(&self, _: DidOpenTextDocumentParams) {}
 
-    async fn did_change(&self, client: &Client, _: DidChangeTextDocumentParams) {}
+    async fn did_change(&self, _: DidChangeTextDocumentParams) {}
 
-    async fn did_save(&self, client: &Client, params: DidSaveTextDocumentParams) {
+    async fn did_save(&self,  params: DidSaveTextDocumentParams) {
         
         let uri = format!("{:?}", params.text_document.uri);
         let file_path = params.text_document.uri.to_file_path()
@@ -233,7 +232,7 @@ impl LanguageServer for ClarityLanguageBackend {
                     /// Additional metadata about the diagnostic.
                     tags: None,
                 }; 
-                client.publish_diagnostics(params.text_document.uri, vec![diag], None);
+                self.client.publish_diagnostics(params.text_document.uri, vec![diag], None).await;
                 return
             }
         };
@@ -277,10 +276,10 @@ impl LanguageServer for ClarityLanguageBackend {
             },
         };        
 
-        client.publish_diagnostics(params.text_document.uri, diags, None);
+        self.client.publish_diagnostics(params.text_document.uri, diags, None).await;
     }
 
-    async fn did_close(&self, client: &Client, _: DidCloseTextDocumentParams) {}
+    async fn did_close(&self, _: DidCloseTextDocumentParams) {}
 
     // fn symbol(&self, params: WorkspaceSymbolParams) -> Self::SymbolFuture {
     //     Box::new(future::ok(None))

@@ -19,7 +19,7 @@ async fn main() {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
-    let (service, messages) = LspService::new(ClarityLanguageBackend::default());
+    let (service, messages) = LspService::new(|client| ClarityLanguageBackend::new(client));
     Server::new(stdin, stdout)
         .interleave(messages)
         .serve(service)
