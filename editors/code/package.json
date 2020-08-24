@@ -1,26 +1,32 @@
 {
     "name": "clarity-lsp",
-    "displayName": "clarity-lsp",
-    "description": "Language Server Protocol implementation for Clarity",
+    "displayName": "Clarity Language Sever",
+    "description": "LSP implementation for Blockstack's Clarity smart contracting language",
     "preview": true,
     "private": true,
     "version": "0.1.0",
     "releaseTag": null,
     "publisher": "lgalabru",
-    "repository": {
-        "url": "https://github.com/lgalabru/clarity-lsp.git",
-        "type": "git"
-    },
-    "homepage": "https://github.com/lgalabru/clarity-lsp.git",
+    "repository": "https://github.com/lgalabru/clarity-lsp.git",
+    "homepage": "https://github.com/lgalabru/clarity-lsp",
+    "bugs": "https://github.com/lgalabru/clarity-lsp/issues",
     "license": "GPL-3.0-only",
     "keywords": [
         "clarity",
         "blockstack",
         "blockchain",
-        "smart-contract",
+        "smart contract",
+        "stacks",
         "lsp",
-        "language-server"
+        "language server protocol",
+        "lisp"
     ],
+    "galleryBanner": {
+        "color": "#242424",
+        "theme": "dark"
+    },
+    "icon": "https://avatars0.githubusercontent.com/u/66125257?s=200&v=4",
+    "qna": "https://clarity-lang.org/",
     "categories": [
         "Programming Languages"
     ],
