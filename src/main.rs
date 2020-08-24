@@ -7,7 +7,6 @@
 
 #[macro_use] extern crate lazy_static;
 
-pub mod clarity;
 mod clarity_language_backend;
 
 use clarity_language_backend::ClarityLanguageBackend;

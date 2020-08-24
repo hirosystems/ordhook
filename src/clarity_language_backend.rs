@@ -10,21 +10,19 @@ use tower_lsp::{LanguageServer, LspService, Client, Server};
 use std::collections::HashMap;
 use std::fs;
 
-use super::clarity::functions::{
-    NativeFunctions, 
-    DefineFunctions, 
-    NativeVariables, 
-    BlockInfoProperty};
-
-use super::clarity::docs::{
+use clarity_repl::{repl, clarity};
+use clarity_repl::clarity::functions::NativeFunctions;
+use clarity_repl::clarity::functions::define::DefineFunctions;    
+use clarity_repl::clarity::variables::NativeVariables;
+use clarity_repl::clarity::types::BlockInfoProperty;
+use clarity_repl::clarity::docs::{
     make_api_reference, 
     make_define_reference, 
     make_keyword_reference};
-
-use super::clarity::analysis::AnalysisDatabase;
-use super::clarity::types::QualifiedContractIdentifier;
-use super::clarity::{ast, analysis};
-use super::clarity::costs::LimitedCostTracker;
+use clarity_repl::clarity::analysis::AnalysisDatabase;
+use clarity_repl::clarity::types::QualifiedContractIdentifier;
+use clarity_repl::clarity::{ast, analysis};
+use clarity_repl::clarity::costs::LimitedCostTracker;
 
 #[derive(Debug, Default)]
 pub struct ClarityLanguageBackend {
@@ -184,6 +182,9 @@ impl LanguageServer for ClarityLanguageBackend {
 
     async fn did_save(&self, client: &Client, params: DidSaveTextDocumentParams) {
         
+        let mut clarity_interpreter = repl::ClarityInterpreter::new();
+
+        // When Paper is detected, we should get the name of the contracts from Paper.toml instead.
         let uri = format!("{:?}", params.text_document.uri);
         let file_path = params.text_document.uri.to_file_path()
             .expect("Unable to locate file");
@@ -191,76 +192,71 @@ impl LanguageServer for ClarityLanguageBackend {
         let contract = fs::read_to_string(file_path)
             .expect("Unable to read file");
         
-        let contract_identifier = QualifiedContractIdentifier::transient();
-        let mut contract_ast = match ast::build_ast(&contract_identifier, &contract, &mut ()) {
+        let contract_identifier = clarity::types::QualifiedContractIdentifier::transient();
+
+        let mut contract_ast = match clarity_interpreter.build_ast(contract_identifier.clone(), contract.clone()) {
             Ok(res) => res,
-            Err(parse_error) => {
-                let range = match parse_error.diagnostic.spans.len() {
+            Err((_, Some(parsing_diag))) => {
+                let range = match parsing_diag.spans.len() {
                     0 => Range::default(),
                     _ => Range {
                         start: Position {
-                            line: parse_error.diagnostic.spans[0].start_line as u64 - 1,
-                            character: parse_error.diagnostic.spans[0].start_column as u64,
+                            line: parsing_diag.spans[0].start_line as u64 - 1,
+                            character: parsing_diag.spans[0].start_column as u64,
                         },
                         end: Position {
-                            line: parse_error.diagnostic.spans[0].end_line as u64 - 1,
-                            character: parse_error.diagnostic.spans[0].end_column as u64,
+                            line: parsing_diag.spans[0].end_line as u64 - 1,
+                            character: parsing_diag.spans[0].end_column as u64,
                         },
                     }
                 };
-                let diag = Diagnostic {
-                    /// The range at which the message applies.
-                    range,
+                // let diag = Diagnostic {
+                //     /// The range at which the message applies.
+                //     range,
 
-                    /// The diagnostic's severity. Can be omitted. If omitted it is up to the
-                    /// client to interpret diagnostics as error, warning, info or hint.
-                    severity: Some(DiagnosticSeverity::Error),
+                //     /// The diagnostic's severity. Can be omitted. If omitted it is up to the
+                //     /// client to interpret diagnostics as error, warning, info or hint.
+                //     severity: Some(DiagnosticSeverity::Error),
 
-                    /// The diagnostic's code. Can be omitted.
-                    code: None,
+                //     /// The diagnostic's code. Can be omitted.
+                //     code: None,
 
-                    /// A human-readable string describing the source of this
-                    /// diagnostic, e.g. 'typescript' or 'super lint'.
-                    source: Some("clarity".to_string()),
+                //     /// A human-readable string describing the source of this
+                //     /// diagnostic, e.g. 'typescript' or 'super lint'.
+                //     source: Some("clarity".to_string()),
 
-                    /// The diagnostic's message.
-                    message: parse_error.diagnostic.message,
+                //     /// The diagnostic's message.
+                //     message: parsing_diag.message,
 
-                    /// An array of related diagnostic information, e.g. when symbol-names within
-                    /// a scope collide all definitions can be marked via this property.
-                    related_information: None,
+                //     /// An array of related diagnostic information, e.g. when symbol-names within
+                //     /// a scope collide all definitions can be marked via this property.
+                //     related_information: None,
 
-                    /// Additional metadata about the diagnostic.
-                    tags: None,
-                }; 
-                client.publish_diagnostics(params.text_document.uri, vec![diag], None);
+                //     /// Additional metadata about the diagnostic.
+                //     tags: None,
+                // }; 
+                // client.publish_diagnostics(params.text_document.uri, vec![diag], None);
+                return
+            },
+            _ => {
+                println!("Error returned without diagnotic");
                 return
             }
         };
 
-        let mut db = AnalysisDatabase::new();
-        let result = analysis::run_analysis(
-            &contract_identifier, 
-            &mut contract_ast.expressions,
-            &mut db, 
-            false,
-            LimitedCostTracker::new_max_limit());
-    
-        let raw_output = format!("{:?}", result);
-
-        let diags = match result {
+        let diags = match clarity_interpreter.run_analysis(contract_identifier.clone(), &mut contract_ast) {
             Ok(_) => vec![],
-            Err((check_error, cost_tracker)) => {
-                let range = match check_error.diagnostic.spans.len() {
+            Err((_, Some(analysis_diag))) => {
+                let range = match analysis_diag.spans.len() {
                     0 => Range::default(),
                     _ => Range {
                         start: Position {
-                            line: check_error.diagnostic.spans[0].start_line as u64 - 1,
-                            character: check_error.diagnostic.spans[0].start_column as u64,
+                            line: analysis_diag.spans[0].start_line as u64 - 1,
+                            character: analysis_diag.spans[0].start_column as u64,
                         },
                         end: Position {
-                            line: check_error.diagnostic.spans[0].end_line as u64 - 1,
-                            character: check_error.diagnostic.spans[0].end_column as u64,
+                            line: analysis_diag.spans[0].end_line as u64 - 1,
+                            character: analysis_diag.spans[0].end_column as u64,
                         },
                     }
                 };
@@ -269,12 +265,16 @@ impl LanguageServer for ClarityLanguageBackend {
                     severity: Some(DiagnosticSeverity::Error),
                     code: None,
                     source: Some("clarity".to_string()),
-                    message: check_error.diagnostic.message,
+                    message: analysis_diag.message,
                     related_information: None,
                     tags: None,
                 }; 
                 vec![diag]
             },
+            _ => {
+                println!("Error returned without diagnotic");
+                return
+            }
         };        
 
         client.publish_diagnostics(params.text_document.uri, diags, None);
