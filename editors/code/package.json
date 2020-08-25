@@ -25,7 +25,7 @@
         "color": "#242424",
         "theme": "dark"
     },
-    "icon": "https://avatars0.githubusercontent.com/u/66125257?s=200&v=4",
+    "icon": "doc/images/logo.png",
     "qna": "https://clarity-lang.org/",
     "categories": [
         "Programming Languages"
