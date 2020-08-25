@@ -156,7 +156,7 @@ checksum = "4785bdd1c96b2a846b2bd7cc02e86b6b3dbf14e7e53446c4f54c92a361040822"
 
 [[package]]
 name = "clarity-lsp"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "clarity-repl",
  "lazy_static",
@@ -172,6 +172,8 @@ dependencies = [
 [[package]]
 name = "clarity-repl"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "94513d96cd0f681a104f252e0f5e4383aaf4bfd2120ee9c11801222b234d0167"
 dependencies = [
  "ansi_term",
  "lazy_static",
