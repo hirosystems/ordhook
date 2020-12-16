@@ -16,7 +16,7 @@ categories = ["command-line-utilities", "development-tools", "development-tools:
 members = [".", "xtask/"]
 
 [dependencies]
-tower-lsp = "0.13.0"
+tower-lsp = "0.13.3"
 lazy_static = "1.4.0"
 serde_json = "1.0.47"
 tokio = { version = "0.2", features = ["rt-core", "macros", "io-std"] }
