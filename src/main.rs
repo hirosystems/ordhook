@@ -7,7 +7,6 @@
 
 #[macro_use] extern crate lazy_static;
 
-pub mod clarity;
 mod clarity_language_backend;
 
 use clarity_language_backend::ClarityLanguageBackend;
@@ -19,7 +18,7 @@ async fn main() {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
-    let (service, messages) = LspService::new(ClarityLanguageBackend::default());
+    let (service, messages) = LspService::new(|client| ClarityLanguageBackend::new(client));
     Server::new(stdin, stdout)
         .interleave(messages)
         .serve(service)
