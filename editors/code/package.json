@@ -2,6 +2,7 @@
     "name": "clarity-lsp",
     "displayName": "Clarity Language Sever",
     "description": "LSP implementation for Blockstack's Clarity smart contracting language",
+    "icon": "https://github.com/lgalabru/clarity-lsp/blob/master/editors/code/images/stacks.png",
     "preview": true,
     "private": true,
     "version": "0.1.0",
