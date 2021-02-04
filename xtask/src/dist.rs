@@ -94,7 +94,6 @@ impl Patch {
     }
 
     fn replace(&mut self, from: &str, to: &str) -> &mut Patch {
-        assert!(self.contents.contains(from));
         self.contents = self.contents.replace(from, to);
         self
     }
