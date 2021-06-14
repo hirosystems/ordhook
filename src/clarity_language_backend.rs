@@ -18,9 +18,10 @@ use clarity_repl::clarity::docs::{
     make_define_reference, 
     make_keyword_reference};
 use clarity_repl::clarity::analysis::AnalysisDatabase;
-use clarity_repl::clarity::types::QualifiedContractIdentifier;
+use clarity_repl::clarity::types::{QualifiedContractIdentifier, StandardPrincipalData};
 use clarity_repl::clarity::{ast, analysis};
 use clarity_repl::clarity::costs::LimitedCostTracker;
+use clarity_repl::repl;
 
 #[derive(Debug)]
 pub struct ClarityLanguageBackend {
@@ -180,13 +181,20 @@ impl LanguageServer for ClarityLanguageBackend {
     async fn did_change(&self, _: DidChangeTextDocumentParams) {}
 
     async fn did_save(&self,  params: DidSaveTextDocumentParams) {
-        
-        let mut clarity_interpreter = repl::ClarityInterpreter::new();
+        let tx_sender = StandardPrincipalData::transient();
+        let mut clarity_interpreter = repl::ClarityInterpreter::new(tx_sender);
 
-        // When Paper is detected, we should get the name of the contracts from Paper.toml instead.
+        // When Clarinet is detected, we should get the name of the contracts from Clarinet.toml instead.
         let uri = format!("{:?}", params.text_document.uri);
         let file_path = params.text_document.uri.to_file_path()
             .expect("Unable to locate file");
+
+
+
+
+
+
+
 
         let contract = fs::read_to_string(file_path)
             .expect("Unable to read file");
@@ -293,4 +301,63 @@ impl LanguageServer for ClarityLanguageBackend {
     // fn document_highlight(&self, _: TextDocumentPositionParams) -> Self::HighlightFuture {
     //     Box::new(future::ok(None))
     // }
+}
+
+pub fn load_session() -> Result<(), String> {
+    let mut settings = repl::SessionSettings::default();
+
+    let root_path = env::current_dir().unwrap();
+    let mut project_config_path = root_path.clone();
+    project_config_path.push("Clarinet.toml");
+
+    let mut chain_config_path = root_path.clone();
+    chain_config_path.push("settings");
+    chain_config_path.push("Development.toml");
+
+    let project_config = MainConfig::from_path(&project_config_path);
+    let chain_config = ChainConfig::from_path(&chain_config_path);
+
+    let mut deployer_address = None;
+    let mut initial_deployer = None;
+
+    for (name, account) in chain_config.accounts.iter() {
+        let account = repl::settings::Account {
+            name: name.clone(),
+            balance: account.balance,
+            address: account.address.clone(),
+            mnemonic: account.mnemonic.clone(),
+            derivation: account.derivation.clone(),
+        };
+        if name == "deployer" {
+            initial_deployer = Some(account.clone());
+            deployer_address = Some(account.address.clone());
+        }
+        settings
+            .initial_accounts
+            .push(account);
+    }
+
+    for (name, config) in project_config.ordered_contracts().iter() {
+        let mut contract_path = root_path.clone();
+        contract_path.push(&config.path);
+
+        let code = match fs::read_to_string(&contract_path) {
+            Ok(code) => code,
+            Err(err) => {
+                return Err(format!("Error: unable to read {:?}: {}", contract_path, err))
+            }
+        };
+
+        settings
+            .initial_contracts
+            .push(repl::settings::InitialContract {
+                code: code,
+                name: Some(name.clone()),
+                deployer: deployer_address.clone(),
+            });
+    }
+    settings.initial_deployer = initial_deployer;
+
+    let mut session = repl::Session::new(settings);
+    Ok(session)
 }

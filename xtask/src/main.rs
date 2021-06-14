@@ -41,7 +41,6 @@ USAGE:
     cargo xtask install [FLAGS]
 
 FLAGS:
-        --client-code    Install only VS Code plugin
         --server         Install only the language server
         --jemalloc       Use jemalloc for server
     -h, --help           Prints help information
