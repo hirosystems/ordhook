@@ -52,11 +52,12 @@ impl LanguageServer for ClarityLanguageBackend {
                 completion_provider: Some(CompletionOptions {
                     resolve_provider: Some(false),
                     trigger_characters: None,
+                    all_commit_characters: None,
                     work_done_progress_options: Default::default(),
                 }),
                 type_definition_provider: None,
                 hover_provider: Some(HoverProviderCapability::Simple(false)),
-                declaration_provider: Some(false),
+                declaration_provider: Some(DeclarationCapability::Simple(false)),
                 ..ServerCapabilities::default()
             },
         })
@@ -96,9 +97,11 @@ impl LanguageServer for ClarityLanguageBackend {
                     filter_text: None,
                     insert_text: Some(api.snippet.clone()),
                     insert_text_format: Some(InsertTextFormat::Snippet),
+                    insert_text_mode: None,
                     text_edit: None,
                     additional_text_edits: None,
                     command: None,
+                    commit_characters: None,
                     data: None,
                     tags: None,
                 }})
@@ -122,9 +125,11 @@ impl LanguageServer for ClarityLanguageBackend {
                     filter_text: None,
                     insert_text: Some(api.snippet.clone()),
                     insert_text_format: Some(InsertTextFormat::Snippet),
+                    insert_text_mode: None,
                     text_edit: None,
                     additional_text_edits: None,
                     command: None,
+                    commit_characters: None,
                     data: None,
                     tags: None,
                 }})
@@ -148,9 +153,11 @@ impl LanguageServer for ClarityLanguageBackend {
                     filter_text: None,
                     insert_text: Some(api.snippet.to_string()),
                     insert_text_format: Some(InsertTextFormat::PlainText),
+                    insert_text_mode: None,
                     text_edit: None,
                     additional_text_edits: None,
                     command: None,
+                    commit_characters: None,
                     data: None,
                     tags: None,
                 }})
@@ -208,12 +215,12 @@ impl LanguageServer for ClarityLanguageBackend {
                     0 => Range::default(),
                     _ => Range {
                         start: Position {
-                            line: parsing_diag.spans[0].start_line as u64 - 1,
-                            character: parsing_diag.spans[0].start_column as u64,
+                            line: parsing_diag.spans[0].start_line - 1,
+                            character: parsing_diag.spans[0].start_column,
                         },
                         end: Position {
-                            line: parsing_diag.spans[0].end_line as u64 - 1,
-                            character: parsing_diag.spans[0].end_column as u64,
+                            line: parsing_diag.spans[0].end_line - 1,
+                            character: parsing_diag.spans[0].end_column,
                         },
                     }
                 };
@@ -221,10 +228,12 @@ impl LanguageServer for ClarityLanguageBackend {
                     range,
                     severity: Some(DiagnosticSeverity::Error),
                     code: None,
+                    code_description: None,
                     source: Some("clarity".to_string()),
                     message: parsing_diag.message,
                     related_information: None,
                     tags: None,
+                    data: None,
                 }; 
                 self.client.publish_diagnostics(params.text_document.uri, vec![diag], None).await;
                 return
@@ -242,12 +251,12 @@ impl LanguageServer for ClarityLanguageBackend {
                     0 => Range::default(),
                     _ => Range {
                         start: Position {
-                            line: analysis_diag.spans[0].start_line as u64 - 1,
-                            character: analysis_diag.spans[0].start_column as u64,
+                            line: analysis_diag.spans[0].start_line - 1,
+                            character: analysis_diag.spans[0].start_column,
                         },
                         end: Position {
-                            line: analysis_diag.spans[0].end_line as u64 - 1,
-                            character: analysis_diag.spans[0].end_column as u64,
+                            line: analysis_diag.spans[0].end_line - 1,
+                            character: analysis_diag.spans[0].end_column,
                         },
                     }
                 };
@@ -255,10 +264,12 @@ impl LanguageServer for ClarityLanguageBackend {
                     range,
                     severity: Some(DiagnosticSeverity::Error),
                     code: None,
+                    code_description: None,
                     source: Some("clarity".to_string()),
                     message: analysis_diag.message,
                     related_information: None,
                     tags: None,
+                    data: None,
                 }; 
                 vec![diag]
             },
