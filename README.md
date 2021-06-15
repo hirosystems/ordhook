@@ -16,7 +16,7 @@ This project aims at leveraging the decidability quality of Clarity and the LSP 
 ### VSCode
 
 This is the best supported editor at the moment. clarity-lsp plugin for VS Code is maintained in tree.
-You can install the latest release of the plugin from the [marketplace](https://marketplace.visualstudio.com/items?itemName=lgalabru.clarity-lsp).
+You can install the latest release of the plugin from the [marketplace](https://marketplace.visualstudio.com/items?itemName=hirosystems.clarity-lsp).
 
 ### Building From Source
 
@@ -32,7 +32,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 From there, you can clone this repository:
 
 ```bash
-git clone https://github.com/lgalabru/clarity-lsp.git
+git clone https://github.com/hirosystems/clarity-lsp.git
 
 cd clarity-lsp
 ```

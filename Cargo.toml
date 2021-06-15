@@ -8,8 +8,8 @@ edition = "2018"
 license = "GPL-3.0-only"
 keywords = ["blockstack", "blockchain", "clarity", "smart-contract", "lsp"]
 exclude = ["vs-client/**"]
-homepage = "https://github.com/lgalabru/clarity-lsp"
-repository = "https://github.com/lgalabru/clarity-lsp"
+homepage = "https://github.com/hirosystems/clarity-lsp"
+repository = "https://github.com/hirosystems/clarity-lsp"
 categories = ["command-line-utilities", "development-tools", "development-tools::build-utils"]
 
 [workspace]
