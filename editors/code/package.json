@@ -38,6 +38,7 @@
         "vscode:prepublish": "tsc && rollup -c",
         "package": "vsce package -o clarity-lsp.vsix",
         "compile": "tsc -b",
+        "build": "tsc",
         "watch": "tsc --watch",
         "lint": "tsfmt --verify && eslint -c .eslintrc.js --ext ts ./src",
         "fix": "tsfmt -r && eslint -c .eslintrc.js --ext ts ./src --fix"
@@ -68,36 +69,6 @@
     ],
     "main": "./out/main",
     "contributes": {
-        "taskDefinitions": [
-            {
-                "type": "cargo",
-                "required": [
-                    "command"
-                ],
-                "properties": {
-                    "label": {
-                        "type": "string"
-                    },
-                    "command": {
-                        "type": "string"
-                    },
-                    "args": {
-                        "type": "array",
-                        "items": {
-                            "type": "string"
-                        }
-                    },
-                    "env": {
-                        "type": "object",
-                        "patternProperties": {
-                            ".+": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            }
-        ],
         "languages": [
             {
                 "id": "clarity",
@@ -109,6 +80,13 @@
                     ".clar"
                 ],
                 "configuration": "./language-configuration.json"
+            }
+        ],
+        "grammars": [
+            {
+                "language": "clarity",
+                "scopeName": "source.clarity",
+                "path": "./syntaxes/clarity.tmLanguage.json"
             }
         ],
         "commands": [],
