@@ -18,7 +18,7 @@ use clarity_repl::clarity::docs::{
     make_define_reference, 
     make_keyword_reference};
 use clarity_repl::clarity::analysis::AnalysisDatabase;
-use clarity_repl::clarity::types::QualifiedContractIdentifier;
+use clarity_repl::clarity::types::{QualifiedContractIdentifier, StandardPrincipalData};
 use clarity_repl::clarity::{ast, analysis};
 use clarity_repl::clarity::costs::LimitedCostTracker;
 
@@ -166,7 +166,8 @@ impl LanguageServer for ClarityLanguageBackend {
                 native_functions, 
                 define_functions, 
                 native_variables, 
-                block_properties]
+                block_properties
+            ]
             .into_iter()
             .flatten()
             .collect::<Vec<CompletionItem>>();
@@ -181,9 +182,11 @@ impl LanguageServer for ClarityLanguageBackend {
 
     async fn did_save(&self,  params: DidSaveTextDocumentParams) {
         
-        let mut clarity_interpreter = repl::ClarityInterpreter::new();
+        let tx_sender = StandardPrincipalData::transient();
+        let mut clarity_interpreter = repl::ClarityInterpreter::new(tx_sender);
+        // let mut clarity_interpreter = repl::ClarityInterpreter::new();
 
-        // When Paper is detected, we should get the name of the contracts from Paper.toml instead.
+        // When Clarinet is detected, we should get the name of the contracts from Paper.toml instead.
         let uri = format!("{:?}", params.text_document.uri);
         let file_path = params.text_document.uri.to_file_path()
             .expect("Unable to locate file");
