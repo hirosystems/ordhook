@@ -1,3 +1,6 @@
+use clarity_repl::clarity::analysis::ContractAnalysis;
+use clarity_repl::clarity::ast::ContractAST;
+use clarity_repl::repl::{Session, SessionSettings};
 use tokio;
 
 use serde_json::Value;
@@ -5,9 +8,13 @@ use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{async_trait, LanguageServer, LspService, Client, Server};
 
+use std::borrow::BorrowMut;
 use std::collections::HashMap;
-use std::fs;
-
+use std::fs::{self, File};
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex, RwLock};
+use std::io::Read;
+use sha2::Digest;
 use clarity_repl::{repl, clarity};
 use clarity_repl::clarity::functions::NativeFunctions;
 use clarity_repl::clarity::functions::define::DefineFunctions;    
@@ -22,9 +29,38 @@ use clarity_repl::clarity::types::{QualifiedContractIdentifier, StandardPrincipa
 use clarity_repl::clarity::{ast, analysis};
 use clarity_repl::clarity::costs::LimitedCostTracker;
 
+use crate::clarinet::load_config_files;
+
+#[derive(Debug)]
+enum Symbol {
+    PublicFunction,
+    ReadonlyFunction,
+    PrivateFunction,
+    ImportedTrait,
+    LocalVariable,
+    Constant,
+    DataMap,
+    DataVar,
+    FungibleToken,
+    NonFungibleToken,
+}
+
+
+#[derive(Debug)]
+pub struct ContractState {
+    analysis: ContractAnalysis,
+    cached_completion_items: Vec<CompletionItem>,
+    // TODO(lgalabru)
+    // hash: Vec<u8>,
+    // session: Session,
+    // symbols: HashMap<String, Symbol>,
+}
+
 #[derive(Debug)]
 pub struct ClarityLanguageBackend {
-    tracked_documents: HashMap<String, String>,
+    clarinet_toml: RwLock<Option<(PathBuf, SessionSettings)>>,
+    native_functions: Vec<CompletionItem>,
+    contracts: RwLock<HashMap<Url, ContractState>>,
     client: Client,
 }
 
@@ -32,52 +68,71 @@ impl ClarityLanguageBackend {
 
     pub fn new(client: Client) -> Self {
         Self {
-            tracked_documents: HashMap::new(),
+            clarinet_toml: RwLock::new(None),
+            contracts: RwLock::new(HashMap::new()),
             client,
+            native_functions: Self::build_default_native_keywords_list()
         }
     }
-}
 
-#[async_trait]
-impl LanguageServer for ClarityLanguageBackend {
+    pub fn run_project_analysis(&self) {
+        let clarinet_toml_reader = self.clarinet_toml.read().unwrap();
+        if let Some((ref path, ref settings)) = *clarinet_toml_reader {
+            let mut session = repl::Session::new(settings.clone());
+            match session.check() {
+                Err(message) => {}
+                Ok(contracts_analysis) => {
+                    for (analysis, code, path) in contracts_analysis.into_iter() {
 
-    async fn initialize(&self, _: InitializeParams) -> Result<InitializeResult> {
-        Ok(InitializeResult {
-            server_info: None,
-            capabilities: ServerCapabilities {
-                text_document_sync: Some(TextDocumentSyncCapability::Kind(
-                    TextDocumentSyncKind::Full,
-                )),
-                completion_provider: Some(CompletionOptions {
-                    resolve_provider: Some(false),
-                    trigger_characters: None,
-                    all_commit_characters: None,
-                    work_done_progress_options: Default::default(),
-                }),
-                type_definition_provider: None,
-                hover_provider: Some(HoverProviderCapability::Simple(false)),
-                declaration_provider: Some(DeclarationCapability::Simple(false)),
-                ..ServerCapabilities::default()
-            },
-        })
+                        let mut cached_completion_items = vec![];
+                        for (name, _signature) in analysis.public_function_types.iter() {
+                            cached_completion_items.push(CompletionItem {
+                                label: name.to_string(),
+                                kind: Some(CompletionItemKind::Module),
+                                detail: None,
+                                documentation: None,
+                                deprecated: None,
+                                preselect: None,
+                                sort_text: None,
+                                filter_text: None,
+                                insert_text: Some(name.to_string()),
+                                insert_text_format: Some(InsertTextFormat::PlainText),
+                                insert_text_mode: None,
+                                text_edit: None,
+                                additional_text_edits: None,
+                                command: None,
+                                commit_characters: None,
+                                data: None,
+                                tags: None,
+                            });
+                        } 
+
+                        let contract_url = Url::from_file_path(path).unwrap();
+                        let contract_state = ContractState {
+                            analysis,
+                            cached_completion_items,
+                        };
+                        let mut contracts_writer = self.contracts.write().unwrap();
+                        contracts_writer.insert(contract_url, contract_state);
+                    }
+                }
+            };
+        }
+
+        // Retrieve Clarinet.toml
+        // Retrieve settings/Development.toml
+        // Deploy the contracts and feed self.contracts with analysis
+        
+        // Craft one VM per contract, that we we will be cloning over and over.
+        // REPL: add readonly mode
+        // When Clarinet.toml or underlying contracts are getting updated, we re-construct these VMs.
+    }
+    
+    pub fn run_atomic_analysis(&self, contract_url: Url) {
+        // From path, retrieve the dependencies, recursively.
     }
 
-    async fn initialized(&self, _: InitializedParams) {
-    }
-
-    async fn shutdown(&self) -> Result<()> {
-        Ok(())
-    }
-
-    async fn execute_command(
-        &self,
-        _: ExecuteCommandParams,
-    ) -> Result<Option<Value>> {
-        Ok(None)
-    }
-
-    async fn completion(&self, _: CompletionParams) -> Result<Option<CompletionResponse>> {
-
+    pub fn build_default_native_keywords_list() -> Vec<CompletionItem> {
         let native_functions: Vec<CompletionItem> = NativeFunctions::ALL
             .iter()
             .map(|func| {
@@ -178,9 +233,73 @@ impl LanguageServer for ClarityLanguageBackend {
             .into_iter()
             .flatten()
             .collect::<Vec<CompletionItem>>();
+        items
+    }
+}
 
-        let result = CompletionResponse::from(items);
-        Ok(Some(result))
+#[async_trait]
+impl LanguageServer for ClarityLanguageBackend {
+
+    async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
+        if let Some(root_uri) = params.root_uri {
+            let mut clarinet_toml_writer = self.clarinet_toml.write().unwrap();
+
+            let settings = load_config_files(&root_uri, "Development".into()).unwrap();
+            let mut url = root_uri.to_file_path().unwrap();
+            url.set_file_name("Clarinet.toml");
+
+            *clarinet_toml_writer = Some((url, settings));
+        }
+        
+        Ok(InitializeResult {
+            server_info: None,
+            capabilities: ServerCapabilities {
+                text_document_sync: Some(TextDocumentSyncCapability::Kind(
+                    TextDocumentSyncKind::Full,
+                )),
+                completion_provider: Some(CompletionOptions {
+                    resolve_provider: Some(false),
+                    trigger_characters: None,
+                    all_commit_characters: None,
+                    work_done_progress_options: Default::default(),
+                }),
+                type_definition_provider: None,
+                hover_provider: Some(HoverProviderCapability::Simple(false)),
+                declaration_provider: Some(DeclarationCapability::Simple(false)),
+                ..ServerCapabilities::default()
+            },
+        })
+    }
+
+    async fn initialized(&self, params: InitializedParams) {
+        self.run_project_analysis();
+    }
+
+    async fn shutdown(&self) -> Result<()> {
+        Ok(())
+    }
+
+    async fn execute_command(
+        &self,
+        _: ExecuteCommandParams,
+    ) -> Result<Option<Value>> {
+        Ok(None)
+    }
+
+    async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
+        let mut keywords = self.native_functions.clone();
+        let contract_uri = params.text_document_position.text_document.uri;
+
+        let mut user_defined_keywords = {
+            let contracts_reader = self.contracts.read().unwrap();
+            match contracts_reader.get(&contract_uri) {
+                Some(entry) => entry.cached_completion_items.clone(),
+                _ => vec![]
+            }
+        };
+        
+        keywords.append(&mut user_defined_keywords);
+        Ok(Some(CompletionResponse::from(keywords)))
     }
 
     async fn did_open(&self, _: DidOpenTextDocumentParams) {}
