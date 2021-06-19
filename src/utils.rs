@@ -3,7 +3,7 @@ use clarity_repl::clarity::diagnostic::Diagnostic as ClarityDiagnostic;
 use clarity_repl::clarity::functions::NativeFunctions;
 use clarity_repl::clarity::functions::define::DefineFunctions;    
 use clarity_repl::clarity::variables::NativeVariables;
-use clarity_repl::clarity::types::BlockInfoProperty;
+use clarity_repl::clarity::types::{BlockInfoProperty, FunctionType};
 use clarity_repl::clarity::docs::{
     make_api_reference, 
     make_define_reference, 
@@ -42,11 +42,25 @@ pub fn convert_clarity_diagnotic_to_lsp_diagnostic(diagnostic: ClarityDiagnostic
     }
 }
 
+fn build_intellisense_args(signature: &FunctionType) -> Vec<String> {
+    let mut args = vec![];
+    match signature {
+        FunctionType::Fixed(function) => {
+            for (i, arg) in function.args.iter().enumerate() {
+                args.push(format!("${{{}:{}:{}}}", i + 1, arg.name, arg.signature));
+            }
+        }
+        _ => {}
+    }
+    args
+}
+
 pub fn build_intellisense(analysis: &ContractAnalysis) -> CompletionMaps {
     let mut intra_contract = vec![];
     let mut inter_contract = vec![];
 
-    for (name, _signature) in analysis.public_function_types.iter() {
+    for (name, signature) in analysis.public_function_types.iter() {
+        let insert_text = format!("{} {}", name, build_intellisense_args(signature).join(" "));
         intra_contract.push(CompletionItem {
             label: name.to_string(),
             kind: Some(CompletionItemKind::Module),
@@ -56,8 +70,8 @@ pub fn build_intellisense(analysis: &ContractAnalysis) -> CompletionMaps {
             preselect: None,
             sort_text: None,
             filter_text: None,
-            insert_text: Some(name.to_string()),
-            insert_text_format: Some(InsertTextFormat::PlainText),
+            insert_text: Some(insert_text),
+            insert_text_format: Some(InsertTextFormat::Snippet),
             insert_text_mode: None,
             text_edit: None,
             additional_text_edits: None,
@@ -66,8 +80,13 @@ pub fn build_intellisense(analysis: &ContractAnalysis) -> CompletionMaps {
             data: None,
             tags: None,
         });
+
         let label = format!("contract-call::{}::{}", analysis.contract_identifier.name.to_string(), name.to_string());
-        let contract_call = format!("contract-call? .{} {}", analysis.contract_identifier.name.to_string(), name.to_string());
+                let insert = format!("{} {}", name, build_intellisense_args(signature).join(" "));
+        let insert_text = format!("contract-call? .{} {} {}", 
+            analysis.contract_identifier.name.to_string(), 
+            name.to_string(),
+            build_intellisense_args(signature).join(" "));
         inter_contract.push(CompletionItem {
             label,
             kind: Some(CompletionItemKind::Event),
@@ -77,8 +96,8 @@ pub fn build_intellisense(analysis: &ContractAnalysis) -> CompletionMaps {
             preselect: None,
             sort_text: None,
             filter_text: None,
-            insert_text: Some(contract_call),
-            insert_text_format: Some(InsertTextFormat::PlainText),
+            insert_text: Some(insert_text),
+            insert_text_format: Some(InsertTextFormat::Snippet),
             insert_text_mode: None,
             text_edit: None,
             additional_text_edits: None,
@@ -89,7 +108,8 @@ pub fn build_intellisense(analysis: &ContractAnalysis) -> CompletionMaps {
         });
     } 
 
-    for (name, _signature) in analysis.read_only_function_types.iter() {
+    for (name, signature) in analysis.read_only_function_types.iter() {
+        let insert_text = format!("{} {}", name, build_intellisense_args(signature).join(" "));
         intra_contract.push(CompletionItem {
             label: name.to_string(),
             kind: Some(CompletionItemKind::Module),
@@ -99,8 +119,8 @@ pub fn build_intellisense(analysis: &ContractAnalysis) -> CompletionMaps {
             preselect: None,
             sort_text: None,
             filter_text: None,
-            insert_text: Some(name.to_string()),
-            insert_text_format: Some(InsertTextFormat::PlainText),
+            insert_text: Some(insert_text),
+            insert_text_format: Some(InsertTextFormat::Snippet),
             insert_text_mode: None,
             text_edit: None,
             additional_text_edits: None,
@@ -109,8 +129,12 @@ pub fn build_intellisense(analysis: &ContractAnalysis) -> CompletionMaps {
             data: None,
             tags: None,
         });
+
         let label = format!("contract-call::{}::{}", analysis.contract_identifier.name.to_string(), name.to_string());
-        let contract_call = format!("contract-call? .{} {}", analysis.contract_identifier.name.to_string(), name.to_string());
+        let insert_text = format!("contract-call? .{} {} {}", 
+            analysis.contract_identifier.name.to_string(), 
+            name.to_string(),
+            build_intellisense_args(signature).join(" "));
         inter_contract.push(CompletionItem {
             label,
             kind: Some(CompletionItemKind::Event),
@@ -120,8 +144,8 @@ pub fn build_intellisense(analysis: &ContractAnalysis) -> CompletionMaps {
             preselect: None,
             sort_text: None,
             filter_text: None,
-            insert_text: Some(contract_call),
-            insert_text_format: Some(InsertTextFormat::PlainText),
+            insert_text: Some(insert_text),
+            insert_text_format: Some(InsertTextFormat::Snippet),
             insert_text_mode: None,
             text_edit: None,
             additional_text_edits: None,
@@ -131,6 +155,30 @@ pub fn build_intellisense(analysis: &ContractAnalysis) -> CompletionMaps {
             tags: None,
         });
     }; 
+
+    for (name, signature) in analysis.private_function_types.iter() {
+        let insert_text = format!("{} {}", name, build_intellisense_args(signature).join(" "));
+        intra_contract.push(CompletionItem {
+            label: name.to_string(),
+            kind: Some(CompletionItemKind::Module),
+            detail: None,
+            documentation: None,
+            deprecated: None,
+            preselect: None,
+            sort_text: None,
+            filter_text: None,
+            insert_text: Some(insert_text),
+            insert_text_format: Some(InsertTextFormat::Snippet),
+            insert_text_mode: None,
+            text_edit: None,
+            additional_text_edits: None,
+            command: None,
+            commit_characters: None,
+            data: None,
+            tags: None,
+        });
+    }; 
+
     CompletionMaps {
         inter_contract,
         intra_contract,

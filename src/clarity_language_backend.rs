@@ -311,6 +311,33 @@ impl LanguageServer for ClarityLanguageBackend {
         keywords.append(&mut contract_keywords);
         keywords.append(&mut contract_calls);
 
+        // Little big detail: should we wrap the inserted_text with braces?
+        let should_wrap = {
+            // let line = params.text_document_position.position.line;
+            // let char = params.text_document_position.position.character;
+            // let doc = params.text_document_position.text_document.uri;
+            // 
+            // TODO(lgalabru): from there, we'd need to get the prior char
+            // and see if a parenthesis was opened. If not, we need to wrap.
+            // The LSP would need to update its local document cache, via
+            // the did_change method.
+            true
+        };
+        if should_wrap {
+            for item in keywords.iter_mut() {
+                match item.kind {
+                    Some(CompletionItemKind::Event)
+                    | Some(CompletionItemKind::Function)
+                    | Some(CompletionItemKind::Module)
+                    | Some(CompletionItemKind::Class)
+                    | Some(CompletionItemKind::Method) => {
+                        item.insert_text = Some(format!("({})", item.insert_text.take().unwrap()));
+                    },
+                    _ => {}
+                }
+            }
+        }
+
         Ok(Some(CompletionResponse::from(keywords)))
     }
 
