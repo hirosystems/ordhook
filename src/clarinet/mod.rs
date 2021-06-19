@@ -8,26 +8,11 @@ use clarity_repl::repl;
 use std::path::{Path, PathBuf};
 use std::fs;
 
-pub fn load_config_files(root_url: &Url, env: String) -> Result<repl::SessionSettings, String> {
+pub fn build_session_settings(clarinet_toml_path: &PathBuf, network_toml_file: &PathBuf) -> Result<(repl::SessionSettings, MainConfig), String> {
     let mut settings = repl::SessionSettings::default();
-    let root_path = root_url.to_file_path().unwrap();
 
-    let mut project_config_path = root_path.clone();
-    project_config_path.push("Clarinet.toml");
-
-    let mut chain_config_path = root_path.clone();
-    chain_config_path.push("settings");
-
-    chain_config_path.push(if env == "mocknet" {
-        "Mocknet.toml"
-    } else if env == "testnet" {
-        "Testnet.toml"
-    } else {
-        "Development.toml"
-    });
-
-    let mut project_config = MainConfig::from_path(&project_config_path);
-    let chain_config = ChainConfig::from_path(&chain_config_path);
+    let mut project_config = MainConfig::from_path(&clarinet_toml_path);
+    let chain_config = ChainConfig::from_path(&network_toml_file);
 
     let mut deployer_address = None;
     let mut initial_deployer = None;
@@ -48,6 +33,9 @@ pub fn load_config_files(root_url: &Url, env: String) -> Result<repl::SessionSet
             .initial_accounts
             .push(account);
     }
+
+    let mut root_path = clarinet_toml_path.clone();
+    root_path.pop();
 
     for (name, config) in project_config.ordered_contracts().iter() {
         let mut contract_path = root_path.clone();
@@ -87,5 +75,5 @@ pub fn load_config_files(root_url: &Url, env: String) -> Result<repl::SessionSet
 
     settings.include_boot_contracts = vec!["pox".to_string(), "costs".to_string(), "bns".to_string()];
     settings.initial_deployer = initial_deployer;
-    Ok(settings)
+    Ok((settings, project_config))
 }

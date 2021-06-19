@@ -14,6 +14,7 @@ extern crate serde_derive;
 
 mod clarity_language_backend;
 mod clarinet;
+mod utils;
 
 use clarity_language_backend::ClarityLanguageBackend;
 use tokio;
