@@ -83,22 +83,22 @@ impl ClarityLanguageBackend {
         logs.push("Full analysis will start".into());
         
         // Retrieve ./Clarinet.toml and settings/Development.toml paths
-        let (clarinet_toml_path, network_toml_path) = match self.get_config_files_paths() {
+        let settings = match self.get_config_files_paths() {
             Err(message) => return Err((message, logs)),
-            Ok(paths) => paths
-        };
-
-        // Read these 2 files and build a SessionSetting
-        let (settings, _) = match build_session_settings(&clarinet_toml_path, &network_toml_path) {
-            Err(message) => return Err((message, logs)),
-            Ok(paths) => paths
+            Ok(Some((clarinet_toml_path, network_toml_path))) => {
+                // Read these 2 files and build a SessionSetting
+                match build_session_settings(&clarinet_toml_path, &network_toml_path) {
+                    Err(message) => return Err((message, logs)),
+                    Ok((settings, _)) => settings
+                }
+            },
+            Ok(None) => SessionSettings::default(),
         };
 
         // Build a blank Session: we will be evaluating the contracts one by one
         let mut incremental_session = repl::Session::new(settings.clone());        
         let mut collected_diagnostics = vec![];
         let mainnet = false;
-
 
         for (i, contract) in settings.initial_contracts.iter().enumerate() {
             let contract_path = PathBuf::from_str(&contract.path)
@@ -111,7 +111,6 @@ impl ClarityLanguageBackend {
                 .expect("Expect file to be readable");
 
             logs.push(format!("Analysis #{}: {}", i, contract_id.to_string()));
-
 
             // Before doing anything, keep a clone of the session before inserting anything in the datastore.
             let session = incremental_session.clone();
@@ -172,20 +171,95 @@ impl ClarityLanguageBackend {
         return Ok((collected_diagnostics, logs))
     }
 
+    pub fn run_single_analysis(&self, url: Url) -> std::result::Result<(Vec<(Url, Diagnostic)>, Logs), (String, Logs)> {
+        let mut logs = vec![];
+        let settings = SessionSettings::default();
+        let mut incremental_session = repl::Session::new(settings.clone());        
+        let mut collected_diagnostics = vec![];
+        let mainnet = false;
 
+        let contract_path = url.to_file_path()
+            .expect("Expect url to be well formatted");
+        let code = fs::read_to_string(&contract_path)
+            .expect("Expect file to be readable");
+
+        let contract_id = QualifiedContractIdentifier::transient();
+
+        logs.push(format!("Analysis: {}", contract_id.to_string()));
+
+        // Before doing anything, keep a clone of the session before inserting anything in the datastore.
+        let session = incremental_session.clone();
+
+        // Extract the AST, and try to move to the next contract if we throw an error:
+        // we're trying to get as many errors as possible
+        let mut ast = match incremental_session.interpreter.build_ast(contract_id.clone(), code.clone()) {
+            Ok(ast) => ast,
+            Err((_, Some(diagnostic))) => {
+                collected_diagnostics.push(
+                    (url.clone(), utils::convert_clarity_diagnotic_to_lsp_diagnostic(diagnostic))
+                );
+                return Ok((collected_diagnostics, logs))
+            },
+            _ => {
+                logs.push("Unable to get ast".into());
+                return Ok((collected_diagnostics, logs))
+            }
+        };
+
+        // Run the analysis, and try to move to the next contract if we throw an error:
+        // we're trying to get as many errors as possible
+        let analysis = match incremental_session.interpreter.run_analysis(contract_id.clone(), &mut ast) {
+            Ok(analysis) => analysis,
+            Err((_, Some(diagnostic))) => {
+                collected_diagnostics.push(
+                    (url.clone(), utils::convert_clarity_diagnotic_to_lsp_diagnostic(diagnostic))
+                );
+                return Ok((collected_diagnostics, logs))
+            },
+            _ => {
+                logs.push("Unable to get diagnostic".into());
+                return Ok((collected_diagnostics, logs))
+            }
+        };
+
+        // We have a legit contract, let's extract some Intellisense data that will be served for 
+        // auto-completion requests
+        let intellisense = utils::build_intellisense(&analysis);
+
+        let contract_state = ContractState {
+            analysis,
+            session,
+            intellisense,
+        };
+
+        if let Ok(ref mut contracts_writer) = self.contracts.write() {
+            contracts_writer.insert(url, contract_state);
+        } else {
+            logs.push(format!("Unable to acquire write lock"));
+        }
+
+        return Ok((collected_diagnostics, logs))
+    }
 
     fn get_contracts_urls(&self) -> Vec<Url> {
         let contracts_reader = self.contracts.read().unwrap();
         contracts_reader.keys().map(|u| u.clone()).collect()
     }
 
-    fn get_config_files_paths(&self) -> std::result::Result<(PathBuf, PathBuf), String> {
+    fn get_config_files_paths(&self) -> std::result::Result<Option<(PathBuf, PathBuf)>, String> {
         match (self.clarinet_toml_path.read(), self.network_toml_path.read()) {
             (Ok(clarinet_toml_path), Ok(network_toml_path)) => match (clarinet_toml_path.as_ref(), network_toml_path.as_ref()) {
-                (Some(clarinet_toml_path), Some(network_toml_path)) => Ok((clarinet_toml_path.clone(), network_toml_path.clone())),
-                _ => return Err("Unable to find Clarinet files".into()),
+                (Some(clarinet_toml_path), Some(network_toml_path)) => Ok(Some((clarinet_toml_path.clone(), network_toml_path.clone()))),
+                _ => Ok(None),
             }
             _ => return Err("Unable to acquire locks".into()),
+        }
+    }
+
+    fn is_clarinet_workspace(&self) -> bool {
+        match self.get_config_files_paths() {
+            Ok(Some((clarinet_toml_path, network_toml_path))) => true,
+            _ => false,
         }
     }
 }
@@ -225,25 +299,51 @@ impl LanguageServer for ClarityLanguageBackend {
 
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
 
-        // TODO(lgalabru): use workspace_folders instead
-        let root_path = match params.root_uri {
-            Some(root_uri) => root_uri.to_file_path().expect("Unable to turn URL into path"),
-            None => panic!("Unable to get root dir")
-        };
+        let mut config_files = None;
+        
+        // Are we looking at a workspace that would include a Clarinet project?
+        if let Some(workspace_folders) = params.workspace_folders {
+            for folder in workspace_folders.iter() {
+                let root_path = folder.uri.to_file_path().expect("Unable to turn URL into path");
+        
+                let mut clarinet_toml_path = root_path.clone();
+                clarinet_toml_path.push("Clarinet.toml");
 
-        let mut clarinet_toml_path = root_path.clone();
-        clarinet_toml_path.push("Clarinet.toml");
-        {
-            let mut clarinet_toml_path_writer = self.clarinet_toml_path.write().unwrap();
-            *clarinet_toml_path_writer = Some(clarinet_toml_path);
+                let mut network_toml_path = root_path.clone();
+                network_toml_path.push("settings");
+                network_toml_path.push("Development.toml");
+
+                if clarinet_toml_path.exists() && network_toml_path.exists() {
+                    config_files = Some((clarinet_toml_path, network_toml_path));
+                    break;
+                }            
+            }
         }
 
-        let mut network_toml_path = root_path.clone();
-        network_toml_path.push("settings");
-        network_toml_path.push("Development.toml");
-        {
+        match (&config_files, params.root_uri) {
+            (None, Some(root_uri)) => {
+                // Are we looking at a folder that would include a Clarinet project?
+                let root_path = root_uri.to_file_path().expect("Unable to turn URL into path");
+        
+                let mut clarinet_toml_path = root_path.clone();
+                clarinet_toml_path.push("Clarinet.toml");
+
+                let mut network_toml_path = root_path.clone();
+                network_toml_path.push("settings");
+                network_toml_path.push("Development.toml");
+
+                if clarinet_toml_path.exists() && network_toml_path.exists() {
+                    config_files = Some((clarinet_toml_path, network_toml_path));
+                }
+            }
+            _ => {}
+        }
+
+        if let Some((clarinet_toml_path, network_toml_path)) = config_files {
+            let mut clarinet_toml_path_writer = self.clarinet_toml_path.write().unwrap();
+            *clarinet_toml_path_writer = Some(clarinet_toml_path.clone());
             let mut network_toml_path_writer = self.network_toml_path.write().unwrap();
-            *network_toml_path_writer = Some(network_toml_path);
+            *network_toml_path_writer = Some(network_toml_path.clone());
         }
 
         Ok(InitializeResult {
@@ -267,6 +367,11 @@ impl LanguageServer for ClarityLanguageBackend {
     }
 
     async fn initialized(&self, params: InitializedParams) {
+        // If we're not in a Clarinet workspace, don't try to be smart.
+        if !self.is_clarinet_workspace() {
+            return
+        }
+        
         match self.run_full_analysis() {
             Ok((diagnostics, logs)) => {
                 self.handle_diagnostics(Some(diagnostics), logs).await;
@@ -343,10 +448,20 @@ impl LanguageServer for ClarityLanguageBackend {
 
     async fn did_open(&self, _: DidOpenTextDocumentParams) {}
 
-    async fn did_change(&self, _: DidChangeTextDocumentParams) {}
+    // async fn did_change(&self, changes: DidChangeTextDocumentParams) {
+    //     if let Some(change) = changes.content_changes.last() {
+    //         self.client.log_message(MessageType::Info, change.text.clone()).await;
+    //     }
+    // }
 
     async fn did_save(&self,  params: DidSaveTextDocumentParams) {
-        match self.run_full_analysis() {
+        
+        let results = match self.is_clarinet_workspace() {
+            true => self.run_full_analysis(),
+            false => self.run_single_analysis(params.text_document.uri)
+        } ;
+
+        match results {
             Ok((diagnostics, logs)) => {
                 self.handle_diagnostics(Some(diagnostics), logs).await;
             }
