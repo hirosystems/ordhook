@@ -23,7 +23,7 @@ export async function createClient(config: Config, serverPath: string, cwd: stri
     );
 
     const clientOptions: lc.LanguageClientOptions = {
-        documentSelector: [{ scheme: 'file', language: 'rust' }],
+        documentSelector: [{ scheme: 'file', language: 'clarity' }],
         initializationOptions: vscode.workspace.getConfiguration("clarity-lsp"),
         traceOutputChannel,
         middleware: {

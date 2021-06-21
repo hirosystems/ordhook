@@ -1,26 +1,26 @@
 {
     "name": "clarity-lsp",
-    "displayName": "Clarity Language Sever",
-    "description": "LSP implementation for Blockstack's Clarity smart contracting language",
+    "displayName": "Clarity Playground",
+    "description": "Coding assistant for Smart Contracts (Stacks, Bitcoin)",
     "icon": "images/stacks.png",
     "preview": true,
     "private": true,
-    "version": "0.4.0",
+    "version": "0.5.0",
     "releaseTag": null,
-    "publisher": "lgalabru",
-    "repository": "https://github.com/lgalabru/clarity-lsp.git",
-    "homepage": "https://github.com/lgalabru/clarity-lsp",
-    "bugs": "https://github.com/lgalabru/clarity-lsp/issues",
+    "publisher": "hirosystems",
+    "repository": "https://github.com/hirosystems/clarity-lsp.git",
+    "homepage": "https://github.com/hirosystems/clarity-lsp",
+    "bugs": "https://github.com/hirosystems/clarity-lsp/issues",
     "license": "GPL-3.0-only",
     "keywords": [
-        "clarity",
-        "blockstack",
         "blockchain",
-        "smart contract",
+        "clarity",
+        "bitcoin",
         "stacks",
+        "smart contract",
         "lsp",
-        "language server protocol",
-        "lisp"
+        "stx",
+        "btc"
     ],
     "galleryBanner": {
         "color": "#242424",
@@ -38,6 +38,7 @@
         "vscode:prepublish": "tsc && rollup -c",
         "package": "vsce package -o clarity-lsp.vsix",
         "compile": "tsc -b",
+        "build": "tsc",
         "watch": "tsc --watch",
         "lint": "tsfmt --verify && eslint -c .eslintrc.js --ext ts ./src",
         "fix": "tsfmt -r && eslint -c .eslintrc.js --ext ts ./src --fix"
@@ -68,36 +69,6 @@
     ],
     "main": "./out/main",
     "contributes": {
-        "taskDefinitions": [
-            {
-                "type": "cargo",
-                "required": [
-                    "command"
-                ],
-                "properties": {
-                    "label": {
-                        "type": "string"
-                    },
-                    "command": {
-                        "type": "string"
-                    },
-                    "args": {
-                        "type": "array",
-                        "items": {
-                            "type": "string"
-                        }
-                    },
-                    "env": {
-                        "type": "object",
-                        "patternProperties": {
-                            ".+": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            }
-        ],
         "languages": [
             {
                 "id": "clarity",
@@ -109,6 +80,13 @@
                     ".clar"
                 ],
                 "configuration": "./language-configuration.json"
+            }
+        ],
+        "grammars": [
+            {
+                "language": "clarity",
+                "scopeName": "source.clarity",
+                "path": "./syntaxes/clarity.tmLanguage.json"
             }
         ],
         "commands": [],

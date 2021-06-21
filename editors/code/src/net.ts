@@ -8,7 +8,7 @@ import { log, assert } from "./util";
 const pipeline = util.promisify(stream.pipeline);
 
 const GITHUB_API_ENDPOINT_URL = "https://api.github.com";
-const OWNER = "lgalabru";
+const OWNER = "hirosystems";
 const REPO = "clarity-lsp";
 
 export async function fetchRelease(

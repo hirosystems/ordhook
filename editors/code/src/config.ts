@@ -6,7 +6,7 @@ export type UpdatesChannel = "stable" | "nightly";
 export const NIGHTLY_TAG = "nightly";
 
 export class Config {
-    readonly extensionId = "lgalabru.clarity-lsp";
+    readonly extensionId = "hirosystems.clarity-lsp";
 
     private readonly rootSection = "clarity-lsp";
     private readonly requiresReloadOpts = [

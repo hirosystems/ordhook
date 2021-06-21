@@ -120,7 +120,7 @@ async function bootstrapServer(config: Config, state: PersistentState): Promise<
     if (!path) {
         throw new Error(
             "Clarity Language Server is not available. " +
-            "Please, ensure its [proper installation](https://github.com/lgalabru/clarity-lsp)."
+            "Please, ensure its [proper installation](https://github.com/hirosystems/clarity-lsp)."
         );
     }
 
@@ -158,7 +158,7 @@ async function getServer(config: Config, state: PersistentState): Promise<string
             "You need to manually clone clarity-lsp repository and " +
             "run `cargo xtask install --server` to build the language server from sources. " +
             "If you feel that your platform should be supported, please create an issue " +
-            "about that [here](https://github.com/lgalabru/clarity-lsp/issues) and we " +
+            "about that [here](https://github.com/hirosystems/clarity-lsp/issues) and we " +
             "will consider it."
         );
         return undefined;
