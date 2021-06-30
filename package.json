@@ -28,6 +28,13 @@
                     "prepareCmd": "sed -i -e '1h;2,$H;$!d;g' -e 's@name = \"clarity-lsp\"\\nversion = \"${lastRelease.version}\"@name = \"clarity-lsp\"\\nversion = \"${nextRelease.version}\"@g' Cargo.toml Cargo.lock"
                 }
             ],
+            [
+                "@semantic-release/npm",
+                {
+                    "pkgRoot": "editors/code",
+                    "npmPublish": false
+                }
+            ],
             "@semantic-release/github",
             "@semantic-release/changelog",
             [
@@ -38,8 +45,8 @@
                         "CHANGELOG.md",
                         "Cargo.toml",
                         "Cargo.lock",
-                        "package.json",
-                        "package-lock.json"
+                        "editors/code/package.json",
+                        "editors/code/package-lock.json"
                     ]
                 }
             ]
