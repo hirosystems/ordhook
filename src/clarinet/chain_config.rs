@@ -1,16 +1,14 @@
-use std::{collections::BTreeMap, fs::File};
-use std::path::PathBuf;
-use std::{
-    io::{BufReader, Read},
-};
-use toml::value::Value;
-use bip39::{Mnemonic};
-use clarity_repl::clarity::util::StacksAddress;
+use bip39::Mnemonic;
 use clarity_repl::clarity::util::secp256k1::Secp256k1PublicKey;
-use tiny_hderive::bip32::ExtendedPrivKey;
-use secp256k1::{SecretKey, PublicKey};
+use clarity_repl::clarity::util::StacksAddress;
 use hmac::Hmac;
 use pbkdf2::pbkdf2;
+use secp256k1::{PublicKey, SecretKey};
+use std::io::{BufReader, Read};
+use std::path::PathBuf;
+use std::{collections::BTreeMap, fs::File};
+use tiny_hderive::bip32::ExtendedPrivKey;
+use toml::value::Value;
 
 const DEFAULT_DERIVATION_PATH: &str = "m/44'/5757'/0'/0/0";
 
@@ -52,11 +50,10 @@ pub struct AccountConfig {
     pub derivation: String,
     pub balance: u64,
     pub address: String,
-    pub is_mainnet: bool
+    pub is_mainnet: bool,
 }
 
 impl ChainConfig {
-
     #[allow(non_fmt_panic)]
     pub fn from_path(path: &PathBuf) -> ChainConfig {
         let path = match File::open(path) {
@@ -76,7 +73,6 @@ impl ChainConfig {
     }
 
     pub fn from_config_file(config_file: ChainConfigFile) -> ChainConfig {
-
         let network = NetworkConfig {
             name: config_file.network.name.clone(),
             node_rpc_address: config_file.network.node_rpc_address.clone(),
@@ -103,9 +99,16 @@ impl ChainConfig {
                             };
 
                             let mnemonic = match account_settings.get("mnemonic") {
-                                Some(Value::String(words)) => Mnemonic::parse_in_normalized(bip39::Language::English, words).unwrap().to_string(),
+                                Some(Value::String(words)) => {
+                                    Mnemonic::parse_in_normalized(bip39::Language::English, words)
+                                        .unwrap()
+                                        .to_string()
+                                }
                                 _ => {
-                                    let entropy = &[0x33, 0xE4, 0x6B, 0xB1, 0x3A, 0x74, 0x6E, 0xA4, 0x1C, 0xDD, 0xE4, 0x5C, 0x90, 0x84, 0x6A, 0x79]; // todo(ludo): rand
+                                    let entropy = &[
+                                        0x33, 0xE4, 0x6B, 0xB1, 0x3A, 0x74, 0x6E, 0xA4, 0x1C, 0xDD,
+                                        0xE4, 0x5C, 0x90, 0x84, 0x6A, 0x79,
+                                    ]; // todo(ludo): rand
                                     Mnemonic::from_entropy(entropy).unwrap().to_string()
                                 }
                             };
@@ -120,12 +123,18 @@ impl ChainConfig {
                                 Err(_) => panic!(),
                             };
 
-                            let ext = ExtendedPrivKey::derive(&bip39_seed[..], DEFAULT_DERIVATION_PATH).unwrap();
+                            let ext =
+                                ExtendedPrivKey::derive(&bip39_seed[..], DEFAULT_DERIVATION_PATH)
+                                    .unwrap();
                             let secret_key = SecretKey::parse_slice(&ext.secret()).unwrap();
                             let public_key = PublicKey::from_secret_key(&secret_key);
-                            let pub_key = Secp256k1PublicKey::from_slice(&public_key.serialize_compressed()).unwrap();
+                            let pub_key =
+                                Secp256k1PublicKey::from_slice(&public_key.serialize_compressed())
+                                    .unwrap();
                             let version = 26; // todo(ludo): un-hardcode this
-                            let address = StacksAddress::from_public_key(version, pub_key).unwrap().to_string();
+                            let address = StacksAddress::from_public_key(version, pub_key)
+                                .unwrap()
+                                .to_string();
 
                             config.accounts.insert(
                                 account_name.to_string(),
@@ -135,7 +144,7 @@ impl ChainConfig {
                                     balance,
                                     address,
                                     is_mainnet,
-                                }
+                                },
                             );
                         }
                         _ => {}

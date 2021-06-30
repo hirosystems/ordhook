@@ -100,7 +100,10 @@ fn install_client(ClientOpt::VsCode: ClientOpt) -> Result<()> {
         run!("cmd.exe /c npm run package")?;
 
         let code = find_code(|bin| run!("cmd.exe /c {}.cmd --version", bin).is_ok())?;
-        run!(r"cmd.exe /c {}.cmd --install-extension clarity-lsp.vsix --force", code)?;
+        run!(
+            r"cmd.exe /c {}.cmd --install-extension clarity-lsp.vsix --force",
+            code
+        )?;
         run!("cmd.exe /c {}.cmd --list-extensions", code; echo = false)?
     };
 
@@ -130,7 +133,11 @@ fn install_server(opts: ServerOpt) -> Result<()> {
         )
     }
 
-    let jemalloc = if opts.jemalloc { "--features jemalloc" } else { "" };
+    let jemalloc = if opts.jemalloc {
+        "--features jemalloc"
+    } else {
+        ""
+    };
     let res = run!("cargo install --path . --locked --force {}", jemalloc);
 
     if res.is_err() && old_rust {
@@ -146,7 +153,10 @@ fn install_server(opts: ServerOpt) -> Result<()> {
 fn check_version(version_output: &str, min_minor_version: u32) -> bool {
     // Parse second the number out of
     //      cargo 1.39.0-beta (1c6ec66d5 2019-09-30)
-    let minor: Option<u32> = version_output.split('.').nth(1).and_then(|it| it.parse().ok());
+    let minor: Option<u32> = version_output
+        .split('.')
+        .nth(1)
+        .and_then(|it| it.parse().ok());
     match minor {
         None => true,
         Some(minor) => minor >= min_minor_version,

@@ -6,23 +6,23 @@ use tokio;
 use serde_json::Value;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
-use tower_lsp::{async_trait, LanguageServer, LspService, Client, Server};
+use tower_lsp::{async_trait, Client, LanguageServer, LspService, Server};
 
+use clarity_repl::clarity::analysis::AnalysisDatabase;
+use clarity_repl::clarity::costs::LimitedCostTracker;
+use clarity_repl::clarity::types::{QualifiedContractIdentifier, StandardPrincipalData};
+use clarity_repl::clarity::{analysis, ast};
+use clarity_repl::{clarity, repl};
+use sha2::Digest;
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
 use std::fs::{self, File};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex, RwLock};
-use std::io::Read;
-use sha2::Digest;
-use clarity_repl::{repl, clarity};
-use clarity_repl::clarity::analysis::AnalysisDatabase;
-use clarity_repl::clarity::types::{QualifiedContractIdentifier, StandardPrincipalData};
-use clarity_repl::clarity::{ast, analysis};
-use clarity_repl::clarity::costs::LimitedCostTracker;
 
-use crate::clarinet::{MainConfig, build_session_settings};
+use crate::clarinet::{build_session_settings, MainConfig};
 use crate::utils;
 
 #[derive(Debug)]
@@ -41,7 +41,7 @@ enum Symbol {
 
 #[derive(Debug)]
 pub struct CompletionMaps {
-    pub inter_contract: Vec<CompletionItem>, 
+    pub inter_contract: Vec<CompletionItem>,
     pub intra_contract: Vec<CompletionItem>,
 }
 
@@ -67,21 +67,22 @@ pub struct ClarityLanguageBackend {
 }
 
 impl ClarityLanguageBackend {
-
     pub fn new(client: Client) -> Self {
         Self {
             clarinet_toml_path: RwLock::new(None),
             network_toml_path: RwLock::new(None),
             contracts: RwLock::new(HashMap::new()),
             client,
-            native_functions: utils::build_default_native_keywords_list()
+            native_functions: utils::build_default_native_keywords_list(),
         }
     }
 
-    pub fn run_full_analysis(&self) -> std::result::Result<(Vec<(Url, Diagnostic)>, Logs), (String, Logs)> {
+    pub fn run_full_analysis(
+        &self,
+    ) -> std::result::Result<(Vec<(Url, Diagnostic)>, Logs), (String, Logs)> {
         let mut logs = vec![];
         logs.push("Full analysis will start".into());
-        
+
         // Retrieve ./Clarinet.toml and settings/Development.toml paths
         let settings = match self.get_config_files_paths() {
             Err(message) => return Err((message, logs)),
@@ -89,26 +90,26 @@ impl ClarityLanguageBackend {
                 // Read these 2 files and build a SessionSetting
                 match build_session_settings(&clarinet_toml_path, &network_toml_path) {
                     Err(message) => return Err((message, logs)),
-                    Ok((settings, _)) => settings
+                    Ok((settings, _)) => settings,
                 }
-            },
+            }
             Ok(None) => SessionSettings::default(),
         };
 
         // Build a blank Session: we will be evaluating the contracts one by one
-        let mut incremental_session = repl::Session::new(settings.clone());        
+        let mut incremental_session = repl::Session::new(settings.clone());
         let mut collected_diagnostics = vec![];
         let mainnet = false;
 
         for (i, contract) in settings.initial_contracts.iter().enumerate() {
-            let contract_path = PathBuf::from_str(&contract.path)
-                .expect("Expect url to be well formatted");
-            let contract_url = Url::from_file_path(contract_path)
-                .expect("Expect url to be well formatted");
-            let contract_id = contract.get_contract_identifier(mainnet)
+            let contract_path =
+                PathBuf::from_str(&contract.path).expect("Expect url to be well formatted");
+            let contract_url =
+                Url::from_file_path(contract_path).expect("Expect url to be well formatted");
+            let contract_id = contract
+                .get_contract_identifier(mainnet)
                 .expect("Expect contract to be named");
-            let code = fs::read_to_string(&contract.path)
-                .expect("Expect file to be readable");
+            let code = fs::read_to_string(&contract.path).expect("Expect file to be readable");
 
             logs.push(format!("Analysis #{}: {}", i, contract_id.to_string()));
 
@@ -117,42 +118,56 @@ impl ClarityLanguageBackend {
 
             // Extract the AST, and try to move to the next contract if we throw an error:
             // we're trying to get as many errors as possible
-            let mut ast = match incremental_session.interpreter.build_ast(contract_id.clone(), code.clone()) {
+            let mut ast = match incremental_session
+                .interpreter
+                .build_ast(contract_id.clone(), code.clone())
+            {
                 Ok(ast) => ast,
                 Err((_, Some(diagnostic))) => {
-                    collected_diagnostics.push(
-                        (contract_url.clone(), utils::convert_clarity_diagnotic_to_lsp_diagnostic(diagnostic))
-                    );
-                    continue
-                },
+                    collected_diagnostics.push((
+                        contract_url.clone(),
+                        utils::convert_clarity_diagnotic_to_lsp_diagnostic(diagnostic),
+                    ));
+                    continue;
+                }
                 _ => {
                     logs.push("Unable to get ast".into());
-                    continue
+                    continue;
                 }
             };
 
             // Run the analysis, and try to move to the next contract if we throw an error:
             // we're trying to get as many errors as possible
-            let analysis = match incremental_session.interpreter.run_analysis(contract_id.clone(), &mut ast) {
+            let analysis = match incremental_session
+                .interpreter
+                .run_analysis(contract_id.clone(), &mut ast)
+            {
                 Ok(analysis) => analysis,
                 Err((_, Some(diagnostic))) => {
-                    collected_diagnostics.push(
-                        (contract_url.clone(), utils::convert_clarity_diagnotic_to_lsp_diagnostic(diagnostic))
-                    );
-                    continue
-                },
+                    collected_diagnostics.push((
+                        contract_url.clone(),
+                        utils::convert_clarity_diagnotic_to_lsp_diagnostic(diagnostic),
+                    ));
+                    continue;
+                }
                 _ => {
                     logs.push("Unable to get diagnostic".into());
-                    continue
+                    continue;
                 }
             };
 
             // Executing the contract will also save the contract into the Datastore. This is required
             // for the next contracts, that could depend on the current contract.
-            let _ = incremental_session.interpreter.execute(contract_id.clone(), &mut ast, code.clone(), analysis.clone(), false, None);
+            let _ = incremental_session.interpreter.execute(
+                contract_id.clone(),
+                &mut ast,
+                code.clone(),
+                analysis.clone(),
+                false,
+                None,
+            );
 
-
-            // We have a legit contract, let's extract some Intellisense data that will be served for 
+            // We have a legit contract, let's extract some Intellisense data that will be served for
             // auto-completion requests
             let intellisense = utils::build_intellisense(&analysis);
 
@@ -168,20 +183,21 @@ impl ClarityLanguageBackend {
                 logs.push(format!("Unable to acquire write lock"));
             }
         }
-        return Ok((collected_diagnostics, logs))
+        return Ok((collected_diagnostics, logs));
     }
 
-    pub fn run_single_analysis(&self, url: Url) -> std::result::Result<(Vec<(Url, Diagnostic)>, Logs), (String, Logs)> {
+    pub fn run_single_analysis(
+        &self,
+        url: Url,
+    ) -> std::result::Result<(Vec<(Url, Diagnostic)>, Logs), (String, Logs)> {
         let mut logs = vec![];
         let settings = SessionSettings::default();
-        let mut incremental_session = repl::Session::new(settings.clone());        
+        let mut incremental_session = repl::Session::new(settings.clone());
         let mut collected_diagnostics = vec![];
         let mainnet = false;
 
-        let contract_path = url.to_file_path()
-            .expect("Expect url to be well formatted");
-        let code = fs::read_to_string(&contract_path)
-            .expect("Expect file to be readable");
+        let contract_path = url.to_file_path().expect("Expect url to be well formatted");
+        let code = fs::read_to_string(&contract_path).expect("Expect file to be readable");
 
         let contract_id = QualifiedContractIdentifier::transient();
 
@@ -192,37 +208,45 @@ impl ClarityLanguageBackend {
 
         // Extract the AST, and try to move to the next contract if we throw an error:
         // we're trying to get as many errors as possible
-        let mut ast = match incremental_session.interpreter.build_ast(contract_id.clone(), code.clone()) {
+        let mut ast = match incremental_session
+            .interpreter
+            .build_ast(contract_id.clone(), code.clone())
+        {
             Ok(ast) => ast,
             Err((_, Some(diagnostic))) => {
-                collected_diagnostics.push(
-                    (url.clone(), utils::convert_clarity_diagnotic_to_lsp_diagnostic(diagnostic))
-                );
-                return Ok((collected_diagnostics, logs))
-            },
+                collected_diagnostics.push((
+                    url.clone(),
+                    utils::convert_clarity_diagnotic_to_lsp_diagnostic(diagnostic),
+                ));
+                return Ok((collected_diagnostics, logs));
+            }
             _ => {
                 logs.push("Unable to get ast".into());
-                return Ok((collected_diagnostics, logs))
+                return Ok((collected_diagnostics, logs));
             }
         };
 
         // Run the analysis, and try to move to the next contract if we throw an error:
         // we're trying to get as many errors as possible
-        let analysis = match incremental_session.interpreter.run_analysis(contract_id.clone(), &mut ast) {
+        let analysis = match incremental_session
+            .interpreter
+            .run_analysis(contract_id.clone(), &mut ast)
+        {
             Ok(analysis) => analysis,
             Err((_, Some(diagnostic))) => {
-                collected_diagnostics.push(
-                    (url.clone(), utils::convert_clarity_diagnotic_to_lsp_diagnostic(diagnostic))
-                );
-                return Ok((collected_diagnostics, logs))
-            },
+                collected_diagnostics.push((
+                    url.clone(),
+                    utils::convert_clarity_diagnotic_to_lsp_diagnostic(diagnostic),
+                ));
+                return Ok((collected_diagnostics, logs));
+            }
             _ => {
                 logs.push("Unable to get diagnostic".into());
-                return Ok((collected_diagnostics, logs))
+                return Ok((collected_diagnostics, logs));
             }
         };
 
-        // We have a legit contract, let's extract some Intellisense data that will be served for 
+        // We have a legit contract, let's extract some Intellisense data that will be served for
         // auto-completion requests
         let intellisense = utils::build_intellisense(&analysis);
 
@@ -238,7 +262,7 @@ impl ClarityLanguageBackend {
             logs.push(format!("Unable to acquire write lock"));
         }
 
-        return Ok((collected_diagnostics, logs))
+        return Ok((collected_diagnostics, logs));
     }
 
     fn get_contracts_urls(&self) -> Vec<Url> {
@@ -247,10 +271,18 @@ impl ClarityLanguageBackend {
     }
 
     fn get_config_files_paths(&self) -> std::result::Result<Option<(PathBuf, PathBuf)>, String> {
-        match (self.clarinet_toml_path.read(), self.network_toml_path.read()) {
-            (Ok(clarinet_toml_path), Ok(network_toml_path)) => match (clarinet_toml_path.as_ref(), network_toml_path.as_ref()) {
-                (Some(clarinet_toml_path), Some(network_toml_path)) => Ok(Some((clarinet_toml_path.clone(), network_toml_path.clone()))),
-                _ => Ok(None),
+        match (
+            self.clarinet_toml_path.read(),
+            self.network_toml_path.read(),
+        ) {
+            (Ok(clarinet_toml_path), Ok(network_toml_path)) => {
+                match (clarinet_toml_path.as_ref(), network_toml_path.as_ref()) {
+                    (Some(clarinet_toml_path), Some(network_toml_path)) => Ok(Some((
+                        clarinet_toml_path.clone(),
+                        network_toml_path.clone(),
+                    ))),
+                    _ => Ok(None),
+                }
             }
             _ => return Err("Unable to acquire locks".into()),
         }
@@ -265,30 +297,50 @@ impl ClarityLanguageBackend {
 }
 
 impl ClarityLanguageBackend {
-
-    async fn handle_diagnostics(&self, diagnostics: Option<Vec<(Url, Diagnostic)>>, logs: Vec<String>) {
-
+    async fn handle_diagnostics(
+        &self,
+        diagnostics: Option<Vec<(Url, Diagnostic)>>,
+        logs: Vec<String>,
+    ) {
         // let (diagnostics, messages) = self.run_incremental_analysis(None);
         for m in logs.iter() {
             self.client.log_message(MessageType::Info, m).await;
         }
 
         if let Some(diagnostics) = diagnostics {
-            // Note: None != Some(vec![]): When we pass None, it means that we were unable to get some 
-            // diagnostics, so don't flush the current diagnostics. 
+            // Note: None != Some(vec![]): When we pass None, it means that we were unable to get some
+            // diagnostics, so don't flush the current diagnostics.
             for url in self.get_contracts_urls().into_iter() {
                 self.client.publish_diagnostics(url, vec![], None).await;
             }
-            
+
             if !diagnostics.is_empty() {
                 let erroring_files = diagnostics
                     .iter()
-                    .map(|(url, _)| url.to_file_path().unwrap().file_name().unwrap().to_str().unwrap().to_string())
+                    .map(|(url, _)| {
+                        url.to_file_path()
+                            .unwrap()
+                            .file_name()
+                            .unwrap()
+                            .to_str()
+                            .unwrap()
+                            .to_string()
+                    })
                     .collect::<Vec<_>>();
-                self.client.show_message(MessageType::Error, format!("Errors detected in following contracts: {}",  erroring_files.join(", ") )).await;
+                self.client
+                    .show_message(
+                        MessageType::Error,
+                        format!(
+                            "Errors detected in following contracts: {}",
+                            erroring_files.join(", ")
+                        ),
+                    )
+                    .await;
             }
             for (url, diagnostic) in diagnostics.into_iter() {
-                self.client.publish_diagnostics(url, vec![diagnostic], None).await;
+                self.client
+                    .publish_diagnostics(url, vec![diagnostic], None)
+                    .await;
             }
         }
     }
@@ -296,16 +348,17 @@ impl ClarityLanguageBackend {
 
 #[async_trait]
 impl LanguageServer for ClarityLanguageBackend {
-
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
-
         let mut config_files = None;
-        
+
         // Are we looking at a workspace that would include a Clarinet project?
         if let Some(workspace_folders) = params.workspace_folders {
             for folder in workspace_folders.iter() {
-                let root_path = folder.uri.to_file_path().expect("Unable to turn URL into path");
-        
+                let root_path = folder
+                    .uri
+                    .to_file_path()
+                    .expect("Unable to turn URL into path");
+
                 let mut clarinet_toml_path = root_path.clone();
                 clarinet_toml_path.push("Clarinet.toml");
 
@@ -316,15 +369,17 @@ impl LanguageServer for ClarityLanguageBackend {
                 if clarinet_toml_path.exists() && network_toml_path.exists() {
                     config_files = Some((clarinet_toml_path, network_toml_path));
                     break;
-                }            
+                }
             }
         }
 
         match (&config_files, params.root_uri) {
             (None, Some(root_uri)) => {
                 // Are we looking at a folder that would include a Clarinet project?
-                let root_path = root_uri.to_file_path().expect("Unable to turn URL into path");
-        
+                let root_path = root_uri
+                    .to_file_path()
+                    .expect("Unable to turn URL into path");
+
                 let mut clarinet_toml_path = root_path.clone();
                 clarinet_toml_path.push("Clarinet.toml");
 
@@ -369,9 +424,9 @@ impl LanguageServer for ClarityLanguageBackend {
     async fn initialized(&self, params: InitializedParams) {
         // If we're not in a Clarinet workspace, don't try to be smart.
         if !self.is_clarinet_workspace() {
-            return
+            return;
         }
-        
+
         match self.run_full_analysis() {
             Ok((diagnostics, logs)) => {
                 self.handle_diagnostics(Some(diagnostics), logs).await;
@@ -387,10 +442,7 @@ impl LanguageServer for ClarityLanguageBackend {
         Ok(())
     }
 
-    async fn execute_command(
-        &self,
-        _: ExecuteCommandParams,
-    ) -> Result<Option<Value>> {
+    async fn execute_command(&self, _: ExecuteCommandParams) -> Result<Option<Value>> {
         Ok(None)
     }
 
@@ -402,7 +454,7 @@ impl LanguageServer for ClarityLanguageBackend {
             let contracts_reader = self.contracts.read().unwrap();
             let contract_keywords = match contracts_reader.get(&contract_uri) {
                 Some(entry) => entry.intellisense.intra_contract.clone(),
-                _ => vec![]
+                _ => vec![],
             };
             let mut contract_calls = vec![];
             for (url, contract_state) in contracts_reader.iter() {
@@ -421,7 +473,7 @@ impl LanguageServer for ClarityLanguageBackend {
             // let line = params.text_document_position.position.line;
             // let char = params.text_document_position.position.character;
             // let doc = params.text_document_position.text_document.uri;
-            // 
+            //
             // TODO(lgalabru): from there, we'd need to get the prior char
             // and see if a parenthesis was opened. If not, we need to wrap.
             // The LSP would need to update its local document cache, via
@@ -437,7 +489,7 @@ impl LanguageServer for ClarityLanguageBackend {
                     | Some(CompletionItemKind::Class)
                     | Some(CompletionItemKind::Method) => {
                         item.insert_text = Some(format!("({})", item.insert_text.take().unwrap()));
-                    },
+                    }
                     _ => {}
                 }
             }
@@ -454,12 +506,11 @@ impl LanguageServer for ClarityLanguageBackend {
     //     }
     // }
 
-    async fn did_save(&self,  params: DidSaveTextDocumentParams) {
-        
+    async fn did_save(&self, params: DidSaveTextDocumentParams) {
         let results = match self.is_clarinet_workspace() {
             true => self.run_full_analysis(),
-            false => self.run_single_analysis(params.text_document.uri)
-        } ;
+            false => self.run_single_analysis(params.text_document.uri),
+        };
 
         match results {
             Ok((diagnostics, logs)) => {

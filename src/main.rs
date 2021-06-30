@@ -5,15 +5,16 @@
 #![allow(non_snake_case)]
 #![allow(non_upper_case_globals)]
 
-#[macro_use] extern crate lazy_static;
+#[macro_use]
+extern crate lazy_static;
 
 extern crate serde;
 
 #[macro_use]
 extern crate serde_derive;
 
-mod clarity_language_backend;
 mod clarinet;
+mod clarity_language_backend;
 mod utils;
 
 use clarity_language_backend::ClarityLanguageBackend;

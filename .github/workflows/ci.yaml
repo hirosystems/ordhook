@@ -13,7 +13,6 @@ on:
     branches:
       - main
       - develop
-      - ci/release-workflow
   workflow_dispatch:
 
 jobs:
@@ -57,8 +56,8 @@ jobs:
       - name: Run audit
         run: cargo audit
 
-      # - name: Run rustfmt
-      #   run: cargo fmt --all -- --check
+      - name: Run rustfmt
+        run: cargo fmt --all -- --check
 
   test:
     name: Run tests
@@ -210,16 +209,20 @@ jobs:
         with:
           node-version: 12.x
 
-      - run: npm ci
+      - name: Install dependencies
+        run: npm ci
         working-directory: ./editors/code
 
-      - run: npm audit
+      - name: Audit
+        run: npm audit
         working-directory: ./editors/code
 
-      # - run: npm run lint
-      #   working-directory: ./editors/code
+      - name: Lint
+        run: npm run lint
+        working-directory: ./editors/code
 
-      - run: npm run package --scripts-prepend-node-path
+      - name: Build extension
+        run: npm run package --scripts-prepend-node-path
         working-directory: ./editors/code
 
       - name: Upload artifact
@@ -237,7 +240,7 @@ jobs:
           asset_name: clarity-lsp.vsix
           tag: ${{ github.ref }}
 
-      - name: Publish Extension
+      - name: Publish extension
         if: startsWith(github.ref, 'refs/tags/v')
         working-directory: ./editors/code
         run: npx vsce publish --pat ${{ secrets.MARKETPLACE_TOKEN }} --packagePath clarity-lsp.vsix

@@ -1,14 +1,17 @@
-mod project_config;
 mod chain_config;
+mod project_config;
 
-pub use project_config::{MainConfig, MainConfigFile, ContractConfig, RequirementConfig};
 pub use chain_config::{ChainConfig, ChainConfigFile};
-use tower_lsp::lsp_types::Url;
 use clarity_repl::repl;
-use std::path::{Path, PathBuf};
+pub use project_config::{ContractConfig, MainConfig, MainConfigFile, RequirementConfig};
 use std::fs;
+use std::path::{Path, PathBuf};
+use tower_lsp::lsp_types::Url;
 
-pub fn build_session_settings(clarinet_toml_path: &PathBuf, network_toml_file: &PathBuf) -> Result<(repl::SessionSettings, MainConfig), String> {
+pub fn build_session_settings(
+    clarinet_toml_path: &PathBuf,
+    network_toml_file: &PathBuf,
+) -> Result<(repl::SessionSettings, MainConfig), String> {
     let mut settings = repl::SessionSettings::default();
 
     let mut project_config = MainConfig::from_path(&clarinet_toml_path);
@@ -29,9 +32,7 @@ pub fn build_session_settings(clarinet_toml_path: &PathBuf, network_toml_file: &
             initial_deployer = Some(account.clone());
             deployer_address = Some(account.address.clone());
         }
-        settings
-            .initial_accounts
-            .push(account);
+        settings.initial_accounts.push(account);
     }
 
     let mut root_path = clarinet_toml_path.clone();
@@ -44,7 +45,10 @@ pub fn build_session_settings(clarinet_toml_path: &PathBuf, network_toml_file: &
         let code = match fs::read_to_string(&contract_path) {
             Ok(code) => code,
             Err(err) => {
-                return Err(format!("Error: unable to read {:?}: {}", contract_path, err))
+                return Err(format!(
+                    "Error: unable to read {:?}: {}",
+                    contract_path, err
+                ))
             }
         };
 
@@ -64,16 +68,15 @@ pub fn build_session_settings(clarinet_toml_path: &PathBuf, network_toml_file: &
     };
 
     for link_config in links.iter() {
-        settings
-            .initial_links
-            .push(repl::settings::InitialLink {
-                contract_id: link_config.contract_id.clone(),
-                stacks_node_addr: None,
-                cache: None,
+        settings.initial_links.push(repl::settings::InitialLink {
+            contract_id: link_config.contract_id.clone(),
+            stacks_node_addr: None,
+            cache: None,
         });
     }
 
-    settings.include_boot_contracts = vec!["pox".to_string(), "costs".to_string(), "bns".to_string()];
+    settings.include_boot_contracts =
+        vec!["pox".to_string(), "costs".to_string(), "bns".to_string()];
     settings.initial_deployer = initial_deployer;
     Ok((settings, project_config))
 }
