@@ -1,0 +1,56 @@
+{
+    "name": "clarity-lsp",
+    "description": "Clarity is a **decidable** smart contract language that optimizes for predictability and security, designed by Hiro. Smart contracts allow developers to encode essential business logic on a blockchain.",
+    "commitlint": {
+        "extends": [
+            "@commitlint/config-conventional"
+        ]
+    },
+    "husky": {
+        "hooks": {
+            "commit-msg": "commitlint -E HUSKY_GIT_PARAMS"
+        }
+    },
+    "release": {
+        "branches": [
+            {
+                "name": "develop",
+                "prerelease": true
+            },
+            "main"
+        ],
+        "plugins": [
+            "@semantic-release/commit-analyzer",
+            "@semantic-release/release-notes-generator",
+            [
+                "@semantic-release/exec",
+                {
+                    "prepareCmd": "sed -i -e '1h;2,$H;$!d;g' -e 's@name = \"clarity-lsp\"\\nversion = \"${lastRelease.version}\"@name = \"clarity-lsp\"\\nversion = \"${nextRelease.version}\"@g' Cargo.toml Cargo.lock"
+                }
+            ],
+            "@semantic-release/github",
+            "@semantic-release/changelog",
+            [
+                "@semantic-release/git",
+                {
+                    "message": "chore(release): ${nextRelease.version}\n\n${nextRelease.notes}",
+                    "assets": [
+                        "CHANGELOG.md",
+                        "Cargo.toml",
+                        "Cargo.lock",
+                        "package.json",
+                        "package-lock.json"
+                    ]
+                }
+            ]
+        ]
+    },
+    "devDependencies": {
+        "@commitlint/cli": "^12.1.4",
+        "@commitlint/config-conventional": "^12.1.4",
+        "husky": "^6.0.0"
+    },
+    "scripts": {
+        "prepare": "husky install"
+    }
+}
