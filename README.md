@@ -51,11 +51,11 @@ cargo xtask install
 
 ## Additional desired features (not exhaustive, not prioritized)
 - [x] Inline documentation
-- [ ] Auto-complete user defined functions
+- [x] Auto-complete user defined functions
 - [ ] Return and display cost analysis
-- [ ] Resolve contract-call targeting local contracts 
+- [x] Resolve contract-call targeting local contracts 
 - [ ] Resolve contract-call targeting deployed contracts
-- [ ] Support for traits
+- [x] Support for traits
 - [ ] Support for multiple errors
 - [ ] Supporting more editors (vim, emacs, atom, etc)
 
