@@ -25,7 +25,7 @@
             [
                 "@semantic-release/exec",
                 {
-                    "prepareCmd": "sed -i -e '1h;2,$H;$!d;g' -e 's@name = \"clarity-lsp\"\\nversion = \"${lastRelease.version}\"@name = \"clarity-lsp\"\\nversion = \"${nextRelease.version}\"@g' Cargo.toml Cargo.lock"
+                    "prepareCmd": "sed -i -e '1h;2,$H;$!d;g' -e 's@name = \"clarity-lsp\"\\nversion = \"[^\"]*\"@name = \"clarity-lsp\"\\nversion = \"${nextRelease.version}\"@g' Cargo.toml Cargo.lock"
                 }
             ],
             [

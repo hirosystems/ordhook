@@ -177,8 +177,8 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v2
         with:
-          name: ${{ matrix.platform }}
-          path: clarity-lsp-${{ matrix.platform }}.zip
+          name: clarity-lsp-${{ matrix.platform }}
+          path: ${{ matrix.platform }}.zip
 
       - name: Unit Tests
         run: cargo test --release --locked --target ${{ matrix.target }}
