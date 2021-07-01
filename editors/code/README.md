@@ -1,5 +1,5 @@
 
-# clarity-lsp
+# Clarity for Visual Studio Code
 
 Clarity is a **decidable** smart contract language that optimizes for predictability and security, designed by Blockstack. Smart contracts allow developers to encode essential business logic on a blockchain. 
 
@@ -15,13 +15,11 @@ This project aims at leveraging the decidability quality of Clarity and the LSP 
 
 ### VSCode
 
-This is the best supported editor at the moment. clarity-lsp plugin for VS Code is maintained in tree.
 You can install the latest release of the plugin from the [marketplace](https://marketplace.visualstudio.com/items?itemName=hirosystems.clarity-lsp).
 
 ### Building From Source
 
 Alternatively, both the server and the plugin can be installed from source.
-
 
 The first step is to ensure that you have Rust and the support software installed.
 
@@ -43,7 +41,6 @@ Then build and install:
 cargo xtask install
 ```
 
-
 ## Initial feature set
 - [x] Auto-complete native functions
 - [x] Check contract on save, and display errors inline.
@@ -51,12 +48,11 @@ cargo xtask install
 
 ## Additional desired features (not exhaustive, not prioritized)
 - [x] Inline documentation
-- [ ] Auto-complete user defined functions
+- [x] Auto-complete user defined functions
 - [ ] Return and display cost analysis
-- [ ] Resolve contract-call targeting local contracts 
+- [x] Resolve contract-call targeting local contracts 
 - [ ] Resolve contract-call targeting deployed contracts
-- [ ] Support for traits
+- [x] Support for traits
 - [ ] Support for multiple errors
-- [ ] Supporting more editors (vim, emacs, atom, etc)
 
 

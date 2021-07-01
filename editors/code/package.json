@@ -1,6 +1,6 @@
 {
     "name": "clarity-lsp",
-    "displayName": "Clarity Playground",
+    "displayName": "Clarity for Visual Studio Code",
     "description": "Coding assistant for Smart Contracts (Stacks, Bitcoin)",
     "icon": "images/stacks.png",
     "preview": true,
@@ -33,7 +33,7 @@
     "engines": {
         "vscode": "^1.43.0"
     },
-    "enableProposedApi": true,
+    "enableProposedApi": false,
     "scripts": {
         "vscode:prepublish": "tsc && rollup -c",
         "package": "vsce package -o clarity-lsp.vsix",
