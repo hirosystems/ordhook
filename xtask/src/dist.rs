@@ -17,7 +17,11 @@ pub fn run_dist(client_opts: Option<ClientOpts>) -> Result<()> {
     rm_rf(&dist)?;
     fs2::create_dir_all(&dist)?;
 
-    if let Some(ClientOpts { version, release_tag }) = client_opts {
+    if let Some(ClientOpts {
+        version,
+        release_tag,
+    }) = client_opts
+    {
         dist_client(&version, &release_tag)?;
     }
     dist_server()?;
@@ -31,8 +35,14 @@ fn dist_client(version: &str, release_tag: &str) -> Result<()> {
     let mut patch = Patch::new("./package.json")?;
 
     patch
-        .replace(r#""version": "0.1.0""#, &format!(r#""version": "{}""#, version))
-        .replace(r#""releaseTag": null"#, &format!(r#""releaseTag": "{}""#, release_tag));
+        .replace(
+            r#""version": "0.1.0""#,
+            &format!(r#""version": "{}""#, version),
+        )
+        .replace(
+            r#""releaseTag": null"#,
+            &format!(r#""releaseTag": "{}""#, release_tag),
+        );
 
     if nightly {
         patch.replace(
@@ -56,9 +66,8 @@ fn dist_server() -> Result<()> {
         run!(
             "cargo build --manifest-path ./Cargo.toml --bin clarity-lsp --release
              --target x86_64-unknown-linux-musl
-            "
-            // We'd want to add, but that requires setting the right linker somehow
-            // --features=jemalloc
+            " // We'd want to add, but that requires setting the right linker somehow
+              // --features=jemalloc
         )?;
         run!("strip ./target/x86_64-unknown-linux-musl/release/clarity-lsp")?;
     } else {
@@ -66,9 +75,15 @@ fn dist_server() -> Result<()> {
     }
 
     let (src, dst) = if cfg!(target_os = "linux") {
-        ("./target/x86_64-unknown-linux-musl/release/clarity-lsp", "./dist/clarity-lsp-linux")
+        (
+            "./target/x86_64-unknown-linux-musl/release/clarity-lsp",
+            "./dist/clarity-lsp-linux",
+        )
     } else if cfg!(target_os = "windows") {
-        ("./target/release/clarity-lsp.exe", "./dist/clarity-lsp-windows.exe")
+        (
+            "./target/release/clarity-lsp.exe",
+            "./dist/clarity-lsp-windows.exe",
+        )
     } else if cfg!(target_os = "macos") {
         ("./target/release/clarity-lsp", "./dist/clarity-lsp-mac")
     } else {
@@ -90,7 +105,11 @@ impl Patch {
     fn new(path: impl Into<PathBuf>) -> Result<Patch> {
         let path = path.into();
         let contents = fs2::read_to_string(&path)?;
-        Ok(Patch { path, original_contents: contents.clone(), contents })
+        Ok(Patch {
+            path,
+            original_contents: contents.clone(),
+            contents,
+        })
     }
 
     fn replace(&mut self, from: &str, to: &str) -> &mut Patch {

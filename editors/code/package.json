@@ -1,11 +1,11 @@
 {
     "name": "clarity-lsp",
-    "displayName": "Clarity Playground",
+    "displayName": "Clarity for Visual Studio Code",
     "description": "Coding assistant for Smart Contracts (Stacks, Bitcoin)",
     "icon": "images/stacks.png",
     "preview": true,
     "private": true,
-    "version": "0.5.0",
+    "version": "0.5.1-develop.2",
     "releaseTag": null,
     "publisher": "hirosystems",
     "repository": "https://github.com/hirosystems/clarity-lsp.git",
@@ -33,7 +33,7 @@
     "engines": {
         "vscode": "^1.43.0"
     },
-    "enableProposedApi": true,
+    "enableProposedApi": false,
     "scripts": {
         "vscode:prepublish": "tsc && rollup -c",
         "package": "vsce package -o clarity-lsp.vsix",
@@ -59,6 +59,7 @@
         "eslint": "^6.8.0",
         "rollup": "^2.3.2",
         "tslib": "^1.11.1",
+        "tslint": "^6.1.3",
         "typescript": "^3.8.3",
         "typescript-formatter": "^7.2.2",
         "vsce": "^1.75.0"
