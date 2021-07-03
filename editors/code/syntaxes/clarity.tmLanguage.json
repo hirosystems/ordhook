@@ -1,7 +1,7 @@
 {
   "name": "clarity",
   "scopeName": "source.clar",
-  "uuid": "f9e9871d-2ea6-4be0-afd2-fc382d704716",
+  "uuid": "f09c317d-fb99-410f-b88e-7272bb2af68d",
   "patterns": [
     {
       "include": "#comment"
