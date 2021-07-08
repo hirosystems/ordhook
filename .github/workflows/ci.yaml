@@ -125,9 +125,14 @@ jobs:
             target: x86_64-pc-windows-msvc
             linker_package:
             cc: ""
-          - os: macos-latest
+          - os: macos-intel-latest
             platform: macos-x64
             target: x86_64-apple-darwin
+            linker_package:
+            cc: ""
+          - os: macos-arm64-latest
+            platform: macos-aarch64
+            target: aarch64-apple-darwin
             linker_package:
             cc: ""
 
