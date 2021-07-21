@@ -44,25 +44,25 @@
         "fix": "tsfmt -r && eslint -c .eslintrc.js --ext ts ./src --fix"
     },
     "dependencies": {
-        "jsonc-parser": "^2.2.1",
+        "jsonc-parser": "^3.0.0",
         "node-fetch": "^2.6.1",
-        "vscode-languageclient": "6.1.3"
+        "vscode-languageclient": "7.0.0"
     },
     "devDependencies": {
-        "@rollup/plugin-commonjs": "^11.0.2",
-        "@rollup/plugin-node-resolve": "^7.1.1",
-        "@types/node": "^12.12.34",
-        "@types/node-fetch": "^2.5.5",
-        "@types/vscode": "^1.43.0",
-        "@typescript-eslint/eslint-plugin": "^2.26.0",
-        "@typescript-eslint/parser": "^2.26.0",
-        "eslint": "^6.8.0",
-        "rollup": "^2.3.2",
-        "tslib": "^1.11.1",
+        "@rollup/plugin-commonjs": "^19.0.1",
+        "@rollup/plugin-node-resolve": "^13.0.2",
+        "@types/node": "^16.4.0",
+        "@types/node-fetch": "^2.5.11",
+        "@types/vscode": "^1.58.1",
+        "@typescript-eslint/eslint-plugin": "^4.28.4",
+        "@typescript-eslint/parser": "^4.28.4",
+        "eslint": "^7.31.0",
+        "rollup": "^2.53.2",
+        "tslib": "^2.3.0",
         "tslint": "^6.1.3",
-        "typescript": "^3.8.3",
+        "typescript": "^4.3.5",
         "typescript-formatter": "^7.2.2",
-        "vsce": "^1.75.0"
+        "vsce": "^1.96.0"
     },
     "activationEvents": [
         "onLanguage:clarity",

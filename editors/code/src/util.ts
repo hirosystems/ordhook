@@ -1,6 +1,8 @@
-import * as lc from "vscode-languageclient";
+import * as lc from "vscode-languageclient/node";
 import * as vscode from "vscode";
 import { strict as nativeAssert } from "assert";
+
+//import * as prot from "vscode-languageclient/lib/node'
 
 export function assert(condition: boolean, explanation: string): asserts condition {
 	try {
@@ -50,11 +52,15 @@ export async function sendRequestWithRetry<TParam, TRet>(
 				throw error;
 			}
 
-			if (error.code === lc.ErrorCodes.RequestCancelled) {
+			//if (error.code === lc.ErrorCodes.RequestCancelled) {
+			
+			if (error.code === lc.LSPErrorCodes.RequestCancelled) {
 				throw error;
 			}
 
-			if (error.code !== lc.ErrorCodes.ContentModified) {
+			//if (error.code !== lc.ErrorCodes.ContentModified) {
+			
+			if (error.code !== lc.LSPErrorCodes.ContentModified) {
 				log.error("LSP request failed", { method: reqType.method, param, error });
 				throw error;
 			}
@@ -66,7 +72,8 @@ export async function sendRequestWithRetry<TParam, TRet>(
 }
 
 export function sleep(ms: number) {
-	return new Promise(resolve => setTimeout(resolve, ms));
+	//return new Promise(resolve => setTimeout(resolve, ms));
+	return new Promise(resolve => setTimeout(resolve, ms, null));
 }
 
 export type RustDocument = vscode.TextDocument & { languageId: "rust" };

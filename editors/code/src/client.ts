@@ -1,9 +1,14 @@
-import * as lc from 'vscode-languageclient';
+import * as lc from 'vscode-languageclient/node';
 import * as vscode from 'vscode';
 
 import { Config } from './config';
-import { CallHierarchyFeature } from 'vscode-languageclient/lib/callHierarchy.proposed';
-import { SemanticTokensFeature, DocumentSemanticsTokensSignature } from 'vscode-languageclient/lib/semanticTokens.proposed';
+//import { CallHierarchyFeature } from 'vscode-languageclient/lib/callHierarchy.proposed';
+
+import { CallHierarchyFeature } from 'vscode-languageclient/lib/common/callHierarchy';
+
+//import { SemanticTokensFeature, DocumentSemanticsTokensSignature } from 'vscode-languageclient/lib/semanticTokens.proposed';
+
+import { SemanticTokensFeature, DocumentSemanticsTokensSignature } from 'vscode-languageclient/lib/common/semanticTokens';
 
 export async function createClient(config: Config, serverPath: string, cwd: string): Promise<lc.LanguageClient> {
 	// '.' Is the fallback if no folder is open
