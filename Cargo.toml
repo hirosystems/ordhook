@@ -16,23 +16,32 @@ categories = ["command-line-utilities", "development-tools", "development-tools:
 members = [".", "xtask/"]
 
 [dependencies]
-tower-lsp = "0.14.0"
+tower-lsp = "0.14.1"
 lazy_static = "1.4.0"
-serde_json = "1.0.47"
-serde = "1"
-serde_derive = "1"
-hmac = "=0.10.1"
-pbkdf2 = { version = "=0.7.3", features=["parallel"], default-features = false }
-tokio = { version = "1.6", features = ["rt", "macros", "io-std"] }
-tokio-util = { version = "0.6.5", features = ["codec"] }
-regex = "1.3.4"
-sha2 = "0.9.3"
-toml = { version = "0.5.6", features = ["preserve_order"] }
+serde_json = "1.0.64"
+serde = "1.0.126"
+serde_derive = "1.0.126"
+#hmac = "=0.10.1"
+hmac = "0.11.0"
+
+#not sure what the "=#" is about (can't find documentation) (may mean "exact version")
+
+#pbkdf2 = { version = "=0.7.3", features=["parallel"], default-features = false }
+
+pbkdf2 = { version = "=0.8.0", features=["parallel"], default-features = false }
+
+tokio = { version = "1.8.1", features = ["rt", "macros", "io-std"] }
+
+tokio-util = { version = "0.6.7", features = ["codec"] }
+regex = "1.5.4"
+sha2 = "0.9.5"
+toml = { version = "0.5.8", features = ["preserve_order"] }
 tiny-hderive = "=0.3.0"
 bip39 = { version = "=1.0.1", default-features = false }
-libsecp256k1 = "0.3.5"
+#libsecp256k1 = "0.6.0"
+libsecp256k1 = "0.6.0"
 # clarity_repl = { package = "clarity-repl", path = "../clarity-repl" }
-clarity_repl = { package = "clarity-repl", version = "=0.13.0", features = ["cli"] }
+clarity_repl = { package = "clarity-repl", version = "=0.14.0", features = ["cli"] }
 
 
 [profile.dev]
