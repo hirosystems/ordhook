@@ -25,6 +25,8 @@ use std::sync::{Arc, Mutex, RwLock};
 use crate::clarinet::{build_session_settings, MainConfig};
 use crate::utils;
 
+use log::{error, warn};
+
 #[derive(Debug)]
 enum Symbol {
     PublicFunction,
@@ -525,6 +527,338 @@ impl LanguageServer for ClarityLanguageBackend {
 
     async fn did_close(&self, _: DidCloseTextDocumentParams) {}
 
+    async fn did_change_workspace_folders(&self, params: DidChangeWorkspaceFoldersParams) {
+        let _ = params;
+        warn!("Got a workspace/didChangeWorkspaceFolders notification, but it is not implemented");
+    }
+
+    async fn did_change_configuration(&self, params: DidChangeConfigurationParams) {
+        let _ = params;
+        warn!("Got a workspace/didChangeConfiguration notification, but it is not implemented");
+    }
+
+    async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
+        let _ = params;
+        warn!("Got a workspace/didChangeWatchedFiles notification, but it is not implemented");
+    }
+
+    async fn symbol(
+        &self,
+        params: WorkspaceSymbolParams,
+    ) -> Result<Option<Vec<SymbolInformation>>> {
+        let _ = params;
+        error!("Got a workspace/symbol request, but it is not implemented");
+        Err(tower_lsp::jsonrpc::Error::method_not_found())
+    }
+
+    async fn will_create_files(&self, params: CreateFilesParams) -> Result<Option<WorkspaceEdit>> {
+        let _ = params;
+        error!("Got a workspace/willCreateFiles request, but it is not implemented");
+        Err(tower_lsp::jsonrpc::Error::method_not_found())
+    }
+
+    async fn did_create_files(&self, params: CreateFilesParams) {
+        let _ = params;
+        warn!("Got a workspace/didCreateFiles notification, but it is not implemented");
+    }
+
+    async fn will_rename_files(&self, params: RenameFilesParams) -> Result<Option<WorkspaceEdit>> {
+        let _ = params;
+        error!("Got a workspace/willRenameFiles request, but it is not implemented");
+        Err(tower_lsp::jsonrpc::Error::method_not_found())
+    }
+
+    async fn did_rename_files(&self, params: RenameFilesParams) {
+        let _ = params;
+        warn!("Got a workspace/didRenameFiles notification, but it is not implemented");
+    }
+
+    async fn will_delete_files(&self, params: DeleteFilesParams) -> Result<Option<WorkspaceEdit>> {
+        let _ = params;
+        error!("Got a workspace/willDeleteFiles request, but it is not implemented");
+        Err(tower_lsp::jsonrpc::Error::method_not_found())
+    }
+
+    async fn did_delete_files(&self, params: DeleteFilesParams) {
+        let _ = params;
+        warn!("Got a workspace/didDeleteFiles notification, but it is not implemented");
+    }
+
+    async fn did_change(&self, params: DidChangeTextDocumentParams) {
+        let _ = params;
+        warn!("Got a textDocument/didChange notification, but it is not implemented");
+    }
+
+    async fn will_save(&self, params: WillSaveTextDocumentParams) {
+        let _ = params;
+        warn!("Got a textDocument/willSave notification, but it is not implemented");
+    }
+
+    async fn will_save_wait_until(
+        &self,
+        params: WillSaveTextDocumentParams,
+    ) -> Result<Option<Vec<TextEdit>>> {
+        let _ = params;
+        error!("Got a textDocument/willSaveWaitUntil request, but it is not implemented");
+        Err(tower_lsp::jsonrpc::Error::method_not_found())
+    }
+
+    async fn completion_resolve(&self, params: CompletionItem) -> Result<CompletionItem> {
+        let _ = params;
+        error!("Got a completionItem/resolve request, but it is not implemented");
+        Err(tower_lsp::jsonrpc::Error::method_not_found())
+    }
+
+    async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
+        let _ = params;
+        error!("Got a textDocument/hover request, but it is not implemented");
+        Err(tower_lsp::jsonrpc::Error::method_not_found())
+    }
+
+    async fn signature_help(&self, params: SignatureHelpParams) -> Result<Option<SignatureHelp>> {
+        let _ = params;
+        error!("Got a textDocument/signatureHelp request, but it is not implemented");
+        Err(tower_lsp::jsonrpc::Error::method_not_found())
+    }
+
+    async fn goto_declaration(
+        &self,
+        params: request::GotoDeclarationParams,
+    ) -> Result<Option<request::GotoDeclarationResponse>> {
+        let _ = params;
+        error!("Got a textDocument/declaration request, but it is not implemented");
+        Err(tower_lsp::jsonrpc::Error::method_not_found())
+    }
+
+    async fn goto_definition(
+        &self,
+        params: GotoDefinitionParams,
+    ) -> Result<Option<GotoDefinitionResponse>> {
+        let _ = params;
+        error!("Got a textDocument/definition request, but it is not implemented");
+        Err(tower_lsp::jsonrpc::Error::method_not_found())
+    }
+
+    async fn goto_type_definition(
+        &self,
+        params: request::GotoTypeDefinitionParams,
+    ) -> Result<Option<request::GotoTypeDefinitionResponse>> {
+        let _ = params;
+        error!("Got a textDocument/typeDefinition request, but it is not implemented");
+        Err(tower_lsp::jsonrpc::Error::method_not_found())
+    }
+
+    async fn goto_implementation(
+        &self,
+        params: request::GotoImplementationParams,
+    ) -> Result<Option<request::GotoImplementationResponse>> {
+        let _ = params;
+        error!("Got a textDocument/implementation request, but it is not implemented");
+        Err(tower_lsp::jsonrpc::Error::method_not_found())
+    }
+
+    async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
+        let _ = params;
+        error!("Got a textDocument/references request, but it is not implemented");
+        Err(tower_lsp::jsonrpc::Error::method_not_found())
+    }
+
+    async fn document_highlight(
+        &self,
+        params: DocumentHighlightParams,
+    ) -> Result<Option<Vec<DocumentHighlight>>> {
+        let _ = params;
+        error!("Got a textDocument/documentHighlight request, but it is not implemented");
+        Err(tower_lsp::jsonrpc::Error::method_not_found())
+    }
+
+    async fn document_symbol(
+        &self,
+        params: DocumentSymbolParams,
+    ) -> Result<Option<DocumentSymbolResponse>> {
+        let _ = params;
+        error!("Got a textDocument/documentSymbol request, but it is not implemented");
+        Err(tower_lsp::jsonrpc::Error::method_not_found())
+    }
+
+    async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
+        let _ = params;
+        error!("Got a textDocument/codeAction request, but it is not implemented");
+        Err(tower_lsp::jsonrpc::Error::method_not_found())
+    }
+
+    async fn code_action_resolve(&self, params: CodeAction) -> Result<CodeAction> {
+        let _ = params;
+        error!("Got a codeAction/resolve request, but it is not implemented");
+        Err(tower_lsp::jsonrpc::Error::method_not_found())
+    }
+
+    async fn code_lens(&self, params: CodeLensParams) -> Result<Option<Vec<CodeLens>>> {
+        let _ = params;
+        error!("Got a textDocument/codeLens request, but it is not implemented");
+        Err(tower_lsp::jsonrpc::Error::method_not_found())
+    }
+
+    async fn code_lens_resolve(&self, params: CodeLens) -> Result<CodeLens> {
+        let _ = params;
+        error!("Got a codeLens/resolve request, but it is not implemented");
+        Err(tower_lsp::jsonrpc::Error::method_not_found())
+    }
+
+    async fn document_link(&self, params: DocumentLinkParams) -> Result<Option<Vec<DocumentLink>>> {
+        let _ = params;
+        error!("Got a textDocument/documentLink request, but it is not implemented");
+        Err(tower_lsp::jsonrpc::Error::method_not_found())
+    }
+
+    async fn document_link_resolve(&self, params: DocumentLink) -> Result<DocumentLink> {
+        let _ = params;
+        error!("Got a documentLink/resolve request, but it is not implemented");
+        Err(tower_lsp::jsonrpc::Error::method_not_found())
+    }
+
+    async fn document_color(&self, params: DocumentColorParams) -> Result<Vec<ColorInformation>> {
+        let _ = params;
+        error!("Got a textDocument/documentColor request, but it is not implemented");
+        Err(tower_lsp::jsonrpc::Error::method_not_found())
+    }
+
+    async fn color_presentation(
+        &self,
+        params: ColorPresentationParams,
+    ) -> Result<Vec<ColorPresentation>> {
+        let _ = params;
+        error!("Got a textDocument/colorPresentation request, but it is not implemented");
+        Err(tower_lsp::jsonrpc::Error::method_not_found())
+    }
+
+    async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
+        let _ = params;
+        error!("Got a textDocument/formatting request, but it is not implemented");
+        Err(tower_lsp::jsonrpc::Error::method_not_found())
+    }
+
+    async fn range_formatting(
+        &self,
+        params: DocumentRangeFormattingParams,
+    ) -> Result<Option<Vec<TextEdit>>> {
+        let _ = params;
+        error!("Got a textDocument/rangeFormatting request, but it is not implemented");
+        Err(tower_lsp::jsonrpc::Error::method_not_found())
+    }
+
+    async fn on_type_formatting(
+        &self,
+        params: DocumentOnTypeFormattingParams,
+    ) -> Result<Option<Vec<TextEdit>>> {
+        let _ = params;
+        error!("Got a textDocument/onTypeFormatting request, but it is not implemented");
+        Err(tower_lsp::jsonrpc::Error::method_not_found())
+    }
+
+    async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
+        let _ = params;
+        error!("Got a textDocument/rename request, but it is not implemented");
+        Err(tower_lsp::jsonrpc::Error::method_not_found())
+    }
+
+    async fn prepare_rename(
+        &self,
+        params: TextDocumentPositionParams,
+    ) -> Result<Option<PrepareRenameResponse>> {
+        let _ = params;
+        error!("Got a textDocument/prepareRename request, but it is not implemented");
+        Err(tower_lsp::jsonrpc::Error::method_not_found())
+    }
+
+    async fn folding_range(&self, params: FoldingRangeParams) -> Result<Option<Vec<FoldingRange>>> {
+        let _ = params;
+        error!("Got a textDocument/foldingRange request, but it is not implemented");
+        Err(tower_lsp::jsonrpc::Error::method_not_found())
+    }
+
+    async fn selection_range(
+        &self,
+        params: SelectionRangeParams,
+    ) -> Result<Option<Vec<SelectionRange>>> {
+        let _ = params;
+        error!("Got a textDocument/selectionRange request, but it is not implemented");
+        Err(tower_lsp::jsonrpc::Error::method_not_found())
+    }
+
+    async fn prepare_call_hierarchy(
+        &self,
+        params: CallHierarchyPrepareParams,
+    ) -> Result<Option<Vec<CallHierarchyItem>>> {
+        let _ = params;
+        error!("Got a textDocument/prepareCallHierarchy request, but it is not implemented");
+        Err(tower_lsp::jsonrpc::Error::method_not_found())
+    }
+
+    async fn incoming_calls(
+        &self,
+        params: CallHierarchyIncomingCallsParams,
+    ) -> Result<Option<Vec<CallHierarchyIncomingCall>>> {
+        let _ = params;
+        error!("Got a callHierarchy/incomingCalls request, but it is not implemented");
+        Err(tower_lsp::jsonrpc::Error::method_not_found())
+    }
+
+    async fn outgoing_calls(
+        &self,
+        params: CallHierarchyOutgoingCallsParams,
+    ) -> Result<Option<Vec<CallHierarchyOutgoingCall>>> {
+        let _ = params;
+        error!("Got a callHierarchy/outgoingCalls request, but it is not implemented");
+        Err(tower_lsp::jsonrpc::Error::method_not_found())
+    }
+
+    //Semantic Tokens
+
+    async fn semantic_tokens_full(
+        &self,
+        params: SemanticTokensParams,
+    ) -> Result<Option<SemanticTokensResult>> {
+        let _ = params;
+        error!("Got a textDocument/semanticTokens/full request, but it is not implemented");
+        Err(tower_lsp::jsonrpc::Error::method_not_found())
+    }
+
+    async fn semantic_tokens_full_delta(
+        &self,
+        params: SemanticTokensDeltaParams,
+    ) -> Result<Option<SemanticTokensFullDeltaResult>> {
+        let _ = params;
+        error!("Got a textDocument/semanticTokens/full/delta request, but it is not implemented");
+        Err(tower_lsp::jsonrpc::Error::method_not_found())
+    }
+
+    async fn semantic_tokens_range(
+        &self,
+        params: SemanticTokensRangeParams,
+    ) -> Result<Option<SemanticTokensRangeResult>> {
+        let _ = params;
+        error!("Got a textDocument/semanticTokens/range request, but it is not implemented");
+        Err(tower_lsp::jsonrpc::Error::method_not_found())
+    }
+
+    //
+
+    async fn linked_editing_range(
+        &self,
+        params: LinkedEditingRangeParams,
+    ) -> Result<Option<LinkedEditingRanges>> {
+        let _ = params;
+        error!("Got a textDocument/linkedEditingRange request, but it is not implemented");
+        Err(tower_lsp::jsonrpc::Error::method_not_found())
+    }
+
+    async fn moniker(&self, params: MonikerParams) -> Result<Option<Vec<Moniker>>> {
+        let _ = params;
+        error!("Got a textDocument/moniker request, but it is not implemented");
+        Err(tower_lsp::jsonrpc::Error::method_not_found())
+    }
+
     // fn symbol(&self, params: WorkspaceSymbolParams) -> Self::SymbolFuture {
     //     Box::new(future::ok(None))
     // }
@@ -553,4 +887,5 @@ impl LanguageServer for ClarityLanguageBackend {
     // fn document_highlight(&self, _: TextDocumentPositionParams) -> Self::HighlightFuture {
     //     Box::new(future::ok(None))
     // }
+
 }
