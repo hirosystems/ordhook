@@ -17,6 +17,8 @@ mod clarinet;
 mod clarity_language_backend;
 mod utils;
 
+mod semantic_tokens;
+
 use clarity_language_backend::ClarityLanguageBackend;
 use tokio;
 use tower_lsp::{LspService, Server};

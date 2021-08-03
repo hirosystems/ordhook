@@ -27,6 +27,8 @@ use crate::utils;
 
 use log::{error, warn};
 
+use crate::semantic_tokens;
+
 #[derive(Debug)]
 enum Symbol {
     PublicFunction,
