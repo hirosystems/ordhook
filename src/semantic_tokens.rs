@@ -10,6 +10,8 @@ use lsp_types::{
 
 use String;
 
+use std::vec;
+
 /*
 use chrono::{
 
@@ -55,22 +57,62 @@ impl SemanticTokensBuilder
 
     }
 
-    pub fn push(&mut self, range: Range, token_index: u32, modifier_bitset: u32)
+    pub fn push(&mut self, line: u32, char: u32, length: u32, token_type: u32, token_modifiers: u32)
     {
 
-        let mut push_line = range.start.line;
+        let mut pushLine = line;
 
-        let mut push_char= range.start.character;
+        let mut pushChar = char;
 
         if self.data.len() > 0
         {
 
-            push_line -= self.previous_line;
+            pushLine -= self.previous_line;
 
-            if push_line == 0
+            if pushLine == 0
             {
 
-                push_char -= self.previous_line;
+                pushChar -= self.previous_line;
+
+            }
+
+        }
+
+        let sm_token = SemanticToken{
+            
+            delta_line: pushLine,
+            delta_start: pushChar,
+            length: length,
+            token_type: token_type,
+            token_modifiers_bitset: token_modifiers
+
+        };
+
+        self.data.push(sm_token);
+
+        self.previous_line = line;
+
+        self.previous_char = char;
+
+
+    }
+
+    pub fn push_range(&mut self, range: Range, token_index: u32, modifier_bitset: u32)
+    {
+
+        let mut pushLine = range.start.line;
+
+        let mut pushChar= range.start.character;
+
+        if self.data.len() > 0
+        {
+
+            pushLine -= self.previous_line;
+
+            if pushLine == 0
+            {
+
+                pushChar -= self.previous_line;
 
             }
 
@@ -82,8 +124,8 @@ impl SemanticTokensBuilder
 
         let sm_token = SemanticToken{
             
-            delta_line: push_line,
-            delta_start: push_char,
+            delta_line: pushLine,
+            delta_start: pushChar,
             length: token_len,
             token_type: token_index,
             token_modifiers_bitset: modifier_bitset
@@ -110,5 +152,177 @@ impl SemanticTokensBuilder
         }
 
     }
+
+}
+
+pub struct ParsedToken
+{
+
+    line: u32,
+    startCharacter: u32,
+    length: u32,
+    tokenType: String,
+    tokenModifiers: Vec<String>
+
+}
+
+pub fn parse_text(text: &String)
+{
+
+    let mut parsedTokens = Vec::<String>::new();
+
+    let lines = Vec::<String>::new();
+
+    //Tokenisation
+
+    let mut currentToken = String::new();
+
+    for line in text.lines()
+    {
+
+        /* 
+        if line.is_empty()
+        {
+
+            continue;
+
+        }
+        */
+        
+        let mut is_string = false;
+
+        //let mut is_start_of = false;
+
+        for currentChar in line.chars()
+        {
+
+            if currentChar.is_whitespace() && !currentToken.is_empty() && !is_string
+            {
+
+                completeToken(&mut parsedTokens, &mut currentToken);
+
+                continue;
+
+            }
+
+            match currentChar 
+            {
+
+                '(' | ')' => {
+
+                    if !is_string
+                    {
+
+                        continue;
+
+                    }
+
+                }
+                '\"' => {
+
+                    is_string = !is_string;
+
+                }
+                ':' => {
+
+                    if !is_string && !currentToken.is_empty()
+                    {
+
+                        completeToken(&mut parsedTokens, &mut currentToken);
+
+                    }
+
+                    currentToken.push(currentChar);
+
+                    completeToken(&mut parsedTokens, &mut currentToken);
+
+                    continue;
+
+                }
+
+                //operator detection
+
+                '+' => {
+
+                    if !is_string && !currentToken.is_empty()
+                    {
+
+                        completeToken(&mut parsedTokens, &mut currentToken);
+
+                    }
+
+                }
+                //'-' => {
+                //}
+                '*' => {
+
+                    if !is_string && !currentToken.is_empty()
+                    {
+
+                        completeToken(&mut parsedTokens, &mut currentToken);
+
+                    }
+
+                }
+                '/' => {
+
+                    if !is_string && !currentToken.is_empty()
+                    {
+
+                        completeToken(&mut parsedTokens, &mut currentToken);
+
+                    }
+
+                }
+                /*'>' => {
+                }
+                '<' => {
+                }*/
+                '=' => {
+
+                    if !currentToken.is_empty()
+                    {
+                        
+                        if !is_string //&& 
+                        {
+
+                            completeToken(&mut parsedTokens, &mut currentToken);
+
+                        }
+
+                    }
+
+                }
+                _ => {
+
+                }
+
+            }
+
+            currentToken.push(currentChar);
+
+            //decide if the token should be cloned into paredtokens
+
+        }
+
+        if !currentToken.is_empty()
+        {
+
+            completeToken(&mut parsedTokens, &mut currentToken);
+
+            continue;
+            
+        }
+
+    }
+
+}
+
+fn completeToken(parsedTokens: &mut Vec::<String>, currentToken:  &mut String)
+{
+
+    parsedTokens.push(currentToken.clone());
+
+    currentToken.clear();
 
 }
