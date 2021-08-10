@@ -23,6 +23,33 @@ use chrono::{
 
 use chrono::prelude::*;
 
+pub fn get_supported_token_types() -> Vec<SemanticTokenType>
+{
+
+    let mut token_types = vec!();
+    
+    token_types.push(SemanticTokenType::new("block-height"));
+
+    token_types.push(SemanticTokenType::new("burn-block-height"));
+
+    token_types.push(SemanticTokenType::new("contract-caller"));
+
+    token_types.push(SemanticTokenType::new("false"));
+
+    token_types.push(SemanticTokenType::new("is-in-regtest"));
+
+    token_types.push(SemanticTokenType::new("none"));
+
+    token_types.push(SemanticTokenType::new("stx-liquid-supply"));
+
+    token_types.push(SemanticTokenType::new("true"));
+
+    token_types.push(SemanticTokenType::new("tx-sender"));
+
+    token_types
+
+}
+
 pub struct SemanticTokensBuilder
 {
 
@@ -94,6 +121,43 @@ impl SemanticTokensBuilder
 
         self.previous_char = char;
 
+    }
+
+    pub fn push_strs(&mut self, line: u32, char: u32, length: u32, token_type: &str, token_modifiers: Option<Vec<&str>>, supported_token_types: &Vec<SemanticTokenType>)
+    {
+
+        let mut index: u32 = 0;
+
+        //let mut found_index: i32 = -1;
+
+        let mut found_index: u32 = 0;
+
+        let mut has_been_found = false;
+
+        for supported_token_type in supported_token_types.iter()
+        {
+
+            index += 1;
+
+            if token_type == supported_token_type.as_str()
+            {
+
+                found_index = index;
+
+                has_been_found = true;
+
+            }
+
+        }
+
+        if !has_been_found //found_index == -1
+        {
+
+            return;
+
+        }
+        
+        self.push(line, char, length, found_index, 0);
 
     }
 
@@ -155,6 +219,7 @@ impl SemanticTokensBuilder
 
 }
 
+/*
 pub struct ParsedToken
 {
 
@@ -165,6 +230,7 @@ pub struct ParsedToken
     tokenModifiers: Vec<String>
 
 }
+*/
 
 pub fn parse_text(text: &String)
 {
