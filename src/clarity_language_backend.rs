@@ -27,7 +27,7 @@ use crate::utils;
 
 use log::{error, warn};
 
-use crate::semantic_tokens;
+use crate::semantic_tokens::{semantic_tokens_full, get_supported_token_types, get_supported_token_modifiers};
 
 #[derive(Debug)]
 enum Symbol {
@@ -420,6 +420,18 @@ impl LanguageServer for ClarityLanguageBackend {
                 type_definition_provider: None,
                 hover_provider: Some(HoverProviderCapability::Simple(false)),
                 declaration_provider: Some(DeclarationCapability::Simple(false)),
+                semantic_tokens_provider: Some(
+                    SemanticTokensOptions {
+                        work_done_progress_options: Default::default(),
+                        legend: SemanticTokensLegend {
+                            token_types: get_supported_token_types(),
+                            token_modifiers: get_supported_token_modifiers()
+                        },
+                        range: Some(false),
+                        full: Some(SemanticTokensFullOptions::Delta{ delta: Some(false) }),
+
+                    }.into()
+                ),
                 ..ServerCapabilities::default()
             },
         })
@@ -821,9 +833,12 @@ impl LanguageServer for ClarityLanguageBackend {
         &self,
         params: SemanticTokensParams,
     ) -> Result<Option<SemanticTokensResult>> {
-        let _ = params;
+        /*let _ = params;
         error!("Got a textDocument/semanticTokens/full request, but it is not implemented");
-        Err(tower_lsp::jsonrpc::Error::method_not_found())
+        Err(tower_lsp::jsonrpc::Error::method_not_found())*/
+
+        semantic_tokens_full(params)
+
     }
 
     async fn semantic_tokens_full_delta(

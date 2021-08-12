@@ -7,7 +7,8 @@ use lsp_types::{
     SemanticTokens,
     SemanticTokensEdit,
     SemanticTokensParams,
-    SemanticTokensRangeResult
+    SemanticTokensRangeResult,
+    SemanticTokensResult
 };
 
 use String;
@@ -145,8 +146,16 @@ pub fn try_get_SemanticTokenType(input: &str) -> Option<SemanticTokenType>
         "is-some" |
         "keccak256" |
         "len" |
-        "let" |
-        "list" |
+        "let" => {
+
+            return Some(SemanticTokenType::FUNCTION);
+
+        },
+        "list" => {
+
+            return Some(SemanticTokenType::FUNCTION);
+
+        }, //warning: unreachable pattern
         "log2" |
         "map" |
         "map-delete" |
@@ -178,8 +187,16 @@ pub fn try_get_SemanticTokenType(input: &str) -> Option<SemanticTokenType>
         "stx-transfer?" |
         "to-int" |
         "to-uint" |
-        "try!" |
-        "tuple" |
+        "try!" => {
+
+            return Some(SemanticTokenType::FUNCTION);
+
+        },
+        "tuple" => {
+
+            return Some(SemanticTokenType::FUNCTION);
+
+        }, //warning: unreachable pattern
         "unwrap-err-panic" |
         "unwrap-err!" |
         "unwrap-panic" |
@@ -268,7 +285,7 @@ impl SemanticTokensBuilder
             if pushLine == 0
             {
 
-                pushChar -= self.previous_line;
+                pushChar -= self.previous_char;
 
             }
 
@@ -345,7 +362,7 @@ impl SemanticTokensBuilder
             if pushLine == 0
             {
 
-                pushChar -= self.previous_line;
+                pushChar -= self.previous_char;
 
             }
 
@@ -395,16 +412,18 @@ pub struct ParsedToken
     line: u32,
     startCharacter: u32,
     length: u32,
-    tokenType: String,
-    tokenModifiers: Vec<String>
+    tokenType: SemanticTokenType,
+    tokenModifiers: Option<Vec<SemanticTokenModifier>>
 
 }
 */
 
-pub fn parse_text(text: &String) -> Vec::<String>
+pub fn parse_text(text: &String, path_as_string: &String) -> SemanticTokensBuilder //Vec::<SemanticToken>
 {
 
-    let mut parsedTokens = Vec::<String>::new();
+    let token_types = get_supported_token_types();
+
+    let mut parsedTokens = SemanticTokensBuilder::new(path_as_string.clone()); //Vec::<SemanticToken>::new();
 
     //let lines = Vec::<String>::new();
 
@@ -412,29 +431,65 @@ pub fn parse_text(text: &String) -> Vec::<String>
 
     let mut currentToken = String::new();
 
+    let mut previous_char: Option::<char>; // = None; 
+
+    let mut line_no: u32 = 0;
+    
+    let mut char_no: u32 = 0;
+
     for line in text.lines()
     {
 
-        /* 
+        //check that we've looked at our last token on our previous line
+
+        if !currentToken.is_empty()
+        {
+        
+            completeToken(line_no.clone(),char_no.clone(), &mut currentToken, &token_types, &mut parsedTokens);
+        
+        }
+
         if line.is_empty()
         {
 
             continue;
 
         }
-        */
+
+        line_no += 1;
+
+        previous_char = None;
+
         
         let mut is_string = false;
 
         //let mut is_start_of = false;
 
+        char_no = 0;
+
         for currentChar in line.chars()
         {
 
-            if currentChar.is_whitespace() && !currentToken.is_empty() && !is_string
+            char_no += 1;
+
+            let is_whitespace = currentChar.is_whitespace();
+
+            if is_whitespace && !currentToken.is_empty() && !is_string
             {
 
-                completeToken(&mut parsedTokens, &mut currentToken);
+                //process token once we've reached whitespace
+
+                completeToken(line_no.clone(),char_no.clone(), &mut currentToken, &token_types, &mut parsedTokens);
+
+                previous_char = Some(currentChar);
+
+                continue;
+
+            }
+            else if is_whitespace
+            {
+
+                previous_char = Some(currentChar);
 
                 continue;
 
@@ -445,35 +500,68 @@ pub fn parse_text(text: &String) -> Vec::<String>
 
                 '(' | ')' => {
 
+                    //if is not string continue
+
                     if !is_string
                     {
 
-                        continue;
+                        previous_char = Some(currentChar);
 
+                        continue;
+                        
                     }
 
                 }
                 '\"' => {
 
+                    match previous_char {
+                        Some(res) => {
+
+                            //is this quote charachter escaped?
+
+                            if res == '\\'
+                            {
+
+                                previous_char = Some(currentChar);
+
+                                continue;
+
+                            }
+
+                        }
+                        None =>
+                        {
+
+                        }
+                        
+                    }
+
                     is_string = !is_string;
 
-                }
-                ':' => {
+                    previous_char = Some(currentChar);
 
+                }
+                //':' => {
+
+                    /*
                     if !is_string && !currentToken.is_empty()
                     {
 
-                        completeToken(&mut parsedTokens, &mut currentToken);
+                        completeToken(line_no.clone(),char_no.clone(), &mut currentToken, &token_types, &mut parsedTokens);
+
+
 
                     }
 
                     currentToken.push(currentChar);
 
-                    completeToken(&mut parsedTokens, &mut currentToken);
+                    completeToken(line_no.clone(),char_no.clone(), &mut currentToken, &token_types, &mut parsedTokens);
+                    */
 
-                    continue;
 
-                }
+                    //continue;
+
+                //}
 
                 //operator detection
 
@@ -482,7 +570,7 @@ pub fn parse_text(text: &String) -> Vec::<String>
                     if !is_string && !currentToken.is_empty()
                     {
 
-                        completeToken(&mut parsedTokens, &mut currentToken);
+                        completeToken(line_no.clone(),char_no.clone(), &mut currentToken, &token_types, &mut parsedTokens);
 
                     }
 
@@ -494,7 +582,7 @@ pub fn parse_text(text: &String) -> Vec::<String>
                     if !is_string && !currentToken.is_empty()
                     {
 
-                        completeToken(&mut parsedTokens, &mut currentToken);
+                        completeToken(line_no.clone(),char_no.clone(), &mut currentToken, &token_types, &mut parsedTokens);
 
                     }
 
@@ -504,7 +592,7 @@ pub fn parse_text(text: &String) -> Vec::<String>
                     if !is_string && !currentToken.is_empty()
                     {
 
-                        completeToken(&mut parsedTokens, &mut currentToken);
+                        completeToken(line_no.clone(),char_no.clone(), &mut currentToken, &token_types, &mut parsedTokens);
 
                     }
 
@@ -521,9 +609,44 @@ pub fn parse_text(text: &String) -> Vec::<String>
                         if !is_string //&& 
                         {
 
-                            completeToken(&mut parsedTokens, &mut currentToken);
+                            completeToken(line_no.clone(),char_no.clone(), &mut currentToken, &token_types, &mut parsedTokens);
 
                         }
+
+                    }
+
+                }
+                //comments
+                ';' => {
+
+                    if !is_string
+                    {
+
+                        match previous_char {
+                            Some(res) => {
+    
+                                //is comment?
+    
+                                if res == ';'
+                                {
+    
+                                    //previous_char = Some(currentChar);
+    
+                                    //don't save the previous char as we're going to a different line
+    
+                                    currentToken.clear();
+    
+                                    break; // skip the rest of the lkine
+    
+                                }
+    
+                            }
+                            None =>
+                            {
+    
+                            }
+                            
+                        }   
 
                     }
 
@@ -534,6 +657,8 @@ pub fn parse_text(text: &String) -> Vec::<String>
 
             }
 
+            previous_char = Some(currentChar);
+
             currentToken.push(currentChar);
 
             //decide if the token should be cloned into paredtokens
@@ -543,7 +668,7 @@ pub fn parse_text(text: &String) -> Vec::<String>
         if !currentToken.is_empty()
         {
 
-            completeToken(&mut parsedTokens, &mut currentToken);
+            completeToken(line_no.clone(),char_no.clone(), &mut currentToken, &token_types, &mut parsedTokens);
 
             continue;
             
@@ -551,20 +676,109 @@ pub fn parse_text(text: &String) -> Vec::<String>
 
     }
 
+    //check if theres still one remaining token to be processed
+
+    if !currentToken.is_empty()
+    {
+            
+        completeToken(line_no.clone(),char_no.clone(), &mut currentToken, &token_types, &mut parsedTokens);
+            
+    }
+
     parsedTokens
 
 }
 
-fn completeToken(parsedTokens: &mut Vec::<String>, currentToken:  &mut String)
+/*
+fn get_token_type_index(currentToken: &String, tokenTypes: &Vec<SemanticTokenType>) -> Option<u32>
 {
 
-    parsedTokens.push(currentToken.clone());
+    let mut index: u32 = 0;
+
+    let found_stt = try_get_SemanticTokenType(currentToken.as_str());
+
+    match found_stt 
+    {
+
+        Some(res) =>
+        {
+
+            for stt in tokenTypes.iter()
+            {
+        
+                if &res == stt
+                {
+
+                    return Some(index);
+
+                }
+
+                index += 1;
+        
+            }
+
+            None
+
+        }
+        None =>
+        {
+
+            None
+
+        }
+        
+    }
+
+}
+*/
+
+fn completeToken(delta_line: u32, delta_start: u32, currentToken: &mut String, tokenTypes: &Vec<SemanticTokenType>, builder: &mut SemanticTokensBuilder) //, parsedTokens: &mut Vec::<SemanticToken>)
+{
+
+    //parsedTokens.push(currentToken.clone());
+
+    //let token_type_index = get_token_type_index(&currentToken, &tokenTypes);
+
+    let token_type_option = try_get_SemanticTokenType(currentToken.as_str());
+
+    match token_type_option //token_type_index
+    {
+
+        Some(res) =>
+        {
+
+            /*
+            let st = SemanticToken {
+
+            delta_line: delta_line,
+        
+            delta_start: delta_start,
+        
+            length: currentToken.chars().count() as u32,
+        
+            token_type: res,
+            
+            token_modifiers_bitset: 0
+
+            };
+
+            parsedTokens.push(st);
+            */
+
+            builder.push_strs(delta_line, delta_start, currentToken.chars().count() as u32, &res, None, tokenTypes)
+
+        }
+        None => {
+
+        }
+
+    }
 
     currentToken.clear();
 
 }
 
-pub fn semantic_tokens_full(params: &SemanticTokensParams) -> tower_lsp::jsonrpc::Result<Option<SemanticTokensRangeResult>>
+pub fn semantic_tokens_full(params: SemanticTokensParams) -> tower_lsp::jsonrpc::Result<Option<SemanticTokensResult>>
 {
 
     /*
@@ -578,14 +792,48 @@ pub fn semantic_tokens_full(params: &SemanticTokensParams) -> tower_lsp::jsonrpc
 
     //let file_string;
     
-    match read_to_string( params.text_document.uri.as_str())
+    let path;
+
+    match params.text_document.uri.to_file_path()
+    {
+
+        Ok(res) =>
+        {
+
+            //file_string = res.to
+
+            path = res;
+
+        }
+        Err(err) =>
+        {
+
+            let mut err_result = tower_lsp::jsonrpc::Error::internal_error();
+
+            err_result.message = "Error opening file".to_owned();
+
+            return Err(err_result);
+
+        }
+
+    }
+
+    let path_as_string = path.clone().into_os_string().into_string().unwrap();
+
+    match read_to_string(path) //.as_str())
     {
 
         Ok(res) => {
 
-            let tokens = parse_text(&res);
+            let tokens = parse_text(&res, &path_as_string);
 
+            //use the path as the id
 
+            let sts = tokens.build(); //SemanticTokens { result_id: Some(path_as_string), data:  };
+
+            //SemanticTokensRangeResult { Tokens(sts) }
+
+            return Ok(Some(sts.into()));
 
         }
         Err(err) => {
@@ -626,8 +874,6 @@ pub fn semantic_tokens_full(params: &SemanticTokensParams) -> tower_lsp::jsonrpc
 
     }
 
-
-
-    tower_lsp::jsonrpc::Result::Ok(None)
+    //tower_lsp::jsonrpc::Result::Ok(None)
 
 }
