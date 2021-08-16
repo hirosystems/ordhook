@@ -146,16 +146,12 @@ pub fn try_get_SemanticTokenType(input: &str) -> Option<SemanticTokenType>
         "is-some" |
         "keccak256" |
         "len" |
-        "let" => {
-
-            return Some(SemanticTokenType::FUNCTION);
-
-        },
+        "let" |
         "list" => {
 
             return Some(SemanticTokenType::FUNCTION);
 
-        }, //warning: unreachable pattern
+        }, //warning: unreachable pattern - Also a type...
         "log2" |
         "map" |
         "map-delete" |
@@ -187,16 +183,12 @@ pub fn try_get_SemanticTokenType(input: &str) -> Option<SemanticTokenType>
         "stx-transfer?" |
         "to-int" |
         "to-uint" |
-        "try!" => {
-
-            return Some(SemanticTokenType::FUNCTION);
-
-        },
+        "try!" |
         "tuple" => {
 
             return Some(SemanticTokenType::FUNCTION);
 
-        }, //warning: unreachable pattern
+        }, //warning: unreachable pattern  - Also a type...
         "unwrap-err-panic" |
         "unwrap-err!" |
         "unwrap-panic" |
@@ -270,12 +262,12 @@ impl SemanticTokensBuilder
 
     }
 
-    pub fn push(&mut self, line: u32, char: u32, length: u32, token_type: u32, token_modifiers: u32)
+    pub fn push(&mut self, line: u32, char_index: u32, length: u32, token_type: u32, token_modifiers: u32)
     {
 
         let mut pushLine = line;
 
-        let mut pushChar = char;
+        let mut pushChar = char_index;
 
         if self.data.len() > 0
         {
@@ -305,11 +297,11 @@ impl SemanticTokensBuilder
 
         self.previous_line = line;
 
-        self.previous_char = char;
+        self.previous_char = char_index;
 
     }
 
-    pub fn push_strs(&mut self, line: u32, char: u32, length: u32, token_type: &SemanticTokenType, token_modifiers: Option<Vec<&str>>, supported_token_types: &Vec<SemanticTokenType>)
+    pub fn push_strs(&mut self, line: u32, char_index: u32, length: u32, token_type: &SemanticTokenType, token_modifiers: Option<Vec<&str>>, supported_token_types: &Vec<SemanticTokenType>)
     {
 
         let mut index: u32 = 0;
@@ -343,7 +335,7 @@ impl SemanticTokensBuilder
 
         }
         
-        self.push(line, char, length, found_index, 0);
+        self.push(line, char_index, length, found_index, 0);
 
     }
 
@@ -431,11 +423,13 @@ pub fn parse_text(text: &String, path_as_string: &String) -> SemanticTokensBuild
 
     let mut currentToken = String::new();
 
+    let mut start_char_index: Option::<u32> = None;
+
     let mut previous_char: Option::<char>; // = None; 
 
     let mut line_no: u32 = 0;
     
-    let mut char_no: u32 = 0;
+    let mut char_index: u32 = 0;
 
     for line in text.lines()
     {
@@ -445,9 +439,13 @@ pub fn parse_text(text: &String, path_as_string: &String) -> SemanticTokensBuild
         if !currentToken.is_empty()
         {
         
-            completeToken(line_no.clone(),char_no.clone(), &mut currentToken, &token_types, &mut parsedTokens);
+            completeToken(line_no.clone(), &mut currentToken, &mut start_char_index, &token_types, &mut parsedTokens);
         
         }
+
+        //you want to count the line before checking whether or not you want to continue 
+
+        line_no += 1;
 
         if line.is_empty()
         {
@@ -456,8 +454,6 @@ pub fn parse_text(text: &String, path_as_string: &String) -> SemanticTokensBuild
 
         }
 
-        line_no += 1;
-
         previous_char = None;
 
         
@@ -465,12 +461,12 @@ pub fn parse_text(text: &String, path_as_string: &String) -> SemanticTokensBuild
 
         //let mut is_start_of = false;
 
-        char_no = 0;
+        char_index = 0;
 
         for currentChar in line.chars()
         {
 
-            char_no += 1;
+            //char_index += 1;
 
             let is_whitespace = currentChar.is_whitespace();
 
@@ -479,9 +475,11 @@ pub fn parse_text(text: &String, path_as_string: &String) -> SemanticTokensBuild
 
                 //process token once we've reached whitespace
 
-                completeToken(line_no.clone(),char_no.clone(), &mut currentToken, &token_types, &mut parsedTokens);
+                completeToken(line_no.clone(), &mut currentToken, &mut start_char_index,&token_types, &mut parsedTokens);
 
                 previous_char = Some(currentChar);
+
+                char_index += 1;
 
                 continue;
 
@@ -490,6 +488,8 @@ pub fn parse_text(text: &String, path_as_string: &String) -> SemanticTokensBuild
             {
 
                 previous_char = Some(currentChar);
+
+                char_index += 1;
 
                 continue;
 
@@ -507,6 +507,24 @@ pub fn parse_text(text: &String, path_as_string: &String) -> SemanticTokensBuild
 
                         previous_char = Some(currentChar);
 
+                        char_index += 1;
+
+                        continue;
+                        
+                    }
+
+                }
+                '{' | '}' => {
+
+                    //if is not string continue
+
+                    if !is_string
+                    {
+
+                        previous_char = Some(currentChar);
+
+                        char_index += 1;
+
                         continue;
                         
                     }
@@ -523,6 +541,8 @@ pub fn parse_text(text: &String, path_as_string: &String) -> SemanticTokensBuild
                             {
 
                                 previous_char = Some(currentChar);
+
+                                char_index += 1;
 
                                 continue;
 
@@ -547,7 +567,7 @@ pub fn parse_text(text: &String, path_as_string: &String) -> SemanticTokensBuild
                     if !is_string && !currentToken.is_empty()
                     {
 
-                        completeToken(line_no.clone(),char_no.clone(), &mut currentToken, &token_types, &mut parsedTokens);
+                        completeToken(line_no.clone(),char_index.clone(), &mut currentToken, &token_types, &mut parsedTokens);
 
 
 
@@ -555,7 +575,7 @@ pub fn parse_text(text: &String, path_as_string: &String) -> SemanticTokensBuild
 
                     currentToken.push(currentChar);
 
-                    completeToken(line_no.clone(),char_no.clone(), &mut currentToken, &token_types, &mut parsedTokens);
+                    completeToken(line_no.clone(),char_index.clone(), &mut currentToken, &token_types, &mut parsedTokens);
                     */
 
 
@@ -567,49 +587,137 @@ pub fn parse_text(text: &String, path_as_string: &String) -> SemanticTokensBuild
 
                 '+' => {
 
-                    if !is_string && !currentToken.is_empty()
+                    if is_string //&& !currentToken.is_empty()
                     {
 
-                        completeToken(line_no.clone(),char_no.clone(), &mut currentToken, &token_types, &mut parsedTokens);
+                        //completeToken(line_no.clone(),  &mut currentToken, &mut start_char_index,&token_types, &mut parsedTokens);
+                        
+                        char_index += 1;
+
+                        continue;
 
                     }
 
                 }
-                //'-' => {
-                //}
-                '*' => {
-
-                    if !is_string && !currentToken.is_empty()
+                '-' => {
+                    
+                    if is_string && !currentToken.is_empty()
                     {
 
-                        completeToken(line_no.clone(),char_no.clone(), &mut currentToken, &token_types, &mut parsedTokens);
+                        //completeToken(line_no.clone(),  &mut currentToken, &mut start_char_index,&token_types, &mut parsedTokens);
+                        
+                        char_index += 1;
+
+                        continue;
+
+                    }
+
+                }
+                '*' => {
+
+                    if is_string //&& !currentToken.is_empty()
+                    {
+
+                        //completeToken(line_no.clone(), &mut currentToken, &mut start_char_index,&token_types, &mut parsedTokens);
+                        
+                        char_index += 1;
+
+                        continue;
 
                     }
 
                 }
                 '/' => {
 
-                    if !is_string && !currentToken.is_empty()
+                    if is_string //&& !currentToken.is_empty()
                     {
 
-                        completeToken(line_no.clone(),char_no.clone(), &mut currentToken, &token_types, &mut parsedTokens);
+                        //completeToken(line_no.clone(),  &mut currentToken, &mut start_char_index,&token_types, &mut parsedTokens);
+
+                        char_index += 1;
+
+                        continue;
 
                     }
 
                 }
-                /*'>' => {
+                '>' => {
+
+                    if is_string
+                    {
+
+                        char_index += 1;
+
+                        continue;
+
+                    }
+
+
                 }
                 '<' => {
-                }*/
+
+                    if is_string
+                    {
+
+                        char_index += 1;
+
+                        continue;
+
+                    }
+
+
+                }
                 '=' => {
 
-                    if !currentToken.is_empty()
+                    if currentToken.is_empty()
                     {
                         
-                        if !is_string //&& 
+                        if is_string //&& 
                         {
 
-                            completeToken(line_no.clone(),char_no.clone(), &mut currentToken, &token_types, &mut parsedTokens);
+                            //completeToken(line_no.clone(), &mut currentToken, &mut start_char_index,&token_types, &mut parsedTokens);
+
+                            char_index += 1;
+
+                            continue;
+
+                        }
+                        else
+                        {
+
+                            match previous_char
+                            {
+
+                                Some(res ) =>
+                                {
+
+                                    if res == '<' || res == '>'
+                                    {
+
+                                        previous_char = Some(currentChar);
+
+                                        currentToken.push(currentChar);
+
+                                        completeToken(line_no.clone(), &mut currentToken, &mut start_char_index,&token_types, &mut parsedTokens);
+
+                                    }
+
+                                }
+                                None =>
+                                {
+
+                                }
+
+                            }
+
+                            /*
+                            if let previous_char == Some('<')
+                            {
+
+
+
+                            }
+                            */
 
                         }
 
@@ -635,6 +743,8 @@ pub fn parse_text(text: &String, path_as_string: &String) -> SemanticTokensBuild
                                     //don't save the previous char as we're going to a different line
     
                                     currentToken.clear();
+
+                                    start_char_index = None;
     
                                     break; // skip the rest of the lkine
     
@@ -661,14 +771,23 @@ pub fn parse_text(text: &String, path_as_string: &String) -> SemanticTokensBuild
 
             currentToken.push(currentChar);
 
+            if start_char_index == None
+            {
+
+                start_char_index = Some(char_index);
+
+            }
+
             //decide if the token should be cloned into paredtokens
+
+            char_index += 1;
 
         }
 
         if !currentToken.is_empty()
         {
 
-            completeToken(line_no.clone(),char_no.clone(), &mut currentToken, &token_types, &mut parsedTokens);
+            completeToken(line_no.clone(), &mut currentToken, &mut start_char_index,&token_types, &mut parsedTokens);
 
             continue;
             
@@ -681,7 +800,7 @@ pub fn parse_text(text: &String, path_as_string: &String) -> SemanticTokensBuild
     if !currentToken.is_empty()
     {
             
-        completeToken(line_no.clone(),char_no.clone(), &mut currentToken, &token_types, &mut parsedTokens);
+        completeToken(line_no.clone(), &mut currentToken, &mut start_char_index,&token_types, &mut parsedTokens);
             
     }
 
@@ -689,55 +808,28 @@ pub fn parse_text(text: &String, path_as_string: &String) -> SemanticTokensBuild
 
 }
 
-/*
-fn get_token_type_index(currentToken: &String, tokenTypes: &Vec<SemanticTokenType>) -> Option<u32>
+fn completeToken(line: u32, currentToken: &mut String, start_char_index: &mut Option::<u32>, tokenTypes: &Vec<SemanticTokenType>, builder: &mut SemanticTokensBuilder) //, parsedTokens: &mut Vec::<SemanticToken>)
 {
 
-    let mut index: u32 = 0;
+    let sci: u32;
 
-    let found_stt = try_get_SemanticTokenType(currentToken.as_str());
-
-    match found_stt 
+    match start_char_index
     {
 
         Some(res) =>
         {
 
-            for stt in tokenTypes.iter()
-            {
-        
-                if &res == stt
-                {
-
-                    return Some(index);
-
-                }
-
-                index += 1;
-        
-            }
-
-            None
+            sci = *res;
 
         }
         None =>
         {
 
-            None
+            return;
 
         }
-        
+
     }
-
-}
-*/
-
-fn completeToken(delta_line: u32, delta_start: u32, currentToken: &mut String, tokenTypes: &Vec<SemanticTokenType>, builder: &mut SemanticTokensBuilder) //, parsedTokens: &mut Vec::<SemanticToken>)
-{
-
-    //parsedTokens.push(currentToken.clone());
-
-    //let token_type_index = get_token_type_index(&currentToken, &tokenTypes);
 
     let token_type_option = try_get_SemanticTokenType(currentToken.as_str());
 
@@ -747,25 +839,9 @@ fn completeToken(delta_line: u32, delta_start: u32, currentToken: &mut String, t
         Some(res) =>
         {
 
-            /*
-            let st = SemanticToken {
+            //make line an index
 
-            delta_line: delta_line,
-        
-            delta_start: delta_start,
-        
-            length: currentToken.chars().count() as u32,
-        
-            token_type: res,
-            
-            token_modifiers_bitset: 0
-
-            };
-
-            parsedTokens.push(st);
-            */
-
-            builder.push_strs(delta_line, delta_start, currentToken.chars().count() as u32, &res, None, tokenTypes)
+            builder.push_strs(line - 1, sci, currentToken.chars().count() as u32, &res, None, tokenTypes)
 
         }
         None => {
@@ -775,6 +851,8 @@ fn completeToken(delta_line: u32, delta_start: u32, currentToken: &mut String, t
     }
 
     currentToken.clear();
+
+    *start_char_index = None;
 
 }
 
