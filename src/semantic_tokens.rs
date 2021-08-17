@@ -1,32 +1,14 @@
 
-use lsp_types::{
-    Range,
-    SemanticToken,
-    SemanticTokenModifier,
-    SemanticTokenType,
-    SemanticTokens,
-    SemanticTokensEdit,
-    SemanticTokensParams,
-    SemanticTokensRangeResult,
-    SemanticTokensResult
-};
+use lsp_types::{Range, SemanticToken, SemanticTokenModifier, SemanticTokenType, SemanticTokens, SemanticTokensDeltaParams, SemanticTokensEdit, SemanticTokensFullDeltaResult, SemanticTokensParams, SemanticTokensRangeParams, SemanticTokensRangeResult, SemanticTokensResult, Url};
 
 use String;
 
+use std::path::PathBuf;
 use std::vec;
 
 use std::fs::read_to_string;
 
 use std::io::ErrorKind;
-
-/*
-use chrono::{
-
-    Local,
-    Utc
-
-}; 
- */
 
 use chrono::prelude::*;
 
@@ -40,24 +22,6 @@ pub fn get_supported_token_types() -> Vec<SemanticTokenType>
     token_types.push(SemanticTokenType::FUNCTION);
 
     token_types.push(SemanticTokenType::KEYWORD);
-    
-    /*token_types.push(SemanticTokenType::new("block-height"));
-
-    token_types.push(SemanticTokenType::new("burn-block-height"));
-
-    token_types.push(SemanticTokenType::new("contract-caller"));
-
-    token_types.push(SemanticTokenType::new("false"));
-
-    token_types.push(SemanticTokenType::new("is-in-regtest"));
-
-    token_types.push(SemanticTokenType::new("none"));
-
-    token_types.push(SemanticTokenType::new("stx-liquid-supply"));
-
-    token_types.push(SemanticTokenType::new("true"));
-
-    token_types.push(SemanticTokenType::new("tx-sender"));*/
 
     token_types
 
@@ -147,11 +111,11 @@ pub fn try_get_SemanticTokenType(input: &str) -> Option<SemanticTokenType>
         "keccak256" |
         "len" |
         "let" |
-        "list" => {
+        "list" => { //warning: unreachable pattern - Also a type...
 
             return Some(SemanticTokenType::FUNCTION);
 
-        }, //warning: unreachable pattern - Also a type...
+        }, 
         "log2" |
         "map" |
         "map-delete" |
@@ -184,11 +148,11 @@ pub fn try_get_SemanticTokenType(input: &str) -> Option<SemanticTokenType>
         "to-int" |
         "to-uint" |
         "try!" |
-        "tuple" => {
+        "tuple" => { //warning: unreachable pattern  - Also a type...
 
             return Some(SemanticTokenType::FUNCTION);
 
-        }, //warning: unreachable pattern  - Also a type...
+        }, 
         "unwrap-err-panic" |
         "unwrap-err!" |
         "unwrap-panic" |
@@ -227,6 +191,11 @@ pub fn try_get_SemanticTokenType(input: &str) -> Option<SemanticTokenType>
     }
 
 }
+
+//builds the semantic tokens
+
+//partially inspired from https://github.com/rust-analyzer/rust-analyzer/blob/master/crates/rust-analyzer/src/semantic_tokens.rs
+//and https://github.com/microsoft/vscode-languageserver-node/blob/f425af9de46a0187adb78ec8a46b9b2ce80c5412/server/src/sematicTokens.proposed.ts#L45
 
 pub struct SemanticTokensBuilder
 {
@@ -397,19 +366,6 @@ impl SemanticTokensBuilder
 
 }
 
-/*
-pub struct ParsedToken
-{
-
-    line: u32,
-    startCharacter: u32,
-    length: u32,
-    tokenType: SemanticTokenType,
-    tokenModifiers: Option<Vec<SemanticTokenModifier>>
-
-}
-*/
-
 pub fn parse_text(text: &String, path_as_string: &String) -> SemanticTokensBuilder //Vec::<SemanticToken>
 {
 
@@ -540,6 +496,8 @@ pub fn parse_text(text: &String, path_as_string: &String) -> SemanticTokensBuild
                             if res == '\\'
                             {
 
+                                is_string = !is_string;
+
                                 previous_char = Some(currentChar);
 
                                 char_index += 1;
@@ -556,32 +514,23 @@ pub fn parse_text(text: &String, path_as_string: &String) -> SemanticTokensBuild
                         
                     }
 
-                    is_string = !is_string;
-
                     previous_char = Some(currentChar);
 
                 }
-                //':' => {
-
-                    /*
-                    if !is_string && !currentToken.is_empty()
+                ':' => {
+                    
+                    if !is_string
                     {
 
-                        completeToken(line_no.clone(),char_index.clone(), &mut currentToken, &token_types, &mut parsedTokens);
+                        previous_char = Some(currentChar);
 
+                        char_index += 1;
 
+                        continue;
 
                     }
 
-                    currentToken.push(currentChar);
-
-                    completeToken(line_no.clone(),char_index.clone(), &mut currentToken, &token_types, &mut parsedTokens);
-                    */
-
-
-                    //continue;
-
-                //}
+                }
 
                 //operator detection
 
@@ -710,15 +659,6 @@ pub fn parse_text(text: &String, path_as_string: &String) -> SemanticTokensBuild
 
                             }
 
-                            /*
-                            if let previous_char == Some('<')
-                            {
-
-
-
-                            }
-                            */
-
                         }
 
                     }
@@ -784,7 +724,7 @@ pub fn parse_text(text: &String, path_as_string: &String) -> SemanticTokensBuild
 
         }
 
-        if !currentToken.is_empty()
+        if !currentToken.is_empty() && !is_string
         {
 
             completeToken(line_no.clone(), &mut currentToken, &mut start_char_index,&token_types, &mut parsedTokens);
@@ -856,23 +796,13 @@ fn completeToken(line: u32, currentToken: &mut String, start_char_index: &mut Op
 
 }
 
-pub fn semantic_tokens_full(params: SemanticTokensParams) -> tower_lsp::jsonrpc::Result<Option<SemanticTokensResult>>
+
+fn read_file_path(uri: &Url) -> Result<(PathBuf, String), tower_lsp::jsonrpc::Error>
 {
 
-    /*
-    match read_to_string( params.url.into())
-    {
-
-        Ok()
-
-    }  
-    */
-
-    //let file_string;
-    
     let path;
 
-    match params.text_document.uri.to_file_path()
+    match uri.to_file_path() //params.text_document.uri.to_file_path()
     {
 
         Ok(res) =>
@@ -896,22 +826,29 @@ pub fn semantic_tokens_full(params: SemanticTokensParams) -> tower_lsp::jsonrpc:
 
     }
 
+    //tower_lsp::jsonrpc::
+
     let path_as_string = path.clone().into_os_string().into_string().unwrap();
 
-    match read_to_string(path) //.as_str())
+    Ok((path, path_as_string))
+
+}
+
+fn tokenise_full(path: (PathBuf, String)) -> Result<SemanticTokens, tower_lsp::jsonrpc::Error>
+{
+
+    match read_to_string(path.0) //.as_str())
     {
 
         Ok(res) => {
 
-            let tokens = parse_text(&res, &path_as_string);
+            let tokens = parse_text(&res, &path.1); //&path_as_string);
 
             //use the path as the id
 
-            let sts = tokens.build(); //SemanticTokens { result_id: Some(path_as_string), data:  };
+            let sts = tokens.build();
 
-            //SemanticTokensRangeResult { Tokens(sts) }
-
-            return Ok(Some(sts.into()));
+            return Ok(sts);
 
         }
         Err(err) => {
@@ -952,6 +889,32 @@ pub fn semantic_tokens_full(params: SemanticTokensParams) -> tower_lsp::jsonrpc:
 
     }
 
-    //tower_lsp::jsonrpc::Result::Ok(None)
+}
+
+pub fn semantic_tokens_full(params: SemanticTokensParams) -> tower_lsp::jsonrpc::Result<Option<SemanticTokensResult>>
+{
+
+    let path = read_file_path(&params.text_document.uri)?;
+
+    Ok(Some(tokenise_full(path)?.into()))
 
 }
+
+pub fn semantic_tokens_full_delta(params: SemanticTokensDeltaParams) -> tower_lsp::jsonrpc::Result<Option<SemanticTokensFullDeltaResult>>
+{
+
+    let path = read_file_path(&params.text_document.uri)?;
+
+    Ok(Some(tokenise_full(path)?.into()))
+
+}
+
+pub fn semantic_tokens_range(params: SemanticTokensRangeParams) -> tower_lsp::jsonrpc::Result<Option<SemanticTokensRangeResult>>
+{
+
+    let path = read_file_path(&params.text_document.uri)?;
+
+    Ok(Some(tokenise_full(path)?.into()))
+
+}
+

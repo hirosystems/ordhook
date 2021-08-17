@@ -27,7 +27,7 @@ use crate::utils;
 
 use log::{error, warn};
 
-use crate::semantic_tokens::{semantic_tokens_full, get_supported_token_types, get_supported_token_modifiers};
+use crate::semantic_tokens::{semantic_tokens_full, get_supported_token_types, get_supported_token_modifiers, semantic_tokens_full_delta, semantic_tokens_range};
 
 #[derive(Debug)]
 enum Symbol {
@@ -428,7 +428,8 @@ impl LanguageServer for ClarityLanguageBackend {
                             token_modifiers: get_supported_token_modifiers()
                         },
                         range: Some(false),
-                        full: Some(SemanticTokensFullOptions::Delta{ delta: Some(false) }),
+                        //Delta, but not actuallyn (right now)...
+                        full: Some(SemanticTokensFullOptions::Delta{ delta: Some(true) }),
 
                     }.into()
                 ),
@@ -829,6 +830,8 @@ impl LanguageServer for ClarityLanguageBackend {
 
     //Semantic Tokens
 
+    //called when a document is loaded
+
     async fn semantic_tokens_full(
         &self,
         params: SemanticTokensParams,
@@ -841,22 +844,32 @@ impl LanguageServer for ClarityLanguageBackend {
 
     }
 
+    //
+
     async fn semantic_tokens_full_delta(
         &self,
         params: SemanticTokensDeltaParams,
     ) -> Result<Option<SemanticTokensFullDeltaResult>> {
-        let _ = params;
+        /*let _ = params;
         error!("Got a textDocument/semanticTokens/full/delta request, but it is not implemented");
-        Err(tower_lsp::jsonrpc::Error::method_not_found())
+        Err(tower_lsp::jsonrpc::Error::method_not_found())*/
+
+        semantic_tokens_full_delta(params)
+
     }
+
+    //
 
     async fn semantic_tokens_range(
         &self,
         params: SemanticTokensRangeParams,
     ) -> Result<Option<SemanticTokensRangeResult>> {
-        let _ = params;
+        /*let _ = params;
         error!("Got a textDocument/semanticTokens/range request, but it is not implemented");
-        Err(tower_lsp::jsonrpc::Error::method_not_found())
+        Err(tower_lsp::jsonrpc::Error::method_not_found())*/
+
+        semantic_tokens_range(params)
+
     }
 
     //
