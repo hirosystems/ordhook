@@ -83,7 +83,7 @@ impl ClarityLanguageBackend {
         let mut logs = vec![];
         logs.push("Full analysis will start".into());
 
-        // Retrieve ./Clarinet.toml and settings/Development.toml paths
+        // Retrieve ./Clarinet.toml and settings/Devnet.toml paths
         let settings = match self.get_config_files_paths() {
             Err(message) => return Err((message, logs)),
             Ok(Some((clarinet_toml_path, network_toml_path))) => {
@@ -364,7 +364,7 @@ impl LanguageServer for ClarityLanguageBackend {
 
                 let mut network_toml_path = root_path.clone();
                 network_toml_path.push("settings");
-                network_toml_path.push("Development.toml");
+                network_toml_path.push("Devnet.toml");
 
                 if clarinet_toml_path.exists() && network_toml_path.exists() {
                     config_files = Some((clarinet_toml_path, network_toml_path));
@@ -385,7 +385,7 @@ impl LanguageServer for ClarityLanguageBackend {
 
                 let mut network_toml_path = root_path.clone();
                 network_toml_path.push("settings");
-                network_toml_path.push("Development.toml");
+                network_toml_path.push("Devnet.toml");
 
                 if clarinet_toml_path.exists() && network_toml_path.exists() {
                     config_files = Some((clarinet_toml_path, network_toml_path));
