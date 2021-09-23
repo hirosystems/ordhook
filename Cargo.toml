@@ -23,13 +23,13 @@ serde = "1"
 serde_derive = "1"
 hmac = "=0.10.1"
 pbkdf2 = { version = "=0.7.3", features=["parallel"], default-features = false }
-tokio = { version = "1.6", features = ["rt", "macros", "io-std"] }
+tokio = { version = "=1.8.1", features = ["rt", "macros", "io-std"] }
 tokio-util = { version = "0.6.5", features = ["codec"] }
 regex = "1.3.4"
 sha2 = "0.9.3"
 toml = { version = "0.5.6", features = ["preserve_order"] }
 tiny-hderive = "=0.3.0"
 bip39 = { version = "=1.0.1", default-features = false }
-libsecp256k1 = "0.3.5"
+libsecp256k1 = "0.5.0"
 # clarity_repl = { package = "clarity-repl", path = "../clarity-repl" }
-clarity_repl = { package = "clarity-repl", version = "=0.13.0", features = ["cli"] }
+clarity_repl = { package = "clarity-repl", version = "=0.15.0", features = ["cli"] }
