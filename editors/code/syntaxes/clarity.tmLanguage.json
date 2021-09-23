@@ -144,7 +144,7 @@
       ]
     },
     "define-var": {
-      "match": "(?x)\n  (?<=^[(]) \\s*\n  (define-(?:constant|data-var|map|fungible-token|non-fungible-token|trait)) \\s+\n  ([a-zA-Z][a-zA-Z0-9_-]*)\n",
+      "match": "(?x)\n  (?<=^[(]) \\s*\n  (use-trait|(define-(?:constant|data-var|map|fungible-token|non-fungible-token|trait))) \\s+\n  ([a-zA-Z][a-zA-Z0-9_-]*)\n",
       "captures": {
         "1": {
           "name": "storage.type.clarity"

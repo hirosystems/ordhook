@@ -132,7 +132,7 @@ repository:
     match: |
       (?x)
         (?<=^[(]) \s*
-        (define-(?:constant|data-var|map|fungible-token|non-fungible-token|trait)) \s+
+        (use-trait|(define-(?:constant|data-var|map|fungible-token|non-fungible-token|trait))) \s+
         ([a-zA-Z][a-zA-Z0-9_-]*)
     captures:
       "1":

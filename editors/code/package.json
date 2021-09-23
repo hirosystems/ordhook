@@ -87,7 +87,7 @@
         "grammars": [
             {
                 "language": "clarity",
-                "scopeName": "source.clarity",
+                "scopeName": "source.clar",
                 "path": "./syntaxes/clarity.tmLanguage.json"
             }
         ],
