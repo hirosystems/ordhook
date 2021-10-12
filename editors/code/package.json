@@ -38,7 +38,7 @@
         "vscode:prepublish": "tsc && rollup -c",
         "package": "vsce package -o clarity-lsp.vsix",
         "compile": "tsc -b",
-        "build": "tsc",
+        "build": "js-yaml syntaxes/clarity.yaml > syntaxes/clarity.tmLanguage.json && tsc",
         "watch": "tsc --watch",
         "lint": "tsfmt --verify && eslint -c .eslintrc.js --ext ts ./src",
         "fix": "tsfmt -r && eslint -c .eslintrc.js --ext ts ./src --fix"
@@ -57,6 +57,7 @@
         "@typescript-eslint/eslint-plugin": "^2.26.0",
         "@typescript-eslint/parser": "^2.26.0",
         "eslint": "^6.8.0",
+        "js-yaml": "^3.14.1",
         "rollup": "^2.3.2",
         "tslib": "^1.11.1",
         "tslint": "^6.1.3",
@@ -86,7 +87,7 @@
         "grammars": [
             {
                 "language": "clarity",
-                "scopeName": "source.clarity",
+                "scopeName": "source.clar",
                 "path": "./syntaxes/clarity.tmLanguage.json"
             }
         ],
