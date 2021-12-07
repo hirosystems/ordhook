@@ -1,7 +1,8 @@
 {
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
   "name": "clarity",
   "scopeName": "source.clar",
-  "uuid": "f09c317d-fb99-410f-b88e-7272bb2af68d",
+  "uuid": "f9e9871d-2ea6-4be0-afd2-fc382d704716",
   "patterns": [
     {
       "include": "#comment"
@@ -35,7 +36,7 @@
     },
     "datatype": {
       "name": "storage.type.clarity",
-      "match": "(?x) (?<=^|[\\s:(){},]) (tuple|list|response|optional|buff|string-ascii|string-utf8|principal|bool|int|uint) (?=[\\s(){},])"
+      "match": "(?x)\n(?<=^|[\\s:(){},])\n(tuple|list|response|optional|buff|string-ascii|string-utf8|principal|bool|int|uint)\n(?=[\\s(){},])"
     },
     "keyword": {
       "name": "constant.language.clarity",
@@ -43,25 +44,21 @@
     },
     "number": {
       "name": "constant.numeric.clarity",
-      "match": "(?x)\n  (?<=^|[\\s:(){},])\n  # principal address + trait + contract address\n  \\'[0-9A-Z]{28,41}(:?\\.[a-zA-Z][a-zA-Z0-9\\-]+){0,2}|\n  # hex values\n  0x[0-9a-f]{2,}|\n  # unsigned integers\n  u[0-9]+|\n  # integers\n  [0-9]+\n  (?=[\\s(){},]|$)\n"
+      "match": "(?x)\n  (?<=^|[\\s:(){},])\n  \\'[0-9A-Z]{28,41}(:?\\.[a-zA-Z][a-zA-Z0-9\\-]+){0,2}|\n  0x[0-9a-f]{2,}|\n  u[0-9]+|\n  [0-9]+\n  (?=[\\s(){},]|$)\n"
     },
     "string": {
       "name": "string.quoted.double.clarity",
       "begin": "\"",
       "beginCaptures": {
-        "0": [
-          {
-            "name": "punctuation.definition.string.begin.clarity"
-          }
-        ]
+        "0": {
+          "name": "punctuation.definition.string.begin.clarity"
+        }
       },
       "end": "\"",
       "endCaptures": {
-        "0": [
-          {
-            "name": "punctuation.definition.string.end.clarity"
-          }
-        ]
+        "0": {
+          "name": "punctuation.definition.string.end.clarity"
+        }
       },
       "patterns": [
         {
