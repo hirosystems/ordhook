@@ -1,7 +1,7 @@
 $schema: https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json
 name: clarity
 scopeName: source.clar
-uuid: f9e9871d-2ea6-4be0-afd2-fc382d704716
+uuid: f09c317d-fb99-410f-b88e-7272bb2af68d
 
 patterns:
   - include: "#comment"
@@ -112,7 +112,7 @@ repository:
         (?<=^|[(]) \s*
         (define-(?:public|private|read-only)) \s+
         (\() \s*
-        ([a-z][a-zA-Z0-9_-]+) \s*
+        ([a-z][a-zA-Z0-9_-]*) \s*
     beginCaptures:
       "1":
         name: storage.type.clarity
@@ -131,8 +131,8 @@ repository:
     match: |
       (?x)
         (?<=^[(]) \s*
-        (define-(?:constant|data-var|map|fungible-token|non-fungible-token|trait)) \s+
-        ([a-zA-Z][a-zA-Z0-9_-]+)
+        (use-trait|(define-(?:constant|data-var|map|fungible-token|non-fungible-token|trait))) \s+
+        ([a-zA-Z][a-zA-Z0-9_-]*)
     captures:
       "1":
         name: storage.type.clarity
@@ -144,12 +144,11 @@ repository:
     match: |
       (?x)
         ([a-z][a-zA-Z0-9_-]+)(?=:)
-
   args:
     begin: |
       (?x)
         (?<=^|[(]) \s*
-        ([a-z][a-zA-Z0-9_-]+) \s*
+        ([a-z][a-zA-Z0-9_-]*) \s*
     beginCaptures:
       "0":
         name: variable.parameter.clarity

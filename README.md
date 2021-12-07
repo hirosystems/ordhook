@@ -1,7 +1,7 @@
 
 # clarity-lsp
 
-Clarity is a **decidable** smart contract language that optimizes for predictability and security, designed by Blockstack. Smart contracts allow developers to encode essential business logic on a blockchain.
+Clarity is a **decidable** smart contract language that optimizes for predictability and security. Smart contracts allow developers to encode essential business logic on a blockchain.
 
 A programming language is decidable if you can know, with certainty, from the code itself what the program will do. Clarity is intentionally Turing incomplete as it avoids `Turing complexity`. This allows for complete static analysis of the entire call graph of a given smart contract. Further, our support for types and type checker can eliminate whole classes of bugs like unintended casts, reentrancy bugs, and reads of uninitialized values.
 

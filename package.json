@@ -25,9 +25,10 @@
             [
                 "@semantic-release/exec",
                 {
-                    "prepareCmd": "sed -i -e '1h;2,$H;$!d;g' -e 's@name = \"clarity-lsp\"\\nversion = \"[^\"]*\"@name = \"clarity-lsp\"\\nversion = \"${nextRelease.version}\"@g' Cargo.toml Cargo.lock"
+                    "prepareCmd": "sed -i -e '1h;2,$H;$!d;g' -e 's@name = \"clarity-lsp\"\\nversion = \"[^\"]*\"@name = \"clarity-lsp\"\\nversion = \"${nextRelease.version}\"@g' Cargo.toml Cargo.lock && sed -i 's@\"releaseTag\": .*@\"releaseTag\": \"${nextRelease.gitTag}\",@g' editors/code/package.json"
                 }
             ],
+            "@semantic-release/changelog",
             [
                 "@semantic-release/npm",
                 {
@@ -35,8 +36,6 @@
                     "npmPublish": false
                 }
             ],
-            "@semantic-release/github",
-            "@semantic-release/changelog",
             [
                 "@semantic-release/git",
                 {
@@ -49,7 +48,8 @@
                         "editors/code/package-lock.json"
                     ]
                 }
-            ]
+            ],
+            "@semantic-release/github"
         ]
     },
     "devDependencies": {
