@@ -1,3 +1,11 @@
+## [0.5.2-develop.1](https://github.com/hirosystems/clarity-lsp/compare/v0.5.1...v0.5.2-develop.1) (2021-09-23)
+
+
+### Bug Fixes
+
+* dependencies / audit ([f77df41](https://github.com/hirosystems/clarity-lsp/commit/f77df4144c69a29de240b65023e1f4b2547493bd))
+* settings path ([417cb23](https://github.com/hirosystems/clarity-lsp/commit/417cb23343451824d990716036600e832d53120a))
+
 ## [0.5.1](https://github.com/hirosystems/clarity-lsp/compare/v0.5.0...v0.5.1) (2021-07-01)
 
 
