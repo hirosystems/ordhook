@@ -16,6 +16,7 @@ pub struct MainConfigFile {
 pub struct ProjectConfigFile {
     name: String,
     requirements: Option<Value>,
+    analysis: Option<Vec<String>>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -29,6 +30,7 @@ pub struct MainConfig {
 pub struct ProjectConfig {
     pub name: String,
     pub requirements: Option<Vec<RequirementConfig>>,
+    pub analysis: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -125,7 +127,8 @@ impl MainConfig {
     pub fn from_config_file(config_file: MainConfigFile) -> MainConfig {
         let project = ProjectConfig {
             name: config_file.project.name.clone(),
-            requirements: None,
+            requirements: None, // todo(ludo)
+            analysis: config_file.project.analysis.clone().unwrap_or(vec![]),
         };
 
         let mut config = MainConfig {

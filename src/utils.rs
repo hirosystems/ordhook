@@ -32,7 +32,7 @@ pub fn convert_clarity_diagnotic_to_lsp_diagnostic(diagnostic: ClarityDiagnostic
         severity: match diagnostic.level {
             ClarityLevel::Error => Some(DiagnosticSeverity::Error),
             ClarityLevel::Warning => Some(DiagnosticSeverity::Warning),
-            ClarityLevel::Note => Some(DiagnosticSeverity::Hint),
+            ClarityLevel::Note => Some(DiagnosticSeverity::Information),
         } ,
         code: None,
         code_description: None,

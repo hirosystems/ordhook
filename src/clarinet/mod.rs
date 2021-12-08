@@ -78,5 +78,6 @@ pub fn build_session_settings(
     settings.include_boot_contracts =
         vec!["pox".to_string(), "costs".to_string(), "bns".to_string()];
     settings.initial_deployer = initial_deployer;
+    settings.analysis = project_config.project.analysis.clone();
     Ok((settings, project_config))
 }

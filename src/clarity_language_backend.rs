@@ -79,11 +79,11 @@ impl ClarityLanguageBackend {
 
     pub fn run_full_analysis(
         &self,
-    ) -> std::result::Result<(Vec<(Url, Diagnostic)>, Logs), (String, Logs)> {
+    ) -> std::result::Result<(HashMap<Url, Vec<Diagnostic>>, Logs), (String, Logs)> {
         let mut logs = vec![];
         logs.push("Full analysis will start".into());
 
-        // Retrieve ./Clarinet.toml and settings/Development.toml paths
+        // Retrieve ./Clarinet.toml and settings/Devnet.toml paths
         let settings = match self.get_config_files_paths() {
             Err(message) => return Err((message, logs)),
             Ok(Some((clarinet_toml_path, network_toml_path))) => {
@@ -98,7 +98,7 @@ impl ClarityLanguageBackend {
 
         // Build a blank Session: we will be evaluating the contracts one by one
         let mut incremental_session = repl::Session::new(settings.clone());
-        let mut collected_diagnostics = vec![];
+        let mut collected_diagnostics = HashMap::new();
         let mainnet = false;
 
         for (i, contract) in settings.initial_contracts.iter().enumerate() {
@@ -124,10 +124,10 @@ impl ClarityLanguageBackend {
             {
                 Ok(ast) => ast,
                 Err((_, Some(diagnostic), _)) => {
-                    collected_diagnostics.push((
+                    collected_diagnostics.insert(
                         contract_url.clone(),
-                        utils::convert_clarity_diagnotic_to_lsp_diagnostic(diagnostic),
-                    ));
+                        vec![utils::convert_clarity_diagnotic_to_lsp_diagnostic(diagnostic)],
+                    );
                     continue;
                 }
                 _ => {
@@ -144,10 +144,10 @@ impl ClarityLanguageBackend {
             {
                 Ok(analysis) => analysis,
                 Err((_, Some(diagnostic), _)) => {
-                    collected_diagnostics.push((
+                    collected_diagnostics.insert(
                         contract_url.clone(),
-                        utils::convert_clarity_diagnotic_to_lsp_diagnostic(diagnostic),
-                    ));
+                        vec![utils::convert_clarity_diagnotic_to_lsp_diagnostic(diagnostic)],
+                    );
                     continue;
                 }
                 _ => {
@@ -156,12 +156,10 @@ impl ClarityLanguageBackend {
                 }
             };
 
-            for diagnostic in diagnostics.into_iter() {
-                collected_diagnostics.push((
-                    contract_url.clone(),
-                    utils::convert_clarity_diagnotic_to_lsp_diagnostic(diagnostic),
-                ));
-            }
+            collected_diagnostics.insert(
+                contract_url.clone(),
+                diagnostics.into_iter().map(|d| utils::convert_clarity_diagnotic_to_lsp_diagnostic(d)).collect::<_>()
+            );
 
             // Executing the contract will also save the contract into the Datastore. This is required
             // for the next contracts, that could depend on the current contract.
@@ -195,15 +193,17 @@ impl ClarityLanguageBackend {
 
     pub fn run_single_analysis(
         &self,
-        url: Url,
-    ) -> std::result::Result<(Vec<(Url, Diagnostic)>, Logs), (String, Logs)> {
+        contract_url: Url,
+    ) -> std::result::Result<(HashMap<Url, Vec<Diagnostic>>, Logs), (String, Logs)> {
         let mut logs = vec![];
-        let settings = SessionSettings::default();
+        let mut settings = SessionSettings::default();
+        settings.analysis = vec!["all".into()];
+
         let mut incremental_session = repl::Session::new(settings.clone());
-        let mut collected_diagnostics = vec![];
+        let mut collected_diagnostics = HashMap::new();
         let mainnet = false;
 
-        let contract_path = url.to_file_path().expect("Expect url to be well formatted");
+        let contract_path = contract_url.to_file_path().expect("Expect url to be well formatted");
         let code = fs::read_to_string(&contract_path).expect("Expect file to be readable");
 
         let contract_id = QualifiedContractIdentifier::transient();
@@ -221,11 +221,11 @@ impl ClarityLanguageBackend {
         {
             Ok(ast) => ast,
             Err((_, Some(diagnostic), _)) => {
-                collected_diagnostics.push((
-                    url.clone(),
-                    utils::convert_clarity_diagnotic_to_lsp_diagnostic(diagnostic),
-                ));
-                return Ok((collected_diagnostics, logs));
+                collected_diagnostics.insert(
+                    contract_url.clone(),
+                    vec![utils::convert_clarity_diagnotic_to_lsp_diagnostic(diagnostic)],
+                );
+            return Ok((collected_diagnostics, logs));
             }
             _ => {
                 logs.push("Unable to get ast".into());
@@ -241,10 +241,10 @@ impl ClarityLanguageBackend {
         {
             Ok(analysis) => analysis,
             Err((_, Some(diagnostic), _)) => {
-                collected_diagnostics.push((
-                    url.clone(),
-                    utils::convert_clarity_diagnotic_to_lsp_diagnostic(diagnostic),
-                ));
+                collected_diagnostics.insert(
+                    contract_url.clone(),
+                    vec![utils::convert_clarity_diagnotic_to_lsp_diagnostic(diagnostic)],
+                );
                 return Ok((collected_diagnostics, logs));
             }
             _ => {
@@ -253,12 +253,10 @@ impl ClarityLanguageBackend {
             }
         };
 
-        for diagnostic in diagnostics.into_iter() {
-            collected_diagnostics.push((
-                url.clone(),
-                utils::convert_clarity_diagnotic_to_lsp_diagnostic(diagnostic),
-            ));
-        }
+        collected_diagnostics.insert(
+            contract_url.clone(),
+            diagnostics.into_iter().map(|d| utils::convert_clarity_diagnotic_to_lsp_diagnostic(d)).collect::<_>()
+        );
 
         // We have a legit contract, let's extract some Intellisense data that will be served for
         // auto-completion requests
@@ -271,7 +269,7 @@ impl ClarityLanguageBackend {
         };
 
         if let Ok(ref mut contracts_writer) = self.contracts.write() {
-            contracts_writer.insert(url, contract_state);
+            contracts_writer.insert(contract_url, contract_state);
         } else {
             logs.push(format!("Unable to acquire write lock"));
         }
@@ -313,7 +311,7 @@ impl ClarityLanguageBackend {
 impl ClarityLanguageBackend {
     async fn handle_diagnostics(
         &self,
-        diagnostics: Option<Vec<(Url, Diagnostic)>>,
+        diagnostics: Option<HashMap<Url, Vec<Diagnostic>>>,
         logs: Vec<String>,
     ) {
         // let (diagnostics, messages) = self.run_incremental_analysis(None);
@@ -353,7 +351,7 @@ impl ClarityLanguageBackend {
             }
             for (url, diagnostic) in diagnostics.into_iter() {
                 self.client
-                    .publish_diagnostics(url, vec![diagnostic], None)
+                    .publish_diagnostics(url, diagnostic, None)
                     .await;
             }
         }
@@ -378,7 +376,7 @@ impl LanguageServer for ClarityLanguageBackend {
 
                 let mut network_toml_path = root_path.clone();
                 network_toml_path.push("settings");
-                network_toml_path.push("Development.toml");
+                network_toml_path.push("Devnet.toml");
 
                 if clarinet_toml_path.exists() && network_toml_path.exists() {
                     config_files = Some((clarinet_toml_path, network_toml_path));
@@ -399,7 +397,7 @@ impl LanguageServer for ClarityLanguageBackend {
 
                 let mut network_toml_path = root_path.clone();
                 network_toml_path.push("settings");
-                network_toml_path.push("Development.toml");
+                network_toml_path.push("Devnet.toml");
 
                 if clarinet_toml_path.exists() && network_toml_path.exists() {
                     config_files = Some((clarinet_toml_path, network_toml_path));
