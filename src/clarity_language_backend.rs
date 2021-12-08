@@ -123,7 +123,7 @@ impl ClarityLanguageBackend {
                 .build_ast(contract_id.clone(), code.clone())
             {
                 Ok(ast) => ast,
-                Err((_, Some(diagnostic))) => {
+                Err((_, Some(diagnostic), _)) => {
                     collected_diagnostics.push((
                         contract_url.clone(),
                         utils::convert_clarity_diagnotic_to_lsp_diagnostic(diagnostic),
@@ -138,12 +138,12 @@ impl ClarityLanguageBackend {
 
             // Run the analysis, and try to move to the next contract if we throw an error:
             // we're trying to get as many errors as possible
-            let analysis = match incremental_session
+            let (analysis, diagnostics) = match incremental_session
                 .interpreter
                 .run_analysis(contract_id.clone(), &mut ast)
             {
                 Ok(analysis) => analysis,
-                Err((_, Some(diagnostic))) => {
+                Err((_, Some(diagnostic), _)) => {
                     collected_diagnostics.push((
                         contract_url.clone(),
                         utils::convert_clarity_diagnotic_to_lsp_diagnostic(diagnostic),
@@ -155,6 +155,13 @@ impl ClarityLanguageBackend {
                     continue;
                 }
             };
+
+            for diagnostic in diagnostics.into_iter() {
+                collected_diagnostics.push((
+                    contract_url.clone(),
+                    utils::convert_clarity_diagnotic_to_lsp_diagnostic(diagnostic),
+                ));
+            }
 
             // Executing the contract will also save the contract into the Datastore. This is required
             // for the next contracts, that could depend on the current contract.
@@ -213,7 +220,7 @@ impl ClarityLanguageBackend {
             .build_ast(contract_id.clone(), code.clone())
         {
             Ok(ast) => ast,
-            Err((_, Some(diagnostic))) => {
+            Err((_, Some(diagnostic), _)) => {
                 collected_diagnostics.push((
                     url.clone(),
                     utils::convert_clarity_diagnotic_to_lsp_diagnostic(diagnostic),
@@ -228,12 +235,12 @@ impl ClarityLanguageBackend {
 
         // Run the analysis, and try to move to the next contract if we throw an error:
         // we're trying to get as many errors as possible
-        let analysis = match incremental_session
+        let (analysis, diagnostics) = match incremental_session
             .interpreter
             .run_analysis(contract_id.clone(), &mut ast)
         {
             Ok(analysis) => analysis,
-            Err((_, Some(diagnostic))) => {
+            Err((_, Some(diagnostic), _)) => {
                 collected_diagnostics.push((
                     url.clone(),
                     utils::convert_clarity_diagnotic_to_lsp_diagnostic(diagnostic),
@@ -245,6 +252,13 @@ impl ClarityLanguageBackend {
                 return Ok((collected_diagnostics, logs));
             }
         };
+
+        for diagnostic in diagnostics.into_iter() {
+            collected_diagnostics.push((
+                url.clone(),
+                utils::convert_clarity_diagnotic_to_lsp_diagnostic(diagnostic),
+            ));
+        }
 
         // We have a legit contract, let's extract some Intellisense data that will be served for
         // auto-completion requests
