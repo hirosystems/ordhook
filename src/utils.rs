@@ -33,7 +33,7 @@ pub fn convert_clarity_diagnotic_to_lsp_diagnostic(diagnostic: ClarityDiagnostic
             ClarityLevel::Error => Some(DiagnosticSeverity::Error),
             ClarityLevel::Warning => Some(DiagnosticSeverity::Warning),
             ClarityLevel::Note => Some(DiagnosticSeverity::Information),
-        } ,
+        },
         code: None,
         code_description: None,
         source: Some("clarity".to_string()),

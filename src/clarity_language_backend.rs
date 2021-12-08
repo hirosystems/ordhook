@@ -126,7 +126,9 @@ impl ClarityLanguageBackend {
                 Err((_, Some(diagnostic), _)) => {
                     collected_diagnostics.insert(
                         contract_url.clone(),
-                        vec![utils::convert_clarity_diagnotic_to_lsp_diagnostic(diagnostic)],
+                        vec![utils::convert_clarity_diagnotic_to_lsp_diagnostic(
+                            diagnostic,
+                        )],
                     );
                     continue;
                 }
@@ -146,7 +148,9 @@ impl ClarityLanguageBackend {
                 Err((_, Some(diagnostic), _)) => {
                     collected_diagnostics.insert(
                         contract_url.clone(),
-                        vec![utils::convert_clarity_diagnotic_to_lsp_diagnostic(diagnostic)],
+                        vec![utils::convert_clarity_diagnotic_to_lsp_diagnostic(
+                            diagnostic,
+                        )],
                     );
                     continue;
                 }
@@ -158,7 +162,10 @@ impl ClarityLanguageBackend {
 
             collected_diagnostics.insert(
                 contract_url.clone(),
-                diagnostics.into_iter().map(|d| utils::convert_clarity_diagnotic_to_lsp_diagnostic(d)).collect::<_>()
+                diagnostics
+                    .into_iter()
+                    .map(|d| utils::convert_clarity_diagnotic_to_lsp_diagnostic(d))
+                    .collect::<_>(),
             );
 
             // Executing the contract will also save the contract into the Datastore. This is required
@@ -203,7 +210,9 @@ impl ClarityLanguageBackend {
         let mut collected_diagnostics = HashMap::new();
         let mainnet = false;
 
-        let contract_path = contract_url.to_file_path().expect("Expect url to be well formatted");
+        let contract_path = contract_url
+            .to_file_path()
+            .expect("Expect url to be well formatted");
         let code = fs::read_to_string(&contract_path).expect("Expect file to be readable");
 
         let contract_id = QualifiedContractIdentifier::transient();
@@ -223,9 +232,11 @@ impl ClarityLanguageBackend {
             Err((_, Some(diagnostic), _)) => {
                 collected_diagnostics.insert(
                     contract_url.clone(),
-                    vec![utils::convert_clarity_diagnotic_to_lsp_diagnostic(diagnostic)],
+                    vec![utils::convert_clarity_diagnotic_to_lsp_diagnostic(
+                        diagnostic,
+                    )],
                 );
-            return Ok((collected_diagnostics, logs));
+                return Ok((collected_diagnostics, logs));
             }
             _ => {
                 logs.push("Unable to get ast".into());
@@ -243,7 +254,9 @@ impl ClarityLanguageBackend {
             Err((_, Some(diagnostic), _)) => {
                 collected_diagnostics.insert(
                     contract_url.clone(),
-                    vec![utils::convert_clarity_diagnotic_to_lsp_diagnostic(diagnostic)],
+                    vec![utils::convert_clarity_diagnotic_to_lsp_diagnostic(
+                        diagnostic,
+                    )],
                 );
                 return Ok((collected_diagnostics, logs));
             }
@@ -255,7 +268,10 @@ impl ClarityLanguageBackend {
 
         collected_diagnostics.insert(
             contract_url.clone(),
-            diagnostics.into_iter().map(|d| utils::convert_clarity_diagnotic_to_lsp_diagnostic(d)).collect::<_>()
+            diagnostics
+                .into_iter()
+                .map(|d| utils::convert_clarity_diagnotic_to_lsp_diagnostic(d))
+                .collect::<_>(),
         );
 
         // We have a legit contract, let's extract some Intellisense data that will be served for
@@ -350,9 +366,7 @@ impl ClarityLanguageBackend {
                     .await;
             }
             for (url, diagnostic) in diagnostics.into_iter() {
-                self.client
-                    .publish_diagnostics(url, diagnostic, None)
-                    .await;
+                self.client.publish_diagnostics(url, diagnostic, None).await;
             }
         }
     }
