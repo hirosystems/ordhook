@@ -1,6 +1,6 @@
 [package]
 name = "clarity-lsp"
-version = "0.5.1"
+version = "0.5.2-develop.1"
 description = "Clarity Language Server"
 authors = ["Ludo Galabru <ludovic@galabru.com>"]
 readme = "README.md"
@@ -30,6 +30,6 @@ sha2 = "0.9.3"
 toml = { version = "0.5.6", features = ["preserve_order"] }
 tiny-hderive = "=0.3.0"
 bip39 = { version = "=1.0.1", default-features = false }
-libsecp256k1 = "0.3.5"
+libsecp256k1 = "0.5.0"
 # clarity_repl = { package = "clarity-repl", path = "../clarity-repl" }
 clarity_repl = { package = "clarity-repl", version = "=0.17.0", features = ["cli"] }
