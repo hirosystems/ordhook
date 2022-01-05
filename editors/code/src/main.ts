@@ -133,69 +133,69 @@ async function bootstrapServer(): Promise<string> {
 	//
 	// The LSP was merged in Clarinet in v0.21.0, we want to make sure that 
 	// we're using an adequate version.
-	let version = res.output
+	const version = res.output
 		.toString()    // clarinet 0.21.0
 		.split("\n")[0] // 0.21.0
 		.split(" ")[1] // 0.21.0
 		.split(".");   // ["0", "21", "0"]
-	if (parseInt(version[0]) == 0 && parseInt(version[1]) < 22) {
+	if (parseInt(version[0]) === 0 && parseInt(version[1]) < 22) {
 		throw new Error(
 			"Clarinet is outdated.\n" +
 			"Please update to [v0.22.0 or newer](https://github.com/hirosystems/clarinet)"
 		);
-	} 
+	}
 
-	return path; 
+	return path;
 }
 
 function getServer(): Promise<string> {
 	switch (os.platform()) {
-	  case "win32":
-		return getClarinetWindowsPath();
-	  default:
-		return Promise.resolve("clarinet");
+		case "win32":
+			return getClarinetWindowsPath();
+		default:
+			return Promise.resolve("clarinet");
 	}
-  
+
 	async function getClarinetWindowsPath() {
-	  // Adapted from https://github.com/npm/node-which/blob/master/which.js
-	  const clarinetCmd = "clarinet";
-	  const pathExtValue = process.env.PATHEXT ?? ".EXE;.CMD;.BAT;.COM";
-	  // deno-lint-ignore no-undef
-	  const pathValue = process.env.PATH ?? "";
-	  const pathExtItems = splitEnvValue(pathExtValue);
-	  const pathFolderPaths = splitEnvValue(pathValue);
-  
-	  for (const pathFolderPath of pathFolderPaths) {
-		for (const pathExtItem of pathExtItems) {
-		  const cmdFilePath = path.join(pathFolderPath, clarinetCmd + pathExtItem);
-		  if (await fileExists(cmdFilePath)) {
-			return cmdFilePath;
-		  }
+		// Adapted from https://github.com/npm/node-which/blob/master/which.js
+		const clarinetCmd = "clarinet";
+		const pathExtValue = process.env.PATHEXT ?? ".EXE;.CMD;.BAT;.COM";
+		// deno-lint-ignore no-undef
+		const pathValue = process.env.PATH ?? "";
+		const pathExtItems = splitEnvValue(pathExtValue);
+		const pathFolderPaths = splitEnvValue(pathValue);
+
+		for (const pathFolderPath of pathFolderPaths) {
+			for (const pathExtItem of pathExtItems) {
+				const cmdFilePath = path.join(pathFolderPath, clarinetCmd + pathExtItem);
+				if (await fileExists(cmdFilePath)) {
+					return cmdFilePath;
+				}
+			}
 		}
-	  }
-  
-	  // nothing found; return back command
-	  return clarinetCmd;
-  
-	  function splitEnvValue(value: string) {
-		return value
-		  .split(";")
-		  .map((item) => item.trim())
-		  .filter((item) => item.length > 0);
-	  }
+
+		// nothing found; return back command
+		return clarinetCmd;
+
+		function splitEnvValue(value: string) {
+			return value
+				.split(";")
+				.map((item) => item.trim())
+				.filter((item) => item.length > 0);
+		}
 	}
-  
+
 	function fileExists(executableFilePath: string): Promise<boolean> {
-	  return new Promise<boolean>(async (resolve) => {
-		try {
-			let stat = await fs.stat(executableFilePath);
-			return resolve(stat.isFile())
-		} catch (error) {
-			return resolve(false)
-		}
-	  }).catch(() => {
-		// ignore all errors
-		return false;
-	  });
+		return new Promise<boolean>(async (resolve) => {
+			try {
+				const stat = await fs.stat(executableFilePath);
+				return resolve(stat.isFile());
+			} catch (error) {
+				return resolve(false);
+			}
+		}).catch(() => {
+			// ignore all errors
+			return false;
+		});
 	}
-  }
+}
