@@ -54,7 +54,7 @@ jobs:
         run: cargo install cargo-audit
 
       - name: Run audit
-        run: cargo audit --ignore RUSTSEC-2021-0076 --ignore RUSTSEC-2018-0015
+        run: cargo audit --ignore RUSTSEC-2021-0076 --ignore RUSTSEC-2018-0015 --ignore RUSTSEC-2021-0124 --ignore RUSTSEC-2021-0119
 
       - name: Run rustfmt
         run: cargo fmt --all -- --check
@@ -207,7 +207,7 @@ jobs:
       - name: Install Nodejs
         uses: actions/setup-node@v1
         with:
-          node-version: 12.x
+          node-version: 14.x
 
       - name: Install dependencies
         run: npm ci

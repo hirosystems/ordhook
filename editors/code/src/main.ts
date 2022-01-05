@@ -6,7 +6,7 @@ import { PersistentState } from './persistent_state';
 import { fetchRelease, download } from './net';
 import { promises as fs } from "fs";
 import * as vscode from 'vscode';
-// import { spawnSync } from 'child_process';
+import { spawnSync } from 'child_process';
 import * as os from "os";
 
 import {
@@ -25,7 +25,8 @@ export async function activate(context: ExtensionContext) {
 	const serverPath = await bootstrap(config, state);
 
 	const serverOptions: Executable = {
-		command: serverPath
+		command: serverPath,
+		args: ["lsp"]
 	};
 
 	// Options to control the language client
@@ -61,7 +62,7 @@ async function bootstrap(config: Config, state: PersistentState): Promise<string
 	await fs.mkdir(config.globalStoragePath, { recursive: true });
 
 	await bootstrapExtension(config, state);
-	const path = await bootstrapServer(config, state);
+	const path = await bootstrapServer();
 
 	return path;
 }
@@ -115,76 +116,86 @@ async function bootstrapExtension(config: Config, state: PersistentState): Promi
 	await vscode.commands.executeCommand("workbench.action.reloadWindow");
 }
 
-async function bootstrapServer(config: Config, state: PersistentState): Promise<string> {
-	const path = await getServer(config, state);
+async function bootstrapServer(): Promise<string> {
+	const path = await getServer();
 	if (!path) {
 		throw new Error(
-			"Clarity Language Server is not available. " +
-			"Please, ensure its [proper installation](https://github.com/hirosystems/clarity-lsp)."
+			"Clarinet is not available.\n" +
+			"Please ensure it is correctly [installed](https://github.com/hirosystems/clarinet)"
 		);
 	}
 
-	// log.debug("Using server binary at", path);
-
-	// const res = spawnSync(path, ["--version"], { encoding: 'utf8' });
-	// log.debug("Checked binary availability via --version", res);
-	// log.debug(res, "--version output:", res.output);
-	// if (res.status !== 0) {
-	//     throw new Error(`Failed to execute ${path} --version`);
-	// }
+	const res = spawnSync(path, ["--version"], { encoding: 'utf8' });
+	log.error("Checked binary availability via --version", res);
+	log.debug(res, "--version output:", res.output);
+	// Yikes: `$ clarinet --version` returns
+	// clarinet 0.21.0
+	//
+	// The LSP was merged in Clarinet in v0.21.0, we want to make sure that 
+	// we're using an adequate version.
+	const version = res.output
+		.toString()    // clarinet 0.21.0
+		.split("\n")[0] // 0.21.0
+		.split(" ")[1] // 0.21.0
+		.split(".");   // ["0", "21", "0"]
+	if (parseInt(version[0]) === 0 && parseInt(version[1]) < 22) {
+		throw new Error(
+			"Clarinet is outdated.\n" +
+			"Please update to [v0.22.0 or newer](https://github.com/hirosystems/clarinet)"
+		);
+	}
 
 	return path;
 }
 
-async function getServer(config: Config, state: PersistentState): Promise<string | undefined> {
-	const explicitPath = process.env.__RA_LSP_SERVER_DEBUG ?? config.serverPath;
-	if (explicitPath) {
-		if (explicitPath.startsWith("~/")) {
-			return os.homedir() + explicitPath.slice("~".length);
+function getServer(): Promise<string> {
+	switch (os.platform()) {
+		case "win32":
+			return getClarinetWindowsPath();
+		default:
+			return Promise.resolve("clarinet");
+	}
+
+	async function getClarinetWindowsPath() {
+		// Adapted from https://github.com/npm/node-which/blob/master/which.js
+		const clarinetCmd = "clarinet";
+		const pathExtValue = process.env.PATHEXT ?? ".EXE;.CMD;.BAT;.COM";
+		// deno-lint-ignore no-undef
+		const pathValue = process.env.PATH ?? "";
+		const pathExtItems = splitEnvValue(pathExtValue);
+		const pathFolderPaths = splitEnvValue(pathValue);
+
+		for (const pathFolderPath of pathFolderPaths) {
+			for (const pathExtItem of pathExtItems) {
+				const cmdFilePath = path.join(pathFolderPath, clarinetCmd + pathExtItem);
+				if (await fileExists(cmdFilePath)) {
+					return cmdFilePath;
+				}
+			}
 		}
-		return explicitPath;
-	};
-	if (config.package.releaseTag === null) return "clarity-lsp";
 
-	let binaryName: string | undefined = undefined;
-	if (process.arch === "x64" || process.arch === "ia32") {
-		if (process.platform === "linux") binaryName = "clarity-lsp-linux";
-		if (process.platform === "darwin") binaryName = "clarity-lsp-mac";
-		if (process.platform === "win32") binaryName = "clarity-lsp-windows.exe";
-	}
-	if (binaryName === undefined) {
-		vscode.window.showErrorMessage(
-			"Unfortunately we don't ship binaries for your platform yet. " +
-			"You need to manually clone clarity-lsp repository and " +
-			"run `cargo xtask install --server` to build the language server from sources. " +
-			"If you feel that your platform should be supported, please create an issue " +
-			"about that [here](https://github.com/hirosystems/clarity-lsp/issues) and we " +
-			"will consider it."
-		);
-		return undefined;
+		// nothing found; return back command
+		return clarinetCmd;
+
+		function splitEnvValue(value: string) {
+			return value
+				.split(";")
+				.map((item) => item.trim())
+				.filter((item) => item.length > 0);
+		}
 	}
 
-	const dest = path.join(config.globalStoragePath, binaryName);
-	const exists = await fs.stat(dest).then(() => true, () => false);
-	if (!exists) {
-		await state.updateServerVersion(undefined);
+	function fileExists(executableFilePath: string): Promise<boolean> {
+		return new Promise<boolean>(async (resolve) => {
+			try {
+				const stat = await fs.stat(executableFilePath);
+				return resolve(stat.isFile());
+			} catch (error) {
+				return resolve(false);
+			}
+		}).catch(() => {
+			// ignore all errors
+			return false;
+		});
 	}
-
-	if (state.serverVersion === config.package.version) return dest;
-
-	if (config.askBeforeDownload) {
-		const userResponse = await vscode.window.showInformationMessage(
-			`Language server version ${config.package.version} for clarity-lsp is not installed.`,
-			"Download now"
-		);
-		if (userResponse !== "Download now") return dest;
-	}
-
-	const release = await fetchRelease(config.package.releaseTag);
-	const artifact = release.assets.find(artifact => artifact.name === binaryName);
-	assert(!!artifact, `Bad release: ${JSON.stringify(release)}`);
-
-	await download(artifact.browser_download_url, dest, "Downloading clarity-lsp server", { mode: 0o755 });
-	await state.updateServerVersion(config.package.version);
-	return dest;
 }
