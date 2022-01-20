@@ -121,11 +121,17 @@ async function bootstrapServer(): Promise<string> {
 	if (!path) {
 		throw new Error(
 			"Clarinet is not available.\n" +
-			"Please ensure it is correctly [installed](https://github.com/hirosystems/clarinet)"
+			"Please ensure it is correctly [installed](https://github.com/hirosystems/clarinet#installation)"
 		);
 	}
 
 	const res = spawnSync(path, ["--version"], { encoding: 'utf8' });
+	if (res.error) {
+		throw new Error(
+			"Clarinet is not available.\n" +
+			"Please ensure it is correctly [installed](https://github.com/hirosystems/clarinet#installation)"
+		);
+	}
 	log.error("Checked binary availability via --version", res);
 	log.debug(res, "--version output:", res.output);
 	// Yikes: `$ clarinet --version` returns
@@ -141,7 +147,7 @@ async function bootstrapServer(): Promise<string> {
 	if (parseInt(version[0]) === 0 && parseInt(version[1]) < 22) {
 		throw new Error(
 			"Clarinet is outdated.\n" +
-			"Please update to [v0.22.0 or newer](https://github.com/hirosystems/clarinet)"
+			"Please update to [v0.22.0 or newer](https://github.com/hirosystems/clarinet#installation)"
 		);
 	}
 
