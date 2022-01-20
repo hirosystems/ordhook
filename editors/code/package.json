@@ -3,7 +3,6 @@
     "displayName": "Clarity for Visual Studio Code",
     "description": "Coding assistant for Smart Contracts (Stacks, Bitcoin)",
     "icon": "images/stacks.png",
-    "preview": true,
     "private": true,
     "version": "0.6.0-develop.1",
     "releaseTag": "v0.6.0-develop.1",
