@@ -13,6 +13,10 @@ This project aims at leveraging the decidability quality of Clarity and the LSP 
 
 ## Quick Start
 
+### Dependencies
+
+This extension relies on a local installation of Clarinet, at or above version 0.22.0. To install Clarinet, please follow the instructions [here](https://github.com/hirosystems/clarinet#installation).
+
 ### VSCode
 
 You can install the latest release of the plugin from the [marketplace](https://marketplace.visualstudio.com/items?itemName=hirosystems.clarity-lsp).
@@ -30,7 +34,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 From there, you can clone this repository:
 
 ```bash
-git clone https://github.com/blockstack/hirosystems/clarity-lsp.git
+git clone https://github.com/hirosystems/clarity-lsp.git
 
 cd clarity-lsp
 ```

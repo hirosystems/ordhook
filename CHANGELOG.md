@@ -1,3 +1,11 @@
+# [0.6.0-develop.2](https://github.com/hirosystems/clarity-lsp/compare/v0.6.0-develop.1...v0.6.0-develop.2) (2022-01-20)
+
+
+### Bug Fixes
+
+* Improve check for installed clarinet ([353380a](https://github.com/hirosystems/clarity-lsp/commit/353380ae61acce138ef8a8179858274b72733f5c)), closes [#57](https://github.com/hirosystems/clarity-lsp/issues/57)
+* updated repository to correct one ([f930ae5](https://github.com/hirosystems/clarity-lsp/commit/f930ae5b1db6e8a216ad321d682c423f66d195cf))
+
 # [0.6.0-develop.1](https://github.com/hirosystems/clarity-lsp/compare/v0.5.2-develop.1...v0.6.0-develop.1) (2022-01-05)
 
 

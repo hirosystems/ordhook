@@ -214,7 +214,7 @@ jobs:
         working-directory: ./editors/code
 
       - name: Audit
-        run: npm audit
+        run: npm audit --audit-level high
         working-directory: ./editors/code
 
       - name: Lint
@@ -248,7 +248,7 @@ jobs:
   release:
     name: Release
     runs-on: ubuntu-latest
-    if: github.event_name == 'push'
+    if: contains(github.ref, 'main')
     needs:
       - audit
       - dist
