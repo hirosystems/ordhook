@@ -58,5 +58,3 @@ cargo xtask install
 - [ ] Resolve contract-call targeting deployed contracts
 - [x] Support for traits
 - [ ] Support for multiple errors
-
-
