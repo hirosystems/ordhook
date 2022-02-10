@@ -37,7 +37,6 @@
         "vscode:prepublish": "tsc && rollup -c",
         "package": "vsce package -o clarity-lsp.vsix",
         "compile": "tsc -b",
-        "build": "js-yaml syntaxes/clarity.yaml > syntaxes/clarity.tmLanguage.json && tsc",
         "watch": "tsc --watch",
         "lint": "tsfmt --verify && eslint -c .eslintrc.js --ext ts ./src",
         "fix": "tsfmt -r && eslint -c .eslintrc.js --ext ts ./src --fix"
