@@ -295,7 +295,7 @@
             "1": { "names": "punctuation.list.end.clarity" }
           },
           "name": "meta.list",
-          "patterns": [{ "include": "#literal" }]
+          "patterns": [{ "include": "#expression" }, { "include": "#user-func" }]
         },
         "optional-literal": {
           "patterns": [
