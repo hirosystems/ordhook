@@ -47,7 +47,7 @@
       "patterns": [
         { "include": "#expression" },
         {
-          "begin": "(?x) (\\() \\s* ([a-zA-Z][a-zA-Z0-9_-]*) \\s*",
+          "begin": "(?x) (\\() \\s* ([a-zA-Z][a-zA-Z0-9_\\-\\!\\?]*) \\s*",
           "end": "(\\))",
           "beginCaptures": {
             "1": { "name": "punctuation.function-signature.start.clarity" },
@@ -59,7 +59,7 @@
           "name": "meta.define-function-signature",
           "patterns": [
             {
-              "begin": "(?x) (\\() \\s* ([a-zA-Z][a-zA-Z0-9_-]*) \\s+",
+              "begin": "(?x) (\\() \\s* ([a-zA-Z][a-zA-Z0-9_\\-\\!\\?]*) \\s+",
               "end": "(\\))",
               "beginCaptures": {
                 "1": { "name": "punctuation.function-argument.start.clarity" },
@@ -76,7 +76,7 @@
       ]
     },
     "define-fungible-token": {
-      "match": "(?x) (\\() \\s* (define-fungible-token) \\s+ ([a-zA-Z][a-zA-Z0-9_-]*) (?:\\s+(u\\d+))?",
+      "match": "(?x) (\\() \\s* (define-fungible-token) \\s+ ([a-zA-Z][a-zA-Z0-9_\\-\\!\\?]*) (?:\\s+(u\\d+))?",
       "captures": {
         "1": { "name": "punctuation.define-fungible-token.start.clarity" },
         "2": { "name": "keyword.declaration.define-fungible-token.clarity" },
@@ -86,7 +86,7 @@
       }
     },
     "define-non-fungible-token": {
-      "begin": "(?x) (\\() \\s* (define-non-fungible-token) \\s+ ([a-zA-Z][a-zA-Z0-9_-]*) \\s+",
+      "begin": "(?x) (\\() \\s* (define-non-fungible-token) \\s+ ([a-zA-Z][a-zA-Z0-9_\\-\\!\\?]*) \\s+",
       "end": "(\\))",
       "beginCaptures": {
         "1": { "name": "punctuation.define-non-fungible-token.start.clarity" },
@@ -100,7 +100,7 @@
       "patterns": [{ "include": "#data-type" }]
     },
     "define-trait": {
-      "begin": "(?x) (\\() \\s* (define-trait) \\s+ ([a-zA-Z][a-zA-Z0-9_-]*) \\s+",
+      "begin": "(?x) (\\() \\s* (define-trait) \\s+ ([a-zA-Z][a-zA-Z0-9_\\-\\!\\?]*) \\s+",
       "end": "(\\))",
       "beginCaptures": {
         "1": { "name": "punctuation.define-trait.start.clarity" },
@@ -124,7 +124,7 @@
           "name": "meta.define-trait-body",
           "patterns": [
             {
-              "begin": "(?x) (\\() \\s* ([a-zA-Z][a-zA-Z0-9_-]+\\??) \\s+",
+              "begin": "(?x) (\\() \\s* ([a-zA-Z][a-zA-Z0-9_\\-\\!\\?]+\\??) \\s+",
               "end": "(\\))",
               "beginCaptures": {
                 "1": { "name": "punctuation.trait-function.start.clarity" },
@@ -155,7 +155,7 @@
       ]
     },
     "use-trait": {
-      "begin": "(?x) (\\() \\s* (use-trait) \\s+ ([a-zA-Z][a-zA-Z0-9_-]*) \\s+",
+      "begin": "(?x) (\\() \\s* (use-trait) \\s+ ([a-zA-Z][a-zA-Z0-9_\\-\\!\\?]*) \\s+",
       "end": "(\\))",
       "beginCaptures": {
         "1": { "name": "punctuation.use-trait.start.clarity" },
@@ -169,7 +169,7 @@
       "patterns": [{ "include": "#literal" }]
     },
     "define-constant": {
-      "begin": "(?x) (\\() \\s* (define-constant) \\s+ ([a-zA-Z][a-zA-Z0-9_-]*) \\s+",
+      "begin": "(?x) (\\() \\s* (define-constant) \\s+ ([a-zA-Z][a-zA-Z0-9_\\-\\!\\?]*) \\s+",
       "end": "(\\))",
       "beginCaptures": {
         "1": { "name": "punctuation.define-constant.start.clarity" },
@@ -183,7 +183,7 @@
       "patterns": [{ "include": "#expression" }]
     },
     "define-data-var": {
-      "begin": "(?x) (\\() \\s* (define-data-var) \\s+ ([a-zA-Z][a-zA-Z0-9_-]*) \\s+",
+      "begin": "(?x) (\\() \\s* (define-data-var) \\s+ ([a-zA-Z][a-zA-Z0-9_\\-\\!\\?]*) \\s+",
       "end": "(\\))",
       "beginCaptures": {
         "1": { "name": "punctuation.define-data-var.start.clarity" },
@@ -197,7 +197,7 @@
       "patterns": [{ "include": "#data-type" }, { "include": "#expression" }]
     },
     "define-map": {
-      "begin": "(?x) (\\() \\s* (define-map) \\s+ ([a-zA-Z][a-zA-Z0-9_-]*) \\s+",
+      "begin": "(?x) (\\() \\s* (define-map) \\s+ ([a-zA-Z][a-zA-Z0-9_\\-\\!\\?]*) \\s+",
       "end": "(\\))",
       "beginCaptures": {
         "1": { "name": "punctuation.define-map.start.clarity" },
@@ -274,7 +274,7 @@
           "patterns": [
             {
               "name": "entity.name.tag.tuple-key.clarity",
-              "match": "([a-zA-Z][a-zA-Z0-9_-]*)(?=:)"
+              "match": "([a-zA-Z][a-zA-Z0-9_\\-\\!\\?]*)(?=:)"
             },
             { "include": "#expression" },
             { "include": "#user-func" }
@@ -424,7 +424,7 @@
           "patterns": [
             {
               "name": "entity.name.tag.tuple-data-type-key.clarity",
-              "match": "([a-zA-Z][a-zA-Z0-9_-]*)(?=:)"
+              "match": "([a-zA-Z][a-zA-Z0-9_\\-\\!\\?]*)(?=:)"
             },
             { "include": "#data-type" }
           ]
@@ -446,7 +446,7 @@
     },
     "get-set-func": {
       "name": "meta.get-set-func",
-      "begin": "(?x) (\\() \\s* (var-get|var-set|map-get\\?|map-set|map-insert|map-delete|get) \\s+ ([a-zA-Z][a-zA-Z0-9_-]*) \\s*",
+      "begin": "(?x) (\\() \\s* (var-get|var-set|map-get\\?|map-set|map-insert|map-delete|get) \\s+ ([a-zA-Z][a-zA-Z0-9_\\-\\!\\?]*) \\s*",
       "end": "(\\))",
       "beginCaptures": {
         "1": { "name": "punctuation.get-set-func.start.clarity" },
@@ -484,7 +484,7 @@
           "name": "meta.let-var",
           "patterns": [
             {
-              "begin": "(?x) (\\() ([a-zA-Z][a-zA-Z0-9_-]*) \\s+",
+              "begin": "(?x) (\\() ([a-zA-Z][a-zA-Z0-9_\\-\\!\\?]*) \\s+",
               "end": "(\\))",
               "beginCaptures": {
                 "1": { "name": "punctuation.let-local-var.start.clarity" },
@@ -502,7 +502,7 @@
       ]
     },
     "user-func": {
-      "begin": "(?x) (\\() \\s* (([a-zA-Z][a-zA-Z0-9_-]*)) \\s*",
+      "begin": "(?x) (\\() \\s* (([a-zA-Z][a-zA-Z0-9_\\-\\!\\?]*)) \\s*",
       "end": "(\\))",
       "beginCaptures": {
         "1": { "name": "punctuation.user-function.start.clarity" },
