@@ -37,6 +37,7 @@
         "vscode:prepublish": "tsc && rollup -c",
         "package": "vsce package -o clarity-lsp.vsix",
         "compile": "tsc -b",
+        "build": "tsc",
         "watch": "tsc --watch",
         "lint": "tsfmt --verify && eslint -c .eslintrc.js --ext ts ./src",
         "fix": "tsfmt -r && eslint -c .eslintrc.js --ext ts ./src --fix"
