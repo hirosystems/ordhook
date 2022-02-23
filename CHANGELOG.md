@@ -1,3 +1,14 @@
+## [0.6.2](https://github.com/hirosystems/clarity-lsp/compare/v0.6.1...v0.6.2) (2022-02-23)
+
+
+### Bug Fixes
+
+* allow one character identifiers ([4c1de38](https://github.com/hirosystems/clarity-lsp/commit/4c1de3891bb37580c7d27661e9b5517ec1fb4ee7))
+* comments in literals and define-map ([68ee3be](https://github.com/hirosystems/clarity-lsp/commit/68ee3be455da4f0b31df8e04033142615f22ff3f))
+* highlight expression and user func in list ([2fd5dda](https://github.com/hirosystems/clarity-lsp/commit/2fd5ddae5cc8836b91ccbcd14dda5601e3ceb520))
+* highlighting names with ? and ! ([a02845f](https://github.com/hirosystems/clarity-lsp/commit/a02845fcc74665df2dc3e72c73066e45e9766f20))
+* restore build script ([eefac0f](https://github.com/hirosystems/clarity-lsp/commit/eefac0ff4ec7591f5ca53612346b19730838f5b9))
+
 # [0.6.0](https://github.com/hirosystems/clarity-lsp/compare/v0.5.1...v0.6.0) (2022-01-26)
 
 

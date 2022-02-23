@@ -1,6 +1,6 @@
 [package]
 name = "clarity-lsp"
-version = "0.6.0"
+version = "0.6.2"
 description = "Clarity Language Server"
 authors = ["Ludo Galabru <ludovic@galabru.com>"]
 readme = "README.md"
