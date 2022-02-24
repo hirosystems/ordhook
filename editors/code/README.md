@@ -1,7 +1,6 @@
-
 # Clarity for Visual Studio Code
 
-Clarity is a **decidable** smart contract language that optimizes for predictability and security, designed by Blockstack. Smart contracts allow developers to encode essential business logic on a blockchain. 
+Clarity is a **decidable** smart contract language that optimizes for predictability and security, designed by Blockstack. Smart contracts allow developers to encode essential business logic on a blockchain.
 
 A programming language is decidable if you can know, with certainty, from the code itself what the program will do. Clarity is intentionally Turing incomplete as it avoids `Turing complexity`. This allows for complete static analysis of the entire call graph of a given smart contract. Further, our support for types and type checker can eliminate whole classes of bugs like unintended casts, reentrancy bugs, and reads of uninitialized values.
 
@@ -39,6 +38,8 @@ git clone https://github.com/hirosystems/clarity-lsp.git
 cd clarity-lsp
 ```
 
+Test out your changes to the extension via the debugger in VS Code. From the Run and Debug view, select "Run Extension (Debug Build)" to spawn a new instance of VS Code with the extension installed.
+
 Then build and install:
 
 ```bash
@@ -46,15 +47,17 @@ cargo xtask install
 ```
 
 ## Initial feature set
+
 - [x] Auto-complete native functions
 - [x] Check contract on save, and display errors inline.
 - [x] VS-Code support
 
 ## Additional desired features (not exhaustive, not prioritized)
+
 - [x] Inline documentation
 - [x] Auto-complete user defined functions
 - [ ] Return and display cost analysis
-- [x] Resolve contract-call targeting local contracts 
+- [x] Resolve contract-call targeting local contracts
 - [ ] Resolve contract-call targeting deployed contracts
 - [x] Support for traits
-- [ ] Support for multiple errors
+- [x] Support for multiple errors
