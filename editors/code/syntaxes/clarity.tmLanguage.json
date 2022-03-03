@@ -336,6 +336,7 @@
     },
     "data-type": {
       "patterns": [
+        { "include": "#comment" },
         {
           "comment": "numerics",
           "name": "entity.name.type.numeric.clarity",
