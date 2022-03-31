@@ -1,3 +1,14 @@
+## [0.7.1](https://github.com/hirosystems/clarity-lsp/compare/v0.7.0...v0.7.1) (2022-03-31)
+
+
+### Bug Fixes
+
+* highlight comments in data types ([773c218](https://github.com/hirosystems/clarity-lsp/commit/773c218722672ff8227e3dec10ded552b0cf719b))
+* hightighting comments in traits ([a3b0273](https://github.com/hirosystems/clarity-lsp/commit/a3b0273007e9fd01e5bd07b610faf6cd9cf63904))
+* reformat with tsfmt ([faf198c](https://github.com/hirosystems/clarity-lsp/commit/faf198c8d53cbb8bcd45cf19672e782f6b937f69))
+* revert previous formatting changes ([c3eef51](https://github.com/hirosystems/clarity-lsp/commit/c3eef513b596543163d8146e0bccc9f6b5bb43d7))
+* use prettier to format main.ts ([b2dc7b2](https://github.com/hirosystems/clarity-lsp/commit/b2dc7b2bc83825188749b35c77ba4ba27439167d))
+
 # [0.7.0](https://github.com/hirosystems/clarity-lsp/compare/v0.6.1...v0.7.0) (2022-03-30)
 
 
