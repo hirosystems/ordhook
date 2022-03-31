@@ -1,23 +1,24 @@
-import * as path from "path";
-import { workspace, ExtensionContext } from "vscode";
-import { Config, NIGHTLY_TAG } from "./config";
-import { log, assert } from "./util";
-import { PersistentState } from "./persistent_state";
-import { fetchRelease, download } from "./net";
+import * as path from 'path';
+import { workspace, ExtensionContext } from 'vscode';
+import { Config, NIGHTLY_TAG } from './config';
+import { log, assert } from './util';
+import { PersistentState } from './persistent_state';
+import { fetchRelease, download } from './net';
 import { promises as fs } from "fs";
-import * as vscode from "vscode";
-import { spawnSync } from "child_process";
+import * as vscode from 'vscode';
+import { spawnSync } from 'child_process';
 import * as os from "os";
 
 import {
 	LanguageClient,
 	LanguageClientOptions,
 	Executable,
-} from "vscode-languageclient";
+} from 'vscode-languageclient';
 
 let client: LanguageClient;
 
 export async function activate(context: ExtensionContext) {
+
 	const config = new Config(context);
 	const state = new PersistentState(context.globalState);
 
@@ -25,23 +26,23 @@ export async function activate(context: ExtensionContext) {
 
 	const serverOptions: Executable = {
 		command: serverPath,
-		args: ["lsp"],
+		args: ["lsp"]
 	};
 
 	// Options to control the language client
 	const clientOptions: LanguageClientOptions = {
 		// Register the server for plain text documents
-		documentSelector: [{ scheme: "file", language: "clarity" }],
+		documentSelector: [{ scheme: 'file', language: 'clarity' }],
 		synchronize: {
 			// Notify the server about file changes to '.clientrc files contained in the workspace
-			fileEvents: workspace.createFileSystemWatcher("**/.clientrc"),
-		},
+			fileEvents: workspace.createFileSystemWatcher('**/.clientrc')
+		}
 	};
 
 	// Create the language client and start the client.
 	client = new LanguageClient(
-		"clarityLanguageServer",
-		"Clarity Language Server",
+		'clarityLanguageServer',
+		'Clarity Language Server',
 		serverOptions,
 		clientOptions
 	);
@@ -57,10 +58,7 @@ export async function deactivate() {
 	await client.stop();
 }
 
-async function bootstrap(
-	config: Config,
-	state: PersistentState
-): Promise<string> {
+async function bootstrap(config: Config, state: PersistentState): Promise<string> {
 	await fs.mkdir(config.globalStoragePath, { recursive: true });
 
 	await bootstrapExtension(config, state);
@@ -69,10 +67,7 @@ async function bootstrap(
 	return path;
 }
 
-async function bootstrapExtension(
-	config: Config,
-	state: PersistentState
-): Promise<void> {
+async function bootstrapExtension(config: Config, state: PersistentState): Promise<void> {
 	if (config.package.releaseTag === null) return;
 	if (config.channel === "stable") {
 		if (config.package.releaseTag === NIGHTLY_TAG) {
@@ -82,24 +77,20 @@ async function bootstrapExtension(
 			);
 		}
 		return;
-	}
+	};
 
 	const lastCheck = state.lastCheck;
 	const now = Date.now();
 
 	const anHour = 60 * 60 * 1000;
-	const shouldDownloadNightly =
-		state.releaseId === undefined || now - (lastCheck ?? 0) > anHour;
+	const shouldDownloadNightly = state.releaseId === undefined || (now - (lastCheck ?? 0)) > anHour;
 
 	if (!shouldDownloadNightly) return;
 
 	const release = await fetchRelease("nightly").catch((e) => {
 		log.error(e);
-		if (state.releaseId === undefined) {
-			// Show error only for the initial download
-			vscode.window.showErrorMessage(
-				`Failed to download clarity-lsp nightly ${e}`
-			);
+		if (state.releaseId === undefined) { // Show error only for the initial download
+			vscode.window.showErrorMessage(`Failed to download clarity-lsp nightly ${e}`);
 		}
 		return undefined;
 	});
@@ -111,22 +102,13 @@ async function bootstrapExtension(
 	);
 	if (userResponse !== "Update") return;
 
-	const artifact = release.assets.find(
-		(artifact) => artifact.name === "clarity-lsp.vsix"
-	);
+	const artifact = release.assets.find(artifact => artifact.name === "clarity-lsp.vsix");
 	assert(!!artifact, `Bad release: ${JSON.stringify(release)}`);
 
 	const dest = path.join(config.globalStoragePath, "clarity-lsp.vsix");
-	await download(
-		artifact.browser_download_url,
-		dest,
-		"Downloading clarity-lsp extension"
-	);
+	await download(artifact.browser_download_url, dest, "Downloading clarity-lsp extension");
 
-	await vscode.commands.executeCommand(
-		"workbench.extensions.installExtension",
-		vscode.Uri.file(dest)
-	);
+	await vscode.commands.executeCommand("workbench.extensions.installExtension", vscode.Uri.file(dest));
 	await fs.unlink(dest);
 
 	await state.updateReleaseId(release.id);
@@ -143,7 +125,7 @@ async function bootstrapServer(): Promise<string> {
 		);
 	}
 
-	const res = spawnSync(path, ["--version"], { encoding: "utf8" });
+	const res = spawnSync(path, ["--version"], { encoding: 'utf8' });
 	if (res.error) {
 		throw new Error(
 			"Clarinet is not available.\n" +
@@ -155,13 +137,13 @@ async function bootstrapServer(): Promise<string> {
 	// Yikes: `$ clarinet --version` returns
 	// clarinet 0.21.0
 	//
-	// The LSP was merged in Clarinet in v0.21.0, we want to make sure that
+	// The LSP was merged in Clarinet in v0.21.0, we want to make sure that 
 	// we're using an adequate version.
 	const version = res.output
-		.toString() // clarinet 0.21.0
+		.toString()    // clarinet 0.21.0
 		.split("\n")[0] // 0.21.0
 		.split(" ")[1] // 0.21.0
-		.split("."); // ["0", "21", "0"]
+		.split(".");   // ["0", "21", "0"]
 	if (parseInt(version[0]) === 0 && parseInt(version[1]) < 22) {
 		throw new Error(
 			"Clarinet is outdated.\n" +
@@ -191,10 +173,7 @@ function getServer(): Promise<string> {
 
 		for (const pathFolderPath of pathFolderPaths) {
 			for (const pathExtItem of pathExtItems) {
-				const cmdFilePath = path.join(
-					pathFolderPath,
-					clarinetCmd + pathExtItem
-				);
+				const cmdFilePath = path.join(pathFolderPath, clarinetCmd + pathExtItem);
 				if (await fileExists(cmdFilePath)) {
 					return cmdFilePath;
 				}
