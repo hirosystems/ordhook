@@ -7,9 +7,9 @@ export class PersistentState {
 		log.debug("PersistentState: ", { lastCheck, releaseId, serverVersion });
 	}
 
-	/**
-	 * Used to check for *nightly* updates once an hour.
-	 */
+    /**
+     * Used to check for *nightly* updates once an hour.
+     */
 	get lastCheck(): number | undefined {
 		return this.globalState.get("lastCheck");
 	}
@@ -17,10 +17,10 @@ export class PersistentState {
 		await this.globalState.update("lastCheck", value);
 	}
 
-	/**
-	 * Release id of the *nightly* extension.
-	 * Used to check if we should update.
-	 */
+    /**
+     * Release id of the *nightly* extension.
+     * Used to check if we should update.
+     */
 	get releaseId(): number | undefined {
 		return this.globalState.get("releaseId");
 	}
@@ -28,10 +28,10 @@ export class PersistentState {
 		await this.globalState.update("releaseId", value);
 	}
 
-	/**
-	 * Version of the extension that installed the server.
-	 * Used to check if we need to update the server.
-	 */
+    /**
+     * Version of the extension that installed the server.
+     * Used to check if we need to update the server.
+     */
 	get serverVersion(): string | undefined {
 		return this.globalState.get("serverVersion");
 	}
