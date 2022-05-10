@@ -154,6 +154,57 @@
                     "default": false
                 }
             }
-        }
+        },
+        "debuggers": [
+            {
+                "type": "clarinet",
+                "label": "Clarinet Debug",
+                "program": "./debug/debug.js",
+                "runtime": "node",
+                "languages": [
+                    "clarity"
+                ],
+                "configurationAttributes": {
+                    "launch": {
+                        "required": [
+                            "manifest",
+                            "expression"
+                        ],
+                        "properties": {
+                            "manifest": {
+                                "type": "string",
+                                "description": "Path to Clarinet.toml."
+                            },
+                            "expression": {
+                                "type": "string",
+                                "description": "Expression to debug."
+                            }
+                        }
+                    }
+                },
+                "initialConfigurations": [
+                    {
+                        "type": "clarinet",
+                        "request": "launch",
+                        "name": "Call .foo.bar",
+                        "manifest": "${workspaceFolder}/Clarinet.toml",
+                        "expression": "(contract-call? .foo bar 42)"
+                    }
+                ],
+                "configurationSnippets": [
+                    {
+                        "label": "Clarinet Debugger",
+                        "description": "A new configuration for debugging a smart contract.",
+                        "body": {
+                            "type": "clarinet",
+                            "request": "launch",
+                            "name": "Call .foo.bar",
+                            "manifest": "${workspaceFolder}/Clarinet.toml",
+                            "expression": "(contract-call? .foo bar 42)"
+                        }
+                    }
+                ]
+            }
+        ]
     }
 }
