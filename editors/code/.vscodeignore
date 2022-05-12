@@ -1,5 +1,6 @@
 **
 !out/main.js
+!out/debug.js
 !package.json
 !package-lock.json
 !icon.png
