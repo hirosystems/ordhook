@@ -1,3 +1,15 @@
+# [0.8.0](https://github.com/hirosystems/clarity-lsp/compare/v0.7.1...v0.8.0) (2022-05-31)
+
+
+### Bug Fixes
+
+* dap configuration ([3c7c433](https://github.com/hirosystems/clarity-lsp/commit/3c7c4336ebf4e8496e6b63f904c181eddde5bc8d))
+
+
+### Features
+
+* add debug support ([32657a6](https://github.com/hirosystems/clarity-lsp/commit/32657a6cee84cec6683835009fede18f02bbdb46))
+
 ## [0.7.1](https://github.com/hirosystems/clarity-lsp/compare/v0.7.0...v0.7.1) (2022-03-31)
 
 
