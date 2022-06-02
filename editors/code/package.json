@@ -1,7 +1,7 @@
 {
     "name": "clarity-lsp",
-    "displayName": "Clarity for Visual Studio Code",
-    "description": "Coding assistant for Smart Contracts (Stacks, Bitcoin)",
+    "displayName": "Clarity",
+    "description": "Provides validation, syntax highlighting, code completion, and debugging for Clarity smart contracts",
     "icon": "images/stacks.png",
     "private": true,
     "version": "0.7.1",
@@ -25,14 +25,15 @@
         "color": "#242424",
         "theme": "dark"
     },
-    "qna": "https://clarity-lang.org/",
+    "qna": "https://docs.hiro.so/",
     "categories": [
-        "Programming Languages"
+        "Programming Languages",
+        "Debuggers"
     ],
     "engines": {
         "vscode": "^1.43.0"
     },
-    "enableProposedApi": false,
+    "enabledApiProposals": [],
     "scripts": {
         "vscode:prepublish": "tsc && rollup -c rollup.config.lsp.js && rollup -c rollup.config.dap.js",
         "package": "vsce package -o clarity-lsp.vsix",
