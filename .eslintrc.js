@@ -6,7 +6,7 @@ module.exports = {
     "parser": "@typescript-eslint/parser",
     "parserOptions": {
         "project": "tsconfig.json",
-        "sourceType": "module"
+        "sourceType": "module",
     },
     "plugins": [
         "@typescript-eslint"
@@ -14,7 +14,7 @@ module.exports = {
     "rules": {
         "camelcase": ["error"],
         "eqeqeq": ["error", "always", { "null": "ignore" }],
-        "no-console": ["error"],
+        "indent": ["error", "tab"],
         "prefer-const": "error",
         "@typescript-eslint/member-delimiter-style": [
             "error",
