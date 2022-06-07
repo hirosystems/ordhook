@@ -1,220 +1,213 @@
 {
-    "name": "clarity-vscode-client",
-    "displayName": "Clarity",
-    "description": "Provides validation, syntax highlighting, code completion, and debugging for Clarity smart contracts",
-    "icon": "images/stacks.png",
-    "private": true,
-    "version": "0.7.1",
-    "releaseTag": "v0.7.1",
-    "publisher": "hirosystems",
-    "repository": "https://github.com/hirosystems/clarity-lsp.git",
-    "homepage": "https://github.com/hirosystems/clarity-lsp",
-    "bugs": "https://github.com/hirosystems/clarity-lsp/issues",
-    "license": "GPL-3.0-only",
-    "keywords": [
-        "blockchain",
-        "clarity",
-        "bitcoin",
-        "stacks",
-        "smart contract",
-        "lsp",
-        "stx",
-        "btc"
-    ],
-    "galleryBanner": {
-        "color": "#242424",
-        "theme": "dark"
-    },
-    "qna": "https://docs.hiro.so/",
-    "categories": [
-        "Programming Languages",
-        "Debuggers"
-    ],
-    "engines": {
-        "vscode": "^1.43.0"
-    },
-    "enabledApiProposals": [],
-    "scripts": {
-        "vscode:prepublish": "tsc && rollup -c rollup.config.lsp.js && rollup -c rollup.config.dap.js",
-        "package": "vsce package -o clarity-lsp.vsix",
-        "compile": "tsc -b",
-        "build": "tsc",
-        "watch": "tsc --watch",
-        "lint": "tsfmt --verify && eslint -c .eslintrc.js --ext ts ./src",
-        "fix": "tsfmt -r && eslint -c .eslintrc.js --ext ts ./src --fix"
-    },
-    "dependencies": {
-        "child_process": "^1.0.2",
-        "jsonc-parser": "^2.2.1",
-        "lookpath": "^1.2.2",
-        "node-fetch": "^2.6.1",
-        "vscode-languageclient": "6.1.3"
-    },
-    "devDependencies": {
-        "@commitlint/cli": "^12.1.4",
-        "@commitlint/config-conventional": "^12.1.4",
-        "@rollup/plugin-commonjs": "^11.0.2",
-        "@rollup/plugin-node-resolve": "^7.1.1",
-        "@types/node": "^12.12.34",
-        "@types/node-fetch": "^2.5.5",
-        "@types/vscode": "^1.43.0",
-        "@typescript-eslint/eslint-plugin": "^5.9.0",
-        "@typescript-eslint/parser": "^5.9.0",
-        "eslint": "^8.6.0",
-        "husky": "^6.0.0",
-        "js-yaml": "^3.14.1",
-        "rollup": "^2.3.2",
-        "tslib": "^1.11.1",
-        "typescript": "^3.8.3",
-        "typescript-formatter": "^7.2.2",
-        "vsce": "^2.6.3"
-    },
-    "activationEvents": [
-        "onLanguage:clarity",
-        "onCommand:clarity-lsp.analyzerStatus"
-    ],
-    "main": "./out/main",
-    "contributes": {
-        "languages": [
-            {
-                "id": "clarity",
-                "aliases": [
-                    "Clarity",
-                    "clarity"
-                ],
-                "extensions": [
-                    ".clar"
-                ],
-                "configuration": "./language-configuration.json"
-            }
+  "name": "clarity-lsp",
+  "displayName": "Clarity",
+  "description": "Provides validation, syntax highlighting, code completion, and debugging for Clarity smart contracts",
+  "icon": "images/stacks.png",
+  "private": true,
+  "version": "0.7.1",
+  "releaseTag": "v0.7.1",
+  "publisher": "hirosystems",
+  "repository": "https://github.com/hirosystems/clarity-lsp.git",
+  "homepage": "https://github.com/hirosystems/clarity-lsp",
+  "bugs": "https://github.com/hirosystems/clarity-lsp/issues",
+  "license": "GPL-3.0-only",
+  "keywords": [
+    "blockchain",
+    "clarity",
+    "bitcoin",
+    "stacks",
+    "smart contract",
+    "lsp",
+    "stx",
+    "btc"
+  ],
+  "galleryBanner": {
+    "color": "#242424",
+    "theme": "dark"
+  },
+  "qna": "https://docs.hiro.so/",
+  "categories": [
+    "Programming Languages",
+    "Debuggers"
+  ],
+  "engines": {
+    "vscode": "^1.43.0"
+  },
+  "enabledApiProposals": [],
+  "scripts": {
+    "vscode:prepublish": "tsc && rollup -c rollup.config.lsp.js && rollup -c rollup.config.dap.js",
+    "package": "vsce package -o clarity-lsp.vsix",
+    "compile": "tsc -b",
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "lint": "eslint -c .eslintrc.json --ext ts ./src",
+    "fix": "eslint -c .eslintrc.json --ext ts ./src --fix && prettier ./src --write"
+  },
+  "dependencies": {
+    "lookpath": "^1.2.2",
+    "node-fetch": "^2.6.1",
+    "vscode-languageclient": "6.1.3"
+  },
+  "devDependencies": {
+    "@rollup/plugin-commonjs": "^11.0.2",
+    "@rollup/plugin-node-resolve": "^7.1.1",
+    "@types/node": "^12.12.34",
+    "@types/node-fetch": "^2.5.5",
+    "@types/vscode": "^1.43.0",
+    "@typescript-eslint/parser": "^5.9.0",
+    "eslint": "^8.6.0",
+    "eslint-config-prettier": "^8.5.0",
+    "prettier": "^2.6.2",
+    "rollup": "^2.3.2",
+    "typescript": "^3.8.3",
+    "vsce": "^2.6.3"
+  },
+  "activationEvents": [
+    "onLanguage:clarity",
+    "onCommand:clarity-lsp.analyzerStatus"
+  ],
+  "main": "./out/main",
+  "contributes": {
+    "languages": [
+      {
+        "id": "clarity",
+        "aliases": [
+          "Clarity",
+          "clarity"
         ],
-        "grammars": [
-            {
-                "language": "clarity",
-                "scopeName": "source.clar",
-                "path": "./syntaxes/clarity.tmLanguage.json"
-            }
+        "extensions": [
+          ".clar"
         ],
-        "commands": [],
-        "breakpoints": [
-            {
-                "language": "clarity"
-            }
-        ],
-        "keybindings": [],
-        "configuration": {
-            "type": "object",
-            "title": "Clarity Language Server",
-            "properties": {
-                "clarity-lsp.diagnostics.enable": {
-                    "type": "boolean",
-                    "default": true,
-                    "markdownDescription": "Whether to show native clarity-cli diagnostics."
-                },
-                "clarity-lsp.checkOnSave.allTargets": {
-                    "type": "boolean",
-                    "default": true,
-                    "markdownDescription": "Check all targets and tests (will be passed as `--all-targets`)"
-                },
-                "clarity-lsp.updates.channel": {
-                    "type": "string",
-                    "enum": [
-                        "stable",
-                        "nightly"
-                    ],
-                    "default": "stable",
-                    "markdownEnumDescriptions": [
-                        "`\"stable\"` updates are shipped weekly, they don't contain cutting-edge features from VSCode proposed APIs but have less bugs in general",
-                        "`\"nightly\"` updates are shipped daily (extension updates automatically by downloading artifacts directly from GitHub), they contain cutting-edge features and latest bug fixes. These releases help us get your feedback very quickly and speed up clarity-cli development **drastically**"
-                    ],
-                    "markdownDescription": "Choose `\"nightly\"` updates to get the latest features and bug fixes every day. While `\"stable\"` releases occur weekly and don't contain cutting-edge features from VSCode proposed APIs"
-                },
-                "clarity-lsp.updates.askBeforeDownload": {
-                    "type": "boolean",
-                    "default": true,
-                    "description": "Whether to ask for permission before downloading any files from the Internet"
-                },
-                "clarity-lsp.serverPath": {
-                    "type": [
-                        "null",
-                        "string"
-                    ],
-                    "default": null,
-                    "description": "Path to clarity-lsp executable (points to bundled binary by default). If this is set, then \"clarity-lsp.updates.channel\" setting is not used"
-                },
-                "clarity-lsp.trace.server": {
-                    "type": "string",
-                    "scope": "window",
-                    "enum": [
-                        "off",
-                        "messages",
-                        "verbose"
-                    ],
-                    "enumDescriptions": [
-                        "No traces",
-                        "Error only",
-                        "Full log"
-                    ],
-                    "default": "off",
-                    "description": "Trace requests to the clarity-lsp"
-                },
-                "clarity-lsp.trace.extension": {
-                    "description": "Enable logging of VS Code extensions itself",
-                    "type": "boolean",
-                    "default": false
-                }
-            }
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "clarity",
+        "scopeName": "source.clar",
+        "path": "./syntaxes/clarity.tmLanguage.json"
+      }
+    ],
+    "commands": [],
+    "breakpoints": [
+      {
+        "language": "clarity"
+      }
+    ],
+    "keybindings": [],
+    "configuration": {
+      "type": "object",
+      "title": "Clarity Language Server",
+      "properties": {
+        "clarity-lsp.diagnostics.enable": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Whether to show native clarity-cli diagnostics."
         },
-        "debuggers": [
-            {
-                "type": "clarinet",
-                "label": "Clarinet Debug",
-                "program": "./out/debug.js",
-                "runtime": "node",
-                "languages": [
-                    "clarity"
-                ],
-                "configurationAttributes": {
-                    "launch": {
-                        "required": [
-                            "manifest",
-                            "expression"
-                        ],
-                        "properties": {
-                            "manifest": {
-                                "type": "string",
-                                "description": "Path to Clarinet.toml."
-                            },
-                            "expression": {
-                                "type": "string",
-                                "description": "Expression to debug."
-                            }
-                        }
-                    }
-                },
-                "initialConfigurations": [
-                    {
-                        "type": "clarinet",
-                        "request": "launch",
-                        "name": "Call .foo.bar",
-                        "manifest": "${workspaceFolder}/Clarinet.toml",
-                        "expression": "(contract-call? .foo bar 42)"
-                    }
-                ],
-                "configurationSnippets": [
-                    {
-                        "label": "Clarinet Debugger",
-                        "description": "A new configuration for debugging a smart contract.",
-                        "body": {
-                            "type": "clarinet",
-                            "request": "launch",
-                            "name": "Call .foo.bar",
-                            "manifest": "${workspaceFolder}/Clarinet.toml",
-                            "expression": "(contract-call? .foo bar 42)"
-                        }
-                    }
-                ]
+        "clarity-lsp.checkOnSave.allTargets": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Check all targets and tests (will be passed as `--all-targets`)"
+        },
+        "clarity-lsp.updates.channel": {
+          "type": "string",
+          "enum": [
+            "stable",
+            "nightly"
+          ],
+          "default": "stable",
+          "markdownEnumDescriptions": [
+            "`\"stable\"` updates are shipped weekly, they don't contain cutting-edge features from VSCode proposed APIs but have less bugs in general",
+            "`\"nightly\"` updates are shipped daily (extension updates automatically by downloading artifacts directly from GitHub), they contain cutting-edge features and latest bug fixes. These releases help us get your feedback very quickly and speed up clarity-cli development **drastically**"
+          ],
+          "markdownDescription": "Choose `\"nightly\"` updates to get the latest features and bug fixes every day. While `\"stable\"` releases occur weekly and don't contain cutting-edge features from VSCode proposed APIs"
+        },
+        "clarity-lsp.updates.askBeforeDownload": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether to ask for permission before downloading any files from the Internet"
+        },
+        "clarity-lsp.serverPath": {
+          "type": [
+            "null",
+            "string"
+          ],
+          "default": null,
+          "description": "Path to clarity-lsp executable (points to bundled binary by default). If this is set, then \"clarity-lsp.updates.channel\" setting is not used"
+        },
+        "clarity-lsp.trace.server": {
+          "type": "string",
+          "scope": "window",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "enumDescriptions": [
+            "No traces",
+            "Error only",
+            "Full log"
+          ],
+          "default": "off",
+          "description": "Trace requests to the clarity-lsp"
+        },
+        "clarity-lsp.trace.extension": {
+          "description": "Enable logging of VS Code extensions itself",
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "debuggers": [
+      {
+        "type": "clarinet",
+        "label": "Clarinet Debug",
+        "program": "./out/debug.js",
+        "runtime": "node",
+        "languages": [
+          "clarity"
+        ],
+        "configurationAttributes": {
+          "launch": {
+            "required": [
+              "manifest",
+              "expression"
+            ],
+            "properties": {
+              "manifest": {
+                "type": "string",
+                "description": "Path to Clarinet.toml."
+              },
+              "expression": {
+                "type": "string",
+                "description": "Expression to debug."
+              }
             }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "clarinet",
+            "request": "launch",
+            "name": "Call .foo.bar",
+            "manifest": "${workspaceFolder}/Clarinet.toml",
+            "expression": "(contract-call? .foo bar 42)"
+          }
+        ],
+        "configurationSnippets": [
+          {
+            "label": "Clarinet Debugger",
+            "description": "A new configuration for debugging a smart contract.",
+            "body": {
+              "type": "clarinet",
+              "request": "launch",
+              "name": "Call .foo.bar",
+              "manifest": "${workspaceFolder}/Clarinet.toml",
+              "expression": "(contract-call? .foo bar 42)"
+            }
+          }
         ]
-    }
+      }
+    ]
+  }
 }

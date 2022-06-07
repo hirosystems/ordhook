@@ -1,10 +1,10 @@
-import * as lc from "vscode-languageclient";
-import * as vscode from "vscode";
-import { strict as nativeAssert } from "assert";
+import * as lc from 'vscode-languageclient';
+import * as vscode from 'vscode';
+import { strict as nativeAssert } from 'assert';
 
 export function assert(
   condition: boolean,
-  explanation: string
+  explanation: string,
 ): asserts condition {
   try {
     nativeAssert(condition, explanation);
@@ -39,7 +39,7 @@ export async function sendRequestWithRetry<TParam, TRet>(
   client: lc.LanguageClient,
   reqType: lc.RequestType<TParam, TRet, unknown>,
   param: TParam,
-  token?: vscode.CancellationToken
+  token?: vscode.CancellationToken,
 ): Promise<TRet> {
   for (const delay of [2, 4, 6, 8, 10, null]) {
     try {
@@ -48,7 +48,7 @@ export async function sendRequestWithRetry<TParam, TRet>(
         : client.sendRequest(reqType, param));
     } catch (error) {
       if (delay === null) {
-        log.error("LSP request timed out", {
+        log.error('LSP request timed out', {
           method: reqType.method,
           param,
           error,
@@ -61,7 +61,7 @@ export async function sendRequestWithRetry<TParam, TRet>(
       }
 
       if (error.code !== lc.ErrorCodes.ContentModified) {
-        log.error("LSP request failed", {
+        log.error('LSP request failed', {
           method: reqType.method,
           param,
           error,
@@ -72,29 +72,29 @@ export async function sendRequestWithRetry<TParam, TRet>(
       await sleep(10 * (1 << delay));
     }
   }
-  throw "unreachable";
+  throw 'unreachable';
 }
 
 export function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export type RustDocument = vscode.TextDocument & { languageId: "rust" };
+export type RustDocument = vscode.TextDocument & { languageId: 'rust' };
 export type ClarityEditor = vscode.TextEditor & { document: RustDocument };
 
 export function isClarityDocument(
-  document: vscode.TextDocument
+  document: vscode.TextDocument,
 ): document is RustDocument {
   return (
-    document.languageId === "clar" &&
+    document.languageId === 'clar' &&
     // SCM diff views have the same URI as the on-disk document but not the same content
-    document.uri.scheme !== "git" &&
-    document.uri.scheme !== "svn"
+    document.uri.scheme !== 'git' &&
+    document.uri.scheme !== 'svn'
   );
 }
 
 export function isClarityEditor(
-  editor: vscode.TextEditor
+  editor: vscode.TextEditor,
 ): editor is ClarityEditor {
   return isClarityDocument(editor.document);
 }

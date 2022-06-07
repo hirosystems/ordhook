@@ -26,10 +26,10 @@ You can install the latest release of the plugin from the [marketplace](https://
 
 ## Additional desired features (not exhaustive, not prioritized)
 
-- [x] Inline documentation
 - [x] Auto-complete user defined functions
-- [ ] Return and display cost analysis
 - [x] Resolve contract-call targeting local contracts
-- [ ] Resolve contract-call targeting deployed contracts
 - [x] Support for traits
 - [x] Support for multiple errors
+- [ ] Inline documentation
+- [ ] Return and display cost analysis
+- [ ] Resolve contract-call targeting deployed contracts
