@@ -158,7 +158,6 @@ async function bootstrapServer(): Promise<string> {
   // The LSP was merged in Clarinet in v0.21.0, we want to make sure that
   // we're using an adequate version.
   // eslint-disable-next-line no-console
-  console.log(res.output);
   const version = res.output
     .toString() // clarinet 0.21.0
     .split('\n')[0] // 0.21.0

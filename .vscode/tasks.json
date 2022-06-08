@@ -9,6 +9,7 @@
       "type": "npm",
       "script": "watch",
       "path": ".",
+      "dependsOn": ["Install npm dependencies"],
       "problemMatcher": {
         "base": "$tsc-watch",
         "fileLocation": ["relative", "${workspaceFolder}/"]
@@ -21,22 +22,18 @@
       "type": "npm",
       "script": "build",
       "path": ".",
+      "dependsOn": ["Install npm dependencies"],
       "problemMatcher": {
         "base": "$tsc",
         "fileLocation": ["relative", "${workspaceFolder}/"]
       }
     },
     {
-      "label": "Pretest",
-      "group": "build",
-      "isBackground": false,
-      "type": "npm",
-      "script": "pretest",
-      "path": ".",
-      "problemMatcher": {
-        "base": "$tsc",
-        "fileLocation": ["relative", "${workspaceFolder}/"]
-      }
+      "label": "Install npm dependencies",
+      "type": "shell",
+      "command": "npm ci",
+      "problemMatcher": [],
+      "detail": "perform npm clean install"
     }
   ]
 }
