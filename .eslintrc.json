@@ -1,0 +1,19 @@
+{
+  "extends": ["prettier"],
+
+  "env": {
+    "es6": true,
+    "node": true
+  },
+  "parser": "@typescript-eslint/parser",
+  "parserOptions": {
+    "project": "tsconfig.json",
+    "sourceType": "module"
+  },
+  "rules": {
+    "camelcase": ["error"],
+    "eqeqeq": ["error", "always", { "null": "ignore" }],
+    "no-console": ["error"],
+    "prefer-const": "error"
+  }
+}

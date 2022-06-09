@@ -1,4 +1,8 @@
-/target
-/xtask/target
+out
+node_modules
+.vscode-test/
+*.vsix
+bundle
+
 .DS_Store
 node_modules
