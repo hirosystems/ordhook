@@ -15,7 +15,7 @@
         "--extensionDevelopmentPath=${workspaceFolder}"
       ],
       "outFiles": ["${workspaceFolder}/out/**/*.js"],
-      "preLaunchTask": "Build Extension",
+      "preLaunchTask": "build extension",
       "skipFiles": ["<node_internals>/**/*.js"]
     },
     {
@@ -32,7 +32,7 @@
         "--extensionDevelopmentPath=${workspaceFolder}"
       ],
       "outFiles": ["${workspaceFolder}/out/**/*.js"],
-      "preLaunchTask": "Build Extension",
+      "preLaunchTask": "build extension",
       "skipFiles": ["<node_internals>/**/*.js"]
     }
   ]

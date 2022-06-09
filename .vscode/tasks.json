@@ -4,12 +4,12 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Build Extension in Background",
+      "label": "build extension in background",
       "group": "build",
       "type": "npm",
       "script": "watch",
       "path": ".",
-      "dependsOn": ["Install npm dependencies"],
+      "dependsOn": ["build debug"],
       "problemMatcher": {
         "base": "$tsc-watch",
         "fileLocation": ["relative", "${workspaceFolder}/"]
@@ -17,19 +17,27 @@
       "isBackground": true
     },
     {
-      "label": "Build Extension",
+      "label": "build extension",
       "group": "build",
       "type": "npm",
       "script": "build",
       "path": ".",
-      "dependsOn": ["Install npm dependencies"],
+      "dependsOn": ["build debug"],
       "problemMatcher": {
         "base": "$tsc",
         "fileLocation": ["relative", "${workspaceFolder}/"]
       }
     },
     {
-      "label": "Install npm dependencies",
+      "label": "build debug",
+      "type": "npm",
+      "script": "rollup:debug",
+      "dependsOn": ["install dependencies"],
+      "problemMatcher": [],
+      "detail": "rollup -c rollup.config.dap.js"
+    },
+    {
+      "label": "install dependencies",
       "type": "shell",
       "command": "npm ci",
       "problemMatcher": [],

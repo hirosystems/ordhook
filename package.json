@@ -35,7 +35,9 @@
   },
   "enabledApiProposals": [],
   "scripts": {
-    "vscode:prepublish": "tsc && rollup -c rollup.config.lsp.js && rollup -c rollup.config.dap.js",
+    "rollup:debug": "rollup -c rollup.config.dap.js",
+    "rollup:lsp": "rollup -c rollup.config.lsp.js",
+    "vscode:prepublish": "npm run build && npm run rollup:lsp && npm run rollup:debug",
     "package": "vsce package -o clarity-lsp.vsix",
     "compile": "tsc -b",
     "build": "tsc",
