@@ -1,4 +1,12 @@
-# Clarity for Visual Studio Code
+# DEPRECATED
+
+This repository has been deprecated and the code now lives in the [clarinet repository](https://github.com/hirosystems/clarinet).
+- [Clarity LSP](https://github.com/hirosystems/clarinet/tree/develop/components/clarity-lsp)
+- [Clarity VSCode extension](https://github.com/hirosystems/clarinet/tree/develop/components/clarity-vscode)
+
+---
+
+## Clarity for Visual Studio Code
 
 Clarity is a **decidable** smart contract language that optimizes for predictability and security, designed by Blockstack. Smart contracts allow developers to encode essential business logic on a blockchain.
 
@@ -7,8 +15,6 @@ A programming language is decidable if you can know, with certainty, from the co
 The Language Server Protocol (LSP) defines the protocol used between an editor or IDE and a language server that provides language features like auto complete, go to definition, find all references etc.
 
 This project aims at leveraging the decidability quality of Clarity and the LSP for providing some great insights about your code, without publishing your smart contracts to a blockchain.
-
-![screenshot](images/screenshot.png)
 
 ## Quick Start
 ### Dependencies
