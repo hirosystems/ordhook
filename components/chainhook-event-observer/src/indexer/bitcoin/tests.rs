@@ -1,3 +1,7 @@
+use bitcoincore_rpc::bitcoin::Script;
+
+use crate::indexer::bitcoin::ordinal::InscriptionParser;
+
 use super::super::tests::{helpers, process_bitcoin_blocks_and_check_expectations};
 
 #[test]
@@ -204,3 +208,22 @@ fn test_bitcoin_vector_040() {
 // fn test_bitcoin_vector_041() {
 //     process_bitcoin_blocks_and_check_expectations(helpers::shapes::get_vector_041());
 // }
+
+#[test]
+fn test_ordinal_inscription_parsing() {
+    use clarity_repl::clarity::util::hash::hex_bytes;
+
+    let bytes = hex_bytes("208737bc46923c3e64c7e6768c0346879468bf3aba795a5f5f56efca288f50ed2aac0063036f7264010118746578742f706c61696e3b636861727365743d7574662d38004c9948656c6c6f2030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030300a68").unwrap();
+
+    let script = Script::from(bytes);
+    let parser = InscriptionParser {
+        instructions: script.instructions().peekable(),
+    };
+
+    let inscription = match parser.parse_script() {
+        Ok(inscription) => inscription,
+        Err(_) => panic!(),
+    };
+
+    println!("{:?}", inscription);
+}

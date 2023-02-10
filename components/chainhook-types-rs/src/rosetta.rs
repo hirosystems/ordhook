@@ -268,7 +268,25 @@ pub struct BitcoinTransactionMetadata {
     pub inputs: Vec<TxIn>,
     pub outputs: Vec<TxOut>,
     pub stacks_operations: Vec<StacksBaseChainOperation>,
+    pub ordinal_operations: Vec<OrdinalOperation>,
     pub proof: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OrdinalOperation {
+    InscriptionCommit(OrdinalInscriptionCommitData),
+    InscriptionReveal(OrdinalInscriptionRevealData),
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct OrdinalInscriptionCommitData {}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct OrdinalInscriptionRevealData {
+    pub satoshi_point: String,
+    pub content_type: String,
+    pub content: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]

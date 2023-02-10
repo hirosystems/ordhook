@@ -47,15 +47,71 @@ struct Opts {
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
 enum Command {
+    /// Manage predicates
+    #[clap(subcommand)]
+    Predicates(PredicatesCommand),
     /// Start chainhook-cli
     #[clap(subcommand)]
     Node(NodeCommand),
     /// Start chainhook-cli in replay mode
     #[clap(name = "replay", bin_name = "replay")]
     Replay(ReplayCommand),
+}
+
+#[derive(Subcommand, PartialEq, Clone, Debug)]
+#[clap(bin_name = "predicate", aliases = &["predicate"])]
+enum PredicatesCommand {
+    /// Generate new predicate
+    #[clap(name = "new", bin_name = "new", aliases = &["generate"])]
+    New(NewPredicate),
     /// Scan blocks (one-off) from specified network and apply provided predicate
     #[clap(name = "scan", bin_name = "scan")]
-    Scan(ScanCommand),
+    Scan(ScanPredicate),
+}
+
+#[derive(Parser, PartialEq, Clone, Debug)]
+struct NewPredicate {
+    /// Predicate's name
+    pub name: String,
+    /// Path to Clarinet.toml
+    #[clap(long = "manifest-path")]
+    pub manifest_path: Option<String>,
+    /// Generate a Bitcoin chainhook
+    #[clap(long = "bitcoin", conflicts_with = "stacks")]
+    pub bitcoin: bool,
+    /// Generate a Stacks chainhook
+    #[clap(long = "stacks", conflicts_with = "bitcoin")]
+    pub stacks: bool,
+}
+
+#[derive(Parser, PartialEq, Clone, Debug)]
+struct ScanPredicate {
+    pub devnet: bool,
+    /// Target Testnet network
+    #[clap(
+        long = "testnet",
+        conflicts_with = "devnet",
+        conflicts_with = "mainnet"
+    )]
+    pub testnet: bool,
+    /// Target Mainnet network
+    #[clap(
+        long = "mainnet",
+        conflicts_with = "testnet",
+        conflicts_with = "devnet"
+    )]
+    pub mainnet: bool,
+    /// Load config file path
+    #[clap(
+        long = "config-path",
+        conflicts_with = "mainnet",
+        conflicts_with = "testnet",
+        conflicts_with = "devnet"
+    )]
+    pub config_path: Option<String>,
+    /// Load chainhook file path (yaml format)
+    #[clap(long = "predicate-path", short = 'p')]
+    pub chainhook_spec_path: String,
 }
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
@@ -131,39 +187,6 @@ struct ReplayCommand {
     pub bitcoind_rpc_url: Option<String>,
 }
 
-#[derive(Parser, PartialEq, Clone, Debug)]
-struct ScanCommand {
-    pub devnet: bool,
-    /// Target Testnet network
-    #[clap(
-        long = "testnet",
-        conflicts_with = "devnet",
-        conflicts_with = "mainnet"
-    )]
-    pub testnet: bool,
-    /// Target Mainnet network
-    #[clap(
-        long = "mainnet",
-        conflicts_with = "testnet",
-        conflicts_with = "devnet"
-    )]
-    pub mainnet: bool,
-    /// Load config file path
-    #[clap(
-        long = "config-path",
-        conflicts_with = "mainnet",
-        conflicts_with = "testnet",
-        conflicts_with = "devnet"
-    )]
-    pub config_path: Option<String>,
-    /// Load chainhook file path (yaml format)
-    #[clap(
-        long = "chainhook-spec-path",
-        short = 'p'
-    )]
-    pub chainhook_spec_path: String,
-}
-
 pub fn main() {
     let logger = hiro_system_kit::log::setup_logger();
     let _guard = hiro_system_kit::log::setup_global_logger(logger.clone());
@@ -192,6 +215,30 @@ pub fn main() {
                         }
                     };
                 start_node(config, ctx);
+            }
+        },
+        Command::Predicates(subcmd) => match subcmd {
+            PredicatesCommand::New(cmd) => {
+                // Predicates can either be generated manually by letting developers
+                // craft their own json payload, or using the interactive approach.
+                // A list of contracts is displayed, then list of methods, then list of events detected
+                // 3 files are generated:
+                // predicates/simnet/name.json
+                // predicates/devnet/name.json
+                // predicates/testnet/name.json
+                // predicates/mainnet/name.json
+                let manifest = clarinet_files::get_manifest_location(None);
+            }
+            PredicatesCommand::Scan(cmd) => {
+                let config =
+                    match Config::default(cmd.devnet, cmd.testnet, cmd.mainnet, &cmd.config_path) {
+                        Ok(config) => config,
+                        Err(e) => {
+                            println!("{e}");
+                            process::exit(1);
+                        }
+                    };
+                start_scan(config, ctx);
             }
         },
         Command::Replay(cmd) => {
@@ -230,33 +277,18 @@ pub fn main() {
             }
             start_replay(config, cmd.apply_trigger, ctx);
         }
-        Command::Scan(cmd) => {
-            let config =
-                match Config::default(cmd.devnet, cmd.testnet, cmd.mainnet, &cmd.config_path) {
-                    Ok(config) => config,
-                    Err(e) => {
-                        println!("{e}");
-                        process::exit(1);
-                    }
-                };
-            start_scan(config, ctx);
-        }
     }
 }
 
-
 pub fn install_ctrlc_handler(terminate_tx: Sender<DigestingCommand>, ctx: Context) {
     ctrlc::set_handler(move || {
-        warn!(
-            &ctx.expect_logger(),
-            "Manual interruption signal received"
-        );
+        warn!(&ctx.expect_logger(), "Manual interruption signal received");
         terminate_tx
             .send(DigestingCommand::Kill)
             .expect("Unable to terminate service");
-    }).expect("Error setting Ctrl-C handler");
+    })
+    .expect("Error setting Ctrl-C handler");
 }
-
 
 pub fn download_dataset_if_required(config: &mut Config, ctx: &Context) -> bool {
     if config.is_initial_ingestion_required() {
@@ -264,7 +296,9 @@ pub fn download_dataset_if_required(config: &mut Config, ctx: &Context) -> bool 
         if config.rely_on_remote_tsv() && config.should_download_remote_tsv() {
             let url = config.expected_remote_tsv_url();
             let mut destination_path = config.expected_cache_path();
-            destination_path.push(archive::default_tsv_file_path(&config.network.stacks_network));
+            destination_path.push(archive::default_tsv_file_path(
+                &config.network.stacks_network,
+            ));
             // Download archive if not already present in cache
             if !destination_path.exists() {
                 info!(ctx.expect_logger(), "Downloading {}", url);

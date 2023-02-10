@@ -1,7 +1,7 @@
 use crate::chainhooks::types::{
     BitcoinChainhookSpecification, BitcoinPredicateType, BitcoinTransactionFilterPredicate,
-    ChainhookConfig, ChainhookSpecification, ExactMatchingRule, HookAction, Scope,
-    StacksChainhookSpecification, StacksContractCallBasedPredicate,
+    ChainhookConfig, ChainhookSpecification, ExactMatchingRule, HookAction, OutputPredicate, Scope,
+    Scopes, StacksChainhookSpecification, StacksContractCallBasedPredicate,
     StacksTransactionFilterPredicate,
 };
 use crate::indexer::tests::helpers::transactions::generate_test_tx_bitcoin_p2pkh_transfer;
@@ -89,10 +89,9 @@ fn bitcoin_chainhook_p2pkh(
         start_block: None,
         end_block: None,
         expire_after_occurrence,
-        predicate: BitcoinTransactionFilterPredicate {
-            scope: Scope::Outputs,
-            kind: BitcoinPredicateType::P2pkh(ExactMatchingRule::Equals(address.to_string())),
-        },
+        predicate: BitcoinPredicateType::Scope(Scopes::Outputs(OutputPredicate::P2pkh(
+            ExactMatchingRule::Equals(address.to_string()),
+        ))),
         action: HookAction::Noop,
     };
     spec

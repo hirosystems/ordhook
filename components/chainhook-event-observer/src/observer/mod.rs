@@ -862,6 +862,14 @@ pub async fn start_observer_commands_handler(
                     registered_hook.set_owner_uuid(&api_key);
                     hook_formation.register_hook(registered_hook.clone());
                     chainhooks_lookup.insert(registered_hook.uuid().to_string(), api_key.clone());
+                    ctx.try_log(|logger| {
+                        slog::info!(
+                            logger,
+                            "Registering chainhook {} associated with {:?}",
+                            registered_hook.uuid(),
+                            api_key
+                        )
+                    });
                     if let Some(ref tx) = observer_events_tx {
                         let _ = tx.send(ObserverEvent::HookRegistered(registered_hook));
                     }
@@ -1318,9 +1326,15 @@ pub async fn handle_bitcoin_rpc_call(
         )
     });
 
+    let url = if method == "listunspent" {
+        format!("{}/wallet/", bitcoin_config.rpc_url)
+    } else {
+        bitcoin_config.rpc_url.to_string()
+    };
+
     let client = Client::new();
     let builder = client
-        .post(&bitcoin_config.rpc_url)
+        .post(&url)
         .header("Content-Type", "application/json")
         .header("Authorization", format!("Basic {}", token))
         .timeout(std::time::Duration::from_secs(5));

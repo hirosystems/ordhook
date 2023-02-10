@@ -3,6 +3,5 @@ members = [
     "components/chainhook-event-observer",
     "components/chainhook-cli",
     "components/chainhook-types-rs",
-    "components/hiro-system-kit",
 ]
 default-members = ["components/chainhook-cli", "components/chainhook-event-observer"]

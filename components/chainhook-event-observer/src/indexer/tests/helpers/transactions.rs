@@ -104,6 +104,7 @@ pub fn generate_test_tx_bitcoin_p2pkh_transfer(
         metadata: BitcoinTransactionMetadata {
             inputs: vec![],
             outputs,
+            ordinal_operations: vec![],
             stacks_operations: vec![],
             proof: None,
         },

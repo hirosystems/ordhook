@@ -2,7 +2,7 @@ pub mod bitcoin;
 pub mod stacks;
 
 use crate::utils::{AbstractBlock, Context};
-use bitcoincore_rpc::bitcoin::Block;
+use bitcoin::Block;
 use chainhook_types::{
     BitcoinChainEvent, BitcoinNetwork, BlockIdentifier, StacksChainEvent, StacksNetwork,
 };
