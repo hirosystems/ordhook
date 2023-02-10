@@ -3,23 +3,46 @@ mod blocks_pool;
 use std::time::Duration;
 
 use crate::chainhooks::types::{
-    get_canonical_magic_bytes, get_canonical_pox_config, PoxConfig, StacksOpcodes,
+    get_canonical_pox_config, get_ordinal_canonical_magic_bytes, get_stacks_canonical_magic_bytes,
+    PoxConfig, StacksOpcodes,
 };
 use crate::indexer::IndexerConfig;
 use crate::observer::BitcoinConfig;
 use crate::utils::Context;
-use bitcoincore_rpc::bitcoin::Block;
+use bitcoincore_rpc::bitcoin;
+use bitcoincore_rpc_json::{GetRawTransactionResult, GetRawTransactionResultVout};
 pub use blocks_pool::BitcoinBlockPool;
 use chainhook_types::bitcoin::{OutPoint, TxIn, TxOut};
 use chainhook_types::{
     BitcoinBlockData, BitcoinBlockMetadata, BitcoinTransactionData, BitcoinTransactionMetadata,
-    BlockCommitmentData, BlockIdentifier, KeyRegistrationData, LockSTXData, PobBlockCommitmentData,
-    PoxBlockCommitmentData, PoxReward, StacksBaseChainOperation, TransactionIdentifier,
-    TransferSTXData,
+    BlockCommitmentData, BlockIdentifier, KeyRegistrationData, LockSTXData,
+    OrdinalInscriptionRevealData, OrdinalOperation, PobBlockCommitmentData, PoxBlockCommitmentData,
+    PoxReward, StacksBaseChainOperation, TransactionIdentifier, TransferSTXData,
 };
 use clarity_repl::clarity::util::hash::{hex_bytes, to_hex};
 use hiro_system_kit::slog;
 use rocket::serde::json::Value as JsonValue;
+
+#[derive(Clone, PartialEq, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Block {
+    pub hash: bitcoin::BlockHash,
+    pub confirmations: i32,
+    pub size: usize,
+    pub strippedsize: Option<usize>,
+    pub weight: usize,
+    pub height: usize,
+    pub version: i32,
+    pub merkleroot: bitcoin::TxMerkleNode,
+    pub tx: Vec<GetRawTransactionResult>,
+    pub time: usize,
+    pub mediantime: Option<usize>,
+    pub nonce: u32,
+    pub bits: String,
+    pub difficulty: f64,
+    pub n_tx: usize,
+    pub previousblockhash: bitcoin::BlockHash,
+}
 
 #[derive(Deserialize)]
 pub struct NewBitcoinBlock {
@@ -51,13 +74,13 @@ pub async fn retrieve_full_block(
         "jsonrpc": "1.0",
         "id": "chainhook-cli",
         "method": "getblock",
-        "params": [block_hash, 0]
+        "params": [block_hash, 2]
     });
     let http_client = HttpClient::builder()
         .timeout(Duration::from_secs(20))
         .build()
         .expect("Unable to build http client");
-    let response_hex = http_client
+    let block = http_client
         .post(&bitcoin_config.rpc_url)
         .basic_auth(&bitcoin_config.username, Some(&bitcoin_config.password))
         .header("Content-Type", "application/json")
@@ -69,14 +92,8 @@ pub async fn retrieve_full_block(
         .json::<bitcoincore_rpc::jsonrpc::Response>()
         .await
         .map_err(|e| format!("unable to parse response ({})", e))?
-        .result::<String>()
+        .result::<Block>()
         .map_err(|e| format!("unable to parse response ({})", e))?;
-
-    let bytes = hex_bytes(&response_hex)
-        .map_err(|e| format!("unable to retrieve bytes from response ({})", e))?;
-
-    let block = bitcoincore_rpc::bitcoin::consensus::encode::deserialize(&bytes)
-        .map_err(|e| format!("unable to deserialize bitcoin block ({})", e))?;
 
     let block_height = partial_block.burn_block_height;
     Ok((block_height, block))
@@ -96,16 +113,26 @@ pub fn standardize_bitcoin_block(
     for mut tx in block.txdata.into_iter() {
         let txid = tx.txid().to_string();
         let mut inputs = vec![];
-        for input in tx.input.drain(..) {
+        for input in tx.vin.drain(..) {
+            if input.is_coinbase() {
+                continue;
+            }
             inputs.push(TxIn {
                 previous_output: OutPoint {
-                    txid: input.previous_output.txid.to_string(),
-                    vout: input.previous_output.vout,
+                    txid: input
+                        .txid
+                        .expect("not provided for coinbase txs")
+                        .to_string(),
+                    vout: input.vout.expect("not provided for coinbase txs"),
                 },
-                script_sig: to_hex(input.script_sig.as_bytes()),
-                sequence: input.sequence.0,
+                script_sig: format!(
+                    "0x{}",
+                    to_hex(&input.script_sig.expect("not provided for coinbase txs").hex)
+                ),
+                sequence: input.sequence,
                 witness: input
-                    .witness
+                    .txinwitness
+                    .unwrap_or(vec![])
                     .to_vec()
                     .iter()
                     .map(|w| format!("0x{}", to_hex(w)))
@@ -125,11 +152,10 @@ pub fn standardize_bitcoin_block(
         ) {
             stacks_operations.push(op);
         }
-
-        for output in tx.output.drain(..) {
+        for output in tx.vout.drain(..) {
             outputs.push(TxOut {
-                value: output.value,
-                script_pubkey: to_hex(output.script_pubkey.as_bytes()),
+                value: output.value.to_sat(),
+                script_pubkey: format!("0x{}", to_hex(&output.script_pub_key.hex)),
             });
         }
 
@@ -150,21 +176,21 @@ pub fn standardize_bitcoin_block(
 
     Ok(BitcoinBlockData {
         block_identifier: BlockIdentifier {
-            hash: format!("0x{}", block.header.block_hash().to_string()),
+            hash: format!("0x{}", block.hash),
             index: block_height,
         },
         parent_block_identifier: BlockIdentifier {
-            hash: format!("0x{}", block.header.prev_blockhash.to_string()),
+            hash: format!("0x{}", block.previousblockhash),
             index: block_height - 1,
         },
-        timestamp: block.header.time,
+        timestamp: block.time as u32,
         metadata: BitcoinBlockMetadata {},
         transactions,
     })
 }
 
 fn try_parse_stacks_operation(
-    outputs: &Vec<bitcoincore_rpc::bitcoin::TxOut>,
+    outputs: &Vec<GetRawTransactionResultVout>,
     pox_config: &PoxConfig,
     expected_magic_bytes: &[u8; 2],
     block_height: u64,
@@ -174,12 +200,8 @@ fn try_parse_stacks_operation(
         return None;
     }
 
-    if !outputs[0].script_pubkey.is_op_return() {
-        return None;
-    }
-
     // Safely parsing the first 2 bytes (following OP_RETURN + PUSH_DATA)
-    let op_return_output = outputs[0].script_pubkey.as_bytes();
+    let op_return_output = &outputs[0].script_pub_key.hex;
     if op_return_output.len() < 7 {
         return None;
     }
@@ -229,8 +251,8 @@ fn try_parse_stacks_operation(
                 let mut rewards = vec![];
                 for output in outputs[1..pox_config.rewarded_addresses_per_block].into_iter() {
                     rewards.push(PoxReward {
-                        recipient: output.script_pubkey.to_string(),
-                        amount: output.value,
+                        recipient: format!("0x{}", to_hex(&output.script_pub_key.hex)),
+                        amount: output.value.to_sat(),
                     });
                 }
                 StacksBaseChainOperation::PoxBlockCommitment(PoxBlockCommitmentData {
@@ -246,7 +268,7 @@ fn try_parse_stacks_operation(
                 StacksBaseChainOperation::PobBlockCommitment(PobBlockCommitmentData {
                     signers: vec![], // todo(lgalabru)
                     stacks_block_hash: res.stacks_block_hash.clone(),
-                    amount,
+                    amount: amount.to_sat(),
                 })
             }
         }
