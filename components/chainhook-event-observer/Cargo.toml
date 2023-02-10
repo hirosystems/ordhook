@@ -1,6 +1,8 @@
 [package]
 name = "chainhook-event-observer"
 version = "1.0.0"
+description = "Transaction Indexing Engine for Stacks and Bitcoin"
+license = "GPL-3.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -9,11 +11,15 @@ edition = "2021"
 serde = "1"
 serde_json = { version = "1", features = ["arbitrary_precision"] }
 serde_derive = "1"
-stacks_rpc_client = { package = "stacks-rpc-client", path = "../../components/stacks-rpc-client" }
-clarinet_utils = { package = "clarinet-utils", path = "../../components/clarinet-utils" }
-clarity_repl = { package = "clarity-repl", path = "../../components/clarity-repl" }
-hiro_system_kit = { package = "hiro-system-kit", path = "../../components/hiro-system-kit" }
-
+# stacks-rpc-client = "1"
+# clarinet-utils = "1"
+# clarity-repl = "1"
+# hiro-system-kit = "0.1.0"
+# chainhook-types = "=1.0.0"
+stacks_rpc_client = { package = "stacks-rpc-client", path = "../../../clarinet/components/stacks-rpc-client" }
+clarinet_utils = { package = "clarinet-utils", path = "../../../clarinet/components/clarinet-utils" }
+clarity_repl = { package = "clarity-repl", path = "../../../clarinet/components/clarity-repl" }
+hiro-system-kit = { path = "../../../clarinet/components/hiro-system-kit" }
 chainhook_types = { package = "chainhook-types", path = "../chainhook-types-rs" }
 rocket = { version = "=0.5.0-rc.2", features = ["json"] }
 bitcoincore-rpc = "0.16.0"
@@ -36,5 +42,5 @@ crossbeam-channel = "0.5.6"
 
 [features]
 default = ["cli"]
-log = ["hiro_system_kit/log"]
 cli = ["clap", "clap_generate", "toml", "ctrlc", "log"]
+log = ["hiro-system-kit/log"]
