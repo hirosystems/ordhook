@@ -1,15 +1,15 @@
 mod blocks_pool;
+mod ordinal;
 
 use std::time::Duration;
 
 use crate::chainhooks::types::{
-    get_canonical_pox_config, get_ordinal_canonical_magic_bytes, get_stacks_canonical_magic_bytes,
-    PoxConfig, StacksOpcodes,
+    get_canonical_pox_config, get_stacks_canonical_magic_bytes, PoxConfig, StacksOpcodes,
 };
 use crate::indexer::IndexerConfig;
 use crate::observer::BitcoinConfig;
 use crate::utils::Context;
-use bitcoincore_rpc::bitcoin;
+use bitcoincore_rpc::bitcoin::{self, Script};
 use bitcoincore_rpc_json::{GetRawTransactionResult, GetRawTransactionResultVout};
 pub use blocks_pool::BitcoinBlockPool;
 use chainhook_types::bitcoin::{OutPoint, TxIn, TxOut};
@@ -22,6 +22,8 @@ use chainhook_types::{
 use clarity_repl::clarity::util::hash::{hex_bytes, to_hex};
 use hiro_system_kit::slog;
 use rocket::serde::json::Value as JsonValue;
+
+use self::ordinal::InscriptionParser;
 
 #[derive(Clone, PartialEq, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -205,28 +207,26 @@ fn try_parse_ordinal_operation(
     block_height: u64,
     ctx: &Context,
 ) -> Option<OrdinalOperation> {
-    let (pos, magic_bytes) = get_ordinal_canonical_magic_bytes();
-    let limit = pos + magic_bytes.len();
-
     for input in tx.vin.iter() {
         if let Some(ref witnesses) = input.txinwitness {
-            for witness in witnesses.iter() {
-                if witness.len() > limit && witness[pos..limit] == magic_bytes {
-                    ctx.try_log(|logger| {
-                        slog::info!(
-                            logger,
-                            "Ordinal operation detected in transaction {}",
-                            tx.txid,
-                        )
-                    });
-                    return Some(OrdinalOperation::InscriptionReveal(
-                        OrdinalInscriptionRevealData {
-                            satoshi_point: "".into(),
-                            content_type: "".into(),
-                            content: vec![],
-                        },
-                    ));
-                }
+            for bytes in witnesses.iter() {
+                let script = Script::from(bytes.to_vec());
+                let parser = InscriptionParser {
+                    instructions: script.instructions().peekable(),
+                };
+
+                let inscription = match parser.parse_script() {
+                    Ok(inscription) => inscription,
+                    Err(_) => continue,
+                };
+
+                return Some(OrdinalOperation::InscriptionReveal(
+                    OrdinalInscriptionRevealData {
+                        satoshi_point: "".into(),
+                        content_type: inscription.content_type().unwrap_or("unknown").to_string(),
+                        content: format!("0x{}", to_hex(&inscription.body().unwrap_or(&vec![]))),
+                    },
+                ));
             }
         }
     }

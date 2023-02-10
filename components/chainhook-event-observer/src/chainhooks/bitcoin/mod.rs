@@ -141,7 +141,15 @@ pub fn serialize_bitcoin_payload_to_json<'a>(
                         "transaction_identifier": transaction.transaction_identifier,
                         "operations": transaction.operations,
                         "metadata": json!({
-                            "inputs": transaction.metadata.inputs,
+                            "inputs": transaction.metadata.inputs.iter().map(|input| {
+                                json!({
+                                    "previous_output": {
+                                        "txid": format!("0x{}", input.previous_output.txid),
+                                        "vout": input.previous_output.vout,
+                                    },
+                                    "sequence": input.sequence,
+                                })
+                            }).collect::<Vec<_>>(),
                             "outputs": transaction.metadata.outputs,
                             "stacks_operations": transaction.metadata.stacks_operations,
                             "ordinal_operations": transaction.metadata.ordinal_operations,
@@ -388,7 +396,7 @@ impl BitcoinChainhookSpecification {
                 false
             }
             BitcoinPredicateType::Protocol(Protocols::Ordinal(
-                OrdinalOperations::NewInscription,
+                OrdinalOperations::InscriptionRevealed,
             )) => {
                 for op in tx.metadata.ordinal_operations.iter() {
                     if let OrdinalOperation::InscriptionReveal(_) = op {

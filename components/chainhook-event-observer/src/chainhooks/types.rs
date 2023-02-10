@@ -337,7 +337,7 @@ pub enum StacksOperations {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum OrdinalOperations {
-    NewInscription,
+    InscriptionRevealed,
 }
 
 pub fn get_stacks_canonical_magic_bytes(network: &BitcoinNetwork) -> [u8; 2] {
@@ -346,10 +346,6 @@ pub fn get_stacks_canonical_magic_bytes(network: &BitcoinNetwork) -> [u8; 2] {
         BitcoinNetwork::Testnet => *b"T2",
         BitcoinNetwork::Regtest => *b"id",
     }
-}
-
-pub fn get_ordinal_canonical_magic_bytes() -> (usize, [u8; 3]) {
-    return (37, *b"ord");
 }
 
 pub struct PoxConfig {

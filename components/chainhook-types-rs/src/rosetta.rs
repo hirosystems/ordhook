@@ -273,6 +273,7 @@ pub struct BitcoinTransactionMetadata {
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum OrdinalOperation {
     InscriptionCommit(OrdinalInscriptionCommitData),
     InscriptionReveal(OrdinalInscriptionRevealData),
@@ -285,7 +286,7 @@ pub struct OrdinalInscriptionCommitData {}
 pub struct OrdinalInscriptionRevealData {
     pub satoshi_point: String,
     pub content_type: String,
-    pub content: Vec<u8>,
+    pub content: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
