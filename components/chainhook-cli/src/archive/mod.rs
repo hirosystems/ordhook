@@ -8,7 +8,7 @@ use std::io::{self, Cursor};
 use tar::Archive;
 
 pub fn default_tsv_file_path(network: &StacksNetwork) -> String {
-    format!("stacks-node-events-{:?}.tsv", network).to_lowercase()    
+    format!("stacks-node-events-{:?}.tsv", network).to_lowercase()
 }
 
 pub async fn download_tsv_file(config: &Config) -> Result<(), String> {
