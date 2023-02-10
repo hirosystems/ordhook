@@ -107,11 +107,32 @@ pub fn standardize_bitcoin_block(
 ) -> Result<BitcoinBlockData, String> {
     let mut transactions = vec![];
 
-    let expected_magic_bytes = get_canonical_magic_bytes(&indexer_config.bitcoin_network);
+    let expected_magic_bytes = get_stacks_canonical_magic_bytes(&indexer_config.bitcoin_network);
     let pox_config = get_canonical_pox_config(&indexer_config.bitcoin_network);
 
-    for mut tx in block.txdata.into_iter() {
-        let txid = tx.txid().to_string();
+    ctx.try_log(|logger| slog::info!(logger, "Start processing Bitcoin block {}", block.hash,));
+
+    for mut tx in block.tx.into_iter() {
+        let txid = tx.txid.to_string();
+
+        ctx.try_log(|logger| slog::info!(logger, "Start processing Bitcoin transaction {txid}"));
+
+        let mut stacks_operations = vec![];
+        if let Some(op) = try_parse_stacks_operation(
+            &tx.vout,
+            &pox_config,
+            &expected_magic_bytes,
+            block_height,
+            ctx,
+        ) {
+            stacks_operations.push(op);
+        }
+
+        let mut ordinal_operations = vec![];
+        if let Some(op) = try_parse_ordinal_operation(&tx, block_height, ctx) {
+            ordinal_operations.push(op);
+        }
+
         let mut inputs = vec![];
         for input in tx.vin.drain(..) {
             if input.is_coinbase() {
@@ -141,17 +162,6 @@ pub fn standardize_bitcoin_block(
         }
 
         let mut outputs = vec![];
-        let mut stacks_operations = vec![];
-
-        if let Some(op) = try_parse_stacks_operation(
-            &tx.output,
-            &pox_config,
-            &expected_magic_bytes,
-            block_height,
-            ctx,
-        ) {
-            stacks_operations.push(op);
-        }
         for output in tx.vout.drain(..) {
             outputs.push(TxOut {
                 value: output.value.to_sat(),
@@ -168,6 +178,7 @@ pub fn standardize_bitcoin_block(
                 inputs,
                 outputs,
                 stacks_operations,
+                ordinal_operations,
                 proof: None,
             },
         };
@@ -187,6 +198,39 @@ pub fn standardize_bitcoin_block(
         metadata: BitcoinBlockMetadata {},
         transactions,
     })
+}
+
+fn try_parse_ordinal_operation(
+    tx: &GetRawTransactionResult,
+    block_height: u64,
+    ctx: &Context,
+) -> Option<OrdinalOperation> {
+    let (pos, magic_bytes) = get_ordinal_canonical_magic_bytes();
+    let limit = pos + magic_bytes.len();
+
+    for input in tx.vin.iter() {
+        if let Some(ref witnesses) = input.txinwitness {
+            for witness in witnesses.iter() {
+                if witness.len() > limit && witness[pos..limit] == magic_bytes {
+                    ctx.try_log(|logger| {
+                        slog::info!(
+                            logger,
+                            "Ordinal operation detected in transaction {}",
+                            tx.txid,
+                        )
+                    });
+                    return Some(OrdinalOperation::InscriptionReveal(
+                        OrdinalInscriptionRevealData {
+                            satoshi_point: "".into(),
+                            content_type: "".into(),
+                            content: vec![],
+                        },
+                    ));
+                }
+            }
+        }
+    }
+    None
 }
 
 fn try_parse_stacks_operation(
