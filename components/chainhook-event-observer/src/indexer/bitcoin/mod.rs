@@ -1,4 +1,5 @@
 mod blocks_pool;
+#[allow(dead_code)]
 mod ordinal;
 
 use std::time::Duration;
@@ -19,7 +20,7 @@ use chainhook_types::{
     OrdinalInscriptionRevealData, OrdinalOperation, PobBlockCommitmentData, PoxBlockCommitmentData,
     PoxReward, StacksBaseChainOperation, TransactionIdentifier, TransferSTXData,
 };
-use clarity_repl::clarity::util::hash::{hex_bytes, to_hex};
+use clarity_repl::clarity::util::hash::to_hex;
 use hiro_system_kit::slog;
 use rocket::serde::json::Value as JsonValue;
 
@@ -204,8 +205,8 @@ pub fn standardize_bitcoin_block(
 
 fn try_parse_ordinal_operation(
     tx: &GetRawTransactionResult,
-    block_height: u64,
-    ctx: &Context,
+    _block_height: u64,
+    _ctx: &Context,
 ) -> Option<OrdinalOperation> {
     for input in tx.vin.iter() {
         if let Some(ref witnesses) = input.txinwitness {
@@ -220,9 +221,11 @@ fn try_parse_ordinal_operation(
                     Err(_) => continue,
                 };
 
-                return Some(OrdinalOperation::InscriptionReveal(
+                // Retrieve the sat-point of the inscription
+                //
+
+                return Some(OrdinalOperation::InscriptionRevealed(
                     OrdinalInscriptionRevealData {
-                        satoshi_point: "".into(),
                         content_type: inscription.content_type().unwrap_or("unknown").to_string(),
                         content: format!("0x{}", to_hex(&inscription.body().unwrap_or(&vec![]))),
                     },

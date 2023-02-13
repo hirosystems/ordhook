@@ -1,7 +1,7 @@
 use super::types::{
     BitcoinChainhookSpecification, BitcoinPredicateType, ExactMatchingRule, HookAction,
     InputPredicate, MatchingRule, OrdinalOperations, OutputPredicate, Protocols, Scopes,
-    StacksOperations, TxinPredicate,
+    StacksOperations,
 };
 use base58::FromBase58;
 use bitcoincore_rpc::bitcoin::blockdata::opcodes;
@@ -130,33 +130,14 @@ pub fn serialize_bitcoin_payload_to_json<'a>(
     trigger: BitcoinTriggerChainhook<'a>,
     proofs: &HashMap<&'a TransactionIdentifier, String>,
 ) -> JsonValue {
+    let predicate = &trigger.chainhook.predicate;
     json!({
         "apply": trigger.apply.into_iter().map(|(transactions, block)| {
             json!({
                 "block_identifier": block.block_identifier,
                 "parent_block_identifier": block.parent_block_identifier,
                 "timestamp": block.timestamp,
-                "transactions": transactions.into_iter().map(|transaction| {
-                    json!({
-                        "transaction_identifier": transaction.transaction_identifier,
-                        "operations": transaction.operations,
-                        "metadata": json!({
-                            "inputs": transaction.metadata.inputs.iter().map(|input| {
-                                json!({
-                                    "previous_output": {
-                                        "txid": format!("0x{}", input.previous_output.txid),
-                                        "vout": input.previous_output.vout,
-                                    },
-                                    "sequence": input.sequence,
-                                })
-                            }).collect::<Vec<_>>(),
-                            "outputs": transaction.metadata.outputs,
-                            "stacks_operations": transaction.metadata.stacks_operations,
-                            "ordinal_operations": transaction.metadata.ordinal_operations,
-                            "proof": proofs.get(&transaction.transaction_identifier),
-                        }),
-                    })
-                }).collect::<Vec<_>>(),
+                "transactions": serialize_bitcoin_transactions_to_json(&predicate, &transactions, proofs),
                 "metadata": block.metadata,
             })
         }).collect::<Vec<_>>(),
@@ -165,7 +146,7 @@ pub fn serialize_bitcoin_payload_to_json<'a>(
                 "block_identifier": block.block_identifier,
                 "parent_block_identifier": block.parent_block_identifier,
                 "timestamp": block.timestamp,
-                "transactions": transactions,
+                "transactions": serialize_bitcoin_transactions_to_json(&predicate, &transactions, proofs),
                 "metadata": block.metadata,
             })
         }).collect::<Vec<_>>(),
@@ -174,6 +155,39 @@ pub fn serialize_bitcoin_payload_to_json<'a>(
             "predicate": trigger.chainhook.predicate,
         }
     })
+}
+
+pub fn serialize_bitcoin_transactions_to_json<'a>(
+    predicate: &BitcoinPredicateType,
+    transactions: &Vec<&BitcoinTransactionData>,
+    proofs: &HashMap<&'a TransactionIdentifier, String>,
+) -> Vec<JsonValue> {
+    transactions.into_iter().map(|transaction| {
+            let mut metadata = serde_json::Map::new();
+            if predicate.include_inputs() {
+                metadata.insert("inputs".into(), json!(transaction.metadata.inputs.iter().map(|input| {
+                    json!({
+                        "txin": format!("0x{}:{}", input.previous_output.txid, input.previous_output.vout),
+                        "sequence": input.sequence,
+                    })
+                }).collect::<Vec<_>>()));
+            }
+            if predicate.include_outputs() {
+                metadata.insert("outputs".into(), json!(transaction.metadata.outputs));
+            }
+            if !transaction.metadata.stacks_operations.is_empty() {
+                metadata.insert("stacks_operations".into(), json!(transaction.metadata.stacks_operations));
+            }
+            if !transaction.metadata.ordinal_operations.is_empty() {
+                metadata.insert("ordinal_operations".into(), json!(transaction.metadata.ordinal_operations));
+            }
+            metadata.insert("proof".into(), json!(proofs.get(&transaction.transaction_identifier)));
+            json!({
+                "transaction_identifier": transaction.transaction_identifier,
+                "operations": transaction.operations,
+                "metadata": metadata
+            })
+        }).collect::<Vec<_>>()
 }
 
 pub fn handle_bitcoin_hook_action<'a>(
@@ -241,6 +255,7 @@ impl BitcoinChainhookSpecification {
     pub fn evaluate_transaction_predicate(&self, tx: &BitcoinTransactionData) -> bool {
         // TODO(lgalabru): follow-up on this implementation
         match &self.predicate {
+            BitcoinPredicateType::Block => true,
             BitcoinPredicateType::Txid(ExactMatchingRule::Equals(txid)) => {
                 tx.transaction_identifier.hash.eq(txid)
             }
@@ -399,7 +414,7 @@ impl BitcoinChainhookSpecification {
                 OrdinalOperations::InscriptionRevealed,
             )) => {
                 for op in tx.metadata.ordinal_operations.iter() {
-                    if let OrdinalOperation::InscriptionReveal(_) = op {
+                    if let OrdinalOperation::InscriptionRevealed(_) = op {
                         return true;
                     }
                 }
