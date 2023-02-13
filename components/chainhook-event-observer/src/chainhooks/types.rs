@@ -288,9 +288,39 @@ impl BitcoinTransactionFilterPredicate {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum BitcoinPredicateType {
+    Block,
     Txid(ExactMatchingRule),
     Scope(Scopes),
     Protocol(Protocols),
+}
+
+impl BitcoinPredicateType {
+    pub fn include_inputs(&self) -> bool {
+        match &self {
+            BitcoinPredicateType::Block => true,
+            BitcoinPredicateType::Txid(_rules) => true,
+            BitcoinPredicateType::Scope(_rules) => false,
+            BitcoinPredicateType::Protocol(_rules) => false,
+        }
+    }
+
+    pub fn include_outputs(&self) -> bool {
+        match &self {
+            BitcoinPredicateType::Block => true,
+            BitcoinPredicateType::Txid(_rules) => true,
+            BitcoinPredicateType::Scope(_rules) => false,
+            BitcoinPredicateType::Protocol(_rules) => false,
+        }
+    }
+
+    pub fn include_witness(&self) -> bool {
+        match &self {
+            BitcoinPredicateType::Block => true,
+            BitcoinPredicateType::Txid(_rules) => true,
+            BitcoinPredicateType::Scope(_rules) => false,
+            BitcoinPredicateType::Protocol(_rules) => false,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
