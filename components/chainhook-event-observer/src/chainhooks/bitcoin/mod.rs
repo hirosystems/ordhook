@@ -1,5 +1,5 @@
 use super::types::{
-    BitcoinChainhookFullSpecification, BitcoinChainhookSpecification, BitcoinPredicateType,
+    BitcoinChainhookSpecification, BitcoinPredicateType,
     ExactMatchingRule, HookAction, InputPredicate, MatchingRule, OrdinalOperations,
     OutputPredicate, Protocols, StacksOperations,
 };

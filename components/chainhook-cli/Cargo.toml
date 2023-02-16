@@ -14,7 +14,7 @@ serde_derive = "1"
 redis = "0.21.5"
 serde-redis = "0.12.0"
 chainhook-event-observer = { version = "=1.0.3", default-features = false, path = "../chainhook-event-observer" }
-chainhook-types = { version = "=1.0.1", path = "../chainhook-types-rs" }
+chainhook-types = { version = "=1.0.2", path = "../chainhook-types-rs" }
 clarinet-files = "1"
 hiro-system-kit = "0.1.0"
 # clarinet-files = { path = "../../../clarinet/components/clarinet-files" }

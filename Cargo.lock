@@ -384,7 +384,7 @@ dependencies = [
  "bitcoincore-rpc",
  "bitcoincore-rpc-json",
  "chainhook-event-observer",
- "chainhook-types 1.0.1",
+ "chainhook-types 1.0.2",
  "clap 3.2.23",
  "clap_generate",
  "clarinet-files",
@@ -418,7 +418,7 @@ dependencies = [
  "base64 0.13.1",
  "bitcoincore-rpc",
  "bitcoincore-rpc-json",
- "chainhook-types 1.0.1",
+ "chainhook-types 1.0.2",
  "clap 3.2.23",
  "clap_generate",
  "clarinet-utils",
@@ -441,6 +441,8 @@ dependencies = [
 [[package]]
 name = "chainhook-types"
 version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe083f0dd830eb487602a3f1ebc56c1245d9cdb25cc83adb8f35e977bb477dc2"
 dependencies = [
  "schemars",
  "serde",
@@ -451,9 +453,7 @@ dependencies = [
 
 [[package]]
 name = "chainhook-types"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe083f0dd830eb487602a3f1ebc56c1245d9cdb25cc83adb8f35e977bb477dc2"
+version = "1.0.2"
 dependencies = [
  "schemars",
  "serde",
@@ -563,7 +563,7 @@ checksum = "07a317e7aa292263aab236ef9c751983b6faca76f73f07d02385a6721c5dd444"
 dependencies = [
  "bip39",
  "bitcoin",
- "chainhook-types 1.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "chainhook-types 1.0.1",
  "clarinet-utils",
  "clarity-repl 1.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "libsecp256k1 0.7.1",

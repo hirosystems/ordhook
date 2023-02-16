@@ -19,7 +19,7 @@ hiro-system-kit = "0.1.0"
 # clarinet-utils = { version = "1", path = "../../../clarinet/components/clarinet-utils" }
 # clarity-repl = { version = "1", path = "../../../clarinet/components/clarity-repl" }
 # hiro-system-kit = { version = "0.1.0", path = "../../../clarinet/components/hiro-system-kit" }
-chainhook-types = { version = "1.0.1", path = "../chainhook-types-rs" }
+chainhook-types = { version = "1.0.2", path = "../chainhook-types-rs" }
 rocket = { version = "=0.5.0-rc.2", features = ["json"] }
 bitcoincore-rpc = "0.16.0"
 bitcoincore-rpc-json = "0.16.0"
