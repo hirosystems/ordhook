@@ -38,7 +38,7 @@ crossbeam-channel = "0.5.6"
 [dev-dependencies]
 criterion = "0.3"
 redis = "0.21.5"
-clarity_repl = { package = "clarity-repl", path = "../../../clarinet/components/clarity-repl" }
+clarity-repl = "=1.4.1"
 hex = "0.4.3"
 
 [features]

@@ -388,7 +388,7 @@ dependencies = [
  "clap 3.2.23",
  "clap_generate",
  "clarinet-files",
- "clarity-repl 1.4.1",
+ "clarity-repl",
  "criterion",
  "crossbeam-channel",
  "csv",
@@ -397,7 +397,7 @@ dependencies = [
  "flume",
  "futures-util",
  "hex",
- "hiro-system-kit 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "hiro-system-kit",
  "num_cpus",
  "redis",
  "reqwest",
@@ -422,10 +422,10 @@ dependencies = [
  "clap 3.2.23",
  "clap_generate",
  "clarinet-utils",
- "clarity-repl 1.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "clarity-repl",
  "crossbeam-channel",
  "ctrlc",
- "hiro-system-kit 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "hiro-system-kit",
  "reqwest",
  "rocket",
  "rocket_okapi",
@@ -565,7 +565,7 @@ dependencies = [
  "bitcoin",
  "chainhook-types 1.0.1",
  "clarinet-utils",
- "clarity-repl 1.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "clarity-repl",
  "libsecp256k1 0.7.1",
  "serde",
  "serde_derive",
@@ -589,42 +589,6 @@ dependencies = [
 [[package]]
 name = "clarity-repl"
 version = "1.4.1"
-dependencies = [
- "ansi_term",
- "atty",
- "bytes",
- "clarity-vm",
- "debug_types",
- "futures",
- "getrandom 0.2.8",
- "hiro-system-kit 0.1.0",
- "httparse",
- "integer-sqrt",
- "lazy_static",
- "libsecp256k1 0.5.0",
- "log",
- "memchr",
- "pico-args",
- "prettytable-rs",
- "rand 0.7.3",
- "rand_pcg",
- "rand_seeder",
- "regex",
- "reqwest",
- "ripemd160",
- "rustyline",
- "serde",
- "serde_derive",
- "serde_json",
- "sha2 0.10.6",
- "sha3 0.9.1",
- "tokio",
- "tokio-util",
-]
-
-[[package]]
-name = "clarity-repl"
-version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5951d17cedff3fdd6b78791231e13bedd3dd41b82e85ee279f76da576531cdf1"
 dependencies = [
@@ -635,7 +599,7 @@ dependencies = [
  "debug_types",
  "futures",
  "getrandom 0.2.8",
- "hiro-system-kit 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "hiro-system-kit",
  "httparse",
  "integer-sqrt",
  "lazy_static",
@@ -1572,17 +1536,6 @@ name = "hex"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
-
-[[package]]
-name = "hiro-system-kit"
-version = "0.1.0"
-dependencies = [
- "ansi_term",
- "atty",
- "futures",
- "lazy_static",
- "tokio",
-]
 
 [[package]]
 name = "hiro-system-kit"
@@ -3672,7 +3625,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aca7b97b09d835c932c1ee24335adcb4a85225aaf6eb566aa36fe6f9f18958cd"
 dependencies = [
  "clarinet-utils",
- "clarity-repl 1.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "clarity-repl",
  "reqwest",
  "serde",
  "serde_derive",
