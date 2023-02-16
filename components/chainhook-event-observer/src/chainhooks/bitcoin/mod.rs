@@ -1,7 +1,7 @@
 use super::types::{
-    BitcoinChainhookSpecification, BitcoinPredicateType, ExactMatchingRule, HookAction,
-    InputPredicate, MatchingRule, OrdinalOperations, OutputPredicate, Protocols, Scopes,
-    StacksOperations,
+    BitcoinChainhookFullSpecification, BitcoinChainhookSpecification, BitcoinPredicateType,
+    ExactMatchingRule, HookAction, InputPredicate, MatchingRule, OrdinalOperations,
+    OutputPredicate, Protocols, StacksOperations,
 };
 use base58::FromBase58;
 use bitcoincore_rpc::bitcoin::blockdata::opcodes;
@@ -68,7 +68,7 @@ pub fn evaluate_bitcoin_chainhooks_on_chain_event<'a>(
                 for block in event.new_blocks.iter() {
                     let mut hits = vec![];
                     for tx in block.transactions.iter() {
-                        if chainhook.evaluate_transaction_predicate(&tx) {
+                        if chainhook.predicate.evaluate_transaction_predicate(&tx) {
                             hits.push(tx);
                         }
                     }
@@ -94,7 +94,7 @@ pub fn evaluate_bitcoin_chainhooks_on_chain_event<'a>(
                 for block in event.blocks_to_apply.iter() {
                     let mut hits = vec![];
                     for tx in block.transactions.iter() {
-                        if chainhook.evaluate_transaction_predicate(&tx) {
+                        if chainhook.predicate.evaluate_transaction_predicate(&tx) {
                             hits.push(tx);
                         }
                     }
@@ -105,7 +105,7 @@ pub fn evaluate_bitcoin_chainhooks_on_chain_event<'a>(
                 for block in event.blocks_to_rollback.iter() {
                     let mut hits = vec![];
                     for tx in block.transactions.iter() {
-                        if chainhook.evaluate_transaction_predicate(&tx) {
+                        if chainhook.predicate.evaluate_transaction_predicate(&tx) {
                             hits.push(tx);
                         }
                     }
@@ -195,10 +195,10 @@ pub fn handle_bitcoin_hook_action<'a>(
     proofs: &HashMap<&'a TransactionIdentifier, String>,
 ) -> Option<BitcoinChainhookOccurrence> {
     match &trigger.chainhook.action {
-        HookAction::Http(http) => {
+        HookAction::HttpPost(http) => {
             let client = Client::builder().build().unwrap();
             let host = format!("{}", http.url);
-            let method = Method::from_bytes(http.method.as_bytes()).unwrap();
+            let method = Method::POST;
             let body =
                 serde_json::to_vec(&serialize_bitcoin_payload_to_json(trigger, proofs)).unwrap();
             Some(BitcoinChainhookOccurrence::Http(
@@ -209,7 +209,7 @@ pub fn handle_bitcoin_hook_action<'a>(
                     .body(body),
             ))
         }
-        HookAction::File(disk) => {
+        HookAction::FileAppend(disk) => {
             let bytes =
                 serde_json::to_vec(&serialize_bitcoin_payload_to_json(trigger, proofs)).unwrap();
             Some(BitcoinChainhookOccurrence::File(
@@ -251,16 +251,16 @@ pub fn handle_bitcoin_hook_action<'a>(
     }
 }
 
-impl BitcoinChainhookSpecification {
+impl BitcoinPredicateType {
     pub fn evaluate_transaction_predicate(&self, tx: &BitcoinTransactionData) -> bool {
         // TODO(lgalabru): follow-up on this implementation
-        match &self.predicate {
+        match &self {
             BitcoinPredicateType::Block => true,
             BitcoinPredicateType::Txid(ExactMatchingRule::Equals(txid)) => {
                 tx.transaction_identifier.hash.eq(txid)
             }
-            BitcoinPredicateType::Scope(Scopes::Outputs(OutputPredicate::OpReturn(
-                MatchingRule::Equals(hex_bytes),
+            BitcoinPredicateType::Outputs(OutputPredicate::OpReturn(MatchingRule::Equals(
+                hex_bytes,
             ))) => {
                 for output in tx.metadata.outputs.iter() {
                     if output.script_pubkey.eq(hex_bytes) {
@@ -269,8 +269,8 @@ impl BitcoinChainhookSpecification {
                 }
                 false
             }
-            BitcoinPredicateType::Scope(Scopes::Outputs(OutputPredicate::OpReturn(
-                MatchingRule::StartsWith(hex_bytes),
+            BitcoinPredicateType::Outputs(OutputPredicate::OpReturn(MatchingRule::StartsWith(
+                hex_bytes,
             ))) => {
                 for output in tx.metadata.outputs.iter() {
                     if output.script_pubkey.starts_with(hex_bytes) {
@@ -279,8 +279,8 @@ impl BitcoinChainhookSpecification {
                 }
                 false
             }
-            BitcoinPredicateType::Scope(Scopes::Outputs(OutputPredicate::OpReturn(
-                MatchingRule::EndsWith(hex_bytes),
+            BitcoinPredicateType::Outputs(OutputPredicate::OpReturn(MatchingRule::EndsWith(
+                hex_bytes,
             ))) => {
                 for output in tx.metadata.outputs.iter() {
                     if output.script_pubkey.ends_with(hex_bytes) {
@@ -289,8 +289,8 @@ impl BitcoinChainhookSpecification {
                 }
                 false
             }
-            BitcoinPredicateType::Scope(Scopes::Outputs(OutputPredicate::P2pkh(
-                ExactMatchingRule::Equals(address),
+            BitcoinPredicateType::Outputs(OutputPredicate::P2pkh(ExactMatchingRule::Equals(
+                address,
             ))) => {
                 let pubkey_hash = address
                     .from_base58()
@@ -310,8 +310,8 @@ impl BitcoinChainhookSpecification {
                 }
                 false
             }
-            BitcoinPredicateType::Scope(Scopes::Outputs(OutputPredicate::P2sh(
-                ExactMatchingRule::Equals(address),
+            BitcoinPredicateType::Outputs(OutputPredicate::P2sh(ExactMatchingRule::Equals(
+                address,
             ))) => {
                 let script_hash = address
                     .from_base58()
@@ -329,11 +329,11 @@ impl BitcoinChainhookSpecification {
                 }
                 false
             }
-            BitcoinPredicateType::Scope(Scopes::Outputs(OutputPredicate::P2wpkh(
-                ExactMatchingRule::Equals(encoded_address),
+            BitcoinPredicateType::Outputs(OutputPredicate::P2wpkh(ExactMatchingRule::Equals(
+                encoded_address,
             )))
-            | BitcoinPredicateType::Scope(Scopes::Outputs(OutputPredicate::P2wsh(
-                ExactMatchingRule::Equals(encoded_address),
+            | BitcoinPredicateType::Outputs(OutputPredicate::P2wsh(ExactMatchingRule::Equals(
+                encoded_address,
             ))) => {
                 let address = match Address::from_str(encoded_address) {
                     Ok(address) => match address.payload {
@@ -353,7 +353,7 @@ impl BitcoinChainhookSpecification {
                 }
                 false
             }
-            BitcoinPredicateType::Scope(Scopes::Inputs(InputPredicate::Txid(predicate))) => {
+            BitcoinPredicateType::Inputs(InputPredicate::Txid(predicate)) => {
                 // TODO(lgalabru): add support for transaction chainhing, if enabled
                 for input in tx.metadata.inputs.iter() {
                     if input.previous_output.txid.eq(&predicate.txid)
@@ -364,7 +364,7 @@ impl BitcoinChainhookSpecification {
                 }
                 false
             }
-            BitcoinPredicateType::Scope(Scopes::Inputs(InputPredicate::WitnessScript(_))) => {
+            BitcoinPredicateType::Inputs(InputPredicate::WitnessScript(_)) => {
                 // TODO(lgalabru)
                 unimplemented!()
             }

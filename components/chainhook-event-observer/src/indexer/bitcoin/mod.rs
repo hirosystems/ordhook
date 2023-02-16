@@ -113,12 +113,12 @@ pub fn standardize_bitcoin_block(
     let expected_magic_bytes = get_stacks_canonical_magic_bytes(&indexer_config.bitcoin_network);
     let pox_config = get_canonical_pox_config(&indexer_config.bitcoin_network);
 
-    ctx.try_log(|logger| slog::info!(logger, "Start processing Bitcoin block {}", block.hash,));
+    ctx.try_log(|logger| slog::debug!(logger, "Standardizing Bitcoin block {}", block.hash,));
 
     for mut tx in block.tx.into_iter() {
         let txid = tx.txid.to_string();
 
-        ctx.try_log(|logger| slog::info!(logger, "Start processing Bitcoin transaction {txid}"));
+        ctx.try_log(|logger| slog::debug!(logger, "Standardizing Bitcoin transaction {txid}"));
 
         let mut stacks_operations = vec![];
         if let Some(op) = try_parse_stacks_operation(

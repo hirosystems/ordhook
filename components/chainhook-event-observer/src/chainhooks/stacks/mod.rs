@@ -1,8 +1,8 @@
 use crate::utils::{AbstractStacksBlock, Context};
 
 use super::types::{
-    HookAction, StacksChainhookSpecification, StacksContractDeploymentPredicate,
-    StacksTransactionFilterPredicate,
+    BlockIdentifierIndexRule, HookAction, StacksChainhookSpecification,
+    StacksContractDeploymentPredicate, StacksPredicate,
 };
 use chainhook_types::{
     BlockIdentifier, StacksChainEvent, StacksTransactionData, StacksTransactionEvent,
@@ -204,7 +204,7 @@ pub fn evaluate_stacks_chainhooks_on_chain_event<'a>(
     triggered_chainhooks
 }
 
-fn evaluate_stacks_chainhook_on_blocks<'a>(
+pub fn evaluate_stacks_chainhook_on_blocks<'a>(
     blocks: Vec<&'a dyn AbstractStacksBlock>,
     chainhook: &'a StacksChainhookSpecification,
     ctx: &Context,
@@ -212,9 +212,15 @@ fn evaluate_stacks_chainhook_on_blocks<'a>(
     let mut occurrences = vec![];
     for block in blocks {
         let mut hits = vec![];
-        for tx in block.get_transactions().iter() {
-            if evaluate_stacks_transaction_predicate_on_transaction(tx, chainhook, ctx) {
+        if chainhook.is_predicate_targeting_block_header() {
+            for tx in block.get_transactions().iter() {
                 hits.push(tx);
+            }
+        } else {
+            for tx in block.get_transactions().iter() {
+                if evaluate_stacks_predicate_on_transaction(tx, chainhook, ctx) {
+                    hits.push(tx);
+                }
             }
         }
         if hits.len() > 0 {
@@ -224,23 +230,49 @@ fn evaluate_stacks_chainhook_on_blocks<'a>(
     occurrences
 }
 
-pub fn evaluate_stacks_transaction_predicate_on_transaction<'a>(
+pub fn evaluate_stacks_predicate_on_block<'a>(
+    block: &'a dyn AbstractStacksBlock,
+    chainhook: &'a StacksChainhookSpecification,
+    _ctx: &Context,
+) -> bool {
+    match &chainhook.predicate {
+        StacksPredicate::BlockIdentifierIndex(BlockIdentifierIndexRule::Between(a, b)) => {
+            block.get_identifier().index.gt(a) && block.get_identifier().index.lt(b)
+        }
+        StacksPredicate::BlockIdentifierIndex(BlockIdentifierIndexRule::HigherThan(a)) => {
+            block.get_identifier().index.gt(a)
+        }
+        StacksPredicate::BlockIdentifierIndex(BlockIdentifierIndexRule::LowerThan(a)) => {
+            block.get_identifier().index.lt(a)
+        }
+        StacksPredicate::BlockIdentifierIndex(BlockIdentifierIndexRule::Equals(a)) => {
+            block.get_identifier().index.eq(a)
+        }
+        StacksPredicate::ContractDeployment(_)
+        | StacksPredicate::ContractCall(_)
+        | StacksPredicate::FtEvent(_)
+        | StacksPredicate::NftEvent(_)
+        | StacksPredicate::StxEvent(_)
+        | StacksPredicate::PrintEvent(_)
+        | StacksPredicate::Txid(_) => unreachable!(),
+    }
+}
+
+pub fn evaluate_stacks_predicate_on_transaction<'a>(
     transaction: &'a StacksTransactionData,
     chainhook: &'a StacksChainhookSpecification,
     ctx: &Context,
 ) -> bool {
-    match &chainhook.transaction_predicate {
-        StacksTransactionFilterPredicate::ContractDeployment(
-            StacksContractDeploymentPredicate::Principal(expected_deployer),
-        ) => match &transaction.metadata.kind {
+    match &chainhook.predicate {
+        StacksPredicate::ContractDeployment(StacksContractDeploymentPredicate::Deployer(
+            expected_deployer,
+        )) => match &transaction.metadata.kind {
             StacksTransactionKind::ContractDeployment(actual_deployment) => actual_deployment
                 .contract_identifier
                 .starts_with(expected_deployer),
             _ => false,
         },
-        StacksTransactionFilterPredicate::ContractDeployment(
-            StacksContractDeploymentPredicate::Trait(_expected_trait),
-        ) => match &transaction.metadata.kind {
+        StacksPredicate::ContractDeployment(StacksContractDeploymentPredicate::ImplementSip09) => match &transaction.metadata.kind {
             StacksTransactionKind::ContractDeployment(_actual_deployment) => {
                 ctx.try_log(|logger| {
                     slog::warn!(
@@ -252,20 +284,30 @@ pub fn evaluate_stacks_transaction_predicate_on_transaction<'a>(
             }
             _ => false,
         },
-        StacksTransactionFilterPredicate::ContractCall(expected_contract_call) => {
-            match &transaction.metadata.kind {
-                StacksTransactionKind::ContractCall(actual_contract_call) => {
-                    actual_contract_call
-                        .contract_identifier
-                        .eq(&expected_contract_call.contract_identifier)
-                        && actual_contract_call
-                            .method
-                            .eq(&expected_contract_call.method)
-                }
-                _ => false,
+        StacksPredicate::ContractDeployment(StacksContractDeploymentPredicate::ImplementSip10) => match &transaction.metadata.kind {
+            StacksTransactionKind::ContractDeployment(_actual_deployment) => {
+                ctx.try_log(|logger| {
+                    slog::warn!(
+                        logger,
+                        "StacksContractDeploymentPredicate::Trait uninmplemented"
+                    )
+                });
+                false
             }
-        }
-        StacksTransactionFilterPredicate::FtEvent(expected_event) => {
+            _ => false,
+        },
+        StacksPredicate::ContractCall(expected_contract_call) => match &transaction.metadata.kind {
+            StacksTransactionKind::ContractCall(actual_contract_call) => {
+                actual_contract_call
+                    .contract_identifier
+                    .eq(&expected_contract_call.contract_identifier)
+                    && actual_contract_call
+                        .method
+                        .eq(&expected_contract_call.method)
+            }
+            _ => false,
+        },
+        StacksPredicate::FtEvent(expected_event) => {
             let expecting_mint = expected_event.actions.contains(&"mint".to_string());
             let expecting_transfer = expected_event.actions.contains(&"transfer".to_string());
             let expecting_burn = expected_event.actions.contains(&"burn".to_string());
@@ -280,7 +322,7 @@ pub fn evaluate_stacks_transaction_predicate_on_transaction<'a>(
             }
             false
         }
-        StacksTransactionFilterPredicate::NftEvent(expected_event) => {
+        StacksPredicate::NftEvent(expected_event) => {
             let expecting_mint = expected_event.actions.contains(&"mint".to_string());
             let expecting_transfer = expected_event.actions.contains(&"transfer".to_string());
             let expecting_burn = expected_event.actions.contains(&"burn".to_string());
@@ -295,7 +337,7 @@ pub fn evaluate_stacks_transaction_predicate_on_transaction<'a>(
             }
             false
         }
-        StacksTransactionFilterPredicate::StxEvent(expected_event) => {
+        StacksPredicate::StxEvent(expected_event) => {
             let expecting_mint = expected_event.actions.contains(&"mint".to_string());
             let expecting_transfer = expected_event.actions.contains(&"transfer".to_string());
             let expecting_lock = expected_event.actions.contains(&"lock".to_string());
@@ -310,7 +352,7 @@ pub fn evaluate_stacks_transaction_predicate_on_transaction<'a>(
             }
             false
         }
-        StacksTransactionFilterPredicate::PrintEvent(expected_event) => {
+        StacksPredicate::PrintEvent(expected_event) => {
             for event in transaction.metadata.receipt.events.iter() {
                 match event {
                     StacksTransactionEvent::SmartContractEvent(actual) => {
@@ -327,9 +369,8 @@ pub fn evaluate_stacks_transaction_predicate_on_transaction<'a>(
             }
             false
         }
-        StacksTransactionFilterPredicate::TransactionIdentifierHash(txid) => {
-            txid.eq(&transaction.transaction_identifier.hash)
-        }
+        StacksPredicate::Txid(txid) => txid.eq(&transaction.transaction_identifier.hash),
+        StacksPredicate::BlockIdentifierIndex(_) => unreachable!(),
     }
 }
 
@@ -622,8 +663,7 @@ pub fn serialize_stacks_payload_to_json<'a>(
         }).collect::<Vec<_>>(),
         "chainhook": {
             "uuid": trigger.chainhook.uuid,
-            "transaction_predicate": trigger.chainhook.transaction_predicate,
-            "block_predicate": trigger.chainhook.transaction_predicate,
+            "predicate": trigger.chainhook.predicate,
         }
     })
 }
@@ -634,10 +674,10 @@ pub fn handle_stacks_hook_action<'a>(
     ctx: &Context,
 ) -> Option<StacksChainhookOccurrence> {
     match &trigger.chainhook.action {
-        HookAction::Http(http) => {
+        HookAction::HttpPost(http) => {
             let client = Client::builder().build().unwrap();
             let host = format!("{}", http.url);
-            let method = Method::from_bytes(http.method.as_bytes()).unwrap();
+            let method = Method::POST;
             let body = serde_json::to_vec(&serialize_stacks_payload_to_json(trigger, proofs, ctx))
                 .unwrap();
             Some(StacksChainhookOccurrence::Http(
@@ -647,7 +687,7 @@ pub fn handle_stacks_hook_action<'a>(
                     .body(body),
             ))
         }
-        HookAction::File(disk) => {
+        HookAction::FileAppend(disk) => {
             let bytes = serde_json::to_vec(&serialize_stacks_payload_to_json(trigger, proofs, ctx))
                 .unwrap();
             Some(StacksChainhookOccurrence::File(

@@ -384,11 +384,11 @@ dependencies = [
  "bitcoincore-rpc",
  "bitcoincore-rpc-json",
  "chainhook-event-observer",
- "chainhook-types 1.0.0",
+ "chainhook-types 1.0.1",
  "clap 3.2.23",
  "clap_generate",
  "clarinet-files",
- "clarity-repl 1.4.2",
+ "clarity-repl 1.4.1",
  "criterion",
  "crossbeam-channel",
  "csv",
@@ -397,7 +397,7 @@ dependencies = [
  "flume",
  "futures-util",
  "hex",
- "hiro-system-kit 0.1.0",
+ "hiro-system-kit 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "num_cpus",
  "redis",
  "reqwest",
@@ -412,7 +412,7 @@ dependencies = [
 
 [[package]]
 name = "chainhook-event-observer"
-version = "1.0.1"
+version = "1.0.3"
 dependencies = [
  "base58 0.2.0",
  "base64 0.13.1",
@@ -421,8 +421,8 @@ dependencies = [
  "chainhook-types 1.0.1",
  "clap 3.2.23",
  "clap_generate",
- "clarinet-utils 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "clarity-repl 1.4.0",
+ "clarinet-utils",
+ "clarity-repl 1.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "crossbeam-channel",
  "ctrlc",
  "hiro-system-kit 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -440,9 +440,7 @@ dependencies = [
 
 [[package]]
 name = "chainhook-types"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e55e9a635deda8267306d6a9eb645440f243fdffedb1df274c2fe42408bdce42"
+version = "1.0.1"
 dependencies = [
  "schemars",
  "serde",
@@ -454,6 +452,8 @@ dependencies = [
 [[package]]
 name = "chainhook-types"
 version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe083f0dd830eb487602a3f1ebc56c1245d9cdb25cc83adb8f35e977bb477dc2"
 dependencies = [
  "schemars",
  "serde",
@@ -558,28 +558,20 @@ dependencies = [
 [[package]]
 name = "clarinet-files"
 version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "07a317e7aa292263aab236ef9c751983b6faca76f73f07d02385a6721c5dd444"
 dependencies = [
  "bip39",
  "bitcoin",
- "chainhook-types 1.0.1",
- "clarinet-utils 1.0.0",
- "clarity-repl 1.4.2",
+ "chainhook-types 1.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "clarinet-utils",
+ "clarity-repl 1.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "libsecp256k1 0.7.1",
  "serde",
  "serde_derive",
  "tiny-hderive",
  "toml",
  "url",
-]
-
-[[package]]
-name = "clarinet-utils"
-version = "1.0.0"
-dependencies = [
- "hmac 0.12.1",
- "pbkdf2",
- "serde",
- "sha2 0.10.6",
 ]
 
 [[package]]
@@ -596,45 +588,7 @@ dependencies = [
 
 [[package]]
 name = "clarity-repl"
-version = "1.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec3faf68f2dfe50600f86b7d68cc2329a6bcfb31dd77218b0da9b0507bde8526"
-dependencies = [
- "ansi_term",
- "atty",
- "bytes",
- "clarity-vm",
- "debug_types",
- "futures",
- "getrandom 0.2.8",
- "hiro-system-kit 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "httparse",
- "integer-sqrt",
- "lazy_static",
- "libsecp256k1 0.5.0",
- "log",
- "memchr",
- "pico-args",
- "prettytable-rs",
- "rand 0.7.3",
- "rand_pcg",
- "rand_seeder",
- "regex",
- "reqwest",
- "ripemd160",
- "rustyline",
- "serde",
- "serde_derive",
- "serde_json",
- "sha2 0.10.6",
- "sha3 0.9.1",
- "tokio",
- "tokio-util",
-]
-
-[[package]]
-name = "clarity-repl"
-version = "1.4.2"
+version = "1.4.1"
 dependencies = [
  "ansi_term",
  "atty",
@@ -669,10 +623,48 @@ dependencies = [
 ]
 
 [[package]]
-name = "clarity-vm"
-version = "2.0.0"
+name = "clarity-repl"
+version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d7b6608bc450fe16f915cc6175f4594a817773a7ca3a25e434e4bce6be1fce2"
+checksum = "5951d17cedff3fdd6b78791231e13bedd3dd41b82e85ee279f76da576531cdf1"
+dependencies = [
+ "ansi_term",
+ "atty",
+ "bytes",
+ "clarity-vm",
+ "debug_types",
+ "futures",
+ "getrandom 0.2.8",
+ "hiro-system-kit 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "httparse",
+ "integer-sqrt",
+ "lazy_static",
+ "libsecp256k1 0.5.0",
+ "log",
+ "memchr",
+ "pico-args",
+ "prettytable-rs",
+ "rand 0.7.3",
+ "rand_pcg",
+ "rand_seeder",
+ "regex",
+ "reqwest",
+ "ripemd160",
+ "rustyline",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "sha2 0.10.6",
+ "sha3 0.9.1",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
+name = "clarity-vm"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "59cbb21adf1277368fe098e129de5dc17d8797a1630fe7b598d59c536b744622"
 dependencies = [
  "integer-sqrt",
  "lazy_static",
@@ -687,7 +679,6 @@ dependencies = [
  "serde_json",
  "serde_stacker",
  "sha2-asm",
- "slog",
  "stacks-common",
  "time 0.2.27",
 ]
@@ -1590,12 +1581,6 @@ dependencies = [
  "atty",
  "futures",
  "lazy_static",
- "slog",
- "slog-async",
- "slog-atomic",
- "slog-json",
- "slog-scope",
- "slog-term",
  "tokio",
 ]
 
@@ -3677,9 +3662,6 @@ dependencies = [
  "serde_json",
  "sha2 0.10.6",
  "sha3 0.10.6",
- "slog",
- "slog-json",
- "slog-term",
  "time 0.2.27",
 ]
 
@@ -3689,8 +3671,8 @@ version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aca7b97b09d835c932c1ee24335adcb4a85225aaf6eb566aa36fe6f9f18958cd"
 dependencies = [
- "clarinet-utils 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "clarity-repl 1.4.0",
+ "clarinet-utils",
+ "clarity-repl 1.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "reqwest",
  "serde",
  "serde_derive",

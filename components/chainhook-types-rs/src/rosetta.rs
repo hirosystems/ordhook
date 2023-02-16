@@ -645,7 +645,9 @@ pub struct StacksChainUpdatedWithMicroblocksReorgData {
     pub microblocks_to_apply: Vec<StacksMicroblockData>,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Serialize, Deserialize, JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum StacksNetwork {
     Simnet,
@@ -708,7 +710,9 @@ impl StacksNetwork {
 }
 
 #[allow(dead_code)]
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Debug, PartialEq, Eq, Clone, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum BitcoinNetwork {
     Regtest,

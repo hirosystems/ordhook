@@ -1228,6 +1228,7 @@ pub fn handle_drop_mempool_tx(ctx: &State<Context>) -> Json<JsonValue> {
     }))
 }
 
+#[openapi(skip)]
 #[post("/attachments/new", format = "application/json")]
 pub fn handle_new_attachement(ctx: &State<Context>) -> Json<JsonValue> {
     ctx.try_log(|logger| slog::info!(logger, "POST /attachments/new"));
