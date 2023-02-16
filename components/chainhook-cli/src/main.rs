@@ -13,6 +13,7 @@ pub mod archive;
 pub mod block;
 mod cli;
 pub mod config;
+pub mod scan;
 
 fn main() {
     cli::main();

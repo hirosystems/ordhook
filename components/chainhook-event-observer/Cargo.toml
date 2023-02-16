@@ -1,6 +1,6 @@
 [package]
 name = "chainhook-event-observer"
-version = "1.0.1"
+version = "1.0.3"
 description = "Stateless Transaction Indexing Engine for Stacks and Bitcoin"
 license = "GPL-3.0"
 edition = "2021"
@@ -13,7 +13,7 @@ serde_json = { version = "1", features = ["arbitrary_precision"] }
 serde_derive = "1"
 stacks-rpc-client = "1"
 clarinet-utils = "1"
-clarity-repl = "1"
+clarity-repl = "=1.4.1"
 hiro-system-kit = "0.1.0"
 # stacks-rpc-client = { version = "1", path = "../../../clarinet/components/stacks-rpc-client" }
 # clarinet-utils = { version = "1", path = "../../../clarinet/components/clarinet-utils" }

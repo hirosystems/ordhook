@@ -13,7 +13,7 @@ serde_json = "1"
 serde_derive = "1"
 redis = "0.21.5"
 serde-redis = "0.12.0"
-chainhook-event-observer = { version = "=1.0.1", default-features = false, path = "../chainhook-event-observer" }
+chainhook-event-observer = { version = "=1.0.3", default-features = false, path = "../chainhook-event-observer" }
 chainhook-types = { version = "=1.0.1", path = "../chainhook-types-rs" }
 clarinet-files = "1"
 hiro-system-kit = "0.1.0"
@@ -43,6 +43,6 @@ hex = "0.4.3"
 
 [features]
 default = ["cli"]
-cli = ["clap", "clap_generate", "toml", "ctrlc", "hiro_system_kit/log"]
-debug = ["hiro_system_kit/debug"]
-release = ["hiro_system_kit/release"]
+cli = ["clap", "clap_generate", "toml", "ctrlc", "hiro-system-kit/log"]
+debug = ["hiro-system-kit/debug"]
+release = ["hiro-system-kit/release"]
