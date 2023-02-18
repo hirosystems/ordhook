@@ -580,11 +580,22 @@ pub fn start_node(mut config: Config, ctx: Context) {
                                 };
 
                                 let proofs = HashMap::new();
-                                if let Some(result) =
-                                    handle_stacks_hook_action(trigger, &proofs, &ctx)
-                                {
-                                    if let StacksChainhookOccurrence::Http(request) = result {
-                                        hiro_system_kit::nestable_block_on(request.send()).unwrap();
+                                match handle_stacks_hook_action(trigger, &proofs, &ctx) {
+                                    Err(e) => {
+                                        info!(ctx.expect_logger(), "unable to handle action {}", e);
+                                    }
+                                    Ok(StacksChainhookOccurrence::Http(request)) => {
+                                        if let Err(e) =
+                                            hiro_system_kit::nestable_block_on(request.send())
+                                        {
+                                            error!(
+                                                ctx.expect_logger(),
+                                                "unable to perform action {}", e
+                                            );
+                                        }
+                                    }
+                                    Ok(_) => {
+                                        error!(ctx.expect_logger(), "action not supported");
                                     }
                                 }
                             }

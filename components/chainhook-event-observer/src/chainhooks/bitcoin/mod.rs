@@ -1,7 +1,6 @@
 use super::types::{
-    BitcoinChainhookSpecification, BitcoinPredicateType,
-    ExactMatchingRule, HookAction, InputPredicate, MatchingRule, OrdinalOperations,
-    OutputPredicate, Protocols, StacksOperations,
+    BitcoinChainhookSpecification, BitcoinPredicateType, ExactMatchingRule, HookAction,
+    InputPredicate, MatchingRule, OrdinalOperations, OutputPredicate, Protocols, StacksOperations,
 };
 use base58::FromBase58;
 use bitcoincore_rpc::bitcoin::blockdata::opcodes;
@@ -193,15 +192,17 @@ pub fn serialize_bitcoin_transactions_to_json<'a>(
 pub fn handle_bitcoin_hook_action<'a>(
     trigger: BitcoinTriggerChainhook<'a>,
     proofs: &HashMap<&'a TransactionIdentifier, String>,
-) -> Option<BitcoinChainhookOccurrence> {
+) -> Result<BitcoinChainhookOccurrence, String> {
     match &trigger.chainhook.action {
         HookAction::HttpPost(http) => {
-            let client = Client::builder().build().unwrap();
+            let client = Client::builder()
+                .build()
+                .map_err(|e| format!("unable to build http client: {}", e.to_string()))?;
             let host = format!("{}", http.url);
             let method = Method::POST;
-            let body =
-                serde_json::to_vec(&serialize_bitcoin_payload_to_json(trigger, proofs)).unwrap();
-            Some(BitcoinChainhookOccurrence::Http(
+            let body = serde_json::to_vec(&serialize_bitcoin_payload_to_json(trigger, proofs))
+                .map_err(|e| format!("unable to serialize payload {}", e.to_string()))?;
+            Ok(BitcoinChainhookOccurrence::Http(
                 client
                     .request(method, &host)
                     .header("Content-Type", "application/json")
@@ -210,14 +211,14 @@ pub fn handle_bitcoin_hook_action<'a>(
             ))
         }
         HookAction::FileAppend(disk) => {
-            let bytes =
-                serde_json::to_vec(&serialize_bitcoin_payload_to_json(trigger, proofs)).unwrap();
-            Some(BitcoinChainhookOccurrence::File(
+            let bytes = serde_json::to_vec(&serialize_bitcoin_payload_to_json(trigger, proofs))
+                .map_err(|e| format!("unable to serialize payload {}", e.to_string()))?;
+            Ok(BitcoinChainhookOccurrence::File(
                 disk.path.to_string(),
                 bytes,
             ))
         }
-        HookAction::Noop => Some(BitcoinChainhookOccurrence::Data(
+        HookAction::Noop => Ok(BitcoinChainhookOccurrence::Data(
             BitcoinChainhookOccurrencePayload {
                 apply: trigger
                     .apply

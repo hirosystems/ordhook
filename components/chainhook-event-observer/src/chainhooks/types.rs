@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap};
+use std::collections::BTreeMap;
 
 use clarity_repl::clarity::util::hash::hex_bytes;
 use reqwest::Url;
