@@ -1,7 +1,10 @@
+use std::{fs::OpenOptions, io::Write};
+
 use chainhook_types::{
     BitcoinBlockData, BlockIdentifier, StacksBlockData, StacksMicroblockData, StacksTransactionData,
 };
-use hiro_system_kit::slog::Logger;
+use hiro_system_kit::slog::{self, Logger};
+use reqwest::RequestBuilder;
 use serde_json::Value as JsonValue;
 
 #[derive(Clone)]
@@ -116,5 +119,92 @@ impl AbstractBlock for BitcoinBlockData {
 
     fn get_parent_identifier(&self) -> &BlockIdentifier {
         &self.parent_block_identifier
+    }
+}
+
+pub async fn send_request(request: RequestBuilder, ctx: &Context) {
+    match request.send().await {
+        Ok(res) => {
+            if res.status().is_success() {
+                ctx.try_log(|logger| slog::info!(logger, "Trigger {} successful", res.url()));
+            } else {
+                ctx.try_log(|logger| {
+                    slog::warn!(
+                        logger,
+                        "Trigger {} failed with status {}",
+                        res.url(),
+                        res.status()
+                    )
+                });
+            }
+        }
+        Err(e) => {
+            ctx.try_log(|logger| {
+                slog::warn!(logger, "unable to build and send request {}", e.to_string())
+            });
+        }
+    }
+}
+
+pub fn file_append(path: String, bytes: Vec<u8>, ctx: &Context) {
+    let mut file_path = match std::env::current_dir() {
+        Err(e) => {
+            ctx.try_log(|logger| {
+                slog::warn!(logger, "unable to retrieve current_dir {}", e.to_string())
+            });
+            return;
+        }
+        Ok(p) => p,
+    };
+    file_path.push(path);
+    if !file_path.exists() {
+        match std::fs::File::create(&file_path) {
+            Ok(ref mut file) => {
+                let _ = file.write_all(&bytes);
+            }
+            Err(e) => {
+                ctx.try_log(|logger| {
+                    slog::warn!(
+                        logger,
+                        "unable to create file {}: {}",
+                        file_path.display(),
+                        e.to_string()
+                    )
+                });
+                return;
+            }
+        }
+    }
+
+    let mut file = match OpenOptions::new()
+        .create(false)
+        .write(true)
+        .append(true)
+        .open(file_path)
+    {
+        Err(e) => {
+            ctx.try_log(|logger| slog::warn!(logger, "unable to open file {}", e.to_string()));
+            return;
+        }
+        Ok(p) => p,
+    };
+
+    let utf8 = match String::from_utf8(bytes) {
+        Ok(string) => string,
+        Err(e) => {
+            ctx.try_log(|logger| {
+                slog::warn!(
+                    logger,
+                    "unable serialize bytes as utf8 string {}",
+                    e.to_string()
+                )
+            });
+            return;
+        }
+    };
+
+    if let Err(e) = writeln!(file, "{}", utf8) {
+        ctx.try_log(|logger| slog::warn!(logger, "unable to open file {}", e.to_string()));
+        eprintln!("Couldn't write to file: {}", e);
     }
 }

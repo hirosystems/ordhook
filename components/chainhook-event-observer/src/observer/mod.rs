@@ -9,7 +9,7 @@ use crate::chainhooks::stacks::{
 use crate::chainhooks::types::{ChainhookConfig, ChainhookSpecification};
 use crate::indexer::bitcoin::retrieve_full_block;
 use crate::indexer::{self, Indexer, IndexerConfig};
-use crate::utils::Context;
+use crate::utils::{send_request, Context};
 use bitcoincore_rpc::bitcoin::{BlockHash, Txid};
 use bitcoincore_rpc::{Auth, Client, RpcApi};
 use chainhook_types::{
@@ -88,7 +88,8 @@ impl EventHandler {
             EventHandler::WebHook(host) => {
                 let path = "chain-events/bitcoin";
                 let url = format!("{}/{}", host, path);
-                let body = rocket::serde::json::serde_json::to_vec(&bitcoin_event).unwrap_or(vec![]);
+                let body =
+                    rocket::serde::json::serde_json::to_vec(&bitcoin_event).unwrap_or(vec![]);
                 let http_client = HttpClient::builder()
                     .timeout(Duration::from_secs(20))
                     .build()
@@ -635,29 +636,7 @@ pub async fn start_observer_commands_handler(
                             request
                         )
                     });
-                    match request.send().await {
-                        Ok(res) => {
-                            if res.status().is_success() {
-                                ctx.try_log(|logger| {
-                                    slog::info!(logger, "Trigger {} successful", res.url())
-                                });
-                            } else {
-                                ctx.try_log(|logger| {
-                                    slog::warn!(
-                                        logger,
-                                        "Trigger {} failed with status {}",
-                                        res.url(),
-                                        res.status()
-                                    )
-                                });
-                            }
-                        }
-                        Err(e) => {
-                            ctx.try_log(|logger| {
-                                slog::warn!(logger, "Unable to build and send request {:?}", e)
-                            });
-                        }
-                    }
+                    send_request(request, &ctx).await;
                 }
 
                 if let Some(ref tx) = observer_events_tx {
@@ -789,29 +768,7 @@ pub async fn start_observer_commands_handler(
                             request
                         )
                     });
-                    match request.send().await {
-                        Ok(res) => {
-                            if res.status().is_success() {
-                                ctx.try_log(|logger| {
-                                    slog::info!(logger, "Trigger {} successful", res.url())
-                                });
-                            } else {
-                                ctx.try_log(|logger| {
-                                    slog::warn!(
-                                        logger,
-                                        "Trigger {} failed with status {}",
-                                        res.url(),
-                                        res.status()
-                                    )
-                                });
-                            }
-                        }
-                        Err(e) => {
-                            ctx.try_log(|logger| {
-                                slog::warn!(logger, "Unable to build and send request {:?}", e)
-                            });
-                        }
-                    }
+                    send_request(request, &ctx).await;
                 }
 
                 if let Some(ref tx) = observer_events_tx {
