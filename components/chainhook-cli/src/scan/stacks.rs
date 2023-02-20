@@ -159,12 +159,16 @@ pub async fn scan_stacks_chain_with_predicate(
             rollback: vec![],
         };
         match handle_stacks_hook_action(trigger, &proofs, &ctx) {
-            Err(_e) => {}
+            Err(e) => {
+                error!(ctx.expect_logger(), "unable to handle action {}", e);
+            }
             Ok(StacksChainhookOccurrence::Http(request)) => {
                 send_request(request, &ctx).await;
             }
-            Ok(StacksChainhookOccurrence::File(path, bytes)) => file_append(path, bytes, &ctx),
-            Ok(StacksChainhookOccurrence::Data(_payload)) => {}
+            Ok(StacksChainhookOccurrence::File(path, bytes)) => {
+                file_append(path, bytes, &ctx);
+            }
+            Ok(StacksChainhookOccurrence::Data(_payload)) => unreachable!(),
         }
     }
 
