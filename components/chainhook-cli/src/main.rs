@@ -11,9 +11,11 @@ extern crate serde;
 
 pub mod archive;
 pub mod block;
-mod cli;
+pub mod cli;
 pub mod config;
+pub mod node;
 pub mod scan;
+pub mod storage;
 
 fn main() {
     cli::main();
