@@ -1,4 +1,5 @@
 pub mod file;
+pub mod generator;
 
 pub use chainhook_event_observer::indexer::IndexerConfig;
 use chainhook_types::{BitcoinNetwork, StacksNetwork};
@@ -27,10 +28,17 @@ pub struct StorageConfig {
 #[derive(Clone, Debug)]
 pub enum StorageDriver {
     Redis(RedisConfig),
+    Tikv(TikvConfig),
+    Memory,
 }
 
 #[derive(Clone, Debug)]
 pub struct RedisConfig {
+    pub uri: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct TikvConfig {
     pub uri: String,
 }
 
@@ -144,9 +152,17 @@ impl Config {
             }));
     }
 
+    pub fn expected_tikv_config(&self) -> &TikvConfig {
+        match self.storage.driver {
+            StorageDriver::Tikv(ref conf) => conf,
+            _ => unreachable!(),
+        }
+    }
+
     pub fn expected_redis_config(&self) -> &RedisConfig {
         match self.storage.driver {
             StorageDriver::Redis(ref conf) => conf,
+            _ => unreachable!(),
         }
     }
 
