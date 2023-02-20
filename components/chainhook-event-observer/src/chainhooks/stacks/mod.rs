@@ -267,9 +267,15 @@ pub fn evaluate_stacks_predicate_on_transaction<'a>(
         StacksPredicate::ContractDeployment(StacksContractDeploymentPredicate::Deployer(
             expected_deployer,
         )) => match &transaction.metadata.kind {
-            StacksTransactionKind::ContractDeployment(actual_deployment) => actual_deployment
-                .contract_identifier
-                .starts_with(expected_deployer),
+            StacksTransactionKind::ContractDeployment(actual_deployment) => {
+                if expected_deployer.eq("*") {
+                    true
+                } else {
+                    actual_deployment
+                        .contract_identifier
+                        .starts_with(expected_deployer)
+                }
+            }
             _ => false,
         },
         StacksPredicate::ContractDeployment(StacksContractDeploymentPredicate::ImplementSip09) => {
