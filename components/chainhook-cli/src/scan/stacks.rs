@@ -8,7 +8,12 @@ use crate::{
     block::ingestion::{Record, RecordKind},
     config::Config,
 };
-use chainhook_event_observer::utils::AbstractStacksBlock;
+use chainhook_event_observer::{
+    chainhooks::stacks::{
+        handle_stacks_hook_action, StacksChainhookOccurrence, StacksTriggerChainhook,
+    },
+    utils::{file_append, send_request, AbstractStacksBlock},
+};
 use chainhook_event_observer::{
     chainhooks::{
         stacks::evaluate_stacks_chainhook_on_blocks, types::StacksChainhookFullSpecification,
@@ -125,9 +130,9 @@ pub async fn scan_stacks_chain_with_predicate(
         }
         canonical_fork
     };
+    let proofs = HashMap::new();
 
-    // let mut hits = vec![];
-    for (block_identifier, _parent_block_identifier, blob) in canonical_fork.drain(..) {
+    for (_block_identifier, _parent_block_identifier, blob) in canonical_fork.drain(..) {
         let block_data = match indexer::stacks::standardize_stacks_serialized_block(
             &indexer.config,
             &blob,
@@ -143,12 +148,24 @@ pub async fn scan_stacks_chain_with_predicate(
 
         let blocks: Vec<&dyn AbstractStacksBlock> = vec![&block_data];
 
-        let res = evaluate_stacks_chainhook_on_blocks(blocks, &selected_predicate, ctx);
-        if !res.is_empty() {
-            println!("Hit at block {}", block_identifier.index);
+        let hits_per_blocks = evaluate_stacks_chainhook_on_blocks(blocks, &selected_predicate, ctx);
+        if hits_per_blocks.is_empty() {
+            continue;
         }
 
-        // hits.append(&mut res);
+        let trigger = StacksTriggerChainhook {
+            chainhook: &selected_predicate,
+            apply: hits_per_blocks,
+            rollback: vec![],
+        };
+        match handle_stacks_hook_action(trigger, &proofs, &ctx) {
+            Err(_e) => {}
+            Ok(StacksChainhookOccurrence::Http(request)) => {
+                send_request(request, &ctx).await;
+            }
+            Ok(StacksChainhookOccurrence::File(path, bytes)) => file_append(path, bytes, &ctx),
+            Ok(StacksChainhookOccurrence::Data(_payload)) => {}
+        }
     }
 
     Ok(())

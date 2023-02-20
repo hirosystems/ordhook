@@ -9,7 +9,7 @@ use crate::chainhooks::stacks::{
 use crate::chainhooks::types::{ChainhookConfig, ChainhookSpecification};
 use crate::indexer::bitcoin::retrieve_full_block;
 use crate::indexer::{self, Indexer, IndexerConfig};
-use crate::utils::Context;
+use crate::utils::{send_request, Context};
 use bitcoincore_rpc::bitcoin::{BlockHash, Txid};
 use bitcoincore_rpc::{Auth, Client, RpcApi};
 use chainhook_types::{
@@ -67,7 +67,7 @@ impl EventHandler {
             EventHandler::WebHook(host) => {
                 let path = "chain-events/stacks";
                 let url = format!("{}/{}", host, path);
-                let body = rocket::serde::json::serde_json::to_vec(&stacks_event).unwrap();
+                let body = rocket::serde::json::serde_json::to_vec(&stacks_event).unwrap_or(vec![]);
                 let http_client = HttpClient::builder()
                     .timeout(Duration::from_secs(20))
                     .build()
@@ -88,7 +88,8 @@ impl EventHandler {
             EventHandler::WebHook(host) => {
                 let path = "chain-events/bitcoin";
                 let url = format!("{}/{}", host, path);
-                let body = rocket::serde::json::serde_json::to_vec(&bitcoin_event).unwrap();
+                let body =
+                    rocket::serde::json::serde_json::to_vec(&bitcoin_event).unwrap_or(vec![]);
                 let http_client = HttpClient::builder()
                     .timeout(Duration::from_secs(20))
                     .build()
@@ -561,28 +562,27 @@ pub async fn start_observer_commands_handler(
                                 ));
                             }
                             for chainhook_to_trigger in chainhooks_to_trigger.into_iter() {
-                                if let Some(result) =
-                                    handle_bitcoin_hook_action(chainhook_to_trigger, &proofs)
-                                {
-                                    match result {
-                                        BitcoinChainhookOccurrence::Http(request) => {
-                                            requests.push(request);
-                                        }
-                                        BitcoinChainhookOccurrence::File(_path, _bytes) => ctx
-                                            .try_log(|logger| {
-                                                slog::info!(
-                                                    logger,
-                                                    "Writing to disk not supported in server mode"
-                                                )
-                                            }),
-                                        BitcoinChainhookOccurrence::Data(payload) => {
-                                            if let Some(ref tx) = observer_events_tx {
-                                                let _ = tx.send(
-                                                    ObserverEvent::BitcoinChainhookTriggered(
-                                                        payload,
-                                                    ),
-                                                );
-                                            }
+                                match handle_bitcoin_hook_action(chainhook_to_trigger, &proofs) {
+                                    Err(e) => {
+                                        ctx.try_log(|logger| {
+                                            slog::error!(logger, "unable to handle action {}", e)
+                                        });
+                                    }
+                                    Ok(BitcoinChainhookOccurrence::Http(request)) => {
+                                        requests.push(request);
+                                    }
+                                    Ok(BitcoinChainhookOccurrence::File(_path, _bytes)) => ctx
+                                        .try_log(|logger| {
+                                            slog::info!(
+                                                logger,
+                                                "Writing to disk not supported in server mode"
+                                            )
+                                        }),
+                                    Ok(BitcoinChainhookOccurrence::Data(payload)) => {
+                                        if let Some(ref tx) = observer_events_tx {
+                                            let _ = tx.send(
+                                                ObserverEvent::BitcoinChainhookTriggered(payload),
+                                            );
                                         }
                                     }
                                 }
@@ -636,29 +636,7 @@ pub async fn start_observer_commands_handler(
                             request
                         )
                     });
-                    match request.send().await {
-                        Ok(res) => {
-                            if res.status().is_success() {
-                                ctx.try_log(|logger| {
-                                    slog::info!(logger, "Trigger {} successful", res.url())
-                                });
-                            } else {
-                                ctx.try_log(|logger| {
-                                    slog::warn!(
-                                        logger,
-                                        "Trigger {} failed with status {}",
-                                        res.url(),
-                                        res.status()
-                                    )
-                                });
-                            }
-                        }
-                        Err(e) => {
-                            ctx.try_log(|logger| {
-                                slog::warn!(logger, "Unable to build and send request {:?}", e)
-                            });
-                        }
-                    }
+                    send_request(request, &ctx).await;
                 }
 
                 if let Some(ref tx) = observer_events_tx {
@@ -722,28 +700,28 @@ pub async fn start_observer_commands_handler(
                             }
                             let proofs = HashMap::new();
                             for chainhook_to_trigger in chainhooks_to_trigger.into_iter() {
-                                if let Some(result) =
-                                    handle_stacks_hook_action(chainhook_to_trigger, &proofs, &ctx)
+                                match handle_stacks_hook_action(chainhook_to_trigger, &proofs, &ctx)
                                 {
-                                    match result {
-                                        StacksChainhookOccurrence::Http(request) => {
-                                            requests.push(request);
-                                        }
-                                        StacksChainhookOccurrence::File(_path, _bytes) => ctx
-                                            .try_log(|logger| {
-                                                slog::info!(
-                                                    logger,
-                                                    "Writing to disk not supported in server mode"
-                                                )
-                                            }),
-                                        StacksChainhookOccurrence::Data(payload) => {
-                                            if let Some(ref tx) = observer_events_tx {
-                                                let _ = tx.send(
-                                                    ObserverEvent::StacksChainhookTriggered(
-                                                        payload,
-                                                    ),
-                                                );
-                                            }
+                                    Err(e) => {
+                                        ctx.try_log(|logger| {
+                                            slog::error!(logger, "unable to handle action {}", e)
+                                        });
+                                    }
+                                    Ok(StacksChainhookOccurrence::Http(request)) => {
+                                        requests.push(request);
+                                    }
+                                    Ok(StacksChainhookOccurrence::File(_path, _bytes)) => ctx
+                                        .try_log(|logger| {
+                                            slog::info!(
+                                                logger,
+                                                "Writing to disk not supported in server mode"
+                                            )
+                                        }),
+                                    Ok(StacksChainhookOccurrence::Data(payload)) => {
+                                        if let Some(ref tx) = observer_events_tx {
+                                            let _ = tx.send(
+                                                ObserverEvent::StacksChainhookTriggered(payload),
+                                            );
                                         }
                                     }
                                 }
@@ -790,29 +768,7 @@ pub async fn start_observer_commands_handler(
                             request
                         )
                     });
-                    match request.send().await {
-                        Ok(res) => {
-                            if res.status().is_success() {
-                                ctx.try_log(|logger| {
-                                    slog::info!(logger, "Trigger {} successful", res.url())
-                                });
-                            } else {
-                                ctx.try_log(|logger| {
-                                    slog::warn!(
-                                        logger,
-                                        "Trigger {} failed with status {}",
-                                        res.url(),
-                                        res.status()
-                                    )
-                                });
-                            }
-                        }
-                        Err(e) => {
-                            ctx.try_log(|logger| {
-                                slog::warn!(logger, "Unable to build and send request {:?}", e)
-                            });
-                        }
-                    }
+                    send_request(request, &ctx).await;
                 }
 
                 if let Some(ref tx) = observer_events_tx {
@@ -1272,7 +1228,7 @@ pub async fn handle_bitcoin_wallet_rpc_call(
 
     let bitcoin_rpc_call = bitcoin_rpc_call.into_inner().clone();
 
-    let body = rocket::serde::json::serde_json::to_vec(&bitcoin_rpc_call).unwrap();
+    let body = rocket::serde::json::serde_json::to_vec(&bitcoin_rpc_call).unwrap_or(vec![]);
 
     let token = encode(format!(
         "{}:{}",
@@ -1311,7 +1267,7 @@ pub async fn handle_bitcoin_rpc_call(
     let bitcoin_rpc_call = bitcoin_rpc_call.into_inner().clone();
     let method = bitcoin_rpc_call.method.clone();
 
-    let body = rocket::serde::json::serde_json::to_vec(&bitcoin_rpc_call).unwrap();
+    let body = rocket::serde::json::serde_json::to_vec(&bitcoin_rpc_call).unwrap_or(vec![]);
 
     let token = encode(format!(
         "{}:{}",

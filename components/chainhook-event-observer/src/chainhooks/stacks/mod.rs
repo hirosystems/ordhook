@@ -272,30 +272,34 @@ pub fn evaluate_stacks_predicate_on_transaction<'a>(
                 .starts_with(expected_deployer),
             _ => false,
         },
-        StacksPredicate::ContractDeployment(StacksContractDeploymentPredicate::ImplementSip09) => match &transaction.metadata.kind {
-            StacksTransactionKind::ContractDeployment(_actual_deployment) => {
-                ctx.try_log(|logger| {
-                    slog::warn!(
-                        logger,
-                        "StacksContractDeploymentPredicate::Trait uninmplemented"
-                    )
-                });
-                false
+        StacksPredicate::ContractDeployment(StacksContractDeploymentPredicate::ImplementSip09) => {
+            match &transaction.metadata.kind {
+                StacksTransactionKind::ContractDeployment(_actual_deployment) => {
+                    ctx.try_log(|logger| {
+                        slog::warn!(
+                            logger,
+                            "StacksContractDeploymentPredicate::Trait uninmplemented"
+                        )
+                    });
+                    false
+                }
+                _ => false,
             }
-            _ => false,
-        },
-        StacksPredicate::ContractDeployment(StacksContractDeploymentPredicate::ImplementSip10) => match &transaction.metadata.kind {
-            StacksTransactionKind::ContractDeployment(_actual_deployment) => {
-                ctx.try_log(|logger| {
-                    slog::warn!(
-                        logger,
-                        "StacksContractDeploymentPredicate::Trait uninmplemented"
-                    )
-                });
-                false
+        }
+        StacksPredicate::ContractDeployment(StacksContractDeploymentPredicate::ImplementSip10) => {
+            match &transaction.metadata.kind {
+                StacksTransactionKind::ContractDeployment(_actual_deployment) => {
+                    ctx.try_log(|logger| {
+                        slog::warn!(
+                            logger,
+                            "StacksContractDeploymentPredicate::Trait uninmplemented"
+                        )
+                    });
+                    false
+                }
+                _ => false,
             }
-            _ => false,
-        },
+        }
         StacksPredicate::ContractCall(expected_contract_call) => match &transaction.metadata.kind {
             StacksTransactionKind::ContractCall(actual_contract_call) => {
                 actual_contract_call
@@ -672,15 +676,17 @@ pub fn handle_stacks_hook_action<'a>(
     trigger: StacksTriggerChainhook<'a>,
     proofs: &HashMap<&'a TransactionIdentifier, String>,
     ctx: &Context,
-) -> Option<StacksChainhookOccurrence> {
+) -> Result<StacksChainhookOccurrence, String> {
     match &trigger.chainhook.action {
         HookAction::HttpPost(http) => {
-            let client = Client::builder().build().unwrap();
+            let client = Client::builder()
+                .build()
+                .map_err(|e| format!("unable to build http client: {}", e.to_string()))?;
             let host = format!("{}", http.url);
             let method = Method::POST;
             let body = serde_json::to_vec(&serialize_stacks_payload_to_json(trigger, proofs, ctx))
-                .unwrap();
-            Some(StacksChainhookOccurrence::Http(
+                .map_err(|e| format!("unable to serialize payload {}", e.to_string()))?;
+            Ok(StacksChainhookOccurrence::Http(
                 client
                     .request(method, &host)
                     .header("Content-Type", "application/json")
@@ -689,13 +695,13 @@ pub fn handle_stacks_hook_action<'a>(
         }
         HookAction::FileAppend(disk) => {
             let bytes = serde_json::to_vec(&serialize_stacks_payload_to_json(trigger, proofs, ctx))
-                .unwrap();
-            Some(StacksChainhookOccurrence::File(
+                .map_err(|e| format!("unable to serialize payload {}", e.to_string()))?;
+            Ok(StacksChainhookOccurrence::File(
                 disk.path.to_string(),
                 bytes,
             ))
         }
-        HookAction::Noop => Some(StacksChainhookOccurrence::Data(
+        HookAction::Noop => Ok(StacksChainhookOccurrence::Data(
             StacksChainhookOccurrencePayload {
                 apply: trigger
                     .apply

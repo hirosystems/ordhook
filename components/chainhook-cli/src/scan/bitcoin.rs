@@ -1,13 +1,17 @@
 use crate::config::Config;
 use bitcoincore_rpc::RpcApi;
 use bitcoincore_rpc::{Auth, Client};
+use chainhook_event_observer::chainhooks::bitcoin::{
+    handle_bitcoin_hook_action, BitcoinChainhookOccurrence, BitcoinTriggerChainhook,
+};
 use chainhook_event_observer::chainhooks::types::BitcoinChainhookFullSpecification;
 use chainhook_event_observer::indexer;
-use chainhook_event_observer::utils::Context;
+use chainhook_event_observer::utils::{file_append, send_request, Context};
+use std::collections::HashMap;
 use std::time::Duration;
 
 pub async fn scan_bitcoin_chain_with_predicate(
-    predicate: &BitcoinChainhookFullSpecification,
+    predicate: BitcoinChainhookFullSpecification,
     apply: bool,
     config: &Config,
     ctx: &Context,
@@ -24,15 +28,17 @@ pub async fn scan_bitcoin_chain_with_predicate(
         }
     };
 
-    let predicate_spec = match predicate.networks.get(&config.network.bitcoin_network) {
-        Some(predicate) => predicate,
-        None => {
-            return Err(format!(
-                "Specification missing for network {:?}",
-                config.network.bitcoin_network
-            ));
-        }
-    };
+    let predicate_uuid = predicate.uuid.clone();
+    let predicate_spec =
+        match predicate.into_selected_network_specification(&config.network.bitcoin_network) {
+            Ok(predicate) => predicate,
+            Err(e) => {
+                return Err(format!(
+                    "Specification missing for network {:?}: {e}",
+                    config.network.bitcoin_network
+                ));
+            }
+        };
 
     let start_block = match predicate_spec.start_block {
         Some(start_block) => start_block,
@@ -57,7 +63,7 @@ pub async fn scan_bitcoin_chain_with_predicate(
     info!(
         ctx.expect_logger(),
         "Processing Bitcoin chainhook {}, will scan blocks [{}; {}] (apply = {})",
-        predicate.uuid,
+        predicate_uuid,
         start_block,
         end_block,
         apply
@@ -68,7 +74,7 @@ pub async fn scan_bitcoin_chain_with_predicate(
     for cursor in start_block..=end_block {
         debug!(
             ctx.expect_logger(),
-            "Evaluating predicate #{} on block #{}", predicate.uuid, cursor
+            "Evaluating predicate #{} on block #{}", predicate_uuid, cursor
         );
 
         let body = json!({
@@ -136,7 +142,7 @@ pub async fn scan_bitcoin_chain_with_predicate(
                 info!(
                     ctx.expect_logger(),
                     "Action #{} triggered by transaction {} (block #{})",
-                    predicate.uuid,
+                    predicate_uuid,
                     tx.transaction_identifier.hash,
                     cursor
                 );
@@ -147,21 +153,25 @@ pub async fn scan_bitcoin_chain_with_predicate(
 
         if hits.len() > 0 {
             if apply {
-                // let trigger = BitcoinTriggerChainhook {
-                //     chainhook: &predicate,
-                //     apply: vec![(hits, &block)],
-                //     rollback: vec![],
-                // };
+                let trigger = BitcoinTriggerChainhook {
+                    chainhook: &predicate_spec,
+                    apply: vec![(hits, &block)],
+                    rollback: vec![],
+                };
 
-                // let proofs = HashMap::new();
-                // if let Some(result) =
-                //     handle_bitcoin_hook_action(trigger, &proofs)
-                // {
-                //     if let BitcoinChainhookOccurrence::Http(request) = result {
-                //         hiro_system_kit::nestable_block_on(request.send())
-                //             .unwrap();
-                //     }
-                // }
+                let proofs = HashMap::new();
+                match handle_bitcoin_hook_action(trigger, &proofs) {
+                    Err(e) => {
+                        error!(ctx.expect_logger(), "unable to handle action {}", e);
+                    }
+                    Ok(BitcoinChainhookOccurrence::Http(request)) => {
+                        send_request(request, &ctx).await;
+                    }
+                    Ok(BitcoinChainhookOccurrence::File(path, bytes)) => {
+                        file_append(path, bytes, &ctx)
+                    }
+                    Ok(BitcoinChainhookOccurrence::Data(_payload)) => unreachable!(),
+                }
             }
         }
     }
