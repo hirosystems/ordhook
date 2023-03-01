@@ -12,14 +12,6 @@ COPY ./components/chainhook-types-rs /src/components/chainhook-types-rs
 
 COPY ./components/chainhook-event-observer /src/components/chainhook-event-observer
 
-COPY ./components/stacks-rpc-client /src/components/stacks-rpc-client
-
-COPY ./components/clarity-repl /src/components/clarity-repl
-
-COPY ./components/clarinet-utils /src/components/clarinet-utils
-
-COPY ./components/hiro-system-kit /src/components/hiro-system-kit
-
 WORKDIR /src/components/chainhook-cli
 
 RUN mkdir /out
