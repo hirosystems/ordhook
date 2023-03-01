@@ -4,7 +4,7 @@ WORKDIR /src
 
 RUN apt update && apt install -y ca-certificates pkg-config libssl-dev
 
-RUN rustup update 1.59.0 && rustup default 1.59.0
+RUN rustup update 1.67.0 && rustup default 1.67.0
 
 COPY ./components/chainhook-cli /src/components/chainhook-cli
 
