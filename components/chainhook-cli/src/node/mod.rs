@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::ordinals::initialize_ordinal_index;
+use crate::ordinals::{self, initialize_ordinal_index};
 use bitcoincore_rpc::bitcoin::Txid;
 use chainhook_event_observer::chainhooks::types::ChainhookConfig;
 use chainhook_event_observer::observer::{
@@ -103,43 +103,25 @@ impl Node {
         );
 
         // let ordinal_index = if cfg!(feature = "ordinals") {
-            // Start indexer with a receiver in background thread
-            info!(
-                self.ctx.expect_logger(),
-                "Starting ordinals indexing"
-            );
+        // Start indexer with a receiver in background thread
+        info!(
+            self.ctx.expect_logger(),
+            "Initializing ordinals index in file {}", self.config.storage.cache_path
+        );
 
-            // Download index.redb from archive
+        let index = initialize_ordinal_index(&self.config).unwrap();
+        match ordinals::indexing::updater::Updater::update(&index) {
+            Ok(_r) => {}
+            Err(e) => {
+                println!("{}", e.to_string());
+            }
+        }
 
-            // Uncompress DB
-
-            let index = initialize_ordinal_index(&self.config).unwrap();
-            
-            
-            info!(
-                self.ctx.expect_logger(),
-                "{:?}",
-                index.info()
-            );
-
-
-            // info!(
-            //     self.ctx.expect_logger(),
-            //     "{:?}",
-            //     index.
-            // );
-
-            println!(
-                "{:?}",
-                index.info()
-            );
-
-            std::process::exit(1);
-            // Get the latest updates
-            // Some(index)  
-        // } else {
-        //     None
-        // };
+        info!(
+            self.ctx.expect_logger(),
+            "Genesis indexing successful {:?}",
+            index.info()
+        );
 
         let context_cloned = self.ctx.clone();
         let _ = std::thread::spawn(move || {

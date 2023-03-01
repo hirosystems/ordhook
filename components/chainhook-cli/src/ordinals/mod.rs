@@ -3,7 +3,7 @@ mod chain;
 mod deserialize_from_str;
 mod epoch;
 mod height;
-mod indexing;
+pub mod indexing;
 mod inscription_id;
 mod sat;
 mod sat_point;
@@ -32,7 +32,6 @@ pub async fn retrieve_satoshi_point(
     origin_txid: &str,
     output_index: usize,
 ) -> Result<(), String> {
-
     let index_options = self::indexing::Options {
         rpc_username: config.network.bitcoin_node_rpc_username.clone(),
         rpc_password: config.network.bitcoin_node_rpc_password.clone(),
@@ -62,9 +61,7 @@ pub async fn retrieve_satoshi_point(
     // };
 
     match self::indexing::updater::Updater::update(&index) {
-        Ok(r) => {
-
-        }
+        Ok(r) => {}
         Err(e) => {
             println!("{}", e.to_string());
         }
@@ -73,14 +70,11 @@ pub async fn retrieve_satoshi_point(
     Ok(())
 }
 
-pub fn initialize_ordinal_index(
-    config: &Config,
-) -> Result<self::indexing::Index, String> {
-
+pub fn initialize_ordinal_index(config: &Config) -> Result<self::indexing::Index, String> {
     let index_options = self::indexing::Options {
         rpc_username: config.network.bitcoin_node_rpc_username.clone(),
         rpc_password: config.network.bitcoin_node_rpc_password.clone(),
-        data_dir: std::env::current_dir().unwrap(),
+        data_dir: config.storage.cache_path.clone().into(),
         chain: chain::Chain::Mainnet,
         first_inscription_height: None,
         height_limit: None,
@@ -96,7 +90,6 @@ pub fn initialize_ordinal_index(
     };
     Ok(index)
 }
-
 
 // 1) Retrieve the block height of the oldest block (coinbase), which will indicates the range
 // 2) Look at the following transaction N:

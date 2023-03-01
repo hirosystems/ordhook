@@ -10,6 +10,7 @@ pub struct ConfigFile {
 pub struct StorageConfigFile {
     pub driver: String,
     pub redis_uri: String,
+    pub cache_path: Option<String>,
 }
 
 #[derive(Deserialize, Debug, Clone)]

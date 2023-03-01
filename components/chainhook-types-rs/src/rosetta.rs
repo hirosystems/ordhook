@@ -292,7 +292,7 @@ pub struct OrdinalInscriptionRevealData {
 pub struct OrdinalInscriptionRevealInscriptionData {
     pub content_bytes: String,
     pub content_type: String,
-    pub content_length: usize, 
+    pub content_length: usize,
     pub inscription_number: u64,
     pub inscription_id: String,
     pub inscription_author: String,
@@ -302,7 +302,7 @@ pub struct OrdinalInscriptionRevealInscriptionData {
 pub struct OrdinalInscriptionRevealOrdinalData {
     pub ordinal_number: String,
     pub ordinal_block_height: u64,
-    pub ordinal_offset: u64, 
+    pub ordinal_offset: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]

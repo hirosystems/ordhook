@@ -102,7 +102,7 @@ impl Config {
                 driver: StorageDriver::Redis(RedisConfig {
                     uri: config_file.storage.redis_uri.to_string(),
                 }),
-                cache_path: "cache".into(),
+                cache_path: config_file.storage.cache_path.unwrap_or("cache".into()),
             },
             event_sources: vec![EventSourceConfig::StacksNode(StacksNodeConfig {
                 host: config_file.network.stacks_node_rpc_url.to_string(),
