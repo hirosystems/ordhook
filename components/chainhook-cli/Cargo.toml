@@ -35,7 +35,11 @@ ansi_term = "0.12.1"
 atty = "0.2.14"
 bitcoincore-rpc = "0.16.0"
 bitcoincore-rpc-json = "0.16.0"
+jsonrpc = "0.14.0"
 crossbeam-channel = "0.5.6"
+redb = { version = "0.13.0", optional = true }
+chrono = { version = "0.4.19", optional = true }
+anyhow = { version = "1.0.56", features = ["backtrace"], optional = true  }
 
 [dev-dependencies]
 criterion = "0.3"
@@ -43,11 +47,15 @@ redis = "0.21.5"
 clarity-repl = "=1.4.1"
 hex = "0.4.3"
 
+[replace]
+"jsonrpc:0.13.0" = { git = 'https://github.com/apoelstra/rust-jsonrpc', rev = "1063671f122a8985c1b7c29030071253da515839" }
+
 [features]
-default = ["cli"]
+default = ["cli", "ordinals"]
 cli = ["clap", "clap_generate", "toml", "ctrlc", "hiro-system-kit/log"]
 debug = ["hiro-system-kit/debug"]
 release = ["hiro-system-kit/release"]
+ordinals = ["redb", "chrono", "anyhow"]
 
 # [patch.crates-io]
 # raft-proto = { git = "https://github.com/tikv/raft-rs", rev="95c532612ee6a83591fce9a8b51d6afe87b58835"}

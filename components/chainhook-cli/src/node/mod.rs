@@ -1,4 +1,6 @@
 use crate::config::Config;
+use crate::ordinals::initialize_ordinal_index;
+use bitcoincore_rpc::bitcoin::Txid;
 use chainhook_event_observer::chainhooks::types::ChainhookConfig;
 use chainhook_event_observer::observer::{
     start_event_observer, EventObserverConfig, ObserverEvent,
@@ -73,6 +75,8 @@ impl Node {
 
         let (observer_command_tx, observer_command_rx) = channel();
         let (observer_event_tx, observer_event_rx) = crossbeam_channel::unbounded();
+        // let (ordinal_indexer_command_tx, ordinal_indexer_command_rx) = channel();
+
         let event_observer_config = EventObserverConfig {
             normalization_enabled: true,
             grpc_server_enabled: false,
@@ -97,6 +101,46 @@ impl Node {
             self.ctx.expect_logger(),
             "Listening for chainhook predicate registrations on port {}", DEFAULT_CONTROL_PORT
         );
+
+        // let ordinal_index = if cfg!(feature = "ordinals") {
+            // Start indexer with a receiver in background thread
+            info!(
+                self.ctx.expect_logger(),
+                "Starting ordinals indexing"
+            );
+
+            // Download index.redb from archive
+
+            // Uncompress DB
+
+            let index = initialize_ordinal_index(&self.config).unwrap();
+            
+            
+            info!(
+                self.ctx.expect_logger(),
+                "{:?}",
+                index.info()
+            );
+
+
+            // info!(
+            //     self.ctx.expect_logger(),
+            //     "{:?}",
+            //     index.
+            // );
+
+            println!(
+                "{:?}",
+                index.info()
+            );
+
+            std::process::exit(1);
+            // Get the latest updates
+            // Some(index)  
+        // } else {
+        //     None
+        // };
+
         let context_cloned = self.ctx.clone();
         let _ = std::thread::spawn(move || {
             let future = start_event_observer(
@@ -277,6 +321,7 @@ impl Node {
                             info!(self.ctx.expect_logger(), "Stacks chainhook {} scan completed: action triggered by {} transactions", stacks_hook.uuid, total_hits);
                         }
                         ChainhookSpecification::Bitcoin(_bitcoin_hook) => {
+                            // ordinal_index
                             warn!(
                                 self.ctx.expect_logger(),
                                 "Bitcoin chainhook evaluation unavailable for historical data"

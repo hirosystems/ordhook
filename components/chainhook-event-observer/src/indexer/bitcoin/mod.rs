@@ -18,7 +18,7 @@ use chainhook_types::{
     BitcoinBlockData, BitcoinBlockMetadata, BitcoinTransactionData, BitcoinTransactionMetadata,
     BlockCommitmentData, BlockIdentifier, KeyRegistrationData, LockSTXData,
     OrdinalInscriptionRevealData, OrdinalOperation, PobBlockCommitmentData, PoxBlockCommitmentData,
-    PoxReward, StacksBaseChainOperation, TransactionIdentifier, TransferSTXData,
+    PoxReward, StacksBaseChainOperation, TransactionIdentifier, TransferSTXData, OrdinalInscriptionRevealInscriptionData,
 };
 use clarity_repl::clarity::util::hash::to_hex;
 use hiro_system_kit::slog;
@@ -223,11 +223,19 @@ fn try_parse_ordinal_operation(
 
                 // Retrieve the sat-point of the inscription
                 //
-
+                let no_content_bytes = vec![];
+                let inscription_content_bytes = inscription.body().unwrap_or(&no_content_bytes);
                 return Some(OrdinalOperation::InscriptionRevealed(
                     OrdinalInscriptionRevealData {
-                        content_type: inscription.content_type().unwrap_or("unknown").to_string(),
-                        content: format!("0x{}", to_hex(&inscription.body().unwrap_or(&vec![]))),
+                        inscription: OrdinalInscriptionRevealInscriptionData {
+                            content_type: inscription.content_type().unwrap_or("unknown").to_string(),
+                            content_bytes: format!("0x{}", to_hex(&inscription_content_bytes)),
+                            content_length: inscription_content_bytes.len(),
+                            inscription_id: "0".into(),
+                            inscription_number: 0,
+                            inscription_author: "".into(),
+                        },
+                        ordinal: None,
                     },
                 ));
             }

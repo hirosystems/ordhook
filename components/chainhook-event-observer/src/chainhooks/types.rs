@@ -408,7 +408,8 @@ impl BitcoinPredicateType {
             BitcoinPredicateType::Txid(_rules) => true,
             BitcoinPredicateType::Inputs(_rules) => true,
             BitcoinPredicateType::Outputs(_rules) => false,
-            BitcoinPredicateType::Protocol(_rules) => false,
+            BitcoinPredicateType::Protocol(Protocols::Ordinal(_)) => false,
+            BitcoinPredicateType::Protocol(Protocols::Stacks(_)) => false,
         }
     }
 
@@ -418,7 +419,8 @@ impl BitcoinPredicateType {
             BitcoinPredicateType::Txid(_rules) => true,
             BitcoinPredicateType::Inputs(_rules) => false,
             BitcoinPredicateType::Outputs(_rules) => true,
-            BitcoinPredicateType::Protocol(_rules) => false,
+            BitcoinPredicateType::Protocol(Protocols::Ordinal(_)) => true,
+            BitcoinPredicateType::Protocol(Protocols::Stacks(_)) => false,
         }
     }
 

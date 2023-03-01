@@ -1,6 +1,7 @@
 use crate::block::DigestingCommand;
 use crate::config::Config;
 use crate::node::Node;
+use crate::ordinals::retrieve_satoshi_point;
 use crate::scan::bitcoin::scan_bitcoin_chain_with_predicate;
 use crate::scan::stacks::scan_stacks_chain_with_predicate;
 
@@ -28,6 +29,9 @@ enum Command {
     /// Start chainhook-cli
     #[clap(subcommand)]
     Node(NodeCommand),
+    /// Ordinals related commands
+    #[clap(subcommand)]
+    Ordinals(OrdinalsCommand),
 }
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
@@ -115,8 +119,25 @@ struct StartCommand {
     pub config_path: Option<String>,
 }
 
+#[derive(Subcommand, PartialEq, Clone, Debug)]
+enum OrdinalsCommand {
+    /// Retrieve Satoshi
+    #[clap(name = "sat", bin_name = "sat")]
+    Satoshi(GetSatoshiCommand),
+}
+
 #[derive(Parser, PartialEq, Clone, Debug)]
-struct ReplayCommand {
+struct GetSatoshiCommand {
+    /// Txid
+    pub txid: String,
+    /// Output index
+    pub output_index: usize,
+    /// Target Devnet network
+    #[clap(
+        long = "devnet",
+        conflicts_with = "testnet",
+        conflicts_with = "mainnet"
+    )]
     pub devnet: bool,
     /// Target Testnet network
     #[clap(
@@ -140,12 +161,6 @@ struct ReplayCommand {
         conflicts_with = "devnet"
     )]
     pub config_path: Option<String>,
-    /// Apply chainhook action (false by default)
-    #[clap(long = "apply-trigger")]
-    pub apply_trigger: bool,
-    /// Bitcoind node url override
-    #[clap(long = "bitcoind-rpc-url")]
-    pub bitcoind_rpc_url: Option<String>,
 }
 
 pub fn main() {
@@ -210,6 +225,14 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                             .await?;
                     }
                 }
+            }
+        },
+        Command::Ordinals(subcmd) => match subcmd {
+            OrdinalsCommand::Satoshi(cmd) => {
+                let config =
+                    Config::default(cmd.devnet, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
+
+                retrieve_satoshi_point(&config, &cmd.txid, cmd.output_index).await?;
             }
         },
     }
