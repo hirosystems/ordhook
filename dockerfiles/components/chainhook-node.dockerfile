@@ -28,4 +28,4 @@ COPY --from=build /out/ /bin/
 
 WORKDIR /workspace
 
-ENTRYPOINT ["chainhook-cli"]
+ENTRYPOINT ["chainhook"]
