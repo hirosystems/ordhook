@@ -42,7 +42,6 @@ impl From<Block> for BlockData {
 pub struct OrdinalIndexUpdater {
     pub range_cache: HashMap<OutPointValue, Vec<u8>>,
     pub height: u64,
-    pub index_sats: bool,
     pub sat_ranges_since_flush: u64,
     pub outputs_cached: u64,
     pub outputs_inserted_since_flush: u64,
@@ -73,7 +72,6 @@ impl OrdinalIndexUpdater {
         let mut updater = Self {
             range_cache: HashMap::new(),
             height,
-            index_sats: index.has_sat_index()?,
             sat_ranges_since_flush: 0,
             outputs_cached: 0,
             outputs_inserted_since_flush: 0,
@@ -90,7 +88,7 @@ impl OrdinalIndexUpdater {
     ) -> Result {
         let starting_height = index.client.get_block_count()? + 1;
 
-        let rx = Self::fetch_blocks_from(index, self.height, self.index_sats)?;
+        let rx = Self::fetch_blocks_from(index, self.height, true)?;
 
         let (mut outpoint_sender, mut value_receiver) = Self::spawn_fetcher(index)?;
 
@@ -109,7 +107,8 @@ impl OrdinalIndexUpdater {
                 &mut wtx,
                 block,
                 &mut value_cache,
-            ).await?;
+            )
+            .await?;
 
             uncommitted += 1;
 
@@ -322,40 +321,6 @@ impl OrdinalIndexUpdater {
 
         let mut outpoint_to_value = wtx.open_table(OUTPOINT_TO_VALUE)?;
 
-        if !self.index_sats {
-            // Send all missing input outpoints to be fetched right away
-            let txids = block
-                .txdata
-                .iter()
-                .map(|(_, txid)| txid)
-                .collect::<HashSet<_>>();
-            for (tx, _) in &block.txdata {
-                for input in &tx.input {
-                    let prev_output = input.previous_output;
-                    // We don't need coinbase input value
-                    if prev_output.is_null() {
-                        continue;
-                    }
-                    // We don't need input values from txs earlier in the block, since they'll be added to value_cache
-                    // when the tx is indexed
-                    if txids.contains(&prev_output.txid) {
-                        continue;
-                    }
-                    // We don't need input values we already have in our value_cache from earlier blocks
-                    if value_cache.contains_key(&prev_output) {
-                        continue;
-                    }
-                    // We don't need input values we already have in our outpoint_to_value table from earlier blocks that
-                    // were committed to db already
-                    if outpoint_to_value.get(&prev_output.store())?.is_some() {
-                        continue;
-                    }
-                    // We don't know the value of this tx input. Send this outpoint to background thread to be fetched
-                    let _ = outpoint_sender.send(prev_output).await?;
-                }
-            }
-        }
-
         let mut height_to_block_hash = wtx.open_table(HEIGHT_TO_BLOCK_HASH)?;
 
         let start = Instant::now();
@@ -408,8 +373,97 @@ impl OrdinalIndexUpdater {
             value_cache,
         )?;
 
-        for (tx, txid) in block.txdata.iter().skip(1).chain(block.txdata.first()) {
-            lost_sats += inscription_updater.index_transaction_inscriptions(tx, *txid, None).await?;
+        let mut sat_to_satpoint = wtx.open_table(SAT_TO_SATPOINT)?;
+        let mut outpoint_to_sat_ranges = wtx.open_table(OUTPOINT_TO_SAT_RANGES)?;
+
+        let mut coinbase_inputs = VecDeque::new();
+
+        let h = Height(self.height);
+        if h.subsidy() > 0 {
+            let start = h.starting_sat();
+            coinbase_inputs.push_front((start.n(), (start + h.subsidy()).n()));
+            self.sat_ranges_since_flush += 1;
+        }
+
+        for (tx_offset, (tx, txid)) in block.txdata.iter().enumerate().skip(1) {
+            let mut input_sat_ranges = VecDeque::new();
+
+            for input in &tx.input {
+                let key = input.previous_output.store();
+
+                let sat_ranges = match self.range_cache.remove(&key) {
+                    Some(sat_ranges) => {
+                        self.outputs_cached += 1;
+                        sat_ranges
+                    }
+                    None => outpoint_to_sat_ranges
+                        .remove(&key)?
+                        .ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "Could not find outpoint {} in index",
+                                input.previous_output
+                            )
+                        })?
+                        .value()
+                        .to_vec(),
+                };
+
+                for chunk in sat_ranges.chunks_exact(11) {
+                    input_sat_ranges.push_back(SatRange::load(chunk.try_into().unwrap()));
+                }
+            }
+
+            self.index_transaction_sats(
+                tx,
+                *txid,
+                &mut sat_to_satpoint,
+                &mut input_sat_ranges,
+                &mut sat_ranges_written,
+                &mut outputs_in_block,
+                &mut inscription_updater,
+            )
+            .await?;
+
+            coinbase_inputs.extend(input_sat_ranges);
+        }
+
+        if let Some((tx, txid)) = block.txdata.get(0) {
+            self.index_transaction_sats(
+                tx,
+                *txid,
+                &mut sat_to_satpoint,
+                &mut coinbase_inputs,
+                &mut sat_ranges_written,
+                &mut outputs_in_block,
+                &mut inscription_updater,
+            )
+            .await?;
+        }
+
+        if !coinbase_inputs.is_empty() {
+            let mut lost_sat_ranges = outpoint_to_sat_ranges
+                .remove(&OutPoint::null().store())?
+                .map(|ranges| ranges.value().to_vec())
+                .unwrap_or_default();
+
+            for (start, end) in coinbase_inputs {
+                if !Sat(start).is_common() {
+                    sat_to_satpoint.insert(
+                        &start,
+                        &SatPoint {
+                            outpoint: OutPoint::null(),
+                            offset: lost_sats,
+                        }
+                        .store(),
+                    )?;
+                }
+
+                lost_sat_ranges.extend_from_slice(&(start, end).store());
+
+                lost_sats += end - start;
+            }
+
+            outpoint_to_sat_ranges.insert(&OutPoint::null().store(), lost_sat_ranges.as_slice())?;
         }
 
         statistic_to_count.insert(&Statistic::LostSats.key(), &lost_sats)?;
@@ -419,76 +473,78 @@ impl OrdinalIndexUpdater {
         self.height += 1;
         self.outputs_traversed += outputs_in_block;
 
-        println!(
-            "Wrote {sat_ranges_written} sat ranges from {outputs_in_block} outputs in {} ms",
-            (Instant::now() - start).as_millis(),
-        );
+        // println!(
+        //     "Wrote {sat_ranges_written} sat ranges from {outputs_in_block} outputs in {} ms",
+        //     (Instant::now() - start).as_millis(),
+        // );
 
         Ok(())
     }
 
-    // fn index_transaction_sats(
-    //     &mut self,
-    //     tx: &Transaction,
-    //     txid: Txid,
-    //     sat_to_satpoint: &mut Table<u64, &SatPointValue>,
-    //     input_sat_ranges: &mut VecDeque<(u64, u64)>,
-    //     sat_ranges_written: &mut u64,
-    //     outputs_traversed: &mut u64,
-    //     inscription_updater: &mut InscriptionUpdater,
-    // ) -> Result {
-    //     inscription_updater.index_transaction_inscriptions(tx, txid, Some(input_sat_ranges))?;
+    async fn index_transaction_sats(
+        &mut self,
+        tx: &Transaction,
+        txid: Txid,
+        sat_to_satpoint: &mut Table<'_, '_, u64, &SatPointValue>,
+        input_sat_ranges: &mut VecDeque<(u64, u64)>,
+        sat_ranges_written: &mut u64,
+        outputs_traversed: &mut u64,
+        inscription_updater: &mut InscriptionUpdater<'_, '_, '_>,
+    ) -> Result {
+        inscription_updater
+            .index_transaction_inscriptions(tx, txid, Some(input_sat_ranges))
+            .await?;
 
-    //     for (vout, output) in tx.output.iter().enumerate() {
-    //         let outpoint = OutPoint {
-    //             vout: vout.try_into().unwrap(),
-    //             txid,
-    //         };
-    //         let mut sats = Vec::new();
+        for (vout, output) in tx.output.iter().enumerate() {
+            let outpoint = OutPoint {
+                vout: vout.try_into().unwrap(),
+                txid,
+            };
+            let mut sats = Vec::new();
 
-    //         let mut remaining = output.value;
-    //         while remaining > 0 {
-    //             let range = input_sat_ranges.pop_front().ok_or_else(|| {
-    //                 anyhow::anyhow!("insufficient inputs for transaction outputs")
-    //             })?;
+            let mut remaining = output.value;
+            while remaining > 0 {
+                let range = input_sat_ranges.pop_front().ok_or_else(|| {
+                    anyhow::anyhow!("insufficient inputs for transaction outputs")
+                })?;
 
-    //             if !Sat(range.0).is_common() {
-    //                 sat_to_satpoint.insert(
-    //                     &range.0,
-    //                     &SatPoint {
-    //                         outpoint,
-    //                         offset: output.value - remaining,
-    //                     }
-    //                     .store(),
-    //                 )?;
-    //             }
+                if !Sat(range.0).is_common() {
+                    sat_to_satpoint.insert(
+                        &range.0,
+                        &SatPoint {
+                            outpoint,
+                            offset: output.value - remaining,
+                        }
+                        .store(),
+                    )?;
+                }
 
-    //             let count = range.1 - range.0;
+                let count = range.1 - range.0;
 
-    //             let assigned = if count > remaining {
-    //                 self.sat_ranges_since_flush += 1;
-    //                 let middle = range.0 + remaining;
-    //                 input_sat_ranges.push_front((middle, range.1));
-    //                 (range.0, middle)
-    //             } else {
-    //                 range
-    //             };
+                let assigned = if count > remaining {
+                    self.sat_ranges_since_flush += 1;
+                    let middle = range.0 + remaining;
+                    input_sat_ranges.push_front((middle, range.1));
+                    (range.0, middle)
+                } else {
+                    range
+                };
 
-    //             sats.extend_from_slice(&assigned.store());
+                sats.extend_from_slice(&assigned.store());
 
-    //             remaining -= assigned.1 - assigned.0;
+                remaining -= assigned.1 - assigned.0;
 
-    //             *sat_ranges_written += 1;
-    //         }
+                *sat_ranges_written += 1;
+            }
 
-    //         *outputs_traversed += 1;
+            *outputs_traversed += 1;
 
-    //         self.range_cache.insert(outpoint.store(), sats);
-    //         self.outputs_inserted_since_flush += 1;
-    //     }
+            self.range_cache.insert(outpoint.store(), sats);
+            self.outputs_inserted_since_flush += 1;
+        }
 
-    //     Ok(())
-    // }
+        Ok(())
+    }
 
     fn commit(&mut self, wtx: WriteTransaction, value_cache: HashMap<OutPoint, u64>) -> Result {
         println!(
@@ -499,23 +555,22 @@ impl OrdinalIndexUpdater {
             self.outputs_cached
         );
 
-        // if self.index_sats {
-        //     println!(
-        //     //     "Flushing {} entries ({:.1}% resulting from {} insertions) from memory to database",
-        //     //     self.range_cache.len(),
-        //     //     self.range_cache.len() as f64 / self.outputs_inserted_since_flush as f64 * 100.,
-        //     //     self.outputs_inserted_since_flush,
-        //     // );
+        println!(
+            "Flushing {} entries ({:.1}% resulting from {} insertions) from memory to database",
+            self.range_cache.len(),
+            self.range_cache.len() as f64 / self.outputs_inserted_since_flush as f64 * 100.,
+            self.outputs_inserted_since_flush,
+        );
 
-        //     let mut outpoint_to_sat_ranges = wtx.open_table(OUTPOINT_TO_SAT_RANGES)?;
+        {
+            let mut outpoint_to_sat_ranges = wtx.open_table(OUTPOINT_TO_SAT_RANGES)?;
 
-        //     for (outpoint, sat_range) in self.range_cache.drain() {
-        //         outpoint_to_sat_ranges.insert(&outpoint, sat_range.as_slice())?;
-        //     }
+            for (outpoint, sat_range) in self.range_cache.drain() {
+                outpoint_to_sat_ranges.insert(&outpoint, sat_range.as_slice())?;
+            }
 
-        //     self.outputs_inserted_since_flush = 0;
-        // }
-
+            self.outputs_inserted_since_flush = 0;
+        }
         {
             let mut outpoint_to_value = wtx.open_table(OUTPOINT_TO_VALUE)?;
 

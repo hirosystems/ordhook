@@ -232,6 +232,9 @@ impl OrdinalIndex {
                 tx.open_table(STATISTIC_TO_COUNT)?
                     .insert(&Statistic::Schema.key(), &SCHEMA_VERSION)?;
 
+                tx.open_table(OUTPOINT_TO_SAT_RANGES)?
+                    .insert(&OutPoint::null().store(), [].as_slice())?;
+
                 tx.commit()?;
 
                 database

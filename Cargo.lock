@@ -432,6 +432,7 @@ dependencies = [
  "num_cpus",
  "redis",
  "reqwest",
+ "rusqlite",
  "serde",
  "serde-redis",
  "serde_derive",

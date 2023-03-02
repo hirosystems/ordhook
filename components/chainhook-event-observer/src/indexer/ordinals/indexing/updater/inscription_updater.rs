@@ -4,12 +4,14 @@ use crate::indexer::ordinals::{
 
 use super::*;
 
+#[derive(Debug)]
 pub(super) struct Flotsam {
     inscription_id: InscriptionId,
     offset: u64,
     origin: Origin,
 }
 
+#[derive(Debug)]
 enum Origin {
     New(u64),
     Old(SatPoint),
@@ -127,13 +129,14 @@ impl<'a, 'db, 'tx> InscriptionUpdater<'a, 'db, 'tx> {
         if inscriptions.iter().all(|flotsam| flotsam.offset != 0)
             && Inscription::from_transaction(tx).is_some()
         {
-            inscriptions.push(Flotsam {
+            let floatsam = Flotsam {
                 inscription_id: txid.into(),
                 offset: 0,
                 origin: Origin::New(
                     input_value - tx.output.iter().map(|txout| txout.value).sum::<u64>(),
                 ),
-            });
+            };
+            inscriptions.push(floatsam);
         };
 
         let is_coinbase = tx
