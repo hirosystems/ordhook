@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 
-use super::{indexing::timestamp};
+use super::indexing::timestamp;
 
 #[derive(Copy, Clone)]
 pub(crate) enum Blocktime {

@@ -8,9 +8,7 @@ use crate::chainhooks::stacks::{
 };
 use crate::chainhooks::types::{ChainhookConfig, ChainhookSpecification};
 use crate::indexer::bitcoin::retrieve_full_block;
-use crate::indexer::ordinals::{
-    indexing::updater::Updater as OrdinalIndexUpdater, initialize_ordinal_index,
-};
+use crate::indexer::ordinals::{indexing::updater::OrdinalIndexUpdater, initialize_ordinal_index};
 use crate::indexer::{self, Indexer, IndexerConfig};
 use crate::utils::{send_request, Context};
 use bitcoincore_rpc::bitcoin::{BlockHash, Txid};
@@ -234,24 +232,33 @@ pub async fn start_event_observer(
         )
     });
 
-    let index = initialize_ordinal_index(&config).unwrap();
-    match OrdinalIndexUpdater::update(&index) {
+    let ordinal_index = initialize_ordinal_index(&config).unwrap();
+    match OrdinalIndexUpdater::update(&ordinal_index) {
         Ok(_r) => {}
         Err(e) => {
             ctx.try_log(|logger| slog::error!(logger, "{}", e.to_string()));
         }
     }
 
-    ctx.try_log(|logger| slog::info!(logger, "Genesis indexing successful {:?}", index.info()));
-
-    let indexer = Indexer::new(IndexerConfig {
-        stacks_node_rpc_url: config.stacks_node_rpc_url.clone(),
-        bitcoin_node_rpc_url: config.bitcoin_node_rpc_url.clone(),
-        bitcoin_node_rpc_username: config.bitcoin_node_username.clone(),
-        bitcoin_node_rpc_password: config.bitcoin_node_password.clone(),
-        stacks_network: StacksNetwork::Devnet,
-        bitcoin_network: BitcoinNetwork::Regtest,
+    ctx.try_log(|logger| {
+        slog::info!(
+            logger,
+            "Genesis ordinal indexing successful {:?}",
+            ordinal_index.info()
+        )
     });
+
+    let indexer = Indexer::new(
+        IndexerConfig {
+            stacks_node_rpc_url: config.stacks_node_rpc_url.clone(),
+            bitcoin_node_rpc_url: config.bitcoin_node_rpc_url.clone(),
+            bitcoin_node_rpc_username: config.bitcoin_node_username.clone(),
+            bitcoin_node_rpc_password: config.bitcoin_node_password.clone(),
+            stacks_network: StacksNetwork::Devnet,
+            bitcoin_network: BitcoinNetwork::Regtest,
+        },
+        ordinal_index,
+    );
 
     let log_level = if config.display_logs {
         if cfg!(feature = "cli") {

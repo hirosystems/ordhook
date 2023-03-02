@@ -294,13 +294,14 @@ pub struct OrdinalInscriptionRevealInscriptionData {
     pub content_type: String,
     pub content_length: usize,
     pub inscription_number: u64,
+    pub inscription_fee: u64,
     pub inscription_id: String,
     pub inscription_author: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct OrdinalInscriptionRevealOrdinalData {
-    pub ordinal_number: String,
+    pub ordinal_number: u64,
     pub ordinal_block_height: u64,
     pub ordinal_offset: u64,
 }

@@ -5,15 +5,13 @@ use std::{
 
 use bitcoincore_rpc::bitcoin::{self, Address, Block, Network, Script};
 
-use {super::*, clap::ValueEnum};
+use super::*;
 
-#[derive(Default, ValueEnum, Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Default, Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub(crate) enum Chain {
     #[default]
-    #[clap(alias("main"))]
     Mainnet,
-    #[clap(alias("test"))]
     Testnet,
     Signet,
     Regtest,

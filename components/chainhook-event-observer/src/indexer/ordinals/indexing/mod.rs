@@ -20,7 +20,7 @@ use {
             BlockHashValue, Entry, InscriptionEntry, InscriptionEntryValue, InscriptionIdValue,
             OutPointValue, SatPointValue, SatRange,
         },
-        updater::Updater,
+        updater::OrdinalIndexUpdater,
     },
     super::*,
     bitcoincore_rpc::bitcoin::BlockHeader,
@@ -69,7 +69,7 @@ pub(crate) struct Options {
     pub rpc_url: String,
 }
 
-pub struct Index {
+pub struct OrdinalIndex {
     auth: Auth,
     client: Client,
     database: Database,
@@ -153,7 +153,7 @@ impl<T> BitcoinCoreRpcResultExt<T> for Result<T, bitcoincore_rpc::Error> {
     }
 }
 
-impl Index {
+impl OrdinalIndex {
     pub(crate) fn open(options: &Options) -> Result<Self> {
         let rpc_url = options.rpc_url.clone();
 
@@ -367,7 +367,7 @@ impl Index {
     }
 
     pub fn update(&self) -> Result {
-        Updater::update(self)
+        OrdinalIndexUpdater::update(self)
     }
 
     pub fn is_reorged(&self) -> bool {

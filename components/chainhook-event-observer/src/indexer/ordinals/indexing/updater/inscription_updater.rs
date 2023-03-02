@@ -1,4 +1,6 @@
-use crate::indexer::ordinals::{inscription_id::InscriptionId, sat::Sat, sat_point::SatPoint};
+use crate::indexer::ordinals::{
+    inscription::Inscription, inscription_id::InscriptionId, sat::Sat, sat_point::SatPoint,
+};
 
 use super::*;
 
@@ -17,7 +19,7 @@ pub(super) struct InscriptionUpdater<'a, 'db, 'tx> {
     flotsam: Vec<Flotsam>,
     height: u64,
     id_to_satpoint: &'a mut Table<'db, 'tx, &'static InscriptionIdValue, &'static SatPointValue>,
-    index: &'a Index,
+    index: &'a OrdinalIndex,
     id_to_entry: &'a mut Table<'db, 'tx, &'static InscriptionIdValue, InscriptionEntryValue>,
     lost_sats: u64,
     next_number: u64,
@@ -39,7 +41,7 @@ impl<'a, 'db, 'tx> InscriptionUpdater<'a, 'db, 'tx> {
             &'static InscriptionIdValue,
             &'static SatPointValue,
         >,
-        index: &'a Index,
+        index: &'a OrdinalIndex,
         id_to_entry: &'a mut Table<'db, 'tx, &'static InscriptionIdValue, InscriptionEntryValue>,
         lost_sats: u64,
         number_to_id: &'a mut Table<'db, 'tx, u64, &'static InscriptionIdValue>,
@@ -92,9 +94,10 @@ impl<'a, 'db, 'tx> InscriptionUpdater<'a, 'db, 'tx> {
             if tx_in.previous_output.is_null() {
                 input_value += Height(self.height).subsidy();
             } else {
-                for (old_satpoint, inscription_id) in
-                    Index::inscriptions_on_output(self.satpoint_to_id, tx_in.previous_output)?
-                {
+                for (old_satpoint, inscription_id) in OrdinalIndex::inscriptions_on_output(
+                    self.satpoint_to_id,
+                    tx_in.previous_output,
+                )? {
                     inscriptions.push(Flotsam {
                         offset: input_value + old_satpoint.offset,
                         inscription_id,
@@ -125,18 +128,17 @@ impl<'a, 'db, 'tx> InscriptionUpdater<'a, 'db, 'tx> {
             }
         }
 
-        // todo(lgalabru)
-        // if inscriptions.iter().all(|flotsam| flotsam.offset != 0)
-        //     && Inscription::from_transaction(tx).is_some()
-        // {
-        //     inscriptions.push(Flotsam {
-        //         inscription_id: txid.into(),
-        //         offset: 0,
-        //         origin: Origin::New(
-        //             input_value - tx.output.iter().map(|txout| txout.value).sum::<u64>(),
-        //         ),
-        //     });
-        // };
+        if inscriptions.iter().all(|flotsam| flotsam.offset != 0)
+            && Inscription::from_transaction(tx).is_some()
+        {
+            inscriptions.push(Flotsam {
+                inscription_id: txid.into(),
+                offset: 0,
+                origin: Origin::New(
+                    input_value - tx.output.iter().map(|txout| txout.value).sum::<u64>(),
+                ),
+            });
+        };
 
         let is_coinbase = tx
             .input

@@ -33,7 +33,7 @@ impl From<Block> for BlockData {
     }
 }
 
-pub struct Updater {
+pub struct OrdinalIndexUpdater {
     pub range_cache: HashMap<OutPointValue, Vec<u8>>,
     pub height: u64,
     pub index_sats: bool,
@@ -43,8 +43,8 @@ pub struct Updater {
     pub outputs_traversed: u64,
 }
 
-impl Updater {
-    pub fn update(index: &Index) -> Result {
+impl OrdinalIndexUpdater {
+    pub fn update(index: &OrdinalIndex) -> Result {
         let wtx = index.begin_write()?;
 
         let height = wtx
@@ -79,7 +79,7 @@ impl Updater {
 
     fn update_index<'index>(
         &mut self,
-        index: &'index Index,
+        index: &'index OrdinalIndex,
         mut wtx: WriteTransaction<'index>,
     ) -> Result {
         let _starting_height = index.client.get_block_count()? + 1;
@@ -134,7 +134,7 @@ impl Updater {
     }
 
     fn fetch_blocks_from(
-        index: &Index,
+        index: &OrdinalIndex,
         mut height: u64,
         index_sats: bool,
     ) -> Result<mpsc::Receiver<BlockData>> {
@@ -227,7 +227,7 @@ impl Updater {
 
     fn index_block(
         &mut self,
-        index: &Index,
+        index: &OrdinalIndex,
         wtx: &mut WriteTransaction,
         block: BlockData,
         value_cache: &mut HashMap<OutPoint, u64>,
@@ -240,12 +240,12 @@ impl Updater {
 
         let time = timestamp(block.header.time);
 
-        println!(
-            "Block {} at {} with {} transactions…",
-            self.height,
-            time,
-            block.txdata.len()
-        );
+        // println!(
+        //     "Block {} at {} with {} transactions…",
+        //     self.height,
+        //     time,
+        //     block.txdata.len()
+        // );
 
         if let Some(prev_height) = self.height.checked_sub(1) {
             let prev_hash = height_to_block_hash.get(&prev_height)?.unwrap();
@@ -392,10 +392,10 @@ impl Updater {
         self.height += 1;
         self.outputs_traversed += outputs_in_block;
 
-        println!(
-            "Wrote {sat_ranges_written} sat ranges from {outputs_in_block} outputs in {} ms",
-            (Instant::now() - start).as_millis(),
-        );
+        // println!(
+        //     "Wrote {sat_ranges_written} sat ranges from {outputs_in_block} outputs in {} ms",
+        //     (Instant::now() - start).as_millis(),
+        // );
 
         Ok(())
     }
@@ -464,21 +464,21 @@ impl Updater {
     }
 
     fn commit(&mut self, wtx: WriteTransaction, value_cache: HashMap<OutPoint, u64>) -> Result {
-        println!(
-            "Committing at block height {}, {} outputs traversed, {} in map, {} cached",
-            self.height,
-            self.outputs_traversed,
-            self.range_cache.len(),
-            self.outputs_cached
-        );
+        // println!(
+        //     "Committing at block height {}, {} outputs traversed, {} in map, {} cached",
+        //     self.height,
+        //     self.outputs_traversed,
+        //     self.range_cache.len(),
+        //     self.outputs_cached
+        // );
 
         if self.index_sats {
-            println!(
-                "Flushing {} entries ({:.1}% resulting from {} insertions) from memory to database",
-                self.range_cache.len(),
-                self.range_cache.len() as f64 / self.outputs_inserted_since_flush as f64 * 100.,
-                self.outputs_inserted_since_flush,
-            );
+            // println!(
+            //     "Flushing {} entries ({:.1}% resulting from {} insertions) from memory to database",
+            //     self.range_cache.len(),
+            //     self.range_cache.len() as f64 / self.outputs_inserted_since_flush as f64 * 100.,
+            //     self.outputs_inserted_since_flush,
+            // );
 
             let mut outpoint_to_sat_ranges = wtx.open_table(OUTPOINT_TO_SAT_RANGES)?;
 
@@ -497,11 +497,15 @@ impl Updater {
             }
         }
 
-        Index::increment_statistic(&wtx, Statistic::OutputsTraversed, self.outputs_traversed)?;
+        OrdinalIndex::increment_statistic(
+            &wtx,
+            Statistic::OutputsTraversed,
+            self.outputs_traversed,
+        )?;
         self.outputs_traversed = 0;
-        Index::increment_statistic(&wtx, Statistic::SatRanges, self.sat_ranges_since_flush)?;
+        OrdinalIndex::increment_statistic(&wtx, Statistic::SatRanges, self.sat_ranges_since_flush)?;
         self.sat_ranges_since_flush = 0;
-        Index::increment_statistic(&wtx, Statistic::Commits, 1)?;
+        OrdinalIndex::increment_statistic(&wtx, Statistic::Commits, 1)?;
 
         wtx.commit()?;
         Ok(())

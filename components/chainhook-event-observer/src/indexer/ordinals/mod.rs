@@ -4,16 +4,12 @@ mod deserialize_from_str;
 mod epoch;
 mod height;
 pub mod indexing;
+pub mod inscription;
 mod inscription_id;
 mod sat;
 mod sat_point;
 
-use std::{
-    time::Duration,
-};
-
-
-
+use std::time::Duration;
 
 type Result<T = (), E = anyhow::Error> = std::result::Result<T, E>;
 
@@ -27,7 +23,7 @@ const CYCLE_EPOCHS: u64 = 6;
 
 pub fn initialize_ordinal_index(
     config: &EventObserverConfig,
-) -> Result<self::indexing::Index, String> {
+) -> Result<self::indexing::OrdinalIndex, String> {
     let index_options = self::indexing::Options {
         rpc_username: config.bitcoin_node_username.clone(),
         rpc_password: config.bitcoin_node_password.clone(),
@@ -38,7 +34,7 @@ pub fn initialize_ordinal_index(
         index: None,
         rpc_url: config.bitcoin_node_rpc_url.clone(),
     };
-    let index = match self::indexing::Index::open(&index_options) {
+    let index = match self::indexing::OrdinalIndex::open(&index_options) {
         Ok(index) => index,
         Err(e) => {
             println!("unable to open ordinal index: {}", e.to_string());

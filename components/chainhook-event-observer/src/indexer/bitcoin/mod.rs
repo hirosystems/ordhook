@@ -1,6 +1,4 @@
 mod blocks_pool;
-#[allow(dead_code)]
-mod ordinal;
 
 use std::time::Duration;
 
@@ -17,15 +15,19 @@ use chainhook_types::bitcoin::{OutPoint, TxIn, TxOut};
 use chainhook_types::{
     BitcoinBlockData, BitcoinBlockMetadata, BitcoinTransactionData, BitcoinTransactionMetadata,
     BlockCommitmentData, BlockIdentifier, KeyRegistrationData, LockSTXData,
-    OrdinalInscriptionRevealData, OrdinalInscriptionRevealInscriptionData, OrdinalOperation,
-    PobBlockCommitmentData, PoxBlockCommitmentData, PoxReward, StacksBaseChainOperation,
-    TransactionIdentifier, TransferSTXData,
+    OrdinalInscriptionRevealData, OrdinalInscriptionRevealInscriptionData,
+    OrdinalInscriptionRevealOrdinalData, OrdinalOperation, PobBlockCommitmentData,
+    PoxBlockCommitmentData, PoxReward, StacksBaseChainOperation, TransactionIdentifier,
+    TransferSTXData,
 };
 use clarity_repl::clarity::util::hash::to_hex;
 use hiro_system_kit::slog;
 use rocket::serde::json::Value as JsonValue;
 
-use self::ordinal::InscriptionParser;
+use super::ordinals::indexing::updater::OrdinalIndexUpdater;
+use super::ordinals::indexing::OrdinalIndex;
+use super::ordinals::inscription::InscriptionParser;
+use super::BitcoinChainContext;
 
 #[derive(Clone, PartialEq, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -107,9 +109,17 @@ pub fn standardize_bitcoin_block(
     indexer_config: &IndexerConfig,
     block_height: u64,
     block: Block,
+    bitcoin_context: &mut BitcoinChainContext,
     ctx: &Context,
 ) -> Result<BitcoinBlockData, String> {
     let mut transactions = vec![];
+
+    match OrdinalIndexUpdater::update(&mut bitcoin_context.ordinal_index) {
+        Ok(_r) => {}
+        Err(e) => {
+            ctx.try_log(|logger| slog::error!(logger, "{}", e.to_string()));
+        }
+    }
 
     let expected_magic_bytes = get_stacks_canonical_magic_bytes(&indexer_config.bitcoin_network);
     let pox_config = get_canonical_pox_config(&indexer_config.bitcoin_network);
@@ -133,7 +143,9 @@ pub fn standardize_bitcoin_block(
         }
 
         let mut ordinal_operations = vec![];
-        if let Some(op) = try_parse_ordinal_operation(&tx, block_height, ctx) {
+        if let Some(op) =
+            try_parse_ordinal_operation(&tx, block_height, &bitcoin_context.ordinal_index, ctx)
+        {
             ordinal_operations.push(op);
         }
 
@@ -207,7 +219,8 @@ pub fn standardize_bitcoin_block(
 fn try_parse_ordinal_operation(
     tx: &GetRawTransactionResult,
     _block_height: u64,
-    _ctx: &Context,
+    ordinal_index: &OrdinalIndex,
+    ctx: &Context,
 ) -> Option<OrdinalOperation> {
     for input in tx.vin.iter() {
         if let Some(ref witnesses) = input.txinwitness {
@@ -222,8 +235,30 @@ fn try_parse_ordinal_operation(
                     Err(_) => continue,
                 };
 
-                // Retrieve the sat-point of the inscription
-                //
+                let outpoint = bitcoin::OutPoint {
+                    txid: tx.txid.clone(),
+                    vout: 0,
+                };
+
+                let entries = ordinal_index.get_feed_inscriptions(3).unwrap();
+                ctx.try_log(|logger| slog::info!(logger, "Feed: {:?}", entries));
+
+                let inscription_ids = ordinal_index.get_inscriptions_on_output(outpoint).unwrap();
+                if inscription_ids.is_empty() {
+                    ctx.try_log(|logger| slog::info!(logger, "No inscriptions found in index, despite inscription detected in transaction"));
+                    return None;
+                }
+
+                let inscription_entry = match ordinal_index
+                    .get_inscription_entry(inscription_ids[0])
+                {
+                    Ok(Some(entry)) => entry,
+                    _ => {
+                        ctx.try_log(|logger| slog::info!(logger, "No inscriptions entry found in index, despite inscription detected in transaction"));
+                        return None;
+                    }
+                };
+
                 let no_content_bytes = vec![];
                 let inscription_content_bytes = inscription.body().unwrap_or(&no_content_bytes);
                 return Some(OrdinalOperation::InscriptionRevealed(
@@ -235,11 +270,16 @@ fn try_parse_ordinal_operation(
                                 .to_string(),
                             content_bytes: format!("0x{}", to_hex(&inscription_content_bytes)),
                             content_length: inscription_content_bytes.len(),
-                            inscription_id: "0".into(),
-                            inscription_number: 0,
+                            inscription_id: "".into(),
+                            inscription_number: inscription_entry.number,
                             inscription_author: "".into(),
+                            inscription_fee: inscription_entry.fee,
                         },
-                        ordinal: None,
+                        ordinal: Some(OrdinalInscriptionRevealOrdinalData {
+                            ordinal_number: inscription_entry.sat.unwrap().n(),
+                            ordinal_block_height: 0,
+                            ordinal_offset: 0,
+                        }),
                     },
                 ));
             }

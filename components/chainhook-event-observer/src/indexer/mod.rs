@@ -13,7 +13,7 @@ use stacks::StacksBlockPool;
 use stacks_rpc_client::PoxInfo;
 use std::collections::{HashMap, VecDeque};
 
-use self::bitcoin::BitcoinBlockPool;
+use self::{bitcoin::BitcoinBlockPool, ordinals::indexing::OrdinalIndex};
 
 #[derive(Deserialize, Debug, Clone, Default)]
 pub struct AssetClassCache {
@@ -35,6 +35,16 @@ impl StacksChainContext {
     }
 }
 
+pub struct BitcoinChainContext {
+    ordinal_index: OrdinalIndex,
+}
+
+impl BitcoinChainContext {
+    pub fn new(ordinal_index: OrdinalIndex) -> BitcoinChainContext {
+        BitcoinChainContext { ordinal_index }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct IndexerConfig {
     pub bitcoin_network: BitcoinNetwork,
@@ -50,18 +60,22 @@ pub struct Indexer {
     stacks_blocks_pool: StacksBlockPool,
     bitcoin_blocks_pool: BitcoinBlockPool,
     pub stacks_context: StacksChainContext,
+    pub bitcoin_context: BitcoinChainContext,
 }
 
 impl Indexer {
-    pub fn new(config: IndexerConfig) -> Indexer {
+    pub fn new(config: IndexerConfig, ordinal_index: OrdinalIndex) -> Indexer {
         let stacks_blocks_pool = StacksBlockPool::new();
         let bitcoin_blocks_pool = BitcoinBlockPool::new();
         let stacks_context = StacksChainContext::new();
+        let bitcoin_context = BitcoinChainContext::new(ordinal_index);
+
         Indexer {
             config,
             stacks_blocks_pool,
             bitcoin_blocks_pool,
             stacks_context,
+            bitcoin_context,
         }
     }
 
@@ -71,7 +85,13 @@ impl Indexer {
         block: Block,
         ctx: &Context,
     ) -> Result<Option<BitcoinChainEvent>, String> {
-        let block = bitcoin::standardize_bitcoin_block(&self.config, block_height, block, ctx)?;
+        let block = bitcoin::standardize_bitcoin_block(
+            &self.config,
+            block_height,
+            block,
+            &mut self.bitcoin_context,
+            ctx,
+        )?;
         let event = self.bitcoin_blocks_pool.process_block(block, ctx);
         event
     }

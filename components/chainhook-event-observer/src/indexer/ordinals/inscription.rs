@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
 use std::str::FromStr;
+
+use bitcoincore_rpc::bitcoin::Transaction;
 use {
     bitcoincore_rpc::bitcoin::{
         blockdata::{
@@ -24,6 +26,10 @@ pub struct Inscription {
 }
 
 impl Inscription {
+    pub fn from_transaction(tx: &Transaction) -> Option<Inscription> {
+        InscriptionParser::parse(&tx.input.get(0)?.witness).ok()
+    }
+
     fn append_reveal_script_to_builder(&self, mut builder: script::Builder) -> script::Builder {
         builder = builder
             .push_opcode(opcodes::OP_FALSE)
