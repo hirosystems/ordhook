@@ -1,6 +1,6 @@
 use crate::config::Config;
-use bitcoincore_rpc::RpcApi;
-use bitcoincore_rpc::{Auth, Client};
+use chainhook_event_observer::bitcoincore_rpc::{jsonrpc, RpcApi};
+use chainhook_event_observer::bitcoincore_rpc::{Auth, Client};
 use chainhook_event_observer::chainhooks::bitcoin::{
     handle_bitcoin_hook_action, BitcoinChainhookOccurrence, BitcoinTriggerChainhook,
 };
@@ -99,7 +99,7 @@ pub async fn scan_bitcoin_chain_with_predicate(
             .send()
             .await
             .map_err(|e| format!("unable to send request ({})", e))?
-            .json::<bitcoincore_rpc::jsonrpc::Response>()
+            .json::<jsonrpc::Response>()
             .await
             .map_err(|e| format!("unable to parse response ({})", e))?
             .result::<String>()
@@ -127,7 +127,7 @@ pub async fn scan_bitcoin_chain_with_predicate(
             .send()
             .await
             .map_err(|e| format!("unable to send request ({})", e))?
-            .json::<bitcoincore_rpc::jsonrpc::Response>()
+            .json::<jsonrpc::Response>()
             .await
             .map_err(|e| format!("unable to parse response ({})", e))?
             .result::<indexer::bitcoin::Block>()

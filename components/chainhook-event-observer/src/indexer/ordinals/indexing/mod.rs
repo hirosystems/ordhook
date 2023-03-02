@@ -255,7 +255,7 @@ impl Index {
         })
     }
 
-    pub(crate) fn get_unspent_outputs(&self) -> Result<BTreeMap<OutPoint, Amount>> {
+    pub fn get_unspent_outputs(&self) -> Result<BTreeMap<OutPoint, Amount>> {
         let mut utxos = BTreeMap::new();
         utxos.extend(
             self.client
@@ -299,7 +299,7 @@ impl Index {
         Ok(utxos)
     }
 
-    pub(crate) fn has_sat_index(&self) -> Result<bool> {
+    pub fn has_sat_index(&self) -> Result<bool> {
         match self.begin_read()?.0.open_table(OUTPOINT_TO_SAT_RANGES) {
             Ok(_) => Ok(true),
             Err(redb::Error::TableDoesNotExist(_)) => Ok(false),
@@ -366,11 +366,11 @@ impl Index {
         Ok(info)
     }
 
-    pub(crate) fn update(&self) -> Result {
+    pub fn update(&self) -> Result {
         Updater::update(self)
     }
 
-    pub(crate) fn is_reorged(&self) -> bool {
+    pub fn is_reorged(&self) -> bool {
         self.reorged.load(atomic::Ordering::Relaxed)
     }
 
@@ -416,11 +416,11 @@ impl Index {
         self.begin_read()?.height()
     }
 
-    pub(crate) fn block_count(&self) -> Result<u64> {
+    pub fn block_count(&self) -> Result<u64> {
         self.begin_read()?.block_count()
     }
 
-    pub(crate) fn blocks(&self, take: usize) -> Result<Vec<(u64, BlockHash)>> {
+    pub fn blocks(&self, take: usize) -> Result<Vec<(u64, BlockHash)>> {
         let mut blocks = Vec::new();
 
         let rtx = self.begin_read()?;
@@ -436,7 +436,7 @@ impl Index {
         Ok(blocks)
     }
 
-    pub(crate) fn rare_sat_satpoints(&self) -> Result<Option<Vec<(Sat, SatPoint)>>> {
+    pub fn rare_sat_satpoints(&self) -> Result<Option<Vec<(Sat, SatPoint)>>> {
         if self.has_sat_index()? {
             let mut result = Vec::new();
 
@@ -454,7 +454,7 @@ impl Index {
         }
     }
 
-    pub(crate) fn rare_sat_satpoint(&self, sat: Sat) -> Result<Option<SatPoint>> {
+    pub fn rare_sat_satpoint(&self, sat: Sat) -> Result<Option<SatPoint>> {
         if self.has_sat_index()? {
             Ok(self
                 .database
@@ -467,18 +467,15 @@ impl Index {
         }
     }
 
-    pub(crate) fn block_header(&self, hash: BlockHash) -> Result<Option<BlockHeader>> {
+    pub fn block_header(&self, hash: BlockHash) -> Result<Option<BlockHeader>> {
         self.client.get_block_header(&hash).into_option()
     }
 
-    pub(crate) fn block_header_info(
-        &self,
-        hash: BlockHash,
-    ) -> Result<Option<GetBlockHeaderResult>> {
+    pub fn block_header_info(&self, hash: BlockHash) -> Result<Option<GetBlockHeaderResult>> {
         self.client.get_block_header_info(&hash).into_option()
     }
 
-    pub(crate) fn get_block_by_height(&self, height: u64) -> Result<Option<Block>> {
+    pub fn get_block_by_height(&self, height: u64) -> Result<Option<Block>> {
         Ok(self
             .client
             .get_block_hash(height)
@@ -487,11 +484,11 @@ impl Index {
             .transpose()?)
     }
 
-    pub(crate) fn get_block_by_hash(&self, hash: BlockHash) -> Result<Option<Block>> {
+    pub fn get_block_by_hash(&self, hash: BlockHash) -> Result<Option<Block>> {
         self.client.get_block(&hash).into_option()
     }
 
-    pub(crate) fn get_inscription_id_by_sat(&self, sat: Sat) -> Result<Option<InscriptionId>> {
+    pub fn get_inscription_id_by_sat(&self, sat: Sat) -> Result<Option<InscriptionId>> {
         Ok(self
             .database
             .begin_read()?
@@ -500,7 +497,7 @@ impl Index {
             .map(|inscription_id| Entry::load(*inscription_id.value())))
     }
 
-    pub(crate) fn get_inscription_id_by_inscription_number(
+    pub fn get_inscription_id_by_inscription_number(
         &self,
         n: u64,
     ) -> Result<Option<InscriptionId>> {
@@ -512,7 +509,7 @@ impl Index {
             .map(|id| Entry::load(*id.value())))
     }
 
-    pub(crate) fn get_inscription_satpoint_by_id(
+    pub fn get_inscription_satpoint_by_id(
         &self,
         inscription_id: InscriptionId,
     ) -> Result<Option<SatPoint>> {
@@ -524,10 +521,7 @@ impl Index {
             .map(|satpoint| Entry::load(*satpoint.value())))
     }
 
-    pub(crate) fn get_inscriptions_on_output(
-        &self,
-        outpoint: OutPoint,
-    ) -> Result<Vec<InscriptionId>> {
+    pub fn get_inscriptions_on_output(&self, outpoint: OutPoint) -> Result<Vec<InscriptionId>> {
         Ok(Self::inscriptions_on_output(
             &self
                 .database
@@ -540,7 +534,7 @@ impl Index {
         .collect())
     }
 
-    pub(crate) fn get_transaction(&self, txid: Txid) -> Result<Option<Transaction>> {
+    pub fn get_transaction(&self, txid: Txid) -> Result<Option<Transaction>> {
         if txid == self.genesis_block_coinbase_txid {
             Ok(Some(self.genesis_block_coinbase_transaction.clone()))
         } else {
@@ -548,7 +542,7 @@ impl Index {
         }
     }
 
-    pub(crate) fn get_transaction_blockhash(&self, txid: Txid) -> Result<Option<BlockHash>> {
+    pub fn get_transaction_blockhash(&self, txid: Txid) -> Result<Option<BlockHash>> {
         Ok(self
             .client
             .get_raw_transaction_info(&txid, None)
@@ -562,7 +556,7 @@ impl Index {
             }))
     }
 
-    pub(crate) fn is_transaction_in_active_chain(&self, txid: Txid) -> Result<bool> {
+    pub fn is_transaction_in_active_chain(&self, txid: Txid) -> Result<bool> {
         Ok(self
             .client
             .get_raw_transaction_info(&txid, None)
@@ -571,7 +565,7 @@ impl Index {
             .unwrap_or(false))
     }
 
-    pub(crate) fn find(&self, sat: u64) -> Result<Option<SatPoint>> {
+    pub fn find(&self, sat: u64) -> Result<Option<SatPoint>> {
         self.require_sat_index("find")?;
 
         let rtx = self.begin_read()?;
@@ -665,10 +659,7 @@ impl Index {
         }
     }
 
-    pub(crate) fn get_inscriptions(
-        &self,
-        n: Option<usize>,
-    ) -> Result<BTreeMap<SatPoint, InscriptionId>> {
+    pub fn get_inscriptions(&self, n: Option<usize>) -> Result<BTreeMap<SatPoint, InscriptionId>> {
         Ok(self
             .database
             .begin_read()?
@@ -679,7 +670,7 @@ impl Index {
             .collect())
     }
 
-    pub(crate) fn get_homepage_inscriptions(&self) -> Result<Vec<InscriptionId>> {
+    pub fn get_homepage_inscriptions(&self) -> Result<Vec<InscriptionId>> {
         Ok(self
             .database
             .begin_read()?
@@ -691,7 +682,7 @@ impl Index {
             .collect())
     }
 
-    pub(crate) fn get_latest_inscriptions_with_prev_and_next(
+    pub fn get_latest_inscriptions_with_prev_and_next(
         &self,
         n: usize,
         from: Option<u64>,
@@ -736,7 +727,7 @@ impl Index {
         Ok((inscriptions, prev, next))
     }
 
-    pub(crate) fn get_feed_inscriptions(&self, n: usize) -> Result<Vec<(u64, InscriptionId)>> {
+    pub fn get_feed_inscriptions(&self, n: usize) -> Result<Vec<(u64, InscriptionId)>> {
         Ok(self
             .database
             .begin_read()?
@@ -748,7 +739,7 @@ impl Index {
             .collect())
     }
 
-    pub(crate) fn get_inscription_entry(
+    pub fn get_inscription_entry(
         &self,
         inscription_id: InscriptionId,
     ) -> Result<Option<InscriptionEntry>> {

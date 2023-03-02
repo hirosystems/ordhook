@@ -15,7 +15,7 @@ redis = "0.21.5"
 serde-redis = "0.12.0"
 # tikv-client = { git = "https://github.com/tikv/client-rust.git", rev = "8f54e6114227718e256027df2577bbacdf425f86" }
 # raft-proto = { git = "https://github.com/tikv/raft-rs", rev="f73766712a538c2f6eb135b455297ad6c03fc58d", version = "0.7.0"}
-chainhook-event-observer = { version = "=1.0.3", default-features = false, path = "../chainhook-event-observer" }
+chainhook-event-observer = { version = "=1.0.4", default-features = false, path = "../chainhook-event-observer" }
 chainhook-types = { version = "=1.0.2", path = "../chainhook-types-rs" }
 clarinet-files = "1"
 hiro-system-kit = "0.1.0"
@@ -33,13 +33,7 @@ tar = "0.4.38"
 flume = "0.10.14"
 ansi_term = "0.12.1"
 atty = "0.2.14"
-bitcoincore-rpc = "0.16.0"
-bitcoincore-rpc-json = "0.16.0"
-jsonrpc = "0.14.0"
 crossbeam-channel = "0.5.6"
-redb = { version = "0.13.0", optional = true }
-chrono = { version = "0.4.19", optional = true }
-anyhow = { version = "1.0.56", features = ["backtrace"], optional = true  }
 
 [dev-dependencies]
 criterion = "0.3"
@@ -47,15 +41,12 @@ redis = "0.21.5"
 clarity-repl = "=1.4.1"
 hex = "0.4.3"
 
-[replace]
-"jsonrpc:0.13.0" = { git = 'https://github.com/apoelstra/rust-jsonrpc', rev = "1063671f122a8985c1b7c29030071253da515839" }
 
 [features]
-default = ["cli", "ordinals"]
+default = ["cli"]
 cli = ["clap", "clap_generate", "toml", "ctrlc", "hiro-system-kit/log"]
 debug = ["hiro-system-kit/debug"]
 release = ["hiro-system-kit/release"]
-ordinals = ["redb", "chrono", "anyhow"]
 
 # [patch.crates-io]
 # raft-proto = { git = "https://github.com/tikv/raft-rs", rev="95c532612ee6a83591fce9a8b51d6afe87b58835"}

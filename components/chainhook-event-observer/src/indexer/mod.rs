@@ -1,4 +1,5 @@
 pub mod bitcoin;
+pub mod ordinals;
 pub mod stacks;
 
 use crate::utils::{AbstractBlock, Context};

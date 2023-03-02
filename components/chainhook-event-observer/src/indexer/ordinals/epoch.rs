@@ -1,6 +1,6 @@
 use bitcoincore_rpc::bitcoin::blockdata::constants::COIN_VALUE;
 
-use super::{height::Height, sat::Sat, SUBSIDY_HALVING_INTERVAL, *};
+use super::{height::Height, sat::Sat, SUBSIDY_HALVING_INTERVAL};
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug, PartialOrd)]
 pub(crate) struct Epoch(pub(crate) u64);
@@ -152,7 +152,9 @@ impl From<Height> for Epoch {
 #[cfg(test)]
 mod tests {
 
-    use crate::ordinals::{epoch::Epoch, height::Height, sat::Sat, SUBSIDY_HALVING_INTERVAL};
+    use crate::indexer::ordinals::{
+        epoch::Epoch, height::Height, sat::Sat, SUBSIDY_HALVING_INTERVAL,
+    };
 
     #[test]
     fn starting_sat() {

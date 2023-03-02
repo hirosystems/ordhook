@@ -19,7 +19,7 @@ use chainhook_types::{bitcoin::TxIn, TransactionIdentifier};
 use reqwest::Client as HttpClient;
 type Result<T = (), E = anyhow::Error> = std::result::Result<T, E>;
 
-use crate::config::Config;
+use crate::observer::EventObserverConfig;
 
 const DIFFCHANGE_INTERVAL: u64 =
     bitcoincore_rpc::bitcoin::blockdata::constants::DIFFCHANGE_INTERVAL as u64;
@@ -27,59 +27,18 @@ const SUBSIDY_HALVING_INTERVAL: u64 =
     bitcoincore_rpc::bitcoin::blockdata::constants::SUBSIDY_HALVING_INTERVAL as u64;
 const CYCLE_EPOCHS: u64 = 6;
 
-pub async fn retrieve_satoshi_point(
-    config: &Config,
-    origin_txid: &str,
-    output_index: usize,
-) -> Result<(), String> {
+pub fn initialize_ordinal_index(
+    config: &EventObserverConfig,
+) -> Result<self::indexing::Index, String> {
     let index_options = self::indexing::Options {
-        rpc_username: config.network.bitcoin_node_rpc_username.clone(),
-        rpc_password: config.network.bitcoin_node_rpc_password.clone(),
-        data_dir: std::env::current_dir().unwrap(),
+        rpc_username: config.bitcoin_node_username.clone(),
+        rpc_password: config.bitcoin_node_password.clone(),
+        data_dir: config.cache_path.clone().into(),
         chain: chain::Chain::Mainnet,
         first_inscription_height: None,
         height_limit: None,
         index: None,
-        rpc_url: config.network.bitcoin_node_rpc_url.clone(),
-    };
-    let mut index = match self::indexing::Index::open(&index_options) {
-        Ok(index) => index,
-        Err(e) => {
-            println!("unable to open ordinal index: {}", e.to_string());
-            panic!()
-        }
-    };
-
-    // let mut updater = self::indexing::updater::Updater {
-    //     range_cache: HashMap::new(),
-    //     height: 0,
-    //     index_sats: false,
-    //     sat_ranges_since_flush: 0,
-    //     outputs_cached: 0,
-    //     outputs_inserted_since_flush: 0,
-    //     outputs_traversed: 0,
-    // };
-
-    match self::indexing::updater::Updater::update(&index) {
-        Ok(r) => {}
-        Err(e) => {
-            println!("{}", e.to_string());
-        }
-    }
-
-    Ok(())
-}
-
-pub fn initialize_ordinal_index(config: &Config) -> Result<self::indexing::Index, String> {
-    let index_options = self::indexing::Options {
-        rpc_username: config.network.bitcoin_node_rpc_username.clone(),
-        rpc_password: config.network.bitcoin_node_rpc_password.clone(),
-        data_dir: config.storage.cache_path.clone().into(),
-        chain: chain::Chain::Mainnet,
-        first_inscription_height: None,
-        height_limit: None,
-        index: None,
-        rpc_url: config.network.bitcoin_node_rpc_url.clone(),
+        rpc_url: config.bitcoin_node_rpc_url.clone(),
     };
     let index = match self::indexing::Index::open(&index_options) {
         Ok(index) => index,

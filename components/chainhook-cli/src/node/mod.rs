@@ -1,6 +1,4 @@
 use crate::config::Config;
-use crate::ordinals::{self, initialize_ordinal_index};
-use bitcoincore_rpc::bitcoin::Txid;
 use chainhook_event_observer::chainhooks::types::ChainhookConfig;
 use chainhook_event_observer::observer::{
     start_event_observer, EventObserverConfig, ObserverEvent,
@@ -92,6 +90,7 @@ impl Node {
             stacks_node_rpc_url: self.config.network.stacks_node_rpc_url.clone(),
             operators: HashSet::new(),
             display_logs: false,
+            cache_path: self.config.storage.cache_path.clone(),
         };
         info!(
             self.ctx.expect_logger(),
@@ -100,27 +99,6 @@ impl Node {
         info!(
             self.ctx.expect_logger(),
             "Listening for chainhook predicate registrations on port {}", DEFAULT_CONTROL_PORT
-        );
-
-        // let ordinal_index = if cfg!(feature = "ordinals") {
-        // Start indexer with a receiver in background thread
-        info!(
-            self.ctx.expect_logger(),
-            "Initializing ordinals index in file {}", self.config.storage.cache_path
-        );
-
-        let index = initialize_ordinal_index(&self.config).unwrap();
-        match ordinals::indexing::updater::Updater::update(&index) {
-            Ok(_r) => {}
-            Err(e) => {
-                println!("{}", e.to_string());
-            }
-        }
-
-        info!(
-            self.ctx.expect_logger(),
-            "Genesis indexing successful {:?}",
-            index.info()
         );
 
         let context_cloned = self.ctx.clone();

@@ -1,4 +1,4 @@
-use crate::ordinals::{height::Height, sat::Sat, sat_point::SatPoint};
+use crate::indexer::ordinals::{height::Height, sat::Sat, sat_point::SatPoint};
 use anyhow::Context;
 use bitcoincore_rpc::bitcoin::{Block, OutPoint, Transaction, Txid};
 use chrono::{DateTime, Utc};

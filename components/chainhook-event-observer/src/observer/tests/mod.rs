@@ -39,6 +39,7 @@ fn generate_test_config() -> (EventObserverConfig, ChainhookStore) {
         stacks_node_rpc_url: "http://localhost:18443".into(),
         operators,
         display_logs: false,
+        cache_path: "cache".into(),
     };
     let mut entries = HashMap::new();
     entries.insert(ApiKey(None), ChainhookConfig::new());

@@ -285,7 +285,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0261b2bb7617e0c91b452a837bbd1291fd34ad6990cb8e3ffc28239cc045b5ca"
 dependencies = [
  "bitcoincore-rpc-json",
- "jsonrpc 0.12.1",
+ "jsonrpc",
  "log",
  "serde",
  "serde_json",
@@ -413,13 +413,9 @@ name = "chainhook"
 version = "0.1.0"
 dependencies = [
  "ansi_term",
- "anyhow",
  "atty",
- "bitcoincore-rpc",
- "bitcoincore-rpc-json",
  "chainhook-event-observer",
  "chainhook-types 1.0.2",
- "chrono",
  "clap 3.2.23",
  "clap_generate",
  "clarinet-files",
@@ -433,9 +429,7 @@ dependencies = [
  "futures-util",
  "hex",
  "hiro-system-kit",
- "jsonrpc 0.14.0",
  "num_cpus",
- "redb",
  "redis",
  "reqwest",
  "serde",
@@ -449,13 +443,15 @@ dependencies = [
 
 [[package]]
 name = "chainhook-event-observer"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
+ "anyhow",
  "base58 0.2.0",
  "base64 0.13.1",
  "bitcoincore-rpc",
  "bitcoincore-rpc-json",
  "chainhook-types 1.0.2",
+ "chrono",
  "clap 3.2.23",
  "clap_generate",
  "clarinet-utils",
@@ -463,6 +459,7 @@ dependencies = [
  "crossbeam-channel",
  "ctrlc",
  "hiro-system-kit",
+ "redb",
  "reqwest",
  "rocket",
  "rocket_okapi",
@@ -1885,17 +1882,6 @@ dependencies = [
  "base64-compat",
  "serde",
  "serde_derive",
- "serde_json",
-]
-
-[[package]]
-name = "jsonrpc"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "248ea3eab5d9a37ee324b1f576f19d274ff7e56cd5206ea4755a7ef918e94fa4"
-dependencies = [
- "base64 0.13.1",
- "serde",
  "serde_json",
 ]
 

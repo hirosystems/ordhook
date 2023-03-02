@@ -10,6 +10,8 @@ extern crate serde_json;
 #[macro_use]
 extern crate hiro_system_kit;
 
+pub extern crate bitcoincore_rpc;
+
 pub mod chainhooks;
 pub mod indexer;
 pub mod observer;
@@ -18,6 +20,7 @@ pub mod utils;
 use crate::utils::Context;
 use hiro_system_kit::log::setup_logger;
 use hiro_system_kit::slog;
+use rocket::config;
 
 use crate::chainhooks::types::ChainhookConfig;
 use clap::Parser;
@@ -75,6 +78,7 @@ pub struct EventObserverConfigFile {
     pub bitcoin_node_rpc_url: String,
     pub stacks_node_rpc_url: String,
     pub operators: Option<Vec<String>>,
+    pub cache_path: Option<String>,
 }
 
 impl EventObserverConfig {
@@ -143,6 +147,7 @@ impl EventObserverConfig {
             stacks_node_rpc_url: config_file.stacks_node_rpc_url.clone(),
             operators,
             display_logs: true,
+            cache_path: config_file.cache_path.unwrap_or("cache".into()),
         };
         config
     }

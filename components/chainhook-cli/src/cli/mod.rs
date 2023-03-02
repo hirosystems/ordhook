@@ -1,7 +1,6 @@
 use crate::block::DigestingCommand;
 use crate::config::Config;
 use crate::node::Node;
-use crate::ordinals::retrieve_satoshi_point;
 use crate::scan::bitcoin::scan_bitcoin_chain_with_predicate;
 use crate::scan::stacks::scan_stacks_chain_with_predicate;
 
@@ -231,8 +230,6 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
             OrdinalsCommand::Satoshi(cmd) => {
                 let config =
                     Config::default(cmd.devnet, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
-
-                retrieve_satoshi_point(&config, &cmd.txid, cmd.output_index).await?;
             }
         },
     }

@@ -1,6 +1,6 @@
 [package]
 name = "chainhook-event-observer"
-version = "1.0.3"
+version = "1.0.4"
 description = "Stateless Transaction Indexing Engine for Stacks and Bitcoin"
 license = "GPL-3.0"
 edition = "2021"
@@ -38,8 +38,15 @@ ctrlc = { version = "3.2.2", optional = true }
 schemars = { version = "0.8.10" }
 rocket_okapi = "0.8.0-rc.1"
 crossbeam-channel = "0.5.6"
+redb = { version = "0.13.0", optional = true }
+chrono = { version = "0.4.19", optional = true }
+anyhow = { version = "1.0.56", features = ["backtrace"], optional = true  }
+
+[replace]
+"jsonrpc:0.13.0" = { git = 'https://github.com/apoelstra/rust-jsonrpc', rev = "1063671f122a8985c1b7c29030071253da515839" }
 
 [features]
-default = ["cli"]
+default = ["cli", "ordinals"]
 cli = ["clap", "clap_generate", "toml", "ctrlc", "log"]
 log = ["hiro-system-kit/log"]
+ordinals = ["redb", "chrono", "anyhow"]

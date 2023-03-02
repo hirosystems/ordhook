@@ -8,6 +8,9 @@ use crate::chainhooks::stacks::{
 };
 use crate::chainhooks::types::{ChainhookConfig, ChainhookSpecification};
 use crate::indexer::bitcoin::retrieve_full_block;
+use crate::indexer::ordinals::{
+    indexing::updater::Updater as OrdinalIndexUpdater, initialize_ordinal_index,
+};
 use crate::indexer::{self, Indexer, IndexerConfig};
 use crate::utils::{send_request, Context};
 use bitcoincore_rpc::bitcoin::{BlockHash, Txid};
@@ -124,6 +127,7 @@ pub struct EventObserverConfig {
     pub stacks_node_rpc_url: String,
     pub operators: HashSet<String>,
     pub display_logs: bool,
+    pub cache_path: String,
 }
 
 #[derive(Deserialize, Debug)]
@@ -218,6 +222,27 @@ pub async fn start_event_observer(
     ctx: Context,
 ) -> Result<(), Box<dyn Error>> {
     ctx.try_log(|logger| slog::info!(logger, "Event observer starting with config {:?}", config));
+
+    // let ordinal_index = if cfg!(feature = "ordinals") {
+    // Start indexer with a receiver in background thread
+
+    ctx.try_log(|logger| {
+        slog::info!(
+            logger,
+            "Initializing ordinals index in file {}",
+            config.cache_path
+        )
+    });
+
+    let index = initialize_ordinal_index(&config).unwrap();
+    match OrdinalIndexUpdater::update(&index) {
+        Ok(_r) => {}
+        Err(e) => {
+            ctx.try_log(|logger| slog::error!(logger, "{}", e.to_string()));
+        }
+    }
+
+    ctx.try_log(|logger| slog::info!(logger, "Genesis indexing successful {:?}", index.info()));
 
     let indexer = Indexer::new(IndexerConfig {
         stacks_node_rpc_url: config.stacks_node_rpc_url.clone(),
