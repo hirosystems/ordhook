@@ -13,6 +13,7 @@ use super::{inscription_id::InscriptionId, sat::Sat};
 use std::cmp;
 
 mod entry;
+mod fetcher;
 
 use {
     self::{
@@ -170,7 +171,7 @@ impl OrdinalIndex {
         let path = if let Some(path) = &options.index {
             path.clone()
         } else {
-            data_dir.join("index.redb")
+            data_dir.join("ordinal_index.redb")
         };
 
         let database = match unsafe { Database::builder().open_mmapped(&path) } {
@@ -247,7 +248,7 @@ impl OrdinalIndex {
             client,
             database,
             path,
-            first_inscription_height: 0,
+            first_inscription_height: options.chain.first_inscription_height(),
             genesis_block_coinbase_transaction,
             height_limit: options.height_limit,
             reorged: AtomicBool::new(false),

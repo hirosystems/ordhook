@@ -3,12 +3,18 @@ use anyhow::Context;
 use bitcoincore_rpc::bitcoin::{Block, OutPoint, Transaction, Txid};
 
 use std::{
-    collections::VecDeque,
+    collections::{HashSet, VecDeque},
     time::{Instant, SystemTime},
 };
 
 use super::Result;
 use {self::inscription_updater::InscriptionUpdater, super::*, std::sync::mpsc};
+
+use {
+    super::{fetcher::Fetcher, *},
+    futures::future::try_join_all,
+    tokio::sync::mpsc::{error::TryRecvError, Receiver, Sender},
+};
 
 mod inscription_updater;
 
@@ -82,9 +88,11 @@ impl OrdinalIndexUpdater {
         index: &'index OrdinalIndex,
         mut wtx: WriteTransaction<'index>,
     ) -> Result {
-        let _starting_height = index.client.get_block_count()? + 1;
+        let starting_height = index.client.get_block_count()? + 1;
 
         let rx = Self::fetch_blocks_from(index, self.height, self.index_sats)?;
+
+        let (mut outpoint_sender, mut value_receiver) = Self::spawn_fetcher(index)?;
 
         let mut uncommitted = 0;
         let mut value_cache = HashMap::new();
@@ -94,7 +102,14 @@ impl OrdinalIndexUpdater {
                 Err(mpsc::RecvError) => break,
             };
 
-            self.index_block(index, &mut wtx, block, &mut value_cache)?;
+            self.index_block(
+                index,
+                &mut outpoint_sender,
+                &mut value_receiver,
+                &mut wtx,
+                block,
+                &mut value_cache,
+            )?;
 
             uncommitted += 1;
 
@@ -145,8 +160,7 @@ impl OrdinalIndexUpdater {
         let client = Client::new(&index.rpc_url, index.auth.clone())
             .context("failed to connect to RPC URL")?;
 
-        // NB: We temporarily always fetch transactions, to avoid expensive cache misses.
-        let first_inscription_height = index.first_inscription_height.min(0);
+        let first_inscription_height = index.first_inscription_height;
 
         std::thread::spawn(move || loop {
             if let Some(height_limit) = height_limit {
@@ -170,7 +184,7 @@ impl OrdinalIndexUpdater {
                 }
                 Ok(None) => break,
                 Err(err) => {
-                    println!("failed to fetch block {height}: {err}");
+                    // log::error!("failed to fetch block {height}: {err}");
                     break;
                 }
             }
@@ -211,10 +225,10 @@ impl OrdinalIndexUpdater {
 
                     errors += 1;
                     let seconds = 1 << errors;
-                    println!("failed to fetch block {height}, retrying in {seconds}s: {err}");
+                    // log::warn!("failed to fetch block {height}, retrying in {seconds}s: {err}");
 
                     if seconds > 120 {
-                        println!("would sleep for more than 120s, giving up");
+                        // log::error!("would sleep for more than 120s, giving up");
                         return Err(err);
                     }
 
@@ -225,13 +239,123 @@ impl OrdinalIndexUpdater {
         }
     }
 
+    fn spawn_fetcher(index: &OrdinalIndex) -> Result<(Sender<OutPoint>, Receiver<u64>)> {
+        let fetcher = Fetcher::new(&index.rpc_url, index.auth.clone())?;
+
+        // Not sure if any block has more than 20k inputs, but none so far after first inscription block
+        const CHANNEL_BUFFER_SIZE: usize = 20_000;
+        let (outpoint_sender, mut outpoint_receiver) =
+            tokio::sync::mpsc::channel::<OutPoint>(CHANNEL_BUFFER_SIZE);
+        let (value_sender, value_receiver) = tokio::sync::mpsc::channel::<u64>(CHANNEL_BUFFER_SIZE);
+
+        // Batch 2048 missing inputs at a time. Arbitrarily chosen for now, maybe higher or lower can be faster?
+        // Did rudimentary benchmarks with 1024 and 4096 and time was roughly the same.
+        const BATCH_SIZE: usize = 2048;
+        // Default rpcworkqueue in bitcoind is 16, meaning more than 16 concurrent requests will be rejected.
+        // Since we are already requesting blocks on a separate thread, and we don't want to break if anything
+        // else runs a request, we keep this to 12.
+        const PARALLEL_REQUESTS: usize = 12;
+
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            rt.block_on(async move {
+          loop {
+            let Some(outpoint) = outpoint_receiver.recv().await else {
+            //   log::debug!("Outpoint channel closed");
+              return;
+            };
+            // There's no try_iter on tokio::sync::mpsc::Receiver like std::sync::mpsc::Receiver.
+            // So we just loop until BATCH_SIZE doing try_recv until it returns None.
+            let mut outpoints = vec![outpoint];
+            for _ in 0..BATCH_SIZE-1 {
+              let Ok(outpoint) = outpoint_receiver.try_recv() else {
+                break;
+              };
+              outpoints.push(outpoint);
+            }
+            // Break outpoints into chunks for parallel requests
+            let chunk_size = (outpoints.len() / PARALLEL_REQUESTS) + 1;
+            let mut futs = Vec::with_capacity(PARALLEL_REQUESTS);
+            for chunk in outpoints.chunks(chunk_size) {
+              let txids = chunk.iter().map(|outpoint| outpoint.txid).collect();
+              let fut = fetcher.get_transactions(txids);
+              futs.push(fut);
+            }
+            let txs = match try_join_all(futs).await {
+              Ok(txs) => txs,
+              Err(e) => {
+                // log::error!("Couldn't receive txs {e}");
+                return;
+              }
+            };
+            // Send all tx output values back in order
+            for (i, tx) in txs.iter().flatten().enumerate() {
+              let Ok(_) = value_sender.send(tx.output[usize::try_from(outpoints[i].vout).unwrap()].value).await else {
+                // log::error!("Value channel closed unexpectedly");
+                return;
+              };
+            }
+          }
+        })
+        });
+
+        Ok((outpoint_sender, value_receiver))
+    }
+
     fn index_block(
         &mut self,
         index: &OrdinalIndex,
+        outpoint_sender: &mut Sender<OutPoint>,
+        value_receiver: &mut Receiver<u64>,
         wtx: &mut WriteTransaction,
         block: BlockData,
         value_cache: &mut HashMap<OutPoint, u64>,
     ) -> Result<()> {
+        // If value_receiver still has values something went wrong with the last block
+        // Could be an assert, shouldn't recover from this and commit the last block
+        let Err(TryRecvError::Empty) = value_receiver.try_recv() else {
+        return Err(anyhow::anyhow!("Previous block did not consume all input values")); 
+      };
+
+        let mut outpoint_to_value = wtx.open_table(OUTPOINT_TO_VALUE)?;
+
+        if !self.index_sats {
+            // Send all missing input outpoints to be fetched right away
+            let txids = block
+                .txdata
+                .iter()
+                .map(|(_, txid)| txid)
+                .collect::<HashSet<_>>();
+            for (tx, _) in &block.txdata {
+                for input in &tx.input {
+                    let prev_output = input.previous_output;
+                    // We don't need coinbase input value
+                    if prev_output.is_null() {
+                        continue;
+                    }
+                    // We don't need input values from txs earlier in the block, since they'll be added to value_cache
+                    // when the tx is indexed
+                    if txids.contains(&prev_output.txid) {
+                        continue;
+                    }
+                    // We don't need input values we already have in our value_cache from earlier blocks
+                    if value_cache.contains_key(&prev_output) {
+                        continue;
+                    }
+                    // We don't need input values we already have in our outpoint_to_value table from earlier blocks that
+                    // were committed to db already
+                    if outpoint_to_value.get(&prev_output.store())?.is_some() {
+                        continue;
+                    }
+                    // We don't know the value of this tx input. Send this outpoint to background thread to be fetched
+                    outpoint_sender.blocking_send(prev_output)?;
+                }
+            }
+        }
+
         let mut height_to_block_hash = wtx.open_table(HEIGHT_TO_BLOCK_HASH)?;
 
         let start = Instant::now();
@@ -240,12 +364,12 @@ impl OrdinalIndexUpdater {
 
         let time = timestamp(block.header.time);
 
-        // println!(
-        //     "Block {} at {} with {} transactions…",
-        //     self.height,
-        //     time,
-        //     block.txdata.len()
-        // );
+        println!(
+            "Block {} at {} with {} transactions…",
+            self.height,
+            time,
+            block.txdata.len()
+        );
 
         if let Some(prev_height) = self.height.checked_sub(1) {
             let prev_hash = height_to_block_hash.get(&prev_height)?.unwrap();
@@ -261,7 +385,6 @@ impl OrdinalIndexUpdater {
         let mut inscription_id_to_satpoint = wtx.open_table(INSCRIPTION_ID_TO_SATPOINT)?;
         let mut inscription_number_to_inscription_id =
             wtx.open_table(INSCRIPTION_NUMBER_TO_INSCRIPTION_ID)?;
-        let mut outpoint_to_value = wtx.open_table(OUTPOINT_TO_VALUE)?;
         let mut sat_to_inscription_id = wtx.open_table(SAT_TO_INSCRIPTION_ID)?;
         let mut satpoint_to_inscription_id = wtx.open_table(SATPOINT_TO_INSCRIPTION_ID)?;
         let mut statistic_to_count = wtx.open_table(STATISTIC_TO_COUNT)?;
@@ -274,7 +397,7 @@ impl OrdinalIndexUpdater {
         let mut inscription_updater = InscriptionUpdater::new(
             self.height,
             &mut inscription_id_to_satpoint,
-            index,
+            value_receiver,
             &mut inscription_id_to_inscription_entry,
             lost_sats,
             &mut inscription_number_to_inscription_id,
@@ -285,104 +408,8 @@ impl OrdinalIndexUpdater {
             value_cache,
         )?;
 
-        if self.index_sats {
-            let mut sat_to_satpoint = wtx.open_table(SAT_TO_SATPOINT)?;
-            let mut outpoint_to_sat_ranges = wtx.open_table(OUTPOINT_TO_SAT_RANGES)?;
-
-            let mut coinbase_inputs = VecDeque::new();
-
-            let h = Height(self.height);
-            if h.subsidy() > 0 {
-                let start = h.starting_sat();
-                coinbase_inputs.push_front((start.n(), (start + h.subsidy()).n()));
-                self.sat_ranges_since_flush += 1;
-            }
-
-            for (tx_offset, (tx, txid)) in block.txdata.iter().enumerate().skip(1) {
-                println!("Indexing transaction {tx_offset}…");
-
-                let mut input_sat_ranges = VecDeque::new();
-
-                for input in &tx.input {
-                    let key = input.previous_output.store();
-
-                    let sat_ranges = match self.range_cache.remove(&key) {
-                        Some(sat_ranges) => {
-                            self.outputs_cached += 1;
-                            sat_ranges
-                        }
-                        None => outpoint_to_sat_ranges
-                            .remove(&key)?
-                            .ok_or_else(|| {
-                                anyhow::anyhow!(
-                                    "Could not find outpoint {} in index",
-                                    input.previous_output
-                                )
-                            })?
-                            .value()
-                            .to_vec(),
-                    };
-
-                    for chunk in sat_ranges.chunks_exact(11) {
-                        input_sat_ranges.push_back(SatRange::load(chunk.try_into().unwrap()));
-                    }
-                }
-
-                self.index_transaction_sats(
-                    tx,
-                    *txid,
-                    &mut sat_to_satpoint,
-                    &mut input_sat_ranges,
-                    &mut sat_ranges_written,
-                    &mut outputs_in_block,
-                    &mut inscription_updater,
-                )?;
-
-                coinbase_inputs.extend(input_sat_ranges);
-            }
-
-            if let Some((tx, txid)) = block.txdata.get(0) {
-                self.index_transaction_sats(
-                    tx,
-                    *txid,
-                    &mut sat_to_satpoint,
-                    &mut coinbase_inputs,
-                    &mut sat_ranges_written,
-                    &mut outputs_in_block,
-                    &mut inscription_updater,
-                )?;
-            }
-
-            if !coinbase_inputs.is_empty() {
-                let mut lost_sat_ranges = outpoint_to_sat_ranges
-                    .remove(&OutPoint::null().store())?
-                    .map(|ranges| ranges.value().to_vec())
-                    .unwrap_or_default();
-
-                for (start, end) in coinbase_inputs {
-                    if !Sat(start).is_common() {
-                        sat_to_satpoint.insert(
-                            &start,
-                            &SatPoint {
-                                outpoint: OutPoint::null(),
-                                offset: lost_sats,
-                            }
-                            .store(),
-                        )?;
-                    }
-
-                    lost_sat_ranges.extend_from_slice(&(start, end).store());
-
-                    lost_sats += end - start;
-                }
-
-                outpoint_to_sat_ranges
-                    .insert(&OutPoint::null().store(), lost_sat_ranges.as_slice())?;
-            }
-        } else {
-            for (tx, txid) in block.txdata.iter().skip(1).chain(block.txdata.first()) {
-                lost_sats += inscription_updater.index_transaction_inscriptions(tx, *txid, None)?;
-            }
+        for (tx, txid) in block.txdata.iter().skip(1).chain(block.txdata.first()) {
+            lost_sats += inscription_updater.index_transaction_inscriptions(tx, *txid, None)?;
         }
 
         statistic_to_count.insert(&Statistic::LostSats.key(), &lost_sats)?;
@@ -392,10 +419,10 @@ impl OrdinalIndexUpdater {
         self.height += 1;
         self.outputs_traversed += outputs_in_block;
 
-        // println!(
-        //     "Wrote {sat_ranges_written} sat ranges from {outputs_in_block} outputs in {} ms",
-        //     (Instant::now() - start).as_millis(),
-        // );
+        println!(
+            "Wrote {sat_ranges_written} sat ranges from {outputs_in_block} outputs in {} ms",
+            (Instant::now() - start).as_millis(),
+        );
 
         Ok(())
     }
@@ -464,30 +491,30 @@ impl OrdinalIndexUpdater {
     }
 
     fn commit(&mut self, wtx: WriteTransaction, value_cache: HashMap<OutPoint, u64>) -> Result {
-        // println!(
-        //     "Committing at block height {}, {} outputs traversed, {} in map, {} cached",
-        //     self.height,
-        //     self.outputs_traversed,
-        //     self.range_cache.len(),
-        //     self.outputs_cached
-        // );
+        println!(
+            "Committing at block height {}, {} outputs traversed, {} in map, {} cached",
+            self.height,
+            self.outputs_traversed,
+            self.range_cache.len(),
+            self.outputs_cached
+        );
 
-        if self.index_sats {
-            // println!(
-            //     "Flushing {} entries ({:.1}% resulting from {} insertions) from memory to database",
-            //     self.range_cache.len(),
-            //     self.range_cache.len() as f64 / self.outputs_inserted_since_flush as f64 * 100.,
-            //     self.outputs_inserted_since_flush,
-            // );
+        // if self.index_sats {
+        //     println!(
+        //     //     "Flushing {} entries ({:.1}% resulting from {} insertions) from memory to database",
+        //     //     self.range_cache.len(),
+        //     //     self.range_cache.len() as f64 / self.outputs_inserted_since_flush as f64 * 100.,
+        //     //     self.outputs_inserted_since_flush,
+        //     // );
 
-            let mut outpoint_to_sat_ranges = wtx.open_table(OUTPOINT_TO_SAT_RANGES)?;
+        //     let mut outpoint_to_sat_ranges = wtx.open_table(OUTPOINT_TO_SAT_RANGES)?;
 
-            for (outpoint, sat_range) in self.range_cache.drain() {
-                outpoint_to_sat_ranges.insert(&outpoint, sat_range.as_slice())?;
-            }
+        //     for (outpoint, sat_range) in self.range_cache.drain() {
+        //         outpoint_to_sat_ranges.insert(&outpoint, sat_range.as_slice())?;
+        //     }
 
-            self.outputs_inserted_since_flush = 0;
-        }
+        //     self.outputs_inserted_since_flush = 0;
+        // }
 
         {
             let mut outpoint_to_value = wtx.open_table(OUTPOINT_TO_VALUE)?;

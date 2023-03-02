@@ -19,7 +19,7 @@ pub(super) struct InscriptionUpdater<'a, 'db, 'tx> {
     flotsam: Vec<Flotsam>,
     height: u64,
     id_to_satpoint: &'a mut Table<'db, 'tx, &'static InscriptionIdValue, &'static SatPointValue>,
-    index: &'a OrdinalIndex,
+    value_receiver: &'a mut Receiver<u64>,
     id_to_entry: &'a mut Table<'db, 'tx, &'static InscriptionIdValue, InscriptionEntryValue>,
     lost_sats: u64,
     next_number: u64,
@@ -41,7 +41,7 @@ impl<'a, 'db, 'tx> InscriptionUpdater<'a, 'db, 'tx> {
             &'static InscriptionIdValue,
             &'static SatPointValue,
         >,
-        index: &'a OrdinalIndex,
+        value_receiver: &'a mut Receiver<u64>,
         id_to_entry: &'a mut Table<'db, 'tx, &'static InscriptionIdValue, InscriptionEntryValue>,
         lost_sats: u64,
         number_to_id: &'a mut Table<'db, 'tx, u64, &'static InscriptionIdValue>,
@@ -67,7 +67,7 @@ impl<'a, 'db, 'tx> InscriptionUpdater<'a, 'db, 'tx> {
             flotsam: Vec::new(),
             height,
             id_to_satpoint,
-            index,
+            value_receiver,
             id_to_entry,
             lost_sats,
             next_number,
@@ -114,17 +114,13 @@ impl<'a, 'db, 'tx> InscriptionUpdater<'a, 'db, 'tx> {
                 {
                     value.value()
                 } else {
-                    self.index
-                        .get_transaction(tx_in.previous_output.txid)?
-                        .ok_or_else(|| {
-                            anyhow::anyhow!(
-                                "failed to get transaction for {}",
-                                tx_in.previous_output.txid
-                            )
-                        })?
-                        .output[usize::try_from(tx_in.previous_output.vout).unwrap()]
-                    .value
-                };
+                    self.value_receiver.blocking_recv().ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "failed to get transaction for {}",
+                            tx_in.previous_output.txid
+                        )
+                    })?
+                }
             }
         }
 
