@@ -50,7 +50,7 @@ pub struct OrdinalIndexUpdater {
 }
 
 impl OrdinalIndexUpdater {
-    pub fn update(index: &OrdinalIndex) -> Result {
+    pub async fn update(index: &OrdinalIndex) -> Result {
         let wtx = index.begin_write()?;
 
         let height = wtx
@@ -80,10 +80,10 @@ impl OrdinalIndexUpdater {
             outputs_traversed: 0,
         };
 
-        updater.update_index(index, wtx)
+        updater.update_index(index, wtx).await
     }
 
-    fn update_index<'index>(
+    async fn update_index<'index>(
         &mut self,
         index: &'index OrdinalIndex,
         mut wtx: WriteTransaction<'index>,
@@ -109,7 +109,7 @@ impl OrdinalIndexUpdater {
                 &mut wtx,
                 block,
                 &mut value_cache,
-            )?;
+            ).await?;
 
             uncommitted += 1;
 
@@ -305,12 +305,12 @@ impl OrdinalIndexUpdater {
         Ok((outpoint_sender, value_receiver))
     }
 
-    fn index_block(
+    async fn index_block(
         &mut self,
         index: &OrdinalIndex,
         outpoint_sender: &mut Sender<OutPoint>,
         value_receiver: &mut Receiver<u64>,
-        wtx: &mut WriteTransaction,
+        wtx: &mut WriteTransaction<'_>,
         block: BlockData,
         value_cache: &mut HashMap<OutPoint, u64>,
     ) -> Result<()> {
@@ -351,7 +351,7 @@ impl OrdinalIndexUpdater {
                         continue;
                     }
                     // We don't know the value of this tx input. Send this outpoint to background thread to be fetched
-                    outpoint_sender.blocking_send(prev_output)?;
+                    let _ = outpoint_sender.send(prev_output).await?;
                 }
             }
         }
@@ -409,7 +409,7 @@ impl OrdinalIndexUpdater {
         )?;
 
         for (tx, txid) in block.txdata.iter().skip(1).chain(block.txdata.first()) {
-            lost_sats += inscription_updater.index_transaction_inscriptions(tx, *txid, None)?;
+            lost_sats += inscription_updater.index_transaction_inscriptions(tx, *txid, None).await?;
         }
 
         statistic_to_count.insert(&Statistic::LostSats.key(), &lost_sats)?;
@@ -427,68 +427,68 @@ impl OrdinalIndexUpdater {
         Ok(())
     }
 
-    fn index_transaction_sats(
-        &mut self,
-        tx: &Transaction,
-        txid: Txid,
-        sat_to_satpoint: &mut Table<u64, &SatPointValue>,
-        input_sat_ranges: &mut VecDeque<(u64, u64)>,
-        sat_ranges_written: &mut u64,
-        outputs_traversed: &mut u64,
-        inscription_updater: &mut InscriptionUpdater,
-    ) -> Result {
-        inscription_updater.index_transaction_inscriptions(tx, txid, Some(input_sat_ranges))?;
+    // fn index_transaction_sats(
+    //     &mut self,
+    //     tx: &Transaction,
+    //     txid: Txid,
+    //     sat_to_satpoint: &mut Table<u64, &SatPointValue>,
+    //     input_sat_ranges: &mut VecDeque<(u64, u64)>,
+    //     sat_ranges_written: &mut u64,
+    //     outputs_traversed: &mut u64,
+    //     inscription_updater: &mut InscriptionUpdater,
+    // ) -> Result {
+    //     inscription_updater.index_transaction_inscriptions(tx, txid, Some(input_sat_ranges))?;
 
-        for (vout, output) in tx.output.iter().enumerate() {
-            let outpoint = OutPoint {
-                vout: vout.try_into().unwrap(),
-                txid,
-            };
-            let mut sats = Vec::new();
+    //     for (vout, output) in tx.output.iter().enumerate() {
+    //         let outpoint = OutPoint {
+    //             vout: vout.try_into().unwrap(),
+    //             txid,
+    //         };
+    //         let mut sats = Vec::new();
 
-            let mut remaining = output.value;
-            while remaining > 0 {
-                let range = input_sat_ranges.pop_front().ok_or_else(|| {
-                    anyhow::anyhow!("insufficient inputs for transaction outputs")
-                })?;
+    //         let mut remaining = output.value;
+    //         while remaining > 0 {
+    //             let range = input_sat_ranges.pop_front().ok_or_else(|| {
+    //                 anyhow::anyhow!("insufficient inputs for transaction outputs")
+    //             })?;
 
-                if !Sat(range.0).is_common() {
-                    sat_to_satpoint.insert(
-                        &range.0,
-                        &SatPoint {
-                            outpoint,
-                            offset: output.value - remaining,
-                        }
-                        .store(),
-                    )?;
-                }
+    //             if !Sat(range.0).is_common() {
+    //                 sat_to_satpoint.insert(
+    //                     &range.0,
+    //                     &SatPoint {
+    //                         outpoint,
+    //                         offset: output.value - remaining,
+    //                     }
+    //                     .store(),
+    //                 )?;
+    //             }
 
-                let count = range.1 - range.0;
+    //             let count = range.1 - range.0;
 
-                let assigned = if count > remaining {
-                    self.sat_ranges_since_flush += 1;
-                    let middle = range.0 + remaining;
-                    input_sat_ranges.push_front((middle, range.1));
-                    (range.0, middle)
-                } else {
-                    range
-                };
+    //             let assigned = if count > remaining {
+    //                 self.sat_ranges_since_flush += 1;
+    //                 let middle = range.0 + remaining;
+    //                 input_sat_ranges.push_front((middle, range.1));
+    //                 (range.0, middle)
+    //             } else {
+    //                 range
+    //             };
 
-                sats.extend_from_slice(&assigned.store());
+    //             sats.extend_from_slice(&assigned.store());
 
-                remaining -= assigned.1 - assigned.0;
+    //             remaining -= assigned.1 - assigned.0;
 
-                *sat_ranges_written += 1;
-            }
+    //             *sat_ranges_written += 1;
+    //         }
 
-            *outputs_traversed += 1;
+    //         *outputs_traversed += 1;
 
-            self.range_cache.insert(outpoint.store(), sats);
-            self.outputs_inserted_since_flush += 1;
-        }
+    //         self.range_cache.insert(outpoint.store(), sats);
+    //         self.outputs_inserted_since_flush += 1;
+    //     }
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
     fn commit(&mut self, wtx: WriteTransaction, value_cache: HashMap<OutPoint, u64>) -> Result {
         println!(

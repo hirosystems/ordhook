@@ -81,7 +81,7 @@ impl<'a, 'db, 'tx> InscriptionUpdater<'a, 'db, 'tx> {
         })
     }
 
-    pub(super) fn index_transaction_inscriptions(
+    pub(super) async fn index_transaction_inscriptions(
         &mut self,
         tx: &Transaction,
         txid: Txid,
@@ -114,7 +114,7 @@ impl<'a, 'db, 'tx> InscriptionUpdater<'a, 'db, 'tx> {
                 {
                     value.value()
                 } else {
-                    self.value_receiver.blocking_recv().ok_or_else(|| {
+                    self.value_receiver.recv().await.ok_or_else(|| {
                         anyhow::anyhow!(
                             "failed to get transaction for {}",
                             tx_in.previous_output.txid

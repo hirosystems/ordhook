@@ -367,8 +367,8 @@ impl OrdinalIndex {
         Ok(info)
     }
 
-    pub fn update(&self) -> Result {
-        OrdinalIndexUpdater::update(self)
+    pub async fn update(&self) -> Result {
+        OrdinalIndexUpdater::update(self).await
     }
 
     pub fn is_reorged(&self) -> bool {

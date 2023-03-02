@@ -234,7 +234,7 @@ pub async fn start_event_observer(
     });
 
     let ordinal_index = initialize_ordinal_index(&config).unwrap();
-    match OrdinalIndexUpdater::update(&ordinal_index) {
+    match OrdinalIndexUpdater::update(&ordinal_index).await {
         Ok(_r) => {}
         Err(e) => {
             ctx.try_log(|logger| slog::error!(logger, "{}", e.to_string()));

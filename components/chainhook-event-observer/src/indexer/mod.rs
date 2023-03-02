@@ -85,13 +85,13 @@ impl Indexer {
         block: Block,
         ctx: &Context,
     ) -> Result<Option<BitcoinChainEvent>, String> {
-        let block = bitcoin::standardize_bitcoin_block(
+        let block = hiro_system_kit::nestable_block_on(bitcoin::standardize_bitcoin_block(
             &self.config,
             block_height,
             block,
             &mut self.bitcoin_context,
             ctx,
-        )?;
+        ))?;
         let event = self.bitcoin_blocks_pool.process_block(block, ctx);
         event
     }

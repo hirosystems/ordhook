@@ -106,7 +106,7 @@ pub async fn retrieve_full_block(
     Ok((block_height, block))
 }
 
-pub fn standardize_bitcoin_block(
+pub async fn standardize_bitcoin_block(
     indexer_config: &IndexerConfig,
     block_height: u64,
     block: Block,
@@ -115,7 +115,7 @@ pub fn standardize_bitcoin_block(
 ) -> Result<BitcoinBlockData, String> {
     let mut transactions = vec![];
 
-    match OrdinalIndexUpdater::update(&mut bitcoin_context.ordinal_index) {
+    match OrdinalIndexUpdater::update(&mut bitcoin_context.ordinal_index).await {
         Ok(_) => {
             ctx.try_log(|logger| {
                 slog::info!(

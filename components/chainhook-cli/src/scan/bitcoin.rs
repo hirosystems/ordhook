@@ -158,7 +158,7 @@ pub async fn scan_bitcoin_chain_with_predicate(
         };
 
         let ordinal_index = initialize_ordinal_index(&event_observer_config).unwrap();
-        match OrdinalIndexUpdater::update(&ordinal_index) {
+        match OrdinalIndexUpdater::update(&ordinal_index).await {
             Ok(_r) => {}
             Err(e) => {}
         }
@@ -171,7 +171,7 @@ pub async fn scan_bitcoin_chain_with_predicate(
             raw_block,
             &mut bitcoin_context,
             ctx,
-        )?;
+        ).await?;
 
         let mut hits = vec![];
         for tx in block.transactions.iter() {
