@@ -41,6 +41,9 @@ crossbeam-channel = "0.5.6"
 redb = { version = "0.13.0", optional = true }
 chrono = { version = "0.4.19", optional = true }
 anyhow = { version = "1.0.56", features = ["backtrace"], optional = true  }
+futures = "0.3.21"
+hyper = { version = "0.14.24", features = ["http1", "client"] }
+hex = "0.4.3"
 
 [replace]
 "jsonrpc:0.13.0" = { git = 'https://github.com/apoelstra/rust-jsonrpc', rev = "1063671f122a8985c1b7c29030071253da515839" }

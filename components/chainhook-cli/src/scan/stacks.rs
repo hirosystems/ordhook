@@ -1,17 +1,19 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     process,
 };
 
 use crate::{
     archive,
-    block::ingestion::{Record, RecordKind},
+    block::{Record, RecordKind},
     config::Config,
 };
 use chainhook_event_observer::{
     chainhooks::stacks::{
         handle_stacks_hook_action, StacksChainhookOccurrence, StacksTriggerChainhook,
     },
+    indexer::ordinals::{indexing::updater::OrdinalIndexUpdater, initialize_ordinal_index},
+    observer::{EventObserverConfig, DEFAULT_CONTROL_PORT, DEFAULT_INGESTION_PORT},
     utils::{file_append, send_request, AbstractStacksBlock},
 };
 use chainhook_event_observer::{
@@ -82,7 +84,28 @@ pub async fn scan_stacks_chain_with_predicate(
         let _ = record_tx.send(None);
     });
 
-    let mut indexer = Indexer::new(config.network.clone());
+    let event_observer_config = EventObserverConfig {
+        normalization_enabled: true,
+        grpc_server_enabled: false,
+        hooks_enabled: true,
+        bitcoin_rpc_proxy_enabled: true,
+        event_handlers: vec![],
+        chainhook_config: None,
+        ingestion_port: DEFAULT_INGESTION_PORT,
+        control_port: DEFAULT_CONTROL_PORT,
+        bitcoin_node_username: config.network.bitcoin_node_rpc_username.clone(),
+        bitcoin_node_password: config.network.bitcoin_node_rpc_password.clone(),
+        bitcoin_node_rpc_url: config.network.bitcoin_node_rpc_url.clone(),
+        stacks_node_rpc_url: config.network.stacks_node_rpc_url.clone(),
+        operators: HashSet::new(),
+        display_logs: false,
+        cache_path: config.storage.cache_path.clone(),
+        bitcoin_network: config.network.bitcoin_network.clone(),
+    };
+
+    let ordinal_index = initialize_ordinal_index(&event_observer_config).unwrap();
+
+    let mut indexer = Indexer::new(config.network.clone(), ordinal_index);
 
     let mut canonical_fork = {
         let mut cursor = BlockIdentifier::default();

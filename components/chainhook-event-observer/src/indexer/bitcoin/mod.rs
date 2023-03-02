@@ -27,6 +27,7 @@ use rocket::serde::json::Value as JsonValue;
 use super::ordinals::indexing::updater::OrdinalIndexUpdater;
 use super::ordinals::indexing::OrdinalIndex;
 use super::ordinals::inscription::InscriptionParser;
+use super::ordinals::inscription_id::InscriptionId;
 use super::BitcoinChainContext;
 
 #[derive(Clone, PartialEq, Debug, Deserialize, Serialize)]
@@ -115,7 +116,15 @@ pub fn standardize_bitcoin_block(
     let mut transactions = vec![];
 
     match OrdinalIndexUpdater::update(&mut bitcoin_context.ordinal_index) {
-        Ok(_r) => {}
+        Ok(_) => {
+            ctx.try_log(|logger| {
+                slog::info!(
+                    logger,
+                    "Ordinal index updated (block count: {:?})",
+                    bitcoin_context.ordinal_index.block_count()
+                )
+            });
+        }
         Err(e) => {
             ctx.try_log(|logger| slog::error!(logger, "{}", e.to_string()));
         }
@@ -235,22 +244,15 @@ fn try_parse_ordinal_operation(
                     Err(_) => continue,
                 };
 
-                let outpoint = bitcoin::OutPoint {
+                let inscription_id = InscriptionId {
                     txid: tx.txid.clone(),
-                    vout: 0,
+                    index: 0,
                 };
-
                 let entries = ordinal_index.get_feed_inscriptions(3).unwrap();
                 ctx.try_log(|logger| slog::info!(logger, "Feed: {:?}", entries));
 
-                let inscription_ids = ordinal_index.get_inscriptions_on_output(outpoint).unwrap();
-                if inscription_ids.is_empty() {
-                    ctx.try_log(|logger| slog::info!(logger, "No inscriptions found in index, despite inscription detected in transaction"));
-                    return None;
-                }
-
                 let inscription_entry = match ordinal_index
-                    .get_inscription_entry(inscription_ids[0])
+                    .get_inscription_entry(inscription_id.clone())
                 {
                     Ok(Some(entry)) => entry,
                     _ => {
@@ -270,7 +272,7 @@ fn try_parse_ordinal_operation(
                                 .to_string(),
                             content_bytes: format!("0x{}", to_hex(&inscription_content_bytes)),
                             content_length: inscription_content_bytes.len(),
-                            inscription_id: "".into(),
+                            inscription_id: inscription_id.to_string(),
                             inscription_number: inscription_entry.number,
                             inscription_author: "".into(),
                             inscription_fee: inscription_entry.fee,

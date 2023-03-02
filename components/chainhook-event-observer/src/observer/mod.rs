@@ -126,6 +126,7 @@ pub struct EventObserverConfig {
     pub operators: HashSet<String>,
     pub display_logs: bool,
     pub cache_path: String,
+    pub bitcoin_network: BitcoinNetwork,
 }
 
 #[derive(Deserialize, Debug)]
@@ -227,7 +228,7 @@ pub async fn start_event_observer(
     ctx.try_log(|logger| {
         slog::info!(
             logger,
-            "Initializing ordinals index in file {}",
+            "Initializing ordinals index in dir `{}`",
             config.cache_path
         )
     });

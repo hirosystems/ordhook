@@ -415,7 +415,7 @@ dependencies = [
  "ansi_term",
  "atty",
  "chainhook-event-observer",
- "chainhook-types 1.0.2",
+ "chainhook-types 1.0.3",
  "clap 3.2.23",
  "clap_generate",
  "clarinet-files",
@@ -450,7 +450,7 @@ dependencies = [
  "base64 0.13.1",
  "bitcoincore-rpc",
  "bitcoincore-rpc-json",
- "chainhook-types 1.0.2",
+ "chainhook-types 1.0.3",
  "chrono",
  "clap 3.2.23",
  "clap_generate",
@@ -458,7 +458,10 @@ dependencies = [
  "clarity-repl",
  "crossbeam-channel",
  "ctrlc",
+ "futures",
+ "hex",
  "hiro-system-kit",
+ "hyper",
  "redb",
  "reqwest",
  "rocket",
@@ -487,7 +490,7 @@ dependencies = [
 
 [[package]]
 name = "chainhook-types"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "schemars",
  "serde",
@@ -1692,9 +1695,9 @@ checksum = "c4a1e36c821dbe04574f602848a19f742f4fb3c98d40449f11bcad18d6b17421"
 
 [[package]]
 name = "hyper"
-version = "0.14.23"
+version = "0.14.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "034711faac9d2166cb1baf1a2fb0b60b1f277f8492fd72176c17f3515e1abd3c"
+checksum = "5e011372fa0b68db8350aa7a248930ecc7839bf46d8485577d69f117a75f164c"
 dependencies = [
  "bytes",
  "futures-channel",

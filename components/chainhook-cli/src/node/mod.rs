@@ -91,6 +91,7 @@ impl Node {
             operators: HashSet::new(),
             display_logs: false,
             cache_path: self.config.storage.cache_path.clone(),
+            bitcoin_network: self.config.network.bitcoin_network.clone(),
         };
         info!(
             self.ctx.expect_logger(),

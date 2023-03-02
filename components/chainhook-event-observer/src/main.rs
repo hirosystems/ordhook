@@ -147,6 +147,7 @@ impl EventObserverConfig {
             operators,
             display_logs: true,
             cache_path: config_file.cache_path.unwrap_or("cache".into()),
+            bitcoin_network: chainhook_types::BitcoinNetwork::Mainnet, // todo(lgalabru)
         };
         config
     }

@@ -5,9 +5,14 @@ use chainhook_event_observer::chainhooks::bitcoin::{
     handle_bitcoin_hook_action, BitcoinChainhookOccurrence, BitcoinTriggerChainhook,
 };
 use chainhook_event_observer::chainhooks::types::BitcoinChainhookFullSpecification;
-use chainhook_event_observer::indexer;
+use chainhook_event_observer::indexer::ordinals::indexing::updater::OrdinalIndexUpdater;
+use chainhook_event_observer::indexer::ordinals::initialize_ordinal_index;
+use chainhook_event_observer::indexer::{self, BitcoinChainContext};
+use chainhook_event_observer::observer::{
+    EventObserverConfig, DEFAULT_CONTROL_PORT, DEFAULT_INGESTION_PORT,
+};
 use chainhook_event_observer::utils::{file_append, send_request, Context};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 pub async fn scan_bitcoin_chain_with_predicate(
@@ -133,8 +138,40 @@ pub async fn scan_bitcoin_chain_with_predicate(
             .result::<indexer::bitcoin::Block>()
             .map_err(|e| format!("unable to parse response ({})", e))?;
 
-        let block =
-            indexer::bitcoin::standardize_bitcoin_block(&config.network, cursor, raw_block, ctx)?;
+        let event_observer_config = EventObserverConfig {
+            normalization_enabled: true,
+            grpc_server_enabled: false,
+            hooks_enabled: true,
+            bitcoin_rpc_proxy_enabled: true,
+            event_handlers: vec![],
+            chainhook_config: None,
+            ingestion_port: DEFAULT_INGESTION_PORT,
+            control_port: DEFAULT_CONTROL_PORT,
+            bitcoin_node_username: config.network.bitcoin_node_rpc_username.clone(),
+            bitcoin_node_password: config.network.bitcoin_node_rpc_password.clone(),
+            bitcoin_node_rpc_url: config.network.bitcoin_node_rpc_url.clone(),
+            stacks_node_rpc_url: config.network.stacks_node_rpc_url.clone(),
+            operators: HashSet::new(),
+            display_logs: false,
+            cache_path: config.storage.cache_path.clone(),
+            bitcoin_network: config.network.bitcoin_network.clone(),
+        };
+
+        let ordinal_index = initialize_ordinal_index(&event_observer_config).unwrap();
+        match OrdinalIndexUpdater::update(&ordinal_index) {
+            Ok(_r) => {}
+            Err(e) => {}
+        }
+
+        let mut bitcoin_context = BitcoinChainContext::new(ordinal_index);
+
+        let block = indexer::bitcoin::standardize_bitcoin_block(
+            &config.network,
+            cursor,
+            raw_block,
+            &mut bitcoin_context,
+            ctx,
+        )?;
 
         let mut hits = vec![];
         for tx in block.transactions.iter() {

@@ -5,13 +5,15 @@ mod epoch;
 mod height;
 pub mod indexing;
 pub mod inscription;
-mod inscription_id;
+pub mod inscription_id;
 mod sat;
 mod sat_point;
 
 use std::time::Duration;
 
 type Result<T = (), E = anyhow::Error> = std::result::Result<T, E>;
+
+use chainhook_types::BitcoinNetwork;
 
 use crate::observer::EventObserverConfig;
 
@@ -24,12 +26,17 @@ const CYCLE_EPOCHS: u64 = 6;
 pub fn initialize_ordinal_index(
     config: &EventObserverConfig,
 ) -> Result<self::indexing::OrdinalIndex, String> {
+    let chain = match &config.bitcoin_network {
+        BitcoinNetwork::Mainnet => chain::Chain::Mainnet,
+        BitcoinNetwork::Testnet => chain::Chain::Testnet,
+        BitcoinNetwork::Regtest => chain::Chain::Regtest,
+    };
     let index_options = self::indexing::Options {
         rpc_username: config.bitcoin_node_username.clone(),
         rpc_password: config.bitcoin_node_password.clone(),
         data_dir: config.cache_path.clone().into(),
-        chain: chain::Chain::Mainnet,
-        first_inscription_height: None,
+        chain: chain,
+        first_inscription_height: Some(chain.first_inscription_height()),
         height_limit: None,
         index: None,
         rpc_url: config.bitcoin_node_rpc_url.clone(),
