@@ -228,7 +228,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
         },
         Command::Ordinals(subcmd) => match subcmd {
             OrdinalsCommand::Satoshi(cmd) => {
-                let config =
+                let _config =
                     Config::default(cmd.devnet, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
             }
         },

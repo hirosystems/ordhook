@@ -9,14 +9,12 @@ mod sat;
 mod sat_point;
 
 use std::{
-    collections::{HashMap, VecDeque},
-    path::PathBuf,
     time::Duration,
 };
 
-use bitcoincore_rpc_json::{GetRawTransactionResult, GetTxOutResult};
-use chainhook_types::{bitcoin::TxIn, TransactionIdentifier};
-use reqwest::Client as HttpClient;
+
+
+
 type Result<T = (), E = anyhow::Error> = std::result::Result<T, E>;
 
 use crate::observer::EventObserverConfig;

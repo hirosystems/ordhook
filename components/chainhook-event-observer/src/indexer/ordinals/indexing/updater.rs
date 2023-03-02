@@ -1,10 +1,9 @@
 use crate::indexer::ordinals::{height::Height, sat::Sat, sat_point::SatPoint};
 use anyhow::Context;
 use bitcoincore_rpc::bitcoin::{Block, OutPoint, Transaction, Txid};
-use chrono::{DateTime, Utc};
+
 use std::{
     collections::VecDeque,
-    thread::Thread,
     time::{Instant, SystemTime},
 };
 
@@ -83,7 +82,7 @@ impl Updater {
         index: &'index Index,
         mut wtx: WriteTransaction<'index>,
     ) -> Result {
-        let starting_height = index.client.get_block_count()? + 1;
+        let _starting_height = index.client.get_block_count()? + 1;
 
         let rx = Self::fetch_blocks_from(index, self.height, self.index_sats)?;
 

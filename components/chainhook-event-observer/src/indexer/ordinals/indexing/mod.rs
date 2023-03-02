@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap, path::PathBuf};
 
 use anyhow::Context;
-use bitcoincore_rpc::bitcoin::{self, Amount, Block, BlockHash, OutPoint, Transaction, Txid};
+use bitcoincore_rpc::bitcoin::{Amount, Block, BlockHash, OutPoint, Transaction, Txid};
 use bitcoincore_rpc::RpcApi;
 use chrono::{DateTime, TimeZone, Utc};
 

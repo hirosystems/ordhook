@@ -1,5 +1,5 @@
 use std::{
-    fmt::{self, Display, Formatter},
+    fmt::{Display, Formatter},
     str::FromStr,
 };
 

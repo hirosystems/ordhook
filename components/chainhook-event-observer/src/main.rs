@@ -20,7 +20,7 @@ pub mod utils;
 use crate::utils::Context;
 use hiro_system_kit::log::setup_logger;
 use hiro_system_kit::slog;
-use rocket::config;
+
 
 use crate::chainhooks::types::ChainhookConfig;
 use clap::Parser;

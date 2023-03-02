@@ -90,7 +90,7 @@ impl AddAssign<u64> for Sat {
 
 #[cfg(test)]
 mod tests {
-    use bitcoincore_rpc::bitcoin::blockdata::constants::{COIN_VALUE, SUBSIDY_HALVING_INTERVAL};
+    use bitcoincore_rpc::bitcoin::blockdata::constants::{COIN_VALUE};
 
     use super::*;
 
