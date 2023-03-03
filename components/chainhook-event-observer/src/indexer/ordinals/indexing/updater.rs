@@ -234,83 +234,68 @@ impl OrdinalIndexUpdater {
                 .and_then(|option| {
                     option
                         .map(|hash| {
-                            if height >= first_inscription_height {
-                                let block: Block =
-                                    client.call("getblock", &[json!(hash), json!(2)])?;
-                                let bits = hex::decode(block.bits).unwrap();
-                                let block_data = BlockData {
-                                    header: BlockHeader {
-                                        version: block.version,
-                                        prev_blockhash: block.previousblockhash,
-                                        merkle_root: block.merkleroot,
-                                        time: block.time as u32,
-                                        bits: u32::from_be_bytes([
-                                            bits[0], bits[1], bits[2], bits[3],
-                                        ]),
-                                        nonce: block.nonce,
-                                    },
-                                    txdata: block
-                                        .tx
-                                        .iter()
-                                        .map(|tx| {
-                                            (
-                                                Transaction {
-                                                    version: tx.version as i32,
-                                                    lock_time: PackedLockTime(tx.locktime),
-                                                    input: tx
-                                                        .vin
-                                                        .iter()
-                                                        .map(|i| TxIn {
-                                                            previous_output: match (i.txid, i.vout)
-                                                            {
-                                                                (Some(txid), Some(vout)) => {
-                                                                    OutPoint { txid, vout }
-                                                                }
-                                                                _ => OutPoint::null(),
-                                                            },
-                                                            script_sig: match i.script_sig {
-                                                                Some(ref script_sig) => {
-                                                                    script_sig.script().unwrap()
-                                                                }
-                                                                None => Script::default(),
-                                                            },
-                                                            sequence:
-                                                                bitcoincore_rpc::bitcoin::Sequence(
-                                                                    i.sequence,
-                                                                ),
-                                                            witness: Witness::from_vec(
-                                                                i.txinwitness
-                                                                    .clone()
-                                                                    .unwrap_or(vec![]),
+                            let block: Block = client.call("getblock", &[json!(hash), json!(2)])?;
+                            let bits = hex::decode(block.bits).unwrap();
+                            let block_data = BlockData {
+                                header: BlockHeader {
+                                    version: block.version,
+                                    prev_blockhash: block.previousblockhash,
+                                    merkle_root: block.merkleroot,
+                                    time: block.time as u32,
+                                    bits: u32::from_be_bytes([bits[0], bits[1], bits[2], bits[3]]),
+                                    nonce: block.nonce,
+                                },
+                                txdata: block
+                                    .tx
+                                    .iter()
+                                    .map(|tx| {
+                                        (
+                                            Transaction {
+                                                version: tx.version as i32,
+                                                lock_time: PackedLockTime(tx.locktime),
+                                                input: tx
+                                                    .vin
+                                                    .iter()
+                                                    .map(|i| TxIn {
+                                                        previous_output: match (i.txid, i.vout) {
+                                                            (Some(txid), Some(vout)) => {
+                                                                OutPoint { txid, vout }
+                                                            }
+                                                            _ => OutPoint::null(),
+                                                        },
+                                                        script_sig: match i.script_sig {
+                                                            Some(ref script_sig) => {
+                                                                script_sig.script().unwrap()
+                                                            }
+                                                            None => Script::default(),
+                                                        },
+                                                        sequence:
+                                                            bitcoincore_rpc::bitcoin::Sequence(
+                                                                i.sequence,
                                                             ),
-                                                        })
-                                                        .collect(),
-                                                    output: tx
-                                                        .vout
-                                                        .iter()
-                                                        .map(|o| TxOut {
-                                                            value: o.value.to_sat(),
-                                                            script_pubkey: o
-                                                                .script_pub_key
-                                                                .script()
-                                                                .unwrap(),
-                                                        })
-                                                        .collect(),
-                                                },
-                                                tx.txid,
-                                            )
-                                        })
-                                        .collect::<Vec<(Transaction, Txid)>>(),
-                                };
-                                Ok(block_data)
-                            } else {
-                                let header = client.get_block_header(&hash)?;
-                                let block_data = BlockData {
-                                    header,
-                                    txdata: Vec::new(),
-                                };
-                                Ok(block_data)
-                            }
+                                                        witness: Witness::from_vec(
+                                                            i.txinwitness.clone().unwrap_or(vec![]),
+                                                        ),
+                                                    })
+                                                    .collect(),
+                                                output: tx
+                                                    .vout
+                                                    .iter()
+                                                    .map(|o| TxOut {
+                                                        value: o.value.to_sat(),
+                                                        script_pubkey: o
+                                                            .script_pub_key
+                                                            .script()
+                                                            .unwrap(),
+                                                    })
+                                                    .collect(),
+                                            },
+                                            tx.txid,
+                                        )
+                                    })
+                                    .collect::<Vec<(Transaction, Txid)>>(),
+                            };
+                            Ok(block_data)
                         })
                         .transpose()
                 }) {
