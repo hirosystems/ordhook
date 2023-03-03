@@ -6,7 +6,7 @@ mod height;
 pub mod indexing;
 pub mod inscription;
 pub mod inscription_id;
-mod sat;
+pub mod sat;
 mod sat_point;
 
 use std::time::Duration;
@@ -15,7 +15,7 @@ type Result<T = (), E = anyhow::Error> = std::result::Result<T, E>;
 
 use chainhook_types::BitcoinNetwork;
 
-use crate::observer::EventObserverConfig;
+use crate::{observer::EventObserverConfig, utils::Context};
 
 const DIFFCHANGE_INTERVAL: u64 =
     bitcoincore_rpc::bitcoin::blockdata::constants::DIFFCHANGE_INTERVAL as u64;
@@ -25,6 +25,7 @@ const CYCLE_EPOCHS: u64 = 6;
 
 pub fn initialize_ordinal_index(
     config: &EventObserverConfig,
+    ctx: &Context,
 ) -> Result<self::indexing::OrdinalIndex, String> {
     let chain = match &config.bitcoin_network {
         BitcoinNetwork::Mainnet => chain::Chain::Mainnet,

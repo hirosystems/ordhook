@@ -1,5 +1,8 @@
 use crate::indexer::ordinals::{
-    inscription::Inscription, inscription_id::InscriptionId, sat::Sat, sat_point::SatPoint,
+    inscription::{Inscription, InscriptionParser},
+    inscription_id::InscriptionId,
+    sat::Sat,
+    sat_point::SatPoint,
 };
 
 use super::*;
@@ -88,6 +91,7 @@ impl<'a, 'db, 'tx> InscriptionUpdater<'a, 'db, 'tx> {
         tx: &Transaction,
         txid: Txid,
         input_sat_ranges: Option<&VecDeque<(u64, u64)>>,
+        ctx: &Context,
     ) -> Result<u64> {
         let mut inscriptions = Vec::new();
 
@@ -126,9 +130,23 @@ impl<'a, 'db, 'tx> InscriptionUpdater<'a, 'db, 'tx> {
             }
         }
 
-        if inscriptions.iter().all(|flotsam| flotsam.offset != 0)
-            && Inscription::from_transaction(tx).is_some()
-        {
+        let is_first_sat_pristine = if inscriptions.is_empty() {
+            true
+        } else {
+            inscriptions.iter().all(|flotsam| flotsam.offset != 0)
+        };
+
+        ctx.try_log(|logger| {
+            slog::info!(
+                logger,
+                "Decision: {}/{:?}/{:?}",
+                is_first_sat_pristine,
+                InscriptionParser::parse(&tx.input.get(0).unwrap().witness),
+                tx
+            )
+        });
+
+        if is_first_sat_pristine && Inscription::from_transaction(tx).is_some() {
             let floatsam = Flotsam {
                 inscription_id: txid.into(),
                 offset: 0,

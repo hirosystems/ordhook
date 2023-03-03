@@ -9,26 +9,29 @@ use crate::chainhooks::types::{
 use crate::indexer::IndexerConfig;
 use crate::observer::BitcoinConfig;
 use crate::utils::Context;
-use bitcoincore_rpc::bitcoin::{self, Script};
+use bitcoincore_rpc::bitcoin::{
+    self, Address, BlockHeader, OutPoint as OutPointS, PackedLockTime, Script, Transaction, Txid,
+    Witness,
+};
 use bitcoincore_rpc_json::{GetRawTransactionResult, GetRawTransactionResultVout};
 pub use blocks_pool::BitcoinBlockPool;
 use chainhook_types::bitcoin::{OutPoint, TxIn, TxOut};
 use chainhook_types::{
     BitcoinBlockData, BitcoinBlockMetadata, BitcoinTransactionData, BitcoinTransactionMetadata,
     BlockCommitmentData, BlockIdentifier, KeyRegistrationData, LockSTXData,
-    OrdinalInscriptionRevealData, OrdinalInscriptionRevealInscriptionData,
-    OrdinalInscriptionRevealOrdinalData, OrdinalOperation, PobBlockCommitmentData,
-    PoxBlockCommitmentData, PoxReward, StacksBaseChainOperation, TransactionIdentifier,
-    TransferSTXData,
+    OrdinalInscriptionRevealData, OrdinalOperation, PobBlockCommitmentData, PoxBlockCommitmentData,
+    PoxReward, StacksBaseChainOperation, TransactionIdentifier, TransferSTXData,
 };
 use clarity_repl::clarity::util::hash::to_hex;
 use hiro_system_kit::slog;
 use rocket::serde::json::Value as JsonValue;
 
-use super::ordinals::indexing::updater::OrdinalIndexUpdater;
+use super::ordinals::indexing::entry::InscriptionEntry;
+use super::ordinals::indexing::updater::{BlockData, OrdinalIndexUpdater};
 use super::ordinals::indexing::OrdinalIndex;
 use super::ordinals::inscription::InscriptionParser;
 use super::ordinals::inscription_id::InscriptionId;
+use super::ordinals::sat::Sat;
 use super::BitcoinChainContext;
 
 #[derive(Clone, PartialEq, Debug, Deserialize, Serialize)]
@@ -115,25 +118,111 @@ pub fn standardize_bitcoin_block(
     ctx: &Context,
 ) -> Result<BitcoinBlockData, String> {
     let mut transactions = vec![];
-    ctx.try_log(|logger| slog::info!(logger, "Updating ordinal index",));
+    ctx.try_log(|logger| slog::info!(logger, "Updating ordinal index"));
 
     let ordinal_index = bitcoin_context.ordinal_index.take();
     let ctx_ = ctx.clone();
+
+    let block_data = if let Some(ref ordinal_index) = ordinal_index {
+        if let Ok(count) = ordinal_index.block_count() {
+            ctx.try_log(|logger| slog::info!(logger, "Blocks: {} / {}", count, block.height));
+            if count as usize == block.height + 10 {
+                ctx.try_log(|logger| slog::info!(logger, "Will use cached block"));
+
+                // let bits = hex::decode(block.bits).unwrap();
+                // let block_data = BlockData {
+                //     header: BlockHeader {
+                //         version: block.version,
+                //         prev_blockhash: block.previousblockhash,
+                //         merkle_root: block.merkleroot,
+                //         time: block.time as u32,
+                //         bits: u32::from_be_bytes([bits[0], bits[1], bits[2], bits[3]]),
+                //         nonce: block.nonce,
+                //     },
+                //     txdata: block
+                //         .tx
+                //         .iter()
+                //         .map(|tx| {
+                //             (
+                //                 Transaction {
+                //                     version: tx.version as i32,
+                //                     lock_time: PackedLockTime(tx.locktime),
+                //                     input: tx
+                //                         .vin
+                //                         .iter()
+                //                         .map(|i| bitcoin::TxIn {
+                //                             previous_output: match (i.txid, i.vout) {
+                //                                 (Some(txid), Some(vout)) => {
+                //                                     OutPointS { txid, vout }
+                //                                 }
+                //                                 _ => OutPointS::null(),
+                //                             },
+                //                             script_sig: match i.script_sig {
+                //                                 Some(ref script_sig) => {
+                //                                     script_sig.script().unwrap()
+                //                                 }
+                //                                 None => Script::default(),
+                //                             },
+                //                             sequence: bitcoincore_rpc::bitcoin::Sequence(
+                //                                 i.sequence,
+                //                             ),
+                //                             witness: Witness::from_vec(
+                //                                 i.txinwitness.clone().unwrap_or(vec![]),
+                //                             ),
+                //                         })
+                //                         .collect(),
+                //                     output: tx
+                //                         .vout
+                //                         .iter()
+                //                         .map(|o| bitcoin::TxOut {
+                //                             value: o.value.to_sat(),
+                //                             script_pubkey: o.script_pub_key.script().unwrap(),
+                //                         })
+                //                         .collect(),
+                //                 },
+                //                 tx.txid,
+                //             )
+                //         })
+                //         .collect::<Vec<(Transaction, Txid)>>(),
+                // };
+                // ctx.try_log(|logger| slog::info!(logger, "BlockData: {:?}", block_data));
+                // Some(block_data)
+                None
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     let handle: JoinHandle<Result<_, String>> =
         hiro_system_kit::thread_named("Ordinal index update")
             .spawn(move || {
                 if let Some(ref ordinal_index) = ordinal_index {
                     match hiro_system_kit::nestable_block_on(OrdinalIndexUpdater::update(
                         &ordinal_index,
+                        block_data,
+                        &ctx_,
                     )) {
                         Ok(_) => {
                             ctx_.try_log(|logger| {
-                                slog::info!(logger, "Ordinal index successfully updated",)
+                                slog::info!(
+                                    logger,
+                                    "Ordinal index successfully updated {:?}",
+                                    ordinal_index.block_count()
+                                )
                             });
                         }
                         Err(e) => {
                             ctx_.try_log(|logger| {
-                                slog::error!(logger, "Error updating ordinal index",)
+                                slog::error!(
+                                    logger,
+                                    "Error updating ordinal index: {}",
+                                    e.to_string()
+                                )
                             });
                         }
                     };
@@ -276,31 +365,39 @@ fn try_parse_ordinal_operation(
                     Ok(Some(entry)) => entry,
                     _ => {
                         ctx.try_log(|logger| slog::info!(logger, "No inscriptions entry found in index, despite inscription detected in transaction"));
-                        return None;
+                        InscriptionEntry {
+                            fee: 0,
+                            height: 0,
+                            number: 0,
+                            sat: Some(Sat(0)),
+                            timestamp: 0,
+                        }
                     }
                 };
 
+                let authors = tx.vout[0]
+                    .script_pub_key
+                    .addresses
+                    .clone()
+                    .unwrap_or(vec![]);
+                let sat = &inscription_entry.sat.unwrap();
                 let no_content_bytes = vec![];
                 let inscription_content_bytes = inscription.body().unwrap_or(&no_content_bytes);
+
                 return Some(OrdinalOperation::InscriptionRevealed(
                     OrdinalInscriptionRevealData {
-                        inscription: OrdinalInscriptionRevealInscriptionData {
-                            content_type: inscription
-                                .content_type()
-                                .unwrap_or("unknown")
-                                .to_string(),
-                            content_bytes: format!("0x{}", to_hex(&inscription_content_bytes)),
-                            content_length: inscription_content_bytes.len(),
-                            inscription_id: inscription_id.to_string(),
-                            inscription_number: inscription_entry.number,
-                            inscription_author: "".into(),
-                            inscription_fee: inscription_entry.fee,
-                        },
-                        ordinal: Some(OrdinalInscriptionRevealOrdinalData {
-                            ordinal_number: inscription_entry.sat.unwrap().n(),
-                            ordinal_block_height: 0,
-                            ordinal_offset: 0,
-                        }),
+                        content_type: inscription.content_type().unwrap_or("unknown").to_string(),
+                        content_bytes: format!("0x{}", to_hex(&inscription_content_bytes)),
+                        content_length: inscription_content_bytes.len(),
+                        inscription_id: inscription_id.to_string(),
+                        inscription_number: inscription_entry.number,
+                        inscription_authors: authors
+                            .into_iter()
+                            .map(|a| a.to_string())
+                            .collect::<Vec<String>>(),
+                        inscription_fee: inscription_entry.fee,
+                        ordinal_number: sat.n(),
+                        ordinal_block_height: sat.height().n(),
                     },
                 ));
             }

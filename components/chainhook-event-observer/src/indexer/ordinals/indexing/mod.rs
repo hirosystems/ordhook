@@ -1,9 +1,11 @@
 use std::{collections::BTreeMap, path::PathBuf};
 
-use anyhow::Context;
+use anyhow::Context as Ctx;
 use bitcoincore_rpc::bitcoin::{Amount, Block, BlockHash, OutPoint, Transaction, Txid};
 use bitcoincore_rpc::RpcApi;
 use chrono::{DateTime, TimeZone, Utc};
+
+use crate::utils::Context;
 
 use super::blocktime::Blocktime;
 use super::chain::Chain;
@@ -12,7 +14,7 @@ use super::sat_point::SatPoint;
 use super::{inscription_id::InscriptionId, sat::Sat};
 use std::cmp;
 
-mod entry;
+pub mod entry;
 mod fetcher;
 
 use {
@@ -368,10 +370,6 @@ impl OrdinalIndex {
         };
 
         Ok(info)
-    }
-
-    pub async fn update(&self) -> Result {
-        OrdinalIndexUpdater::update(self).await
     }
 
     pub fn is_reorged(&self) -> bool {
