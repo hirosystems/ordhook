@@ -13,6 +13,7 @@ extern crate serde_derive;
 extern crate serde_json;
 
 pub extern crate bitcoincore_rpc;
+pub extern crate redb;
 
 pub mod chainhooks;
 pub mod indexer;

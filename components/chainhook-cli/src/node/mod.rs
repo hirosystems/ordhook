@@ -1,9 +1,24 @@
 use crate::config::Config;
-use chainhook_event_observer::chainhooks::types::ChainhookConfig;
+use crate::node::ordinals::inscription_id::InscriptionId;
+use chainhook_event_observer::bitcoincore_rpc::bitcoin::BlockHash;
+use chainhook_event_observer::bitcoincore_rpc::jsonrpc;
+use chainhook_event_observer::chainhooks::bitcoin::{
+    handle_bitcoin_hook_action, BitcoinChainhookOccurrence, BitcoinTriggerChainhook,
+};
+use chainhook_event_observer::chainhooks::types::{
+    BitcoinPredicateType, ChainhookConfig, OrdinalOperations, Protocols,
+};
+use chainhook_event_observer::indexer::ordinals::indexing::entry::Entry;
+use chainhook_event_observer::indexer::ordinals::indexing::{
+    HEIGHT_TO_BLOCK_HASH, INSCRIPTION_NUMBER_TO_INSCRIPTION_ID,
+};
+use chainhook_event_observer::indexer::ordinals::{self, initialize_ordinal_index};
+use chainhook_event_observer::indexer::{self, BitcoinChainContext};
 use chainhook_event_observer::observer::{
     start_event_observer, EventObserverConfig, ObserverEvent,
 };
-use chainhook_event_observer::utils::Context;
+use chainhook_event_observer::redb::ReadableTable;
+use chainhook_event_observer::utils::{file_append, send_request, Context};
 use chainhook_event_observer::{
     chainhooks::stacks::{
         evaluate_stacks_predicate_on_transaction, handle_stacks_hook_action,
@@ -15,8 +30,10 @@ use chainhook_types::{
     BlockIdentifier, StacksBlockData, StacksBlockMetadata, StacksChainEvent, StacksTransactionData,
 };
 use redis::{Commands, Connection};
-use std::collections::{HashMap, HashSet};
+use reqwest::Client as HttpClient;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::mpsc::channel;
+use std::time::Duration;
 
 pub const DEFAULT_INGESTION_PORT: u16 = 20455;
 pub const DEFAULT_CONTROL_PORT: u16 = 20456;
@@ -31,7 +48,7 @@ impl Node {
         Self { config, ctx }
     }
 
-    pub fn run(&mut self) {
+    pub async fn run(&mut self) -> Result<(), String> {
         let mut chainhook_config = ChainhookConfig::new();
 
         {
@@ -101,6 +118,14 @@ impl Node {
             self.ctx.expect_logger(),
             "Listening for chainhook predicate registrations on port {}", DEFAULT_CONTROL_PORT
         );
+
+        let ordinal_index = match initialize_ordinal_index(&event_observer_config, &self.ctx) {
+            Ok(index) => index,
+            Err(e) => {
+                panic!()
+            }
+        };
+        let mut bitcoin_context = BitcoinChainContext::new(Some(ordinal_index));
 
         let context_cloned = self.ctx.clone();
         let _ = std::thread::spawn(move || {
@@ -281,12 +306,214 @@ impl Node {
                             }
                             info!(self.ctx.expect_logger(), "Stacks chainhook {} scan completed: action triggered by {} transactions", stacks_hook.uuid, total_hits);
                         }
-                        ChainhookSpecification::Bitcoin(_bitcoin_hook) => {
-                            // ordinal_index
-                            warn!(
-                                self.ctx.expect_logger(),
-                                "Bitcoin chainhook evaluation unavailable for historical data"
-                            );
+                        ChainhookSpecification::Bitcoin(predicate_spec) => {
+                            let mut inscriptions_hints = BTreeMap::new();
+                            let mut use_hinting = false;
+                            if let BitcoinPredicateType::Protocol(Protocols::Ordinal(
+                                OrdinalOperations::InscriptionRevealed,
+                            )) = &predicate_spec.predicate
+                            {
+                                if let Some(ref ordinal_index) = bitcoin_context.ordinal_index {
+                                    for (inscription_number, inscription_id) in ordinal_index
+                                        .database
+                                        .begin_read()
+                                        .unwrap()
+                                        .open_table(INSCRIPTION_NUMBER_TO_INSCRIPTION_ID)
+                                        .unwrap()
+                                        .iter()
+                                        .unwrap()
+                                    {
+                                        let inscription =
+                                            InscriptionId::load(*inscription_id.value());
+                                        println!(
+                                            "{} -> {}",
+                                            inscription_number.value(),
+                                            inscription
+                                        );
+
+                                        let entry = ordinal_index
+                                            .get_inscription_entry(inscription)
+                                            .unwrap()
+                                            .unwrap();
+                                        println!("{:?}", entry);
+
+                                        let blockhash = ordinal_index
+                                            .database
+                                            .begin_read()
+                                            .unwrap()
+                                            .open_table(HEIGHT_TO_BLOCK_HASH)
+                                            .unwrap()
+                                            .get(&entry.height)
+                                            .unwrap()
+                                            .map(|k| BlockHash::load(*k.value()))
+                                            .unwrap();
+
+                                        inscriptions_hints.insert(entry.height, blockhash);
+                                        use_hinting = true;
+                                    }
+                                }
+                            }
+
+                            let start_block = match predicate_spec.start_block {
+                                Some(n) => n,
+                                None => 0,
+                            };
+
+                            let end_block = match predicate_spec.end_block {
+                                Some(n) => n,
+                                None => {
+                                    let body = json!({
+                                        "jsonrpc": "1.0",
+                                        "id": "chainhook-cli",
+                                        "method": "getblockcount",
+                                        "params": json!([])
+                                    });
+                                    let http_client = HttpClient::builder()
+                                        .timeout(Duration::from_secs(20))
+                                        .build()
+                                        .expect("Unable to build http client");
+                                    http_client
+                                        .post(&self.config.network.bitcoin_node_rpc_url)
+                                        .basic_auth(
+                                            &self.config.network.bitcoin_node_rpc_username,
+                                            Some(&self.config.network.bitcoin_node_rpc_password),
+                                        )
+                                        .header("Content-Type", "application/json")
+                                        .header(
+                                            "Host",
+                                            &self.config.network.bitcoin_node_rpc_url[7..],
+                                        )
+                                        .json(&body)
+                                        .send()
+                                        .await
+                                        .map_err(|e| format!("unable to send request ({})", e))?
+                                        .json::<jsonrpc::Response>()
+                                        .await
+                                        .map_err(|e| format!("unable to parse response ({})", e))?
+                                        .result::<u64>()
+                                        .map_err(|e| format!("unable to parse response ({})", e))?
+                                }
+                            };
+
+                            let mut total_hits = vec![];
+                            for cursor in start_block..=end_block {
+                                let block_hash = if use_hinting {
+                                    match inscriptions_hints.remove(&cursor) {
+                                        Some(block_hash) => block_hash.to_string(),
+                                        None => continue,
+                                    }
+                                } else {
+                                    let body = json!({
+                                        "jsonrpc": "1.0",
+                                        "id": "chainhook-cli",
+                                        "method": "getblockhash",
+                                        "params": [cursor]
+                                    });
+                                    let http_client = HttpClient::builder()
+                                        .timeout(Duration::from_secs(20))
+                                        .build()
+                                        .expect("Unable to build http client");
+                                    http_client
+                                        .post(&self.config.network.bitcoin_node_rpc_url)
+                                        .basic_auth(
+                                            &self.config.network.bitcoin_node_rpc_username,
+                                            Some(&self.config.network.bitcoin_node_rpc_password),
+                                        )
+                                        .header("Content-Type", "application/json")
+                                        .header(
+                                            "Host",
+                                            &self.config.network.bitcoin_node_rpc_url[7..],
+                                        )
+                                        .json(&body)
+                                        .send()
+                                        .await
+                                        .map_err(|e| format!("unable to send request ({})", e))?
+                                        .json::<jsonrpc::Response>()
+                                        .await
+                                        .map_err(|e| format!("unable to parse response ({})", e))?
+                                        .result::<String>()
+                                        .map_err(|e| format!("unable to parse response ({})", e))?
+                                };
+
+                                let body = json!({
+                                    "jsonrpc": "1.0",
+                                    "id": "chainhook-cli",
+                                    "method": "getblock",
+                                    "params": [block_hash, 2]
+                                });
+                                let http_client = HttpClient::builder()
+                                    .timeout(Duration::from_secs(20))
+                                    .build()
+                                    .expect("Unable to build http client");
+                                let raw_block = http_client
+                                    .post(&self.config.network.bitcoin_node_rpc_url)
+                                    .basic_auth(
+                                        &self.config.network.bitcoin_node_rpc_username,
+                                        Some(&self.config.network.bitcoin_node_rpc_password),
+                                    )
+                                    .header("Content-Type", "application/json")
+                                    .header("Host", &self.config.network.bitcoin_node_rpc_url[7..])
+                                    .json(&body)
+                                    .send()
+                                    .await
+                                    .map_err(|e| format!("unable to send request ({})", e))?
+                                    .json::<jsonrpc::Response>()
+                                    .await
+                                    .map_err(|e| format!("unable to parse response ({})", e))?
+                                    .result::<indexer::bitcoin::Block>()
+                                    .map_err(|e| format!("unable to parse response ({})", e))?;
+
+                                let block = indexer::bitcoin::standardize_bitcoin_block(
+                                    &self.config.network,
+                                    cursor,
+                                    raw_block,
+                                    &mut bitcoin_context,
+                                    &self.ctx,
+                                )?;
+
+                                let mut hits = vec![];
+                                for tx in block.transactions.iter() {
+                                    if predicate_spec.predicate.evaluate_transaction_predicate(&tx)
+                                    {
+                                        info!(
+                                            self.ctx.expect_logger(),
+                                            "Action #{} triggered by transaction {} (block #{})",
+                                            predicate_spec.uuid,
+                                            tx.transaction_identifier.hash,
+                                            cursor
+                                        );
+                                        hits.push(tx);
+                                        total_hits.push(tx.transaction_identifier.hash.to_string());
+                                    }
+                                }
+
+                                if hits.len() > 0 {
+                                    let trigger = BitcoinTriggerChainhook {
+                                        chainhook: &predicate_spec,
+                                        apply: vec![(hits, &block)],
+                                        rollback: vec![],
+                                    };
+
+                                    let proofs = HashMap::new();
+                                    match handle_bitcoin_hook_action(trigger, &proofs) {
+                                        Err(e) => {
+                                            error!(
+                                                self.ctx.expect_logger(),
+                                                "unable to handle action {}", e
+                                            );
+                                        }
+                                        Ok(BitcoinChainhookOccurrence::Http(request)) => {
+                                            send_request(request, &self.ctx).await;
+                                        }
+                                        Ok(BitcoinChainhookOccurrence::File(path, bytes)) => {
+                                            file_append(path, bytes, &self.ctx)
+                                        }
+                                        Ok(BitcoinChainhookOccurrence::Data(_payload)) => {
+                                            unreachable!()
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -323,6 +550,7 @@ impl Node {
                 _ => {}
             }
         }
+        Ok(())
     }
 }
 

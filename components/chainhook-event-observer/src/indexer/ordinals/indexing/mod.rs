@@ -41,7 +41,7 @@ const SCHEMA_VERSION: u64 = 2;
 
 macro_rules! define_table {
     ($name:ident, $key:ty, $value:ty) => {
-        const $name: TableDefinition<$key, $value> = TableDefinition::new(stringify!($name));
+        pub const $name: TableDefinition<$key, $value> = TableDefinition::new(stringify!($name));
     };
 }
 
@@ -75,7 +75,7 @@ pub(crate) struct Options {
 pub struct OrdinalIndex {
     auth: Auth,
     client: Client,
-    database: Database,
+    pub database: Database,
     path: PathBuf,
     first_inscription_height: u64,
     genesis_block_coinbase_transaction: Transaction,
@@ -376,7 +376,7 @@ impl OrdinalIndex {
         self.reorged.load(atomic::Ordering::Relaxed)
     }
 
-    fn begin_read(&self) -> Result<rtx::Rtx> {
+    pub fn begin_read(&self) -> Result<rtx::Rtx> {
         Ok(rtx::Rtx(self.database.begin_read()?))
     }
 

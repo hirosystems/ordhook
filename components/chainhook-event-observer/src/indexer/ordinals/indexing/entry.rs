@@ -8,7 +8,7 @@ use bitcoincore_rpc::bitcoin::{
 
 use crate::indexer::ordinals::{inscription_id::InscriptionId, sat::Sat, sat_point::SatPoint};
 
-pub(super) trait Entry: Sized {
+pub trait Entry: Sized {
     type Value;
 
     fn load(value: Self::Value) -> Self;
@@ -16,7 +16,7 @@ pub(super) trait Entry: Sized {
     fn store(self) -> Self::Value;
 }
 
-pub(super) type BlockHashValue = [u8; 32];
+pub type BlockHashValue = [u8; 32];
 
 impl Entry for BlockHash {
     type Value = BlockHashValue;
@@ -30,6 +30,7 @@ impl Entry for BlockHash {
     }
 }
 
+#[derive(Debug)]
 pub struct InscriptionEntry {
     pub fee: u64,
     pub height: u64,
@@ -71,7 +72,7 @@ impl Entry for InscriptionEntry {
     }
 }
 
-pub(super) type InscriptionIdValue = [u8; 36];
+pub type InscriptionIdValue = [u8; 36];
 
 impl Entry for InscriptionId {
     type Value = InscriptionIdValue;

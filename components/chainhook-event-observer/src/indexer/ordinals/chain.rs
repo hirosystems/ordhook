@@ -9,7 +9,7 @@ use super::*;
 
 #[derive(Default, Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub(crate) enum Chain {
+pub enum Chain {
     #[default]
     Mainnet,
     Testnet,
@@ -18,6 +18,14 @@ pub(crate) enum Chain {
 }
 
 impl Chain {
+    pub fn from_bitcoin_network(network: &BitcoinNetwork) -> Chain {
+        match network {
+            BitcoinNetwork::Mainnet => Chain::Mainnet,
+            BitcoinNetwork::Testnet => Chain::Testnet,
+            BitcoinNetwork::Regtest => Chain::Regtest,
+        }
+    }
+
     pub(crate) fn network(self) -> Network {
         match self {
             Self::Mainnet => Network::Bitcoin,
@@ -43,7 +51,7 @@ impl Chain {
         }
     }
 
-    pub(crate) fn first_inscription_height(self) -> u64 {
+    pub fn first_inscription_height(self) -> u64 {
         match self {
             Self::Mainnet => 767430,
             Self::Regtest => 0,
@@ -56,7 +64,7 @@ impl Chain {
         bitcoin::blockdata::constants::genesis_block(self.network())
     }
 
-    pub(crate) fn address_from_script(
+    pub fn address_from_script(
         self,
         script: &Script,
     ) -> Result<Address, bitcoin::util::address::Error> {

@@ -1,5 +1,5 @@
 mod blocktime;
-mod chain;
+pub mod chain;
 mod deserialize_from_str;
 mod epoch;
 mod height;
@@ -8,7 +8,7 @@ pub mod inscription;
 pub mod inscription_id;
 pub mod sat;
 mod sat_point;
-
+use hiro_system_kit::slog;
 use std::time::Duration;
 
 type Result<T = (), E = anyhow::Error> = std::result::Result<T, E>;
@@ -45,8 +45,10 @@ pub fn initialize_ordinal_index(
     let index = match self::indexing::OrdinalIndex::open(&index_options) {
         Ok(index) => index,
         Err(e) => {
-            println!("unable to open ordinal index: {}", e.to_string());
-            panic!()
+            ctx.try_log(|logger| {
+                slog::error!(logger, "Unable to open ordinal index: {}", e.to_string())
+            });
+            std::process::exit(1);
         }
     };
     Ok(index)

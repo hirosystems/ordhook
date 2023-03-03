@@ -36,7 +36,7 @@ impl StacksChainContext {
 }
 
 pub struct BitcoinChainContext {
-    ordinal_index: Option<OrdinalIndex>,
+    pub ordinal_index: Option<OrdinalIndex>,
 }
 
 impl BitcoinChainContext {

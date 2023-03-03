@@ -2,7 +2,7 @@ use crate::indexer::ordinals::height::Height;
 
 use super::*;
 
-pub(crate) struct Rtx<'a>(pub(crate) redb::ReadTransaction<'a>);
+pub struct Rtx<'a>(pub(crate) redb::ReadTransaction<'a>);
 
 impl Rtx<'_> {
     pub(crate) fn height(&self) -> anyhow::Result<Option<Height>> {
