@@ -137,7 +137,7 @@ impl<'a, 'db, 'tx> InscriptionUpdater<'a, 'db, 'tx> {
         };
 
         ctx.try_log(|logger| {
-            slog::info!(
+            slog::trace!(
                 logger,
                 "Decision: {}/{:?}/{:?}",
                 is_first_sat_pristine,
@@ -231,6 +231,11 @@ impl<'a, 'db, 'tx> InscriptionUpdater<'a, 'db, 'tx> {
         flotsam: Flotsam,
         new_satpoint: SatPoint,
     ) -> Result {
+        // println!(
+        //     "update_inscription_location {} - {:?} - {:?}",
+        //     new_satpoint, input_sat_ranges, flotsam
+        // );
+
         let inscription_id = flotsam.inscription_id.store();
 
         match flotsam.origin {
