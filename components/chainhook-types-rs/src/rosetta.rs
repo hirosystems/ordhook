@@ -284,26 +284,15 @@ pub struct OrdinalInscriptionTransferData {}
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct OrdinalInscriptionRevealData {
-    pub inscription: OrdinalInscriptionRevealInscriptionData,
-    pub ordinal: Option<OrdinalInscriptionRevealOrdinalData>,
-}
-
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
-pub struct OrdinalInscriptionRevealInscriptionData {
     pub content_bytes: String,
     pub content_type: String,
     pub content_length: usize,
     pub inscription_number: u64,
     pub inscription_fee: u64,
     pub inscription_id: String,
-    pub inscription_author: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
-pub struct OrdinalInscriptionRevealOrdinalData {
+    pub inscription_authors: Vec<String>,
     pub ordinal_number: u64,
     pub ordinal_block_height: u64,
-    pub ordinal_offset: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
