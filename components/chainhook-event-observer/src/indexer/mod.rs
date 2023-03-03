@@ -40,9 +40,9 @@ pub struct BitcoinChainContext {
 }
 
 impl BitcoinChainContext {
-    pub fn new(ordinal_index: OrdinalIndex) -> BitcoinChainContext {
+    pub fn new(ordinal_index: Option<OrdinalIndex>) -> BitcoinChainContext {
         BitcoinChainContext {
-            ordinal_index: Some(ordinal_index),
+            ordinal_index: ordinal_index,
         }
     }
 }
@@ -66,7 +66,7 @@ pub struct Indexer {
 }
 
 impl Indexer {
-    pub fn new(config: IndexerConfig, ordinal_index: OrdinalIndex) -> Indexer {
+    pub fn new(config: IndexerConfig, ordinal_index: Option<OrdinalIndex>) -> Indexer {
         let stacks_blocks_pool = StacksBlockPool::new();
         let bitcoin_blocks_pool = BitcoinBlockPool::new();
         let stacks_context = StacksChainContext::new();

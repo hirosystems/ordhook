@@ -157,13 +157,9 @@ pub async fn scan_bitcoin_chain_with_predicate(
             bitcoin_network: config.network.bitcoin_network.clone(),
         };
 
-        let ordinal_index = initialize_ordinal_index(&event_observer_config).unwrap();
-        match OrdinalIndexUpdater::update(&ordinal_index).await {
-            Ok(_r) => {}
-            Err(e) => {}
-        }
+        let ordinal_index = initialize_ordinal_index(&event_observer_config, ctx)?;
 
-        let mut bitcoin_context = BitcoinChainContext::new(ordinal_index);
+        let mut bitcoin_context = BitcoinChainContext::new(Some(ordinal_index));
 
         let block = indexer::bitcoin::standardize_bitcoin_block(
             &config.network,
@@ -171,7 +167,7 @@ pub async fn scan_bitcoin_chain_with_predicate(
             raw_block,
             &mut bitcoin_context,
             ctx,
-        ).await?;
+        )?;
 
         let mut hits = vec![];
         for tx in block.transactions.iter() {

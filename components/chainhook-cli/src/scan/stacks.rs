@@ -12,7 +12,6 @@ use chainhook_event_observer::{
     chainhooks::stacks::{
         handle_stacks_hook_action, StacksChainhookOccurrence, StacksTriggerChainhook,
     },
-    indexer::ordinals::{indexing::updater::OrdinalIndexUpdater, initialize_ordinal_index},
     observer::{EventObserverConfig, DEFAULT_CONTROL_PORT, DEFAULT_INGESTION_PORT},
     utils::{file_append, send_request, AbstractStacksBlock},
 };
@@ -103,9 +102,7 @@ pub async fn scan_stacks_chain_with_predicate(
         bitcoin_network: config.network.bitcoin_network.clone(),
     };
 
-    let ordinal_index = initialize_ordinal_index(&event_observer_config).unwrap();
-
-    let mut indexer = Indexer::new(config.network.clone(), ordinal_index);
+    let mut indexer = Indexer::new(config.network.clone(), None);
 
     let mut canonical_fork = {
         let mut cursor = BlockIdentifier::default();
