@@ -2,7 +2,7 @@ use crate::block::DigestingCommand;
 use crate::config::Config;
 use crate::node::Node;
 use crate::scan::bitcoin::{
-    retrieve_satoshi_point_using_bitcoin_rpc, scan_bitcoin_chain_with_predicate,
+    scan_bitcoin_chain_with_predicate, retrieve_satoshi_point_using_local_storage,
 };
 use crate::scan::stacks::scan_stacks_chain_with_predicate;
 
@@ -19,6 +19,7 @@ use chainhook_event_observer::observer::{
 };
 use chainhook_event_observer::redb::ReadableTable;
 use chainhook_event_observer::utils::Context;
+use chainhook_types::{BlockIdentifier, TransactionIdentifier};
 use clap::{Parser, Subcommand};
 use ctrlc;
 use hiro_system_kit;
@@ -154,7 +155,7 @@ struct GetSatoshiCommand {
     /// Txid
     pub txid: String,
     /// Output index
-    pub output_index: usize,
+    pub block_height: u64,
     /// Target Devnet network
     #[clap(
         long = "devnet",
@@ -289,8 +290,9 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
             OrdinalsCommand::Satoshi(cmd) => {
                 let config =
                     Config::default(cmd.devnet, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
-
-                retrieve_satoshi_point_using_bitcoin_rpc(&config, &cmd.txid, cmd.output_index)
+                let txid = TransactionIdentifier { hash: cmd.txid.clone() };
+                let block_id = BlockIdentifier { hash: "".into(), index: cmd.block_height };
+                retrieve_satoshi_point_using_local_storage(&config, &block_id, &txid)
                     .await?;
             }
         },

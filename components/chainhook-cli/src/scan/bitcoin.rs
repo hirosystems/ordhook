@@ -31,7 +31,7 @@ use chainhook_event_observer::observer::{
 use chainhook_event_observer::redb::ReadableTable;
 use chainhook_event_observer::utils::{file_append, send_request, Context};
 use chainhook_types::{
-    BitcoinTransactionData, OrdinalInscriptionRevealData, OrdinalOperation, TransactionIdentifier,
+    BitcoinTransactionData, OrdinalInscriptionRevealData, OrdinalOperation, TransactionIdentifier, BlockIdentifier,
 };
 use reqwest::Client as HttpClient;
 use rusqlite::{Connection, OpenFlags, Result, ToSql};
@@ -43,14 +43,15 @@ use std::time::Duration;
 
 pub fn initialize_bitcoin_block_traversal_cache(path: &PathBuf) -> Connection {
     let conn = create_or_open_readwrite_db(path);
-    conn.execute(
+    if let Err(e) = conn.execute(
         "CREATE TABLE blocks (
             id INTEGER NOT NULL PRIMARY KEY,
             compacted_bytes TEXT NOT NULL
         )",
         [],
-    )
-    .unwrap();
+    ) {
+        println!("Error: {}", e.to_string());
+    }
     conn
 }
 
@@ -189,12 +190,14 @@ pub fn write_compacted_block_to_index(
     storage_conn: &Connection,
 ) {
     let serialized_compacted_block = compacted_block.to_hex_bytes();
-    storage_conn
-        .execute(
-            "INSERT INTO blocks (id, compacted_bytes) VALUES (?1, ?2)",
-            rusqlite::params![&block_id, &serialized_compacted_block],
-        )
-        .unwrap();
+
+    if let Err(e) = storage_conn
+    .execute(
+        "INSERT INTO blocks (id, compacted_bytes) VALUES (?1, ?2)",
+        rusqlite::params![&block_id, &serialized_compacted_block],
+    ) {
+        println!("Error: {}", e.to_string());
+    }    
 }
 
 pub async fn scan_bitcoin_chain_with_predicate(
@@ -341,17 +344,16 @@ pub async fn scan_bitcoin_chain_with_predicate(
     let mut total_hits = vec![];
 
     let (retrieve_ordinal_tx, retrieve_ordinal_rx) =
-        channel::<std::option::Option<((BitcoinTransactionData, Vec<HookAction>))>>();
+        channel::<std::option::Option<(BlockIdentifier, BitcoinTransactionData, Vec<HookAction>)>>();
     let (process_ordinal_tx, process_ordinal_rx) = channel();
     let (cache_block_tx, cache_block_rx) = channel();
 
     let _config = config.clone();
     let handle_1 = hiro_system_kit::thread_named("Ordinal retrieval")
         .spawn(move || {
-            while let Ok(Some((mut transaction, actions))) = retrieve_ordinal_rx.recv() {
-                let txid = &transaction.transaction_identifier.hash[2..];
-                println!("Retrieving satoshi point for {txid}");
-                let f = retrieve_satoshi_point_using_bitcoin_rpc(&_config, &txid, 0);
+            while let Ok(Some((block_identifier, mut transaction, actions))) = retrieve_ordinal_rx.recv() {
+                println!("Retrieving satoshi point for {}", transaction.transaction_identifier.hash);
+                let f = retrieve_satoshi_point_using_local_storage(&_config, &block_identifier, &transaction.transaction_identifier);
                 let (block_number, block_offset) = match hiro_system_kit::nestable_block_on(f) {
                     Ok(res) => res,
                     Err(err) => {
@@ -461,7 +463,7 @@ pub async fn scan_bitcoin_chain_with_predicate(
                 if is_scanning_inscriptions {
                     pipeline_started = true;
                     let _ = retrieve_ordinal_tx
-                        .send(Some((tx.clone(), vec![predicate_spec.action.clone()])));
+                        .send(Some((block.block_identifier.clone(), tx.clone(), vec![predicate_spec.action.clone()])));
                 } else {
                     hits.push(tx);
                 }
@@ -579,16 +581,16 @@ pub async fn retrieve_block_hash(config: &Config, block_height: &u64) -> Result<
 
 pub async fn retrieve_satoshi_point_using_local_storage(
     config: &Config,
-    origin_block_height: &u64,
+    block_identifier: &BlockIdentifier,
     transaction_identifier: &TransactionIdentifier,
 ) -> Result<(u64, u64), String> {
     let path = config.get_bitcoin_block_traversal_db_path();
     let storage_conn = open_existing_readonly_db(&path);
 
     let mut ordinal_offset = 0;
-    let mut ordinal_block_number = *origin_block_height as u32;
+    let mut ordinal_block_number = block_identifier.index as u32;
     let txid = {
-        let bytes = hex::decode(&transaction_identifier.hash).unwrap();
+        let bytes = hex::decode(&transaction_identifier.hash[2..]).unwrap();
         [bytes[0], bytes[1], bytes[2], bytes[3]]
     };
     let mut tx_cursor = (txid, 0);
