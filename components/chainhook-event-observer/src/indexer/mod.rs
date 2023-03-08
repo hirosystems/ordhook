@@ -3,7 +3,7 @@ pub mod ordinals;
 pub mod stacks;
 
 use crate::utils::{AbstractBlock, Context};
-use bitcoin::Block;
+use bitcoin::BitcoinBlockFullBreakdown;
 use chainhook_types::{
     BitcoinChainEvent, BitcoinNetwork, BlockIdentifier, StacksChainEvent, StacksNetwork,
 };
@@ -84,7 +84,7 @@ impl Indexer {
     pub fn handle_bitcoin_block(
         &mut self,
         block_height: u64,
-        block: Block,
+        block: BitcoinBlockFullBreakdown,
         ctx: &Context,
     ) -> Result<Option<BitcoinChainEvent>, String> {
         let block = bitcoin::standardize_bitcoin_block(

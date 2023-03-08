@@ -10,6 +10,7 @@ edition = "2021"
 [dependencies]
 serde = "1"
 serde_json = { version = "1", features = ["arbitrary_precision"] }
+serde-hex = "0.1.0"
 serde_derive = "1"
 stacks-rpc-client = "1"
 clarinet-utils = "1"

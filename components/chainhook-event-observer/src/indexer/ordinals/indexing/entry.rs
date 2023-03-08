@@ -126,7 +126,7 @@ impl Entry for SatPoint {
     }
 }
 
-pub(super) type SatRange = (u64, u64);
+pub type SatRange = (u64, u64);
 
 impl Entry for SatRange {
     type Value = [u8; 11];

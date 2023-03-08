@@ -293,6 +293,7 @@ pub struct OrdinalInscriptionRevealData {
     pub inscription_authors: Vec<String>,
     pub ordinal_number: u64,
     pub ordinal_block_height: u64,
+    pub ordinal_offset: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]

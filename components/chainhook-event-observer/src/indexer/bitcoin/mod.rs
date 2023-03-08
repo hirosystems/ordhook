@@ -9,11 +9,16 @@ use crate::chainhooks::types::{
 use crate::indexer::IndexerConfig;
 use crate::observer::BitcoinConfig;
 use crate::utils::Context;
+use bitcoincore_rpc::bitcoin::hashes::hex::FromHex;
+use bitcoincore_rpc::bitcoin::hashes::Hash;
 use bitcoincore_rpc::bitcoin::{
-    self, Address, BlockHeader, OutPoint as OutPointS, PackedLockTime, Script, Transaction, Txid,
-    Witness,
+    self, Address, Amount, BlockHash, BlockHeader, OutPoint as OutPointS, PackedLockTime, Script,
+    Transaction, Txid, Witness,
 };
-use bitcoincore_rpc_json::{GetRawTransactionResult, GetRawTransactionResultVout};
+use bitcoincore_rpc_json::{
+    GetRawTransactionResult, GetRawTransactionResultVinScriptSig, GetRawTransactionResultVout,
+    GetRawTransactionResultVoutScriptPubKey,
+};
 pub use blocks_pool::BitcoinBlockPool;
 use chainhook_types::bitcoin::{OutPoint, TxIn, TxOut};
 use chainhook_types::{
@@ -25,7 +30,9 @@ use chainhook_types::{
 use clarity_repl::clarity::util::hash::to_hex;
 use hiro_system_kit::slog;
 use rocket::serde::json::Value as JsonValue;
+use serde::Deserialize;
 
+use super::ordinals::chain::Chain;
 use super::ordinals::indexing::entry::InscriptionEntry;
 use super::ordinals::indexing::updater::{BlockData, OrdinalIndexUpdater};
 use super::ordinals::indexing::OrdinalIndex;
@@ -36,23 +43,83 @@ use super::BitcoinChainContext;
 
 #[derive(Clone, PartialEq, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Block {
+pub struct BitcoinBlockFullBreakdown {
     pub hash: bitcoin::BlockHash,
-    pub confirmations: i32,
-    pub size: usize,
-    pub strippedsize: Option<usize>,
-    pub weight: usize,
     pub height: usize,
-    pub version: i32,
     pub merkleroot: bitcoin::TxMerkleNode,
-    pub tx: Vec<GetRawTransactionResult>,
+    pub tx: Vec<BitcoinTransactionFullBreakdown>,
     pub time: usize,
-    pub mediantime: Option<usize>,
     pub nonce: u32,
-    pub bits: String,
-    pub difficulty: f64,
-    pub n_tx: usize,
-    pub previousblockhash: bitcoin::BlockHash,
+    pub previousblockhash: Option<bitcoin::BlockHash>,
+}
+
+#[derive(Clone, PartialEq, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BitcoinTransactionFullBreakdown {
+    pub txid: bitcoin::Txid,
+    pub vin: Vec<BitcoinTransactionInputFullBreakdown>,
+    pub vout: Vec<BitcoinTransactionOutputFullBreakdown>,
+}
+
+#[derive(Clone, PartialEq, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BitcoinTransactionInputFullBreakdown {
+    pub sequence: u32,
+    /// The raw scriptSig in case of a coinbase tx.
+    #[serde(default, with = "bitcoincore_rpc_json::serde_hex::opt")]
+    pub coinbase: Option<Vec<u8>>,
+    /// Not provided for coinbase txs.
+    pub txid: Option<bitcoin::Txid>,
+    /// Not provided for coinbase txs.
+    pub vout: Option<u32>,
+    /// The scriptSig in case of a non-coinbase tx.
+    pub script_sig: Option<GetRawTransactionResultVinScriptSig>,
+    /// Not provided for coinbase txs.
+    #[serde(default, deserialize_with = "deserialize_hex_array_opt")]
+    pub txinwitness: Option<Vec<Vec<u8>>>,
+    pub prevout: Option<BitcoinTransactionInputPrevoutFullBreakdown>,
+}
+
+impl BitcoinTransactionInputFullBreakdown {
+    /// Whether this input is from a coinbase tx.
+    /// The [txid], [vout] and [script_sig] fields are not provided
+    /// for coinbase transactions.
+    pub fn is_coinbase(&self) -> bool {
+        self.coinbase.is_some()
+    }
+}
+
+fn deserialize_hex_array_opt<'de, D>(deserializer: D) -> Result<Option<Vec<Vec<u8>>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use crate::serde::de::Error;
+
+    //TODO(stevenroose) Revisit when issue is fixed:
+    // https://github.com/serde-rs/serde/issues/723
+    let v: Vec<String> = Vec::deserialize(deserializer)?;
+    let mut res = Vec::new();
+    for h in v.into_iter() {
+        res.push(FromHex::from_hex(&h).map_err(D::Error::custom)?);
+    }
+    Ok(Some(res))
+}
+
+#[derive(Clone, PartialEq, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BitcoinTransactionInputPrevoutFullBreakdown {
+    pub height: u64,
+    #[serde(with = "bitcoin::util::amount::serde::as_btc")]
+    pub value: Amount,
+}
+
+#[derive(Clone, PartialEq, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BitcoinTransactionOutputFullBreakdown {
+    #[serde(with = "bitcoin::util::amount::serde::as_btc")]
+    pub value: Amount,
+    pub n: u32,
+    pub script_pub_key: GetRawTransactionResultVoutScriptPubKey,
 }
 
 #[derive(Deserialize)]
@@ -71,11 +138,11 @@ pub struct RewardParticipant {
     amt: u64,
 }
 
-pub async fn retrieve_full_block(
+pub async fn retrieve_full_block_breakdown(
     bitcoin_config: &BitcoinConfig,
     marshalled_block: JsonValue,
     _ctx: &Context,
-) -> Result<(u64, Block), String> {
+) -> Result<(u64, BitcoinBlockFullBreakdown), String> {
     let partial_block: NewBitcoinBlock = serde_json::from_value(marshalled_block)
         .map_err(|e| format!("unable for parse bitcoin block: {}", e.to_string()))?;
     let block_hash = partial_block.burn_block_hash.strip_prefix("0x").unwrap();
@@ -85,7 +152,7 @@ pub async fn retrieve_full_block(
         "jsonrpc": "1.0",
         "id": "chainhook-cli",
         "method": "getblock",
-        "params": [block_hash, 2]
+        "params": [block_hash, 3]
     });
     let http_client = HttpClient::builder()
         .timeout(Duration::from_secs(20))
@@ -103,7 +170,7 @@ pub async fn retrieve_full_block(
         .json::<bitcoincore_rpc::jsonrpc::Response>()
         .await
         .map_err(|e| format!("unable to parse response ({})", e))?
-        .result::<Block>()
+        .result::<BitcoinBlockFullBreakdown>()
         .map_err(|e| format!("unable to parse response ({})", e))?;
 
     let block_height = partial_block.burn_block_height;
@@ -113,130 +180,11 @@ pub async fn retrieve_full_block(
 pub fn standardize_bitcoin_block(
     indexer_config: &IndexerConfig,
     block_height: u64,
-    block: Block,
+    block: BitcoinBlockFullBreakdown,
     bitcoin_context: &mut BitcoinChainContext,
     ctx: &Context,
 ) -> Result<BitcoinBlockData, String> {
     let mut transactions = vec![];
-    ctx.try_log(|logger| slog::info!(logger, "Updating ordinal index"));
-
-    let ordinal_index = bitcoin_context.ordinal_index.take();
-    let ctx_ = ctx.clone();
-
-    let block_data = if let Some(ref ordinal_index) = ordinal_index {
-        if let Ok(count) = ordinal_index.block_count() {
-            ctx.try_log(|logger| slog::info!(logger, "Blocks: {} / {}", count, block.height));
-            if count as usize == block.height + 10 {
-                ctx.try_log(|logger| slog::info!(logger, "Will use cached block"));
-
-                // let bits = hex::decode(block.bits).unwrap();
-                // let block_data = BlockData {
-                //     header: BlockHeader {
-                //         version: block.version,
-                //         prev_blockhash: block.previousblockhash,
-                //         merkle_root: block.merkleroot,
-                //         time: block.time as u32,
-                //         bits: u32::from_be_bytes([bits[0], bits[1], bits[2], bits[3]]),
-                //         nonce: block.nonce,
-                //     },
-                //     txdata: block
-                //         .tx
-                //         .iter()
-                //         .map(|tx| {
-                //             (
-                //                 Transaction {
-                //                     version: tx.version as i32,
-                //                     lock_time: PackedLockTime(tx.locktime),
-                //                     input: tx
-                //                         .vin
-                //                         .iter()
-                //                         .map(|i| bitcoin::TxIn {
-                //                             previous_output: match (i.txid, i.vout) {
-                //                                 (Some(txid), Some(vout)) => {
-                //                                     OutPointS { txid, vout }
-                //                                 }
-                //                                 _ => OutPointS::null(),
-                //                             },
-                //                             script_sig: match i.script_sig {
-                //                                 Some(ref script_sig) => {
-                //                                     script_sig.script().unwrap()
-                //                                 }
-                //                                 None => Script::default(),
-                //                             },
-                //                             sequence: bitcoincore_rpc::bitcoin::Sequence(
-                //                                 i.sequence,
-                //                             ),
-                //                             witness: Witness::from_vec(
-                //                                 i.txinwitness.clone().unwrap_or(vec![]),
-                //                             ),
-                //                         })
-                //                         .collect(),
-                //                     output: tx
-                //                         .vout
-                //                         .iter()
-                //                         .map(|o| bitcoin::TxOut {
-                //                             value: o.value.to_sat(),
-                //                             script_pubkey: o.script_pub_key.script().unwrap(),
-                //                         })
-                //                         .collect(),
-                //                 },
-                //                 tx.txid,
-                //             )
-                //         })
-                //         .collect::<Vec<(Transaction, Txid)>>(),
-                // };
-                // ctx.try_log(|logger| slog::info!(logger, "BlockData: {:?}", block_data));
-                // Some(block_data)
-                None
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-
-    let handle: JoinHandle<Result<_, String>> =
-        hiro_system_kit::thread_named("Ordinal index update")
-            .spawn(move || {
-                if let Some(ref ordinal_index) = ordinal_index {
-                    match hiro_system_kit::nestable_block_on(OrdinalIndexUpdater::update(
-                        &ordinal_index,
-                        block_data,
-                        &ctx_,
-                    )) {
-                        Ok(_) => {
-                            ctx_.try_log(|logger| {
-                                slog::info!(
-                                    logger,
-                                    "Ordinal index successfully updated {:?}",
-                                    ordinal_index.block_count()
-                                )
-                            });
-                        }
-                        Err(e) => {
-                            ctx_.try_log(|logger| {
-                                slog::error!(
-                                    logger,
-                                    "Error updating ordinal index: {}",
-                                    e.to_string()
-                                )
-                            });
-                        }
-                    };
-                }
-                Ok(ordinal_index)
-            })
-            .expect("unable to detach thread");
-
-    match handle.join() {
-        Ok(Ok(ordinal_index)) => {
-            bitcoin_context.ordinal_index = ordinal_index;
-        }
-        _ => {}
-    }
 
     let expected_magic_bytes = get_stacks_canonical_magic_bytes(&indexer_config.bitcoin_network);
     let pox_config = get_canonical_pox_config(&indexer_config.bitcoin_network);
@@ -260,10 +208,8 @@ pub fn standardize_bitcoin_block(
         }
 
         let mut ordinal_operations = vec![];
-        if let Some(ref ordinal_index) = bitcoin_context.ordinal_index {
-            if let Some(op) = try_parse_ordinal_operation(&tx, block_height, &ordinal_index, ctx) {
-                ordinal_operations.push(op);
-            }
+        if let Some(op) = try_parse_ordinal_operation(&tx, block_height, ctx) {
+            ordinal_operations.push(op);
         }
 
         let mut inputs = vec![];
@@ -324,7 +270,10 @@ pub fn standardize_bitcoin_block(
             index: block_height,
         },
         parent_block_identifier: BlockIdentifier {
-            hash: format!("0x{}", block.previousblockhash),
+            hash: format!(
+                "0x{}",
+                block.previousblockhash.unwrap_or(BlockHash::all_zeros())
+            ),
             index: block_height - 1,
         },
         timestamp: block.time as u32,
@@ -334,9 +283,8 @@ pub fn standardize_bitcoin_block(
 }
 
 fn try_parse_ordinal_operation(
-    tx: &GetRawTransactionResult,
+    tx: &BitcoinTransactionFullBreakdown,
     _block_height: u64,
-    ordinal_index: &OrdinalIndex,
     ctx: &Context,
 ) -> Option<OrdinalOperation> {
     for input in tx.vin.iter() {
@@ -356,31 +304,7 @@ fn try_parse_ordinal_operation(
                     txid: tx.txid.clone(),
                     index: 0,
                 };
-                let entries = ordinal_index.get_feed_inscriptions(3).unwrap();
-                ctx.try_log(|logger| slog::info!(logger, "Feed: {:?}", entries));
 
-                let inscription_entry = match ordinal_index
-                    .get_inscription_entry(inscription_id.clone())
-                {
-                    Ok(Some(entry)) => entry,
-                    _ => {
-                        ctx.try_log(|logger| slog::info!(logger, "No inscriptions entry found in index, despite inscription detected in transaction"));
-                        InscriptionEntry {
-                            fee: 0,
-                            height: 0,
-                            number: 0,
-                            sat: Some(Sat(0)),
-                            timestamp: 0,
-                        }
-                    }
-                };
-
-                let authors = tx.vout[0]
-                    .script_pub_key
-                    .addresses
-                    .clone()
-                    .unwrap_or(vec![]);
-                let sat = &inscription_entry.sat.unwrap();
                 let no_content_bytes = vec![];
                 let inscription_content_bytes = inscription.body().unwrap_or(&no_content_bytes);
 
@@ -390,14 +314,12 @@ fn try_parse_ordinal_operation(
                         content_bytes: format!("0x{}", to_hex(&inscription_content_bytes)),
                         content_length: inscription_content_bytes.len(),
                         inscription_id: inscription_id.to_string(),
-                        inscription_number: inscription_entry.number,
-                        inscription_authors: authors
-                            .into_iter()
-                            .map(|a| a.to_string())
-                            .collect::<Vec<String>>(),
-                        inscription_fee: inscription_entry.fee,
-                        ordinal_number: sat.n(),
-                        ordinal_block_height: sat.height().n(),
+                        inscription_authors: vec![],
+                        inscription_number: 0,
+                        inscription_fee: 0,
+                        ordinal_number: 0,
+                        ordinal_block_height: 0,
+                        ordinal_offset: 0,
                     },
                 ));
             }
@@ -407,7 +329,7 @@ fn try_parse_ordinal_operation(
 }
 
 fn try_parse_stacks_operation(
-    outputs: &Vec<GetRawTransactionResultVout>,
+    outputs: &Vec<BitcoinTransactionOutputFullBreakdown>,
     pox_config: &PoxConfig,
     expected_magic_bytes: &[u8; 2],
     block_height: u64,

@@ -7,7 +7,7 @@ use crate::chainhooks::stacks::{
     StacksChainhookOccurrence, StacksChainhookOccurrencePayload,
 };
 use crate::chainhooks::types::{ChainhookConfig, ChainhookSpecification};
-use crate::indexer::bitcoin::retrieve_full_block;
+use crate::indexer::bitcoin::retrieve_full_block_breakdown;
 use crate::indexer::ordinals::{indexing::updater::OrdinalIndexUpdater, initialize_ordinal_index};
 use crate::indexer::{self, Indexer, IndexerConfig};
 use crate::utils::{send_request, Context};
@@ -233,7 +233,7 @@ pub async fn start_event_observer(
         )
     });
 
-    let ordinal_index = initialize_ordinal_index(&config, &ctx)?;
+    let ordinal_index = initialize_ordinal_index(&config, None, &ctx)?;
     match OrdinalIndexUpdater::update(&ordinal_index, None, &ctx).await {
         Ok(_r) => {}
         Err(e) => {
@@ -962,11 +962,17 @@ pub async fn handle_new_bitcoin_block(
     // into account the last 7 blocks.
 
     let (block_height, block) =
-        match retrieve_full_block(bitcoin_config, marshalled_block.into_inner(), ctx).await {
+        match retrieve_full_block_breakdown(bitcoin_config, marshalled_block.into_inner(), ctx)
+            .await
+        {
             Ok(block) => block,
             Err(e) => {
                 ctx.try_log(|logger| {
-                    slog::warn!(logger, "unable to retrieve_full_block: {}", e.to_string())
+                    slog::warn!(
+                        logger,
+                        "unable to retrieve_full_block_breakdown: {}",
+                        e.to_string()
+                    )
                 });
                 return Json(json!({
                     "status": 500,

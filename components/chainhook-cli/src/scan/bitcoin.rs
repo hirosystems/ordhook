@@ -1,46 +1,52 @@
 use crate::config::Config;
-use chainhook_event_observer::bitcoincore_rpc::bitcoin::BlockHash;
+use chainhook_event_observer::bitcoincore_rpc;
+use chainhook_event_observer::bitcoincore_rpc::bitcoin::{BlockHash, OutPoint};
+use chainhook_event_observer::bitcoincore_rpc::bitcoincore_rpc_json::{
+    GetBlockchainInfoResult, GetRawTransactionResult,
+};
 use chainhook_event_observer::bitcoincore_rpc::{jsonrpc, RpcApi};
 use chainhook_event_observer::bitcoincore_rpc::{Auth, Client};
 use chainhook_event_observer::chainhooks::bitcoin::{
     handle_bitcoin_hook_action, BitcoinChainhookOccurrence, BitcoinTriggerChainhook,
 };
 use chainhook_event_observer::chainhooks::types::{
-    BitcoinChainhookFullSpecification, BitcoinPredicateType, OrdinalOperations, Protocols,
+    BitcoinChainhookFullSpecification, BitcoinPredicateType, HookAction, OrdinalOperations,
+    Protocols,
+};
+use chainhook_event_observer::indexer::bitcoin::{
+    BitcoinBlockFullBreakdown, BitcoinTransactionOutputFullBreakdown,
 };
 use chainhook_event_observer::indexer::ordinals::indexing::entry::Entry;
 use chainhook_event_observer::indexer::ordinals::indexing::{
-    HEIGHT_TO_BLOCK_HASH, INSCRIPTION_NUMBER_TO_INSCRIPTION_ID,
+    HEIGHT_TO_BLOCK_HASH, INSCRIPTION_NUMBER_TO_INSCRIPTION_ID, OUTPOINT_TO_SAT_RANGES,
+    SAT_TO_SATPOINT,
 };
 use chainhook_event_observer::indexer::ordinals::initialize_ordinal_index;
 use chainhook_event_observer::indexer::ordinals::inscription_id::InscriptionId;
+use chainhook_event_observer::indexer::ordinals::sat_point::SatPoint;
 use chainhook_event_observer::indexer::{self, BitcoinChainContext};
 use chainhook_event_observer::observer::{
     EventObserverConfig, DEFAULT_CONTROL_PORT, DEFAULT_INGESTION_PORT,
 };
 use chainhook_event_observer::redb::ReadableTable;
 use chainhook_event_observer::utils::{file_append, send_request, Context};
+use chainhook_types::{
+    BitcoinTransactionData, OrdinalInscriptionRevealData, OrdinalOperation, TransactionIdentifier,
+};
 use reqwest::Client as HttpClient;
-use rusqlite::{Connection, Result, ToSql};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use rusqlite::{Connection, OpenFlags, Result, ToSql};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::io::Read;
+use std::path::{Path, PathBuf};
+use std::sync::mpsc::channel;
 use std::time::Duration;
 
-#[derive(Debug)]
-pub struct Inscription {
-    inscription_id: String,
-    fee: u32,
-    number: u32,
-    ordinal_number: u64,
-}
-
-pub fn initialize_inscription_cache() -> Connection {
-    let conn = Connection::open_in_memory().unwrap();
+pub fn initialize_bitcoin_block_traversal_cache(path: &PathBuf) -> Connection {
+    let conn = create_or_open_readwrite_db(path);
     conn.execute(
-        "CREATE TABLE inscriptions (
-            inscription_id TEXT PRIMARY KEY,
-            fee INTEGER NOT NULL,
-            number INTEGER NOT NULL,
-            ordinal_number INTEGER NOT NULL
+        "CREATE TABLE blocks (
+            id INTEGER NOT NULL PRIMARY KEY,
+            compacted_bytes TEXT NOT NULL
         )",
         [],
     )
@@ -48,34 +54,147 @@ pub fn initialize_inscription_cache() -> Connection {
     conn
 }
 
-pub fn retrieve_inscription_from_cache(
-    inscription_id: &str,
+fn create_or_open_readwrite_db(path: &PathBuf) -> Connection {
+    let open_flags = match std::fs::metadata(path) {
+        Err(e) => {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                // need to create
+                if let Some(dirp) = PathBuf::from(path).parent() {
+                    std::fs::create_dir_all(dirp).unwrap_or_else(|e| {
+                        eprintln!("Failed to create {:?}: {:?}", dirp, &e);
+                    });
+                }
+                OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE
+            } else {
+                panic!("FATAL: could not stat {}", path.display());
+            }
+        }
+        Ok(_md) => {
+            // can just open
+            OpenFlags::SQLITE_OPEN_READ_WRITE
+        }
+    };
+
+    let conn = Connection::open_with_flags(path, open_flags).unwrap();
+    // db.profile(Some(trace_profile));
+    // db.busy_handler(Some(tx_busy_handler))?;
+    conn.pragma_update(None, "journal_mode", &"WAL").unwrap();
+    conn.pragma_update(None, "synchronous", &"NORMAL").unwrap();
+    conn
+}
+
+fn open_existing_readonly_db(path: &PathBuf) -> Connection {
+    let open_flags = match std::fs::metadata(path) {
+        Err(e) => {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                panic!("FATAL: could not find {}", path.display());
+            } else {
+                panic!("FATAL: could not stat {}", path.display());
+            }
+        }
+        Ok(_md) => {
+            // can just open
+            OpenFlags::SQLITE_OPEN_READ_ONLY
+        }
+    };
+
+    let conn = Connection::open_with_flags(path, open_flags).unwrap();
+    // db.profile(Some(trace_profile));
+    // db.busy_handler(Some(tx_busy_handler))?;
+    conn
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+// pub struct CompactedBlock(Vec<(Vec<(u32, u16, u64)>, Vec<u64>)>);
+pub struct CompactedBlock(
+    (
+        ([u8; 4], u64),
+        Vec<([u8; 4], Vec<([u8; 4], u32, u16, u64)>, Vec<u64>)>,
+    ),
+);
+
+impl CompactedBlock {
+    pub fn from_full_block(block: &BitcoinBlockFullBreakdown) -> CompactedBlock {
+        let mut txs = vec![];
+        let mut coinbase_value = 0;
+        let coinbase_txid = {
+            let txid = hex::decode(block.tx[0].txid.to_string()).unwrap();
+            [txid[0], txid[1], txid[2], txid[3]]
+        };
+        for coinbase_output in block.tx[0].vout.iter() {
+            coinbase_value += coinbase_output.value.to_sat();
+        }
+        for tx in block.tx.iter().skip(1) {
+            let mut inputs = vec![];
+            for input in tx.vin.iter().skip(0) {
+                let txin = hex::decode(tx.txid.to_string()).unwrap();
+
+                inputs.push((
+                    [txin[0], txin[1], txin[2], txin[3]],
+                    input.prevout.as_ref().unwrap().height as u32,
+                    input.vout.unwrap() as u16,
+                    input.prevout.as_ref().unwrap().value.to_sat(),
+                ));
+            }
+            let mut outputs = vec![];
+            for output in tx.vout.iter().skip(1) {
+                outputs.push(output.value.to_sat());
+            }
+            let txid = hex::decode(tx.txid.to_string()).unwrap();
+            txs.push(([txid[0], txid[1], txid[2], txid[3]], inputs, outputs));
+        }
+        CompactedBlock(((coinbase_txid, coinbase_value), txs))
+    }
+
+    pub fn from_hex_bytes(bytes: &str) -> CompactedBlock {
+        let bytes = hex::decode(&bytes).unwrap();
+        let value = ciborium::de::from_reader(&bytes[..]).unwrap();
+        value
+    }
+
+    pub fn to_hex_bytes(&self) -> String {
+        use ciborium::cbor;
+        let value = cbor!(self).unwrap();
+        let mut bytes = vec![];
+        let _ = ciborium::ser::into_writer(&value, &mut bytes);
+        let hex_bytes = hex::encode(bytes);
+        hex_bytes
+    }
+}
+
+pub fn retrieve_compacted_block_from_index(
+    block_id: u32,
     storage_conn: &Connection,
-) -> Option<Inscription> {
-    let args: &[&dyn ToSql] = &[&inscription_id.to_sql().unwrap()];
-    let mut stmt = storage_conn.prepare("SELECT inscription_id, fee, number, ordinal_number FROM inscriptions WHERE inscription_id = ?1").unwrap();
-    let inscription_iter = stmt
+) -> Option<CompactedBlock> {
+    let args: &[&dyn ToSql] = &[&block_id.to_sql().unwrap()];
+    let mut stmt = storage_conn
+        .prepare("SELECT compacted_bytes FROM blocks WHERE id = ?1")
+        .unwrap();
+    let block_iter = stmt
         .query_map(args, |row| {
-            Ok(Inscription {
-                inscription_id: row.get(0).unwrap(),
-                fee: row.get(1).unwrap(),
-                number: row.get(2).unwrap(),
-                ordinal_number: row.get(3).unwrap(),
-            })
+            let hex_bytes: String = row.get(0).unwrap();
+            Ok(CompactedBlock::from_hex_bytes(&hex_bytes))
         })
         .unwrap();
 
-    for inscription in inscription_iter {
-        return Some(inscription.unwrap());
+    for block in block_iter {
+        return Some(block.unwrap());
     }
     return None;
 }
 
-pub fn write_inscription_to_cache(inscription: &Inscription, storage_conn: &Connection) {
-    storage_conn.execute(
-        "INSERT INTO inscriptions (inscription_id, fee, number, ordinal_number) VALUES (?1, ?2, ?3, ?4)",
-        rusqlite::params![&inscription.inscription_id, &inscription.fee, &inscription.number, &inscription.ordinal_number],
-    ).unwrap();
+pub fn write_compacted_block_to_index(
+    block_id: u32,
+    compacted_block: &CompactedBlock,
+    storage_conn: &Connection,
+) {
+    let serialized_compacted_block = compacted_block.to_hex_bytes();
+    storage_conn
+        .execute(
+            "INSERT INTO blocks (id, compacted_bytes) VALUES (?1, ?2)",
+            rusqlite::params![&block_id, &serialized_compacted_block],
+        )
+        .unwrap();
 }
 
 pub async fn scan_bitcoin_chain_with_predicate(
@@ -84,21 +203,18 @@ pub async fn scan_bitcoin_chain_with_predicate(
     config: &Config,
     ctx: &Context,
 ) -> Result<(), String> {
-    let conn = initialize_inscription_cache();
+    // build_tx_coord_cache();
+    // return Ok(());
 
-    let insc = Inscription {
-        inscription_id: "1".into(),
-        fee: 1,
-        number: 1,
-        ordinal_number: 1,
-    };
+    // let block_id = 1;
 
-    write_inscription_to_cache(&insc, &conn);
+    // let conn = initialize_block_cache();
 
-    println!(
-        "{:?}",
-        retrieve_inscription_from_cache(&insc.inscription_id, &conn)
-    );
+    // let block = CompactedBlock(vec![(vec![(148903239, 2423, 323940940)], vec![243242394023])]);
+
+    // write_compacted_block_to_index(block_id, &block, &conn);
+
+    // println!("{:?}", retrieve_compacted_block_from_index(block_id, &conn));
 
     let auth = Auth::UserPass(
         config.network.bitcoin_node_rpc_username.clone(),
@@ -155,7 +271,7 @@ pub async fn scan_bitcoin_chain_with_predicate(
 
     // Optimization: we will use the ordinal storage to provide a set of hints.
     let mut inscriptions_hints = BTreeMap::new();
-    let mut use_hinting = false;
+    let mut is_scanning_inscriptions = false;
     let ordinal_index = if let BitcoinPredicateType::Protocol(Protocols::Ordinal(
         OrdinalOperations::InscriptionRevealed,
     )) = &predicate_spec.predicate
@@ -179,14 +295,14 @@ pub async fn scan_bitcoin_chain_with_predicate(
             bitcoin_network: config.network.bitcoin_network.clone(),
         };
 
-        let ordinal_index = match initialize_ordinal_index(&event_observer_config, &ctx) {
+        let ordinal_index = match initialize_ordinal_index(&event_observer_config, None, &ctx) {
             Ok(index) => index,
             Err(e) => {
                 panic!()
             }
         };
 
-        for (inscription_number, inscription_id) in ordinal_index
+        for (_inscription_number, inscription_id) in ordinal_index
             .database
             .begin_read()
             .unwrap()
@@ -196,13 +312,11 @@ pub async fn scan_bitcoin_chain_with_predicate(
             .unwrap()
         {
             let inscription = InscriptionId::load(*inscription_id.value());
-            println!("{} -> {}", inscription_number.value(), inscription);
 
             let entry = ordinal_index
                 .get_inscription_entry(inscription)
                 .unwrap()
                 .unwrap();
-            println!("{:?}", entry);
 
             let blockhash = ordinal_index
                 .database
@@ -216,8 +330,8 @@ pub async fn scan_bitcoin_chain_with_predicate(
                 .unwrap();
 
             inscriptions_hints.insert(entry.height, blockhash);
-            use_hinting = true;
         }
+        is_scanning_inscriptions = true;
         Some(ordinal_index)
     } else {
         None
@@ -225,79 +339,111 @@ pub async fn scan_bitcoin_chain_with_predicate(
     let mut bitcoin_context = BitcoinChainContext::new(ordinal_index);
 
     let mut total_hits = vec![];
+
+    let (retrieve_ordinal_tx, retrieve_ordinal_rx) =
+        channel::<std::option::Option<((BitcoinTransactionData, Vec<HookAction>))>>();
+    let (process_ordinal_tx, process_ordinal_rx) = channel();
+    let (cache_block_tx, cache_block_rx) = channel();
+
+    let _config = config.clone();
+    let handle_1 = hiro_system_kit::thread_named("Ordinal retrieval")
+        .spawn(move || {
+            while let Ok(Some((mut transaction, actions))) = retrieve_ordinal_rx.recv() {
+                let txid = &transaction.transaction_identifier.hash[2..];
+                println!("Retrieving satoshi point for {txid}");
+                let f = retrieve_satoshi_point_using_bitcoin_rpc(&_config, &txid, 0);
+                let (block_number, block_offset) = match hiro_system_kit::nestable_block_on(f) {
+                    Ok(res) => res,
+                    Err(err) => {
+                        println!("{err}");
+                        let _ = process_ordinal_tx.send(None);
+                        return;
+                    }
+                };
+                if let Some(OrdinalOperation::InscriptionRevealed(inscription)) =
+                    transaction.metadata.ordinal_operations.get_mut(0)
+                {
+                    inscription.ordinal_offset = block_offset;
+                    inscription.ordinal_block_height = block_number;
+                }
+                let _ = process_ordinal_tx.send(Some((transaction, actions)));
+            }
+            let _ = process_ordinal_tx.send(None);
+        })
+        .expect("unable to detach thread");
+
+    let handle_2 = hiro_system_kit::thread_named("Ordinal ingestion")
+        .spawn(move || {
+            while let Ok(Some((transaction, actions))) = process_ordinal_rx.recv() {
+                let txid = &transaction.transaction_identifier.hash[2..];
+                if let Some(OrdinalOperation::InscriptionRevealed(inscription)) =
+                    transaction.metadata.ordinal_operations.get(0)
+                {
+                    println!(
+                        "Executing action for {txid} - {}:{}",
+                        inscription.ordinal_block_height, inscription.ordinal_offset
+                    );
+                }
+            }
+        })
+        .expect("unable to detach thread");
+
+    let ctx_ = ctx.clone();
+    let db_file = config.get_bitcoin_block_traversal_db_path();
+    let handle_3 = hiro_system_kit::thread_named("Ordinal ingestion")
+        .spawn(move || {
+            let conn = initialize_bitcoin_block_traversal_cache(&db_file);
+            while let Ok(Some((height, compacted_block))) = cache_block_rx.recv() {
+                info!(ctx_.expect_logger(), "Caching block #{height}");
+                write_compacted_block_to_index(height, &compacted_block, &conn);
+            }
+        })
+        .expect("unable to detach thread");
+
+    let mut pipeline_started = false;
+
     for cursor in start_block..=end_block {
         debug!(
             ctx.expect_logger(),
             "Evaluating predicate #{} on block #{}", predicate_uuid, cursor
         );
 
-        let block_hash = if use_hinting {
+        let block_hash = if false {
             match inscriptions_hints.remove(&cursor) {
                 Some(block_hash) => block_hash.to_string(),
                 None => continue,
             }
         } else {
-            let body = json!({
-                "jsonrpc": "1.0",
-                "id": "chainhook-cli",
-                "method": "getblockhash",
-                "params": [cursor]
-            });
-            let http_client = HttpClient::builder()
-                .timeout(Duration::from_secs(20))
-                .build()
-                .expect("Unable to build http client");
-            http_client
-                .post(&config.network.bitcoin_node_rpc_url)
-                .basic_auth(
-                    &config.network.bitcoin_node_rpc_username,
-                    Some(&config.network.bitcoin_node_rpc_password),
-                )
-                .header("Content-Type", "application/json")
-                .header("Host", &config.network.bitcoin_node_rpc_url[7..])
-                .json(&body)
-                .send()
-                .await
-                .map_err(|e| format!("unable to send request ({})", e))?
-                .json::<jsonrpc::Response>()
-                .await
-                .map_err(|e| format!("unable to parse response ({})", e))?
-                .result::<String>()
-                .map_err(|e| format!("unable to parse response ({})", e))?
+            loop {
+                match retrieve_block_hash(config, &cursor).await {
+                    Ok(res) => break res,
+                    Err(e) => {
+                        error!(ctx.expect_logger(), "Error retrieving block {}", cursor,);
+                    }
+                }
+                std::thread::sleep(std::time::Duration::from_millis(3000));
+            }
         };
 
-        let body = json!({
-            "jsonrpc": "1.0",
-            "id": "chainhook-cli",
-            "method": "getblock",
-            "params": [block_hash, 2]
-        });
-        let http_client = HttpClient::builder()
-            .timeout(Duration::from_secs(20))
-            .build()
-            .expect("Unable to build http client");
-        let raw_block = http_client
-            .post(&config.network.bitcoin_node_rpc_url)
-            .basic_auth(
-                &config.network.bitcoin_node_rpc_username,
-                Some(&config.network.bitcoin_node_rpc_password),
-            )
-            .header("Content-Type", "application/json")
-            .header("Host", &config.network.bitcoin_node_rpc_url[7..])
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| format!("unable to send request ({})", e))?
-            .json::<jsonrpc::Response>()
-            .await
-            .map_err(|e| format!("unable to parse response ({})", e))?
-            .result::<indexer::bitcoin::Block>()
-            .map_err(|e| format!("unable to parse response ({})", e))?;
+        let block_breakdown = loop {
+            match retrieve_block_full_breakdown(config, &block_hash).await {
+                Ok(res) => break res,
+                Err(e) => {
+                    error!(ctx.expect_logger(), "Error retrieving block {}", cursor,);
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(3000));
+        };
+
+        let _ = cache_block_tx.send(Some((
+            block_breakdown.height as u32,
+            CompactedBlock::from_full_block(&block_breakdown),
+        )));
 
         let block = indexer::bitcoin::standardize_bitcoin_block(
             &config.network,
             cursor,
-            raw_block,
+            block_breakdown,
             &mut bitcoin_context,
             ctx,
         )?;
@@ -312,36 +458,224 @@ pub async fn scan_bitcoin_chain_with_predicate(
                     tx.transaction_identifier.hash,
                     cursor
                 );
-                hits.push(tx);
+                if is_scanning_inscriptions {
+                    pipeline_started = true;
+                    let _ = retrieve_ordinal_tx
+                        .send(Some((tx.clone(), vec![predicate_spec.action.clone()])));
+                } else {
+                    hits.push(tx);
+                }
                 total_hits.push(tx.transaction_identifier.hash.to_string());
             }
         }
 
         if hits.len() > 0 {
             if apply {
-                let trigger = BitcoinTriggerChainhook {
-                    chainhook: &predicate_spec,
-                    apply: vec![(hits, &block)],
-                    rollback: vec![],
-                };
+                if is_scanning_inscriptions {
 
-                let proofs = HashMap::new();
-                match handle_bitcoin_hook_action(trigger, &proofs) {
-                    Err(e) => {
-                        error!(ctx.expect_logger(), "unable to handle action {}", e);
+                    // Start thread pool hitting bitdoind
+                    // Emitting ordinal updates
+                } else {
+                    let trigger = BitcoinTriggerChainhook {
+                        chainhook: &predicate_spec,
+                        apply: vec![(hits, &block)],
+                        rollback: vec![],
+                    };
+
+                    let proofs = HashMap::new();
+                    match handle_bitcoin_hook_action(trigger, &proofs) {
+                        Err(e) => {
+                            error!(ctx.expect_logger(), "unable to handle action {}", e);
+                        }
+                        Ok(BitcoinChainhookOccurrence::Http(request)) => {
+                            send_request(request, &ctx).await;
+                        }
+                        Ok(BitcoinChainhookOccurrence::File(path, bytes)) => {
+                            file_append(path, bytes, &ctx)
+                        }
+                        Ok(BitcoinChainhookOccurrence::Data(_payload)) => unreachable!(),
                     }
-                    Ok(BitcoinChainhookOccurrence::Http(request)) => {
-                        send_request(request, &ctx).await;
-                    }
-                    Ok(BitcoinChainhookOccurrence::File(path, bytes)) => {
-                        file_append(path, bytes, &ctx)
-                    }
-                    Ok(BitcoinChainhookOccurrence::Data(_payload)) => unreachable!(),
                 }
             }
         }
     }
-    // info!(ctx.expect_logger(), "Bitcoin chainhook {} scan completed and triggered by {} transactions {}", predicate.uuid, total_hits.len(), total_hits.join(","))
 
+    if pipeline_started {
+        let _ = retrieve_ordinal_tx.send(None);
+        handle_3.join();
+        handle_1.join();
+        handle_2.join();
+    }
+
+    Ok(())
+}
+
+pub async fn retrieve_block_full_breakdown(
+    config: &Config,
+    block_hash: &str,
+) -> Result<BitcoinBlockFullBreakdown, String> {
+    let body = json!({
+        "jsonrpc": "1.0",
+        "id": "chainhook-cli",
+        "method": "getblock",
+        "params": [block_hash, 3]
+    });
+    let http_client = HttpClient::builder()
+        .timeout(Duration::from_secs(20))
+        .build()
+        .expect("Unable to build http client");
+    let raw_block = http_client
+        .post(&config.network.bitcoin_node_rpc_url)
+        .basic_auth(
+            &config.network.bitcoin_node_rpc_username,
+            Some(&config.network.bitcoin_node_rpc_password),
+        )
+        .header("Content-Type", "application/json")
+        .header("Host", &config.network.bitcoin_node_rpc_url[7..])
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("unable to send request ({})", e))?
+        .json::<jsonrpc::Response>()
+        .await
+        .map_err(|e| format!("unable to parse response ({})", e))?
+        .result::<indexer::bitcoin::BitcoinBlockFullBreakdown>()
+        .map_err(|e| format!("unable to parse response ({})", e))?;
+
+    Ok(raw_block)
+}
+
+pub async fn retrieve_block_hash(config: &Config, block_height: &u64) -> Result<String, String> {
+    let body = json!({
+        "jsonrpc": "1.0",
+        "id": "chainhook-cli",
+        "method": "getblockhash",
+        "params": [block_height]
+    });
+    let http_client = HttpClient::builder()
+        .timeout(Duration::from_secs(20))
+        .build()
+        .expect("Unable to build http client");
+    let block_hash = http_client
+        .post(&config.network.bitcoin_node_rpc_url)
+        .basic_auth(
+            &config.network.bitcoin_node_rpc_username,
+            Some(&config.network.bitcoin_node_rpc_password),
+        )
+        .header("Content-Type", "application/json")
+        .header("Host", &config.network.bitcoin_node_rpc_url[7..])
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("unable to send request ({})", e))?
+        .json::<jsonrpc::Response>()
+        .await
+        .map_err(|e| format!("unable to parse response ({})", e))?
+        .result::<String>()
+        .map_err(|e| format!("unable to parse response ({})", e))?;
+
+    Ok(block_hash)
+}
+
+pub async fn retrieve_satoshi_point_using_local_storage(
+    config: &Config,
+    origin_block_height: &u64,
+    transaction_identifier: &TransactionIdentifier,
+) -> Result<(u64, u64), String> {
+    let path = config.get_bitcoin_block_traversal_db_path();
+    let storage_conn = open_existing_readonly_db(&path);
+
+    let mut ordinal_offset = 0;
+    let mut ordinal_block_number = *origin_block_height as u32;
+    let txid = {
+        let bytes = hex::decode(&transaction_identifier.hash).unwrap();
+        [bytes[0], bytes[1], bytes[2], bytes[3]]
+    };
+    let mut tx_cursor = (txid, 0);
+
+    loop {
+        let res = retrieve_compacted_block_from_index(ordinal_block_number, &storage_conn).unwrap();
+
+        // evaluate exit condition: did we reach a coinbase transaction?
+        let coinbase_txid = &res.0 .0 .0;
+        if coinbase_txid.eq(&tx_cursor.0) {
+            let coinbase_value = &res.0 .0 .1;
+            if ordinal_offset.lt(coinbase_value) {
+                break;
+            }
+
+            // loop over the transaction fees to detect the right range
+            let cut_off = ordinal_offset - coinbase_value;
+            let mut accumulated_fees = 0;
+            for (txid, inputs, outputs) in res.0 .1 {
+                let mut total_in = 0;
+                for (_, _, _, input_value) in inputs.iter() {
+                    total_in += input_value;
+                }
+
+                let mut total_out = 0;
+                for output_value in outputs.iter() {
+                    total_out += output_value;
+                }
+
+                let fee = total_in - total_out;
+                accumulated_fees += fee;
+                if accumulated_fees > cut_off {
+                    // We are looking at the right transaction
+                    // Retraverse the inputs to select the index to be picked
+                    let mut sats_in = 0;
+                    for (txin, block_height, vout, txin_value) in inputs.into_iter() {
+                        sats_in += txin_value;
+                        if sats_in >= total_out {
+                            ordinal_offset = total_out - (sats_in - txin_value);
+                            ordinal_block_number = block_height;
+                            // println!("{h}: {blockhash} -> {} [in:{} , out: {}] {}/{vout} (input #{in_index}) {compounded_offset}", transaction.txid, transaction.vin.len(), transaction.vout.len(), txid);
+                            tx_cursor = (txin, vout as usize);
+                            break;
+                        }
+                    }
+                    break;
+                }
+            }
+        } else {
+            // isolate the target transaction
+            for (txid, inputs, outputs) in res.0 .1 {
+                // we iterate over the transactions, looking for the transaction target
+                if !txid.eq(&tx_cursor.0) {
+                    continue;
+                }
+
+                let mut sats_out = 0;
+                for (index, output_value) in outputs.iter().enumerate() {
+                    if index == tx_cursor.1 {
+                        break;
+                    }
+                    sats_out += output_value;
+                }
+                sats_out += ordinal_offset;
+
+                let mut sats_in = 0;
+                for (txin, block_height, vout, txin_value) in inputs.into_iter() {
+                    sats_in += txin_value;
+                    if sats_in >= sats_out {
+                        ordinal_offset = sats_out - (sats_in - txin_value);
+                        ordinal_block_number = block_height;
+                        // println!("{h}: {blockhash} -> {} [in:{} , out: {}] {}/{vout} (input #{in_index}) {compounded_offset}", transaction.txid, transaction.vin.len(), transaction.vout.len(), txid);
+                        tx_cursor = (txin, vout as usize);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    Ok((ordinal_block_number.into(), ordinal_offset))
+}
+
+pub async fn scan_bitcoin_chain_for_ordinal_inscriptions(
+    subscribers: Vec<HookAction>,
+    first_inscription_height: u64,
+    config: &Config,
+    ctx: &Context,
+) -> Result<(), String> {
     Ok(())
 }

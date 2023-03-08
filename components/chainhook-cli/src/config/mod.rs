@@ -176,8 +176,15 @@ impl Config {
     }
 
     pub fn expected_cache_path(&self) -> PathBuf {
-        let mut destination_path = std::env::current_dir().expect("unable to get current dir");
+        let mut destination_path = PathBuf::new();
         destination_path.push(&self.storage.cache_path);
+        destination_path
+    }
+
+    pub fn get_bitcoin_block_traversal_db_path(&self) -> PathBuf {
+        let mut destination_path = PathBuf::new();
+        destination_path.push(&self.storage.cache_path);
+        destination_path.push("bitcoin_block_traversal.sqlite");
         destination_path
     }
 
@@ -244,7 +251,7 @@ impl Config {
                 driver: StorageDriver::Redis(RedisConfig {
                     uri: "redis://localhost:6379/".into(),
                 }),
-                cache_path: "cache".into(),
+                cache_path: default_cache_path(),
             },
             event_sources: vec![EventSourceConfig::StacksNode(StacksNodeConfig {
                 host: "http://0.0.0.0:20443".into(),
@@ -270,7 +277,7 @@ impl Config {
                 driver: StorageDriver::Redis(RedisConfig {
                     uri: "redis://localhost:6379/".into(),
                 }),
-                cache_path: "cache".into(),
+                cache_path: default_cache_path(),
             },
             event_sources: vec![EventSourceConfig::TsvUrl(TsvUrlConfig {
                 file_url: DEFAULT_TESTNET_TSV_ARCHIVE.into(),
@@ -296,7 +303,7 @@ impl Config {
                 driver: StorageDriver::Redis(RedisConfig {
                     uri: "redis://localhost:6379/".into(),
                 }),
-                cache_path: "cache".into(),
+                cache_path: default_cache_path(),
             },
             event_sources: vec![EventSourceConfig::TsvUrl(TsvUrlConfig {
                 file_url: DEFAULT_MAINNET_TSV_ARCHIVE.into(),
@@ -315,4 +322,10 @@ impl Config {
             },
         }
     }
+}
+
+pub fn default_cache_path() -> String {
+    let mut cache_path = std::env::current_dir().expect("unable to get current dir");
+    cache_path.push("cache");
+    format!("{}", cache_path.display())
 }

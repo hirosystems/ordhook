@@ -1,13 +1,10 @@
 use crate::{
-    indexer::{
-        bitcoin::Block,
-        ordinals::{height::Height, sat::Sat, sat_point::SatPoint},
-    },
+    indexer::ordinals::{height::Height, sat::Sat, sat_point::SatPoint},
     utils::Context,
 };
 use anyhow::Context as Ctx;
 use bitcoincore_rpc::bitcoin::{
-    OutPoint, PackedLockTime, Script, Transaction, TxIn, TxOut, Txid, Witness,
+    hashes::Hash, OutPoint, PackedLockTime, Script, Transaction, TxIn, TxOut, Txid, Witness,
 };
 use hiro_system_kit::slog;
 
@@ -200,7 +197,7 @@ impl OrdinalIndexUpdater {
                 }
             }
 
-            match Self::get_block_with_retries(&client, height, first_inscription_height) {
+            match Self::get_block_with_retries(&client, height, &ctx_) {
                 Ok(Some(block)) => {
                     if let Err(err) = tx.send(block.into()) {
                         ctx_.try_log(|logger| {
@@ -210,9 +207,14 @@ impl OrdinalIndexUpdater {
                     }
                     height += 1;
                 }
-                Ok(None) => break,
+                Ok(None) => {
+                    ctx_.try_log(|logger| slog::error!(logger, "failed to fetch block {height}",));
+                    break;
+                }
                 Err(err) => {
-                    // log::error!("failed to fetch block {height}: {err}");
+                    ctx_.try_log(|logger| {
+                        slog::error!(logger, "failed to fetch block {height}: {err}",)
+                    });
                     break;
                 }
             }
@@ -224,100 +226,9 @@ impl OrdinalIndexUpdater {
     fn get_block_with_retries(
         client: &Client,
         height: u64,
-        first_inscription_height: u64,
+        ctx: &Context,
     ) -> Result<Option<BlockData>> {
-        let mut errors = 0;
-        loop {
-            match client
-                .get_block_hash(height)
-                .into_option()
-                .and_then(|option| {
-                    option
-                        .map(|hash| {
-                            let block: Block = client.call("getblock", &[json!(hash), json!(2)])?;
-                            let bits = hex::decode(block.bits).unwrap();
-                            let block_data = BlockData {
-                                header: BlockHeader {
-                                    version: block.version,
-                                    prev_blockhash: block.previousblockhash,
-                                    merkle_root: block.merkleroot,
-                                    time: block.time as u32,
-                                    bits: u32::from_be_bytes([bits[0], bits[1], bits[2], bits[3]]),
-                                    nonce: block.nonce,
-                                },
-                                txdata: block
-                                    .tx
-                                    .iter()
-                                    .map(|tx| {
-                                        (
-                                            Transaction {
-                                                version: tx.version as i32,
-                                                lock_time: PackedLockTime(tx.locktime),
-                                                input: tx
-                                                    .vin
-                                                    .iter()
-                                                    .map(|i| TxIn {
-                                                        previous_output: match (i.txid, i.vout) {
-                                                            (Some(txid), Some(vout)) => {
-                                                                OutPoint { txid, vout }
-                                                            }
-                                                            _ => OutPoint::null(),
-                                                        },
-                                                        script_sig: match i.script_sig {
-                                                            Some(ref script_sig) => {
-                                                                script_sig.script().unwrap()
-                                                            }
-                                                            None => Script::default(),
-                                                        },
-                                                        sequence:
-                                                            bitcoincore_rpc::bitcoin::Sequence(
-                                                                i.sequence,
-                                                            ),
-                                                        witness: Witness::from_vec(
-                                                            i.txinwitness.clone().unwrap_or(vec![]),
-                                                        ),
-                                                    })
-                                                    .collect(),
-                                                output: tx
-                                                    .vout
-                                                    .iter()
-                                                    .map(|o| TxOut {
-                                                        value: o.value.to_sat(),
-                                                        script_pubkey: o
-                                                            .script_pub_key
-                                                            .script()
-                                                            .unwrap(),
-                                                    })
-                                                    .collect(),
-                                            },
-                                            tx.txid,
-                                        )
-                                    })
-                                    .collect::<Vec<(Transaction, Txid)>>(),
-                            };
-                            Ok(block_data)
-                        })
-                        .transpose()
-                }) {
-                Err(err) => {
-                    if cfg!(test) {
-                        return Err(err);
-                    }
-
-                    errors += 1;
-                    let seconds = 1 << errors;
-                    // log::warn!("failed to fetch block {height}, retrying in {seconds}s: {err}");
-
-                    if seconds > 120 {
-                        // log::error!("would sleep for more than 120s, giving up");
-                        return Err(err);
-                    }
-
-                    std::thread::sleep(Duration::from_secs(seconds));
-                }
-                Ok(result) => return Ok(result),
-            }
-        }
+        return Ok(None);
     }
 
     fn spawn_fetcher(index: &OrdinalIndex) -> Result<(Sender<OutPoint>, Receiver<u64>)> {

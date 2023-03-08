@@ -1,14 +1,28 @@
 use crate::block::DigestingCommand;
 use crate::config::Config;
 use crate::node::Node;
-use crate::scan::bitcoin::scan_bitcoin_chain_with_predicate;
+use crate::scan::bitcoin::{
+    retrieve_satoshi_point_using_bitcoin_rpc, scan_bitcoin_chain_with_predicate,
+};
 use crate::scan::stacks::scan_stacks_chain_with_predicate;
 
+use chainhook_event_observer::bitcoincore_rpc::bitcoin::OutPoint;
 use chainhook_event_observer::chainhooks::types::ChainhookFullSpecification;
+use chainhook_event_observer::indexer::ordinals::indexing::entry::{Entry, SatRange};
+use chainhook_event_observer::indexer::ordinals::indexing::{
+    OUTPOINT_TO_SAT_RANGES, SAT_TO_SATPOINT,
+};
+use chainhook_event_observer::indexer::ordinals::initialize_ordinal_index;
+use chainhook_event_observer::indexer::ordinals::sat_point::SatPoint;
+use chainhook_event_observer::observer::{
+    EventObserverConfig, DEFAULT_CONTROL_PORT, DEFAULT_INGESTION_PORT,
+};
+use chainhook_event_observer::redb::ReadableTable;
 use chainhook_event_observer::utils::Context;
 use clap::{Parser, Subcommand};
 use ctrlc;
 use hiro_system_kit;
+use std::collections::{HashSet, VecDeque};
 use std::io::{BufReader, Read};
 use std::process;
 use std::sync::mpsc::Sender;
@@ -31,6 +45,9 @@ enum Command {
     /// Ordinals related commands
     #[clap(subcommand)]
     Ordinals(OrdinalsCommand),
+    /// Db related commands (debug purposes)
+    #[clap(subcommand)]
+    Db(DbCommand),
 }
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
@@ -125,12 +142,54 @@ enum OrdinalsCommand {
     Satoshi(GetSatoshiCommand),
 }
 
+#[derive(Subcommand, PartialEq, Clone, Debug)]
+enum DbCommand {
+    /// Dump DB storage
+    #[clap(name = "dump", bin_name = "dump")]
+    Dump(DumpDbCommand),
+}
+
 #[derive(Parser, PartialEq, Clone, Debug)]
 struct GetSatoshiCommand {
     /// Txid
     pub txid: String,
     /// Output index
     pub output_index: usize,
+    /// Target Devnet network
+    #[clap(
+        long = "devnet",
+        conflicts_with = "testnet",
+        conflicts_with = "mainnet"
+    )]
+    pub devnet: bool,
+    /// Target Testnet network
+    #[clap(
+        long = "testnet",
+        conflicts_with = "devnet",
+        conflicts_with = "mainnet"
+    )]
+    pub testnet: bool,
+    /// Target Mainnet network
+    #[clap(
+        long = "mainnet",
+        conflicts_with = "testnet",
+        conflicts_with = "devnet"
+    )]
+    pub mainnet: bool,
+    /// Load config file path
+    #[clap(
+        long = "config-path",
+        conflicts_with = "mainnet",
+        conflicts_with = "testnet",
+        conflicts_with = "devnet"
+    )]
+    pub config_path: Option<String>,
+}
+
+#[derive(Parser, PartialEq, Clone, Debug)]
+struct DumpDbCommand {
+    /// Db path
+    pub path: String,
     /// Target Devnet network
     #[clap(
         long = "devnet",
@@ -228,8 +287,79 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
         },
         Command::Ordinals(subcmd) => match subcmd {
             OrdinalsCommand::Satoshi(cmd) => {
-                let _config =
+                let config =
                     Config::default(cmd.devnet, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
+
+                retrieve_satoshi_point_using_bitcoin_rpc(&config, &cmd.txid, cmd.output_index)
+                    .await?;
+            }
+        },
+        Command::Db(subcmd) => match subcmd {
+            DbCommand::Dump(cmd) => {
+                let config =
+                    Config::default(cmd.devnet, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
+
+                let event_observer_config = EventObserverConfig {
+                    normalization_enabled: true,
+                    grpc_server_enabled: false,
+                    hooks_enabled: true,
+                    bitcoin_rpc_proxy_enabled: true,
+                    event_handlers: vec![],
+                    chainhook_config: None,
+                    ingestion_port: DEFAULT_INGESTION_PORT,
+                    control_port: DEFAULT_CONTROL_PORT,
+                    bitcoin_node_username: config.network.bitcoin_node_rpc_username.clone(),
+                    bitcoin_node_password: config.network.bitcoin_node_rpc_password.clone(),
+                    bitcoin_node_rpc_url: config.network.bitcoin_node_rpc_url.clone(),
+                    stacks_node_rpc_url: config.network.stacks_node_rpc_url.clone(),
+                    operators: HashSet::new(),
+                    display_logs: false,
+                    cache_path: "cache/tmp".to_string(),
+                    bitcoin_network: config.network.bitcoin_network.clone(),
+                };
+
+                let ordinal_index = match initialize_ordinal_index(
+                    &event_observer_config,
+                    Some(cmd.path.into()),
+                    &ctx,
+                ) {
+                    Ok(index) => index,
+                    Err(e) => {
+                        panic!()
+                    }
+                };
+
+                for (key, value) in ordinal_index
+                    .database
+                    .begin_read()
+                    .unwrap()
+                    .open_table(SAT_TO_SATPOINT)
+                    .unwrap()
+                    .iter()
+                    .unwrap()
+                {
+                    let sat_point = SatPoint::load(*value.value());
+                    println!("{} -> {}", key.value(), sat_point);
+                }
+
+                println!("=====");
+
+                for (key, raw_ranges) in ordinal_index
+                    .database
+                    .begin_read()
+                    .unwrap()
+                    .open_table(OUTPOINT_TO_SAT_RANGES)
+                    .unwrap()
+                    .iter()
+                    .unwrap()
+                {
+                    let outpoint = OutPoint::load(*key.value());
+                    let mut input_sat_ranges = VecDeque::new();
+                    for chunk in raw_ranges.value().chunks_exact(11) {
+                        input_sat_ranges.push_back(SatRange::load(chunk.try_into().unwrap()));
+                    }
+                    println!("{} -> {:?}", outpoint, input_sat_ranges);
+                }
             }
         },
     }

@@ -7,9 +7,9 @@ pub mod indexing;
 pub mod inscription;
 pub mod inscription_id;
 pub mod sat;
-mod sat_point;
+pub mod sat_point;
 use hiro_system_kit::slog;
-use std::time::Duration;
+use std::{path::PathBuf, time::Duration};
 
 type Result<T = (), E = anyhow::Error> = std::result::Result<T, E>;
 
@@ -25,6 +25,7 @@ const CYCLE_EPOCHS: u64 = 6;
 
 pub fn initialize_ordinal_index(
     config: &EventObserverConfig,
+    index_path: Option<PathBuf>,
     ctx: &Context,
 ) -> Result<self::indexing::OrdinalIndex, String> {
     let chain = match &config.bitcoin_network {
@@ -39,7 +40,7 @@ pub fn initialize_ordinal_index(
         chain: chain,
         first_inscription_height: Some(chain.first_inscription_height()),
         height_limit: None,
-        index: None,
+        index: index_path,
         rpc_url: config.bitcoin_node_rpc_url.clone(),
     };
     let index = match self::indexing::OrdinalIndex::open(&index_options) {
