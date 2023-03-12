@@ -466,7 +466,6 @@ impl Node {
 
                                 let block = indexer::bitcoin::standardize_bitcoin_block(
                                     &self.config.network,
-                                    cursor,
                                     raw_block,
                                     &mut bitcoin_context,
                                     &self.ctx,

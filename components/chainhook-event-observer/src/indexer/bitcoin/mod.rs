@@ -27,7 +27,6 @@ use chainhook_types::{
     OrdinalInscriptionRevealData, OrdinalOperation, PobBlockCommitmentData, PoxBlockCommitmentData,
     PoxReward, StacksBaseChainOperation, TransactionIdentifier, TransferSTXData,
 };
-use clarity_repl::clarity::util::hash::to_hex;
 use hiro_system_kit::slog;
 use rocket::serde::json::Value as JsonValue;
 use serde::Deserialize;
@@ -138,15 +137,33 @@ pub struct RewardParticipant {
     amt: u64,
 }
 
-pub async fn retrieve_full_block_breakdown(
+pub async fn retrieve_full_block_breakdown_with_retry(
     bitcoin_config: &BitcoinConfig,
-    marshalled_block: JsonValue,
-    _ctx: &Context,
-) -> Result<(u64, BitcoinBlockFullBreakdown), String> {
-    let partial_block: NewBitcoinBlock = serde_json::from_value(marshalled_block)
-        .map_err(|e| format!("unable for parse bitcoin block: {}", e.to_string()))?;
-    let block_hash = partial_block.burn_block_hash.strip_prefix("0x").unwrap();
+    block_hash: &str,
+    ctx: &Context,
+) -> Result<BitcoinBlockFullBreakdown, String> {
+    let mut errors_count = 0;
+    let block = loop {
+        match retrieve_full_block_breakdown(bitcoin_config, block_hash, ctx).await {
+            Ok(result) => break result,
+            Err(e) => {
+                errors_count += 1;
+                error!(
+                    "unable to retrieve block #{block_hash} (attempt #{errors_count}): {}",
+                    e.to_string()
+                );
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
+    };
+    Ok(block)
+}
 
+async fn retrieve_full_block_breakdown(
+    bitcoin_config: &BitcoinConfig,
+    block_hash: &str,
+    _ctx: &Context,
+) -> Result<BitcoinBlockFullBreakdown, String> {
     use reqwest::Client as HttpClient;
     let body = json!({
         "jsonrpc": "1.0",
@@ -173,19 +190,17 @@ pub async fn retrieve_full_block_breakdown(
         .result::<BitcoinBlockFullBreakdown>()
         .map_err(|e| format!("unable to parse response ({})", e))?;
 
-    let block_height = partial_block.burn_block_height;
-    Ok((block_height, block))
+    Ok(block)
 }
 
 pub fn standardize_bitcoin_block(
     indexer_config: &IndexerConfig,
-    block_height: u64,
     block: BitcoinBlockFullBreakdown,
     bitcoin_context: &mut BitcoinChainContext,
     ctx: &Context,
 ) -> Result<BitcoinBlockData, String> {
     let mut transactions = vec![];
-
+    let block_height = block.height as u64;
     let expected_magic_bytes = get_stacks_canonical_magic_bytes(&indexer_config.bitcoin_network);
     let pox_config = get_canonical_pox_config(&indexer_config.bitcoin_network);
 
@@ -227,7 +242,7 @@ pub fn standardize_bitcoin_block(
                 },
                 script_sig: format!(
                     "0x{}",
-                    to_hex(&input.script_sig.expect("not provided for coinbase txs").hex)
+                    hex::encode(&input.script_sig.expect("not provided for coinbase txs").hex)
                 ),
                 sequence: input.sequence,
                 witness: input
@@ -235,7 +250,7 @@ pub fn standardize_bitcoin_block(
                     .unwrap_or(vec![])
                     .to_vec()
                     .iter()
-                    .map(|w| format!("0x{}", to_hex(w)))
+                    .map(|w| format!("0x{}", hex::encode(w)))
                     .collect::<Vec<_>>(),
             })
         }
@@ -244,7 +259,7 @@ pub fn standardize_bitcoin_block(
         for output in tx.vout.drain(..) {
             outputs.push(TxOut {
                 value: output.value.to_sat(),
-                script_pubkey: format!("0x{}", to_hex(&output.script_pub_key.hex)),
+                script_pubkey: format!("0x{}", hex::encode(&output.script_pub_key.hex)),
             });
         }
 
@@ -311,7 +326,7 @@ fn try_parse_ordinal_operation(
                 return Some(OrdinalOperation::InscriptionRevealed(
                     OrdinalInscriptionRevealData {
                         content_type: inscription.content_type().unwrap_or("unknown").to_string(),
-                        content_bytes: format!("0x{}", to_hex(&inscription_content_bytes)),
+                        content_bytes: format!("0x{}", hex::encode(&inscription_content_bytes)),
                         content_length: inscription_content_bytes.len(),
                         inscription_id: inscription_id.to_string(),
                         inscription_authors: vec![],
@@ -390,7 +405,7 @@ fn try_parse_stacks_operation(
                 let mut rewards = vec![];
                 for output in outputs[1..pox_config.rewarded_addresses_per_block].into_iter() {
                     rewards.push(PoxReward {
-                        recipient: format!("0x{}", to_hex(&output.script_pub_key.hex)),
+                        recipient: format!("0x{}", hex::encode(&output.script_pub_key.hex)),
                         amount: output.value.to_sat(),
                     });
                 }
@@ -422,7 +437,7 @@ fn try_parse_block_commit_op(bytes: &[u8]) -> Option<BlockCommitmentData> {
     }
 
     Some(BlockCommitmentData {
-        stacks_block_hash: format!("0x{}", to_hex(&bytes[0..32])),
+        stacks_block_hash: format!("0x{}", hex::encode(&bytes[0..32])),
     })
 }
 

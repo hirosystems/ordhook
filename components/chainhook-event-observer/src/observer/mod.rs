@@ -7,7 +7,7 @@ use crate::chainhooks::stacks::{
     StacksChainhookOccurrence, StacksChainhookOccurrencePayload,
 };
 use crate::chainhooks::types::{ChainhookConfig, ChainhookSpecification};
-use crate::indexer::bitcoin::retrieve_full_block_breakdown;
+use crate::indexer::bitcoin::{retrieve_full_block_breakdown_with_retry, NewBitcoinBlock};
 use crate::indexer::ordinals::{indexing::updater::OrdinalIndexUpdater, initialize_ordinal_index};
 use crate::indexer::{self, Indexer, IndexerConfig};
 use crate::utils::{send_request, Context};
@@ -948,11 +948,11 @@ pub fn handle_ping(ctx: &State<Context>) -> Json<JsonValue> {
 }
 
 #[openapi(skip)]
-#[post("/new_burn_block", format = "json", data = "<marshalled_block>")]
+#[post("/new_burn_block", format = "json", data = "<bitcoin_block>")]
 pub async fn handle_new_bitcoin_block(
     indexer_rw_lock: &State<Arc<RwLock<Indexer>>>,
     bitcoin_config: &State<BitcoinConfig>,
-    marshalled_block: Json<JsonValue>,
+    bitcoin_block: Json<NewBitcoinBlock>,
     background_job_tx: &State<Arc<Mutex<Sender<ObserverCommand>>>>,
     ctx: &State<Context>,
 ) -> Json<JsonValue> {
@@ -961,10 +961,9 @@ pub async fn handle_new_bitcoin_block(
     // kind of update that this new block would imply, taking
     // into account the last 7 blocks.
 
-    let (block_height, block) =
-        match retrieve_full_block_breakdown(bitcoin_config, marshalled_block.into_inner(), ctx)
-            .await
-        {
+    let block_hash = bitcoin_block.burn_block_hash.strip_prefix("0x").unwrap();
+    let block =
+        match retrieve_full_block_breakdown_with_retry(bitcoin_config, block_hash, ctx).await {
             Ok(block) => block,
             Err(e) => {
                 ctx.try_log(|logger| {
@@ -982,7 +981,7 @@ pub async fn handle_new_bitcoin_block(
         };
 
     let chain_update = match indexer_rw_lock.inner().write() {
-        Ok(mut indexer) => indexer.handle_bitcoin_block(block_height, block, &ctx),
+        Ok(mut indexer) => indexer.handle_bitcoin_block(block, &ctx),
         Err(e) => {
             ctx.try_log(|logger| {
                 slog::warn!(

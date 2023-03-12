@@ -83,13 +83,11 @@ impl Indexer {
 
     pub fn handle_bitcoin_block(
         &mut self,
-        block_height: u64,
         block: BitcoinBlockFullBreakdown,
         ctx: &Context,
     ) -> Result<Option<BitcoinChainEvent>, String> {
         let block = bitcoin::standardize_bitcoin_block(
             &self.config,
-            block_height,
             block,
             &mut self.bitcoin_context,
             ctx,

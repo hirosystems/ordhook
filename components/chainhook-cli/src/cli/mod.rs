@@ -2,7 +2,8 @@ use crate::block::DigestingCommand;
 use crate::config::Config;
 use crate::node::Node;
 use crate::scan::bitcoin::{
-    scan_bitcoin_chain_with_predicate, retrieve_satoshi_point_using_local_storage,
+    build_bitcoin_traversal_local_storage, retrieve_satoshi_point_using_local_storage,
+    scan_bitcoin_chain_with_predicate,
 };
 use crate::scan::stacks::scan_stacks_chain_with_predicate;
 
@@ -148,6 +149,9 @@ enum DbCommand {
     /// Dump DB storage
     #[clap(name = "dump", bin_name = "dump")]
     Dump(DumpDbCommand),
+    /// Dump DB storage
+    #[clap(name = "build", bin_name = "build")]
+    Build(BuildDbCommand),
 }
 
 #[derive(Parser, PartialEq, Clone, Debug)]
@@ -191,6 +195,39 @@ struct GetSatoshiCommand {
 struct DumpDbCommand {
     /// Db path
     pub path: String,
+    /// Target Devnet network
+    #[clap(
+        long = "devnet",
+        conflicts_with = "testnet",
+        conflicts_with = "mainnet"
+    )]
+    pub devnet: bool,
+    /// Target Testnet network
+    #[clap(
+        long = "testnet",
+        conflicts_with = "devnet",
+        conflicts_with = "mainnet"
+    )]
+    pub testnet: bool,
+    /// Target Mainnet network
+    #[clap(
+        long = "mainnet",
+        conflicts_with = "testnet",
+        conflicts_with = "devnet"
+    )]
+    pub mainnet: bool,
+    /// Load config file path
+    #[clap(
+        long = "config-path",
+        conflicts_with = "mainnet",
+        conflicts_with = "testnet",
+        conflicts_with = "devnet"
+    )]
+    pub config_path: Option<String>,
+}
+
+#[derive(Parser, PartialEq, Clone, Debug)]
+struct BuildDbCommand {
     /// Target Devnet network
     #[clap(
         long = "devnet",
@@ -290,13 +327,24 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
             OrdinalsCommand::Satoshi(cmd) => {
                 let config =
                     Config::default(cmd.devnet, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
-                let txid = TransactionIdentifier { hash: cmd.txid.clone() };
-                let block_id = BlockIdentifier { hash: "".into(), index: cmd.block_height };
-                retrieve_satoshi_point_using_local_storage(&config, &block_id, &txid)
-                    .await?;
+                let txid = TransactionIdentifier {
+                    hash: cmd.txid.clone(),
+                };
+                let block_id = BlockIdentifier {
+                    hash: "".into(),
+                    index: cmd.block_height,
+                };
+                retrieve_satoshi_point_using_local_storage(&config, &block_id, &txid, &ctx).await?;
             }
         },
         Command::Db(subcmd) => match subcmd {
+            DbCommand::Build(cmd) => {
+                let config =
+                    Config::default(cmd.devnet, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
+
+                build_bitcoin_traversal_local_storage(config.clone(), 0, 300000, &ctx, 1).await?;
+                // build_bitcoin_traversal_local_storage(config, 500001, 700000, &ctx, 4).await?;
+            }
             DbCommand::Dump(cmd) => {
                 let config =
                     Config::default(cmd.devnet, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
