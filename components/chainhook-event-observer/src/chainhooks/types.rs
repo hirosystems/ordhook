@@ -45,11 +45,27 @@ impl ChainhookConfig {
         bitcoin
     }
 
-    pub fn register_hook(&mut self, hook: ChainhookSpecification) {
-        match hook {
-            ChainhookSpecification::Stacks(hook) => self.stacks_chainhooks.push(hook),
-            ChainhookSpecification::Bitcoin(hook) => self.bitcoin_chainhooks.push(hook),
+    pub fn register_hook(
+        &mut self,
+        networks: (&BitcoinNetwork, &StacksNetwork),
+        hook: ChainhookFullSpecification,
+        api_key: &ApiKey,
+    ) -> Result<ChainhookSpecification, String> {
+        let spec = match hook {
+            ChainhookFullSpecification::Stacks(hook) => {
+                let mut spec = hook.into_selected_network_specification(networks.1)?;
+                spec.owner_uuid = api_key.0.clone();
+                self.stacks_chainhooks.push(spec.clone());
+                ChainhookSpecification::Stacks(spec)
+            }
+            ChainhookFullSpecification::Bitcoin(hook) => {
+                let mut spec = hook.into_selected_network_specification(networks.0)?;
+                spec.owner_uuid = api_key.0.clone();
+                self.bitcoin_chainhooks.push(spec.clone());
+                ChainhookSpecification::Bitcoin(spec)
+            }
         };
+        Ok(spec)
     }
 
     pub fn deregister_stacks_hook(
@@ -196,6 +212,24 @@ pub struct BitcoinChainhookSpecification {
 pub enum ChainhookFullSpecification {
     Bitcoin(BitcoinChainhookFullSpecification),
     Stacks(StacksChainhookFullSpecification),
+}
+
+impl ChainhookFullSpecification {
+    pub fn validate(&self) -> Result<(), String> {
+        match &self {
+            Self::Bitcoin(data) => {
+                for (_, spec) in data.networks.iter() {
+                    let _ = spec.action.validate()?;
+                }
+            }
+            Self::Stacks(data) => {
+                for (_, spec) in data.networks.iter() {
+                    let _ = spec.action.validate()?;
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]

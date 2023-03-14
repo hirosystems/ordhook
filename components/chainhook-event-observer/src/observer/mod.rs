@@ -6,7 +6,9 @@ use crate::chainhooks::stacks::{
     evaluate_stacks_chainhooks_on_chain_event, handle_stacks_hook_action,
     StacksChainhookOccurrence, StacksChainhookOccurrencePayload,
 };
-use crate::chainhooks::types::{ChainhookConfig, ChainhookSpecification};
+use crate::chainhooks::types::{
+    ChainhookConfig, ChainhookFullSpecification, ChainhookSpecification,
+};
 use crate::indexer::bitcoin::{retrieve_full_block_breakdown_with_retry, NewBitcoinBlock};
 use crate::indexer::ordinals::{indexing::updater::OrdinalIndexUpdater, initialize_ordinal_index};
 use crate::indexer::{self, Indexer, IndexerConfig};
@@ -127,6 +129,7 @@ pub struct EventObserverConfig {
     pub display_logs: bool,
     pub cache_path: String,
     pub bitcoin_network: BitcoinNetwork,
+    pub stacks_network: StacksNetwork,
 }
 
 #[derive(Deserialize, Debug)]
@@ -140,7 +143,7 @@ pub enum ObserverCommand {
     PropagateBitcoinChainEvent(BitcoinChainEvent),
     PropagateStacksChainEvent(StacksChainEvent),
     PropagateStacksMempoolEvent(StacksChainMempoolEvent),
-    RegisterHook(ChainhookSpecification, ApiKey),
+    RegisterHook(ChainhookFullSpecification, ApiKey),
     DeregisterBitcoinHook(String, ApiKey),
     DeregisterStacksHook(String, ApiKey),
     NotifyBitcoinTransactionProxied,
@@ -447,7 +450,7 @@ pub async fn start_observer_commands_handler(
     let mut chainhooks_occurrences_tracker: HashMap<String, u64> = HashMap::new();
     let event_handlers = config.event_handlers.clone();
     let mut chainhooks_lookup: HashMap<String, ApiKey> = HashMap::new();
-
+    let networks = (&config.bitcoin_network, &config.stacks_network);
     loop {
         let command = match observer_commands_rx.recv() {
             Ok(cmd) => cmd,
@@ -510,6 +513,7 @@ pub async fn start_observer_commands_handler(
                             let chainhooks_candidates = evaluate_bitcoin_chainhooks_on_chain_event(
                                 &chain_event,
                                 bitcoin_chainhooks,
+                                &ctx,
                             );
 
                             ctx.try_log(|logger| {
@@ -847,20 +851,31 @@ pub async fn start_observer_commands_handler(
                             continue;
                         }
                     };
-                    let mut registered_hook = hook.clone();
-                    registered_hook.set_owner_uuid(&api_key);
-                    hook_formation.register_hook(registered_hook.clone());
-                    chainhooks_lookup.insert(registered_hook.uuid().to_string(), api_key.clone());
+
+                    let spec = match hook_formation.register_hook(networks, hook, &api_key) {
+                        Ok(uuid) => uuid,
+                        Err(e) => {
+                            ctx.try_log(|logger| {
+                                slog::error!(
+                                    logger,
+                                    "Unable to retrieve register new chainhook spec: {}",
+                                    e.to_string()
+                                )
+                            });
+                            continue;
+                        }
+                    };
+                    chainhooks_lookup.insert(spec.uuid().to_string(), api_key.clone());
                     ctx.try_log(|logger| {
                         slog::info!(
                             logger,
                             "Registering chainhook {} associated with {:?}",
-                            registered_hook.uuid(),
+                            spec.uuid(),
                             api_key
                         )
                     });
                     if let Some(ref tx) = observer_events_tx {
-                        let _ = tx.send(ObserverEvent::HookRegistered(registered_hook));
+                        let _ = tx.send(ObserverEvent::HookRegistered(spec));
                     }
                 }
             },
@@ -1424,7 +1439,7 @@ pub fn handle_get_hooks(
 #[openapi(tag = "Chainhooks")]
 #[post("/v1/chainhooks", format = "application/json", data = "<hook>")]
 pub fn handle_create_hook(
-    hook: Json<ChainhookSpecification>,
+    hook: Json<ChainhookFullSpecification>,
     background_job_tx: &State<Arc<Mutex<Sender<ObserverCommand>>>>,
     ctx: &State<Context>,
     api_key: ApiKey,

@@ -2,6 +2,7 @@ use super::types::{
     BitcoinChainhookSpecification, BitcoinPredicateType, ExactMatchingRule, HookAction,
     InputPredicate, MatchingRule, OrdinalOperations, OutputPredicate, Protocols, StacksOperations,
 };
+use crate::utils::Context;
 use base58::FromBase58;
 use bitcoincore_rpc::bitcoin::blockdata::opcodes;
 use bitcoincore_rpc::bitcoin::blockdata::script::Builder as BitcoinScriptBuilder;
@@ -12,6 +13,7 @@ use chainhook_types::{
     StacksBaseChainOperation, TransactionIdentifier,
 };
 use clarity_repl::clarity::util::hash::to_hex;
+use hiro_system_kit::slog;
 use reqwest::{Client, Method};
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
@@ -56,6 +58,7 @@ pub enum BitcoinChainhookOccurrence {
 pub fn evaluate_bitcoin_chainhooks_on_chain_event<'a>(
     chain_event: &'a BitcoinChainEvent,
     active_chainhooks: Vec<&'a BitcoinChainhookSpecification>,
+    ctx: &Context,
 ) -> Vec<BitcoinTriggerChainhook<'a>> {
     let mut triggered_chainhooks = vec![];
     match chain_event {
@@ -67,7 +70,7 @@ pub fn evaluate_bitcoin_chainhooks_on_chain_event<'a>(
                 for block in event.new_blocks.iter() {
                     let mut hits = vec![];
                     for tx in block.transactions.iter() {
-                        if chainhook.predicate.evaluate_transaction_predicate(&tx) {
+                        if chainhook.predicate.evaluate_transaction_predicate(&tx, ctx) {
                             hits.push(tx);
                         }
                     }
@@ -93,7 +96,7 @@ pub fn evaluate_bitcoin_chainhooks_on_chain_event<'a>(
                 for block in event.blocks_to_apply.iter() {
                     let mut hits = vec![];
                     for tx in block.transactions.iter() {
-                        if chainhook.predicate.evaluate_transaction_predicate(&tx) {
+                        if chainhook.predicate.evaluate_transaction_predicate(&tx, ctx) {
                             hits.push(tx);
                         }
                     }
@@ -104,7 +107,7 @@ pub fn evaluate_bitcoin_chainhooks_on_chain_event<'a>(
                 for block in event.blocks_to_rollback.iter() {
                     let mut hits = vec![];
                     for tx in block.transactions.iter() {
-                        if chainhook.predicate.evaluate_transaction_predicate(&tx) {
+                        if chainhook.predicate.evaluate_transaction_predicate(&tx, ctx) {
                             hits.push(tx);
                         }
                     }
@@ -253,7 +256,11 @@ pub fn handle_bitcoin_hook_action<'a>(
 }
 
 impl BitcoinPredicateType {
-    pub fn evaluate_transaction_predicate(&self, tx: &BitcoinTransactionData) -> bool {
+    pub fn evaluate_transaction_predicate(
+        &self,
+        tx: &BitcoinTransactionData,
+        ctx: &Context,
+    ) -> bool {
         // TODO(lgalabru): follow-up on this implementation
         match &self {
             BitcoinPredicateType::Block => true,
@@ -291,40 +298,18 @@ impl BitcoinPredicateType {
                 false
             }
             BitcoinPredicateType::Outputs(OutputPredicate::P2pkh(ExactMatchingRule::Equals(
-                address,
+                encoded_address,
+            )))
+            | BitcoinPredicateType::Outputs(OutputPredicate::P2sh(ExactMatchingRule::Equals(
+                encoded_address,
             ))) => {
-                let pubkey_hash = address
-                    .from_base58()
-                    .expect("Unable to get bytes from btc address");
-                let script = BitcoinScriptBuilder::new()
-                    .push_opcode(opcodes::all::OP_DUP)
-                    .push_opcode(opcodes::all::OP_HASH160)
-                    .push_slice(&pubkey_hash[1..21])
-                    .push_opcode(opcodes::all::OP_EQUALVERIFY)
-                    .push_opcode(opcodes::all::OP_CHECKSIG)
-                    .into_script();
-
+                let address = match Address::from_str(encoded_address) {
+                    Ok(address) => address,
+                    Err(_) => return false,
+                };
+                let address_bytes = to_hex(address.script_pubkey().as_bytes());
                 for output in tx.metadata.outputs.iter() {
-                    if output.script_pubkey == to_hex(script.as_bytes()) {
-                        return true;
-                    }
-                }
-                false
-            }
-            BitcoinPredicateType::Outputs(OutputPredicate::P2sh(ExactMatchingRule::Equals(
-                address,
-            ))) => {
-                let script_hash = address
-                    .from_base58()
-                    .expect("Unable to get bytes from btc address");
-                let script = BitcoinScriptBuilder::new()
-                    .push_opcode(opcodes::all::OP_HASH160)
-                    .push_slice(&script_hash[1..21])
-                    .push_opcode(opcodes::all::OP_EQUAL)
-                    .into_script();
-
-                for output in tx.metadata.outputs.iter() {
-                    if output.script_pubkey == to_hex(script.as_bytes()) {
+                    if output.script_pubkey[2..] == address_bytes {
                         return true;
                     }
                 }
@@ -346,9 +331,9 @@ impl BitcoinPredicateType {
                     },
                     Err(_) => return false,
                 };
-                let script_bytes = to_hex(address.script_pubkey().as_bytes());
+                let address_bytes = to_hex(address.script_pubkey().as_bytes());
                 for output in tx.metadata.outputs.iter() {
-                    if output.script_pubkey == script_bytes {
+                    if output.script_pubkey[2..] == address_bytes {
                         return true;
                     }
                 }
