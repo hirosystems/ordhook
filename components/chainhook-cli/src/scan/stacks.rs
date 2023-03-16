@@ -100,6 +100,7 @@ pub async fn scan_stacks_chain_with_predicate(
         display_logs: false,
         cache_path: config.storage.cache_path.clone(),
         bitcoin_network: config.network.bitcoin_network.clone(),
+        stacks_network: config.network.stacks_network.clone(),
     };
 
     let mut indexer = Indexer::new(config.network.clone(), None);

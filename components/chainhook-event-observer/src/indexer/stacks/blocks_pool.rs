@@ -614,12 +614,15 @@ impl StacksBlockPool {
             )
         });
 
-        let chain_event = self.generate_microblock_chain_event(
+        let chain_event = match self.generate_microblock_chain_event(
             &anchor_block_updated,
             canonical_micro_fork,
             &previous_canonical_micro_fork,
             ctx,
-        );
+        ) {
+            Ok(res) => res,
+            Err(e) => None,
+        };
 
         Ok(chain_event)
     }
@@ -647,7 +650,10 @@ impl StacksBlockPool {
         block: &StacksBlockData,
         diff_enabled: bool,
         ctx: &Context,
-    ) -> (Option<StacksChainEvent>, Option<Vec<StacksMicroblockData>>) {
+    ) -> Result<
+        (Option<StacksChainEvent>, Option<Vec<StacksMicroblockData>>),
+        ChainSegmentIncompatibility,
+    > {
         match (
             &block.metadata.confirm_microblock_identifier,
             self.micro_forks.get(&block.parent_block_identifier),
@@ -688,7 +694,7 @@ impl StacksBlockPool {
                             &new_canonical_segment,
                             &previous_canonical_segment,
                             ctx,
-                        );
+                        )?;
                         (chain_event, None)
                     } else {
                         (
@@ -696,6 +702,7 @@ impl StacksBlockPool {
                             Some(self.get_microblocks_data(
                                 &block.parent_block_identifier,
                                 &new_canonical_segment,
+                                ctx,
                             )),
                         )
                     };
@@ -715,11 +722,11 @@ impl StacksBlockPool {
                             v.insert(vec![new_canonical_segment]);
                         }
                     };
-                    return result;
+                    return Ok(result);
                 }
-                (None, None)
+                Ok((None, None))
             }
-            _ => (None, None),
+            _ => Ok((None, None)),
         }
     }
 
@@ -727,6 +734,7 @@ impl StacksBlockPool {
         &self,
         anchor_block_identifier: &BlockIdentifier,
         chain_segment: &ChainSegment,
+        ctx: &Context,
     ) -> Vec<StacksMicroblockData> {
         let mut microblocks = vec![];
         for i in 0..chain_segment.block_ids.len() {
@@ -734,7 +742,16 @@ impl StacksBlockPool {
             let microblock_identifier = (anchor_block_identifier.clone(), block_identifier.clone());
             let block = match self.microblock_store.get(&microblock_identifier) {
                 Some(block) => block.clone(),
-                None => panic!("unable to retrive microblock from microblock store"),
+                None => {
+                    ctx.try_log(|logger| {
+                        slog::error!(
+                            logger,
+                            "unable to retrieve full microblock trail {} from block store",
+                            microblock_identifier.1
+                        )
+                    });
+                    return microblocks;
+                }
             };
             microblocks.push(block)
         }
@@ -744,6 +761,7 @@ impl StacksBlockPool {
     pub fn get_confirmed_parent_microblocks(
         &self,
         block: &StacksBlockData,
+        ctx: &Context,
     ) -> Vec<StacksMicroblockData> {
         match self.micro_forks.get(&block.parent_block_identifier) {
             Some(microforks) => {
@@ -751,9 +769,11 @@ impl StacksBlockPool {
                     .canonical_micro_fork_id
                     .get(&block.parent_block_identifier)
                 {
-                    Some(id) => {
-                        self.get_microblocks_data(&block.parent_block_identifier, &microforks[*id])
-                    }
+                    Some(id) => self.get_microblocks_data(
+                        &block.parent_block_identifier,
+                        &microforks[*id],
+                        ctx,
+                    ),
                     None => vec![],
                 };
                 previous_canonical_segment
@@ -783,10 +803,10 @@ impl StacksBlockPool {
                                 block_identifier
                             )
                         });
-                        return Err(ChainSegmentIncompatibility::Unknown);
+                        return Err(ChainSegmentIncompatibility::BlockNotFound);
                     }
                 };
-                let block_update = match self.confirm_microblocks_for_block(&block, true, ctx) {
+                let block_update = match self.confirm_microblocks_for_block(&block, true, ctx)? {
                     (Some(ref mut chain_event), _) => {
                         let mut update = StacksBlockUpdate::new(block);
                         match chain_event {
@@ -826,31 +846,41 @@ impl StacksBlockPool {
                     let block_identifier = &divergence.blocks_to_apply[i];
                     let block = match self.block_store.get(block_identifier) {
                         Some(block) => block.clone(),
-                        None => panic!("unable to retrive block from block store"),
-                    };
-                    let block_update = match self.confirm_microblocks_for_block(&block, true, ctx) {
-                        (Some(ref mut chain_event), None) => {
-                            let mut update = StacksBlockUpdate::new(block);
-                            match chain_event {
-                                StacksChainEvent::ChainUpdatedWithMicroblocks(data) => {
-                                    update
-                                        .parent_microblocks_to_apply
-                                        .append(&mut data.new_microblocks);
-                                }
-                                StacksChainEvent::ChainUpdatedWithMicroblocksReorg(data) => {
-                                    update
-                                        .parent_microblocks_to_apply
-                                        .append(&mut data.microblocks_to_apply);
-                                    update
-                                        .parent_microblocks_to_rollback
-                                        .append(&mut data.microblocks_to_rollback);
-                                }
-                                _ => unreachable!(),
-                            };
-                            update
+                        None => {
+                            ctx.try_log(|logger| {
+                                slog::error!(
+                                    logger,
+                                    "unable to retrieve Stacks {} from block store",
+                                    block_identifier
+                                )
+                            });
+                            return Err(ChainSegmentIncompatibility::BlockNotFound);
                         }
-                        _ => StacksBlockUpdate::new(block),
                     };
+                    let block_update =
+                        match self.confirm_microblocks_for_block(&block, true, ctx)? {
+                            (Some(ref mut chain_event), None) => {
+                                let mut update = StacksBlockUpdate::new(block);
+                                match chain_event {
+                                    StacksChainEvent::ChainUpdatedWithMicroblocks(data) => {
+                                        update
+                                            .parent_microblocks_to_apply
+                                            .append(&mut data.new_microblocks);
+                                    }
+                                    StacksChainEvent::ChainUpdatedWithMicroblocksReorg(data) => {
+                                        update
+                                            .parent_microblocks_to_apply
+                                            .append(&mut data.microblocks_to_apply);
+                                        update
+                                            .parent_microblocks_to_rollback
+                                            .append(&mut data.microblocks_to_rollback);
+                                    }
+                                    _ => unreachable!(),
+                                };
+                                update
+                            }
+                            _ => StacksBlockUpdate::new(block),
+                        };
                     new_blocks.push(block_update)
                 }
                 return Ok(StacksChainEvent::ChainUpdatedWithBlocks(
@@ -860,45 +890,65 @@ impl StacksBlockPool {
                     },
                 ));
             } else {
+                let blocks_to_rollback = divergence
+                    .blocks_to_rollback
+                    .iter()
+                    .map(|block_id| {
+                        let block = match self.block_store.get(block_id) {
+                            Some(block) => block.clone(),
+                            None => {
+                                ctx.try_log(|logger| {
+                                    slog::error!(
+                                        logger,
+                                        "unable to retrieve Stacks {} from block store",
+                                        block_id
+                                    )
+                                });
+                                return Err(ChainSegmentIncompatibility::BlockNotFound);
+                            }
+                        };
+                        let parent_microblocks_to_rollback =
+                            self.get_confirmed_parent_microblocks(&block, ctx);
+                        let mut update = StacksBlockUpdate::new(block);
+                        update.parent_microblocks_to_rollback = parent_microblocks_to_rollback;
+                        Ok(update)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                let blocks_to_apply = divergence
+                    .blocks_to_apply
+                    .iter()
+                    .map(|block_id| {
+                        let block = match self.block_store.get(block_id) {
+                            Some(block) => block.clone(),
+                            None => {
+                                ctx.try_log(|logger| {
+                                    slog::error!(
+                                        logger,
+                                        "unable to retrieve Stacks {} from block store",
+                                        block_id
+                                    )
+                                });
+                                return Err(ChainSegmentIncompatibility::BlockNotFound);
+                            }
+                        };
+                        let block_update =
+                            match self.confirm_microblocks_for_block(&block, false, ctx)? {
+                                (_, Some(microblocks_to_apply)) => {
+                                    let mut update = StacksBlockUpdate::new(block);
+                                    update.parent_microblocks_to_apply = microblocks_to_apply;
+                                    update
+                                }
+                                _ => StacksBlockUpdate::new(block),
+                            };
+                        Ok(block_update)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+
                 return Ok(StacksChainEvent::ChainUpdatedWithReorg(
                     StacksChainUpdatedWithReorgData {
-                        blocks_to_rollback: divergence
-                            .blocks_to_rollback
-                            .iter()
-                            .map(|block_id| {
-                                let block = match self.block_store.get(block_id) {
-                                    Some(block) => block.clone(),
-                                    None => panic!("unable to retrive block from block store"),
-                                };
-                                let parent_microblocks_to_rollback =
-                                    self.get_confirmed_parent_microblocks(&block);
-                                let mut update = StacksBlockUpdate::new(block);
-                                update.parent_microblocks_to_rollback =
-                                    parent_microblocks_to_rollback;
-                                update
-                            })
-                            .collect::<Vec<_>>(),
-                        blocks_to_apply: divergence
-                            .blocks_to_apply
-                            .iter()
-                            .map(|block_id| {
-                                let block = match self.block_store.get(block_id) {
-                                    Some(block) => block.clone(),
-                                    None => panic!("unable to retrive block from block store"),
-                                };
-                                let block_update = match self
-                                    .confirm_microblocks_for_block(&block, false, ctx)
-                                {
-                                    (_, Some(microblocks_to_apply)) => {
-                                        let mut update = StacksBlockUpdate::new(block);
-                                        update.parent_microblocks_to_apply = microblocks_to_apply;
-                                        update
-                                    }
-                                    _ => StacksBlockUpdate::new(block),
-                                };
-                                block_update
-                            })
-                            .collect::<Vec<_>>(),
+                        blocks_to_rollback,
+                        blocks_to_apply,
                         confirmed_blocks: vec![],
                     },
                 ));
@@ -921,7 +971,7 @@ impl StacksBlockPool {
         new_canonical_segment: &ChainSegment,
         previous_canonical_segment: &Option<ChainSegment>,
         ctx: &Context,
-    ) -> Option<StacksChainEvent> {
+    ) -> Result<Option<StacksChainEvent>, ChainSegmentIncompatibility> {
         let previous_canonical_segment = match previous_canonical_segment {
             Some(previous_canonical_segment) if !previous_canonical_segment.is_empty() => {
                 previous_canonical_segment
@@ -935,18 +985,27 @@ impl StacksBlockPool {
                         (anchor_block_identifier.clone(), block_identifier.clone());
                     let block = match self.microblock_store.get(&microblock_identifier) {
                         Some(block) => block.clone(),
-                        None => panic!("unable to retrive microblock from microblock store"),
+                        None => {
+                            ctx.try_log(|logger| {
+                                slog::error!(
+                                    logger,
+                                    "unable to retrieve microblock {} from microblock store",
+                                    microblock_identifier.1,
+                                );
+                            });
+                            return Err(ChainSegmentIncompatibility::BlockNotFound);
+                        }
                     };
                     new_microblocks.push(block)
                 }
-                return Some(StacksChainEvent::ChainUpdatedWithMicroblocks(
+                return Ok(Some(StacksChainEvent::ChainUpdatedWithMicroblocks(
                     StacksChainUpdatedWithMicroblocksData { new_microblocks },
-                ));
+                )));
             }
         };
 
         if new_canonical_segment.eq(&previous_canonical_segment) {
-            return None;
+            return Err(ChainSegmentIncompatibility::BlockNotFound);
         }
 
         if let Ok(divergence) =
@@ -962,57 +1021,80 @@ impl StacksBlockPool {
                     let block = match self.microblock_store.get(&microblock_identifier) {
                         Some(block) => block.clone(),
                         None => {
-                            panic!("unable to retrive microblock from microblock store")
+                            ctx.try_log(|logger| {
+                                slog::error!(
+                                    logger,
+                                    "unable to retrieve microblock {} from microblock store",
+                                    microblock_identifier.1,
+                                );
+                            });
+                            return Err(ChainSegmentIncompatibility::BlockNotFound);
                         }
                     };
                     new_microblocks.push(block);
                 }
-                return Some(StacksChainEvent::ChainUpdatedWithMicroblocks(
+                return Ok(Some(StacksChainEvent::ChainUpdatedWithMicroblocks(
                     StacksChainUpdatedWithMicroblocksData { new_microblocks },
-                ));
+                )));
             } else {
-                return Some(StacksChainEvent::ChainUpdatedWithMicroblocksReorg(
+                let microblocks_to_rollback = divergence
+                    .blocks_to_rollback
+                    .iter()
+                    .map(|microblock_identifier| {
+                        let microblock_identifier = (
+                            anchor_block_identifier.clone(),
+                            microblock_identifier.clone(),
+                        );
+                        let block = match self.microblock_store.get(&microblock_identifier) {
+                            Some(block) => block.clone(),
+                            None => {
+                                ctx.try_log(|logger| {
+                                    slog::error!(
+                                        logger,
+                                        "unable to retrieve microblock {} from microblock store",
+                                        microblock_identifier.1,
+                                    )
+                                });
+                                return Err(ChainSegmentIncompatibility::BlockNotFound);
+                            }
+                        };
+                        Ok(block)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                let microblocks_to_apply = divergence
+                    .blocks_to_apply
+                    .iter()
+                    .map(|microblock_identifier| {
+                        let microblock_identifier = (
+                            anchor_block_identifier.clone(),
+                            microblock_identifier.clone(),
+                        );
+                        let block = match self.microblock_store.get(&microblock_identifier) {
+                            Some(block) => block.clone(),
+                            None => {
+                                ctx.try_log(|logger| {
+                                    slog::error!(
+                                        logger,
+                                        "unable to retrieve microblock {} from microblock store",
+                                        microblock_identifier.1,
+                                    )
+                                });
+                                return Err(ChainSegmentIncompatibility::BlockNotFound);
+                            }
+                        };
+                        Ok(block)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                return Ok(Some(StacksChainEvent::ChainUpdatedWithMicroblocksReorg(
                     StacksChainUpdatedWithMicroblocksReorgData {
-                        microblocks_to_rollback: divergence
-                            .blocks_to_rollback
-                            .iter()
-                            .map(|microblock_identifier| {
-                                let microblock_identifier = (
-                                    anchor_block_identifier.clone(),
-                                    microblock_identifier.clone(),
-                                );
-                                let block = match self.microblock_store.get(&microblock_identifier)
-                                {
-                                    Some(block) => block.clone(),
-                                    None => {
-                                        panic!("unable to retrive microblock from microblock store")
-                                    }
-                                };
-                                block
-                            })
-                            .collect::<Vec<_>>(),
-                        microblocks_to_apply: divergence
-                            .blocks_to_apply
-                            .iter()
-                            .map(|microblock_identifier| {
-                                let microblock_identifier = (
-                                    anchor_block_identifier.clone(),
-                                    microblock_identifier.clone(),
-                                );
-                                let block = match self.microblock_store.get(&microblock_identifier)
-                                {
-                                    Some(block) => block.clone(),
-                                    None => {
-                                        panic!("unable to retrive microblock from microblock store")
-                                    }
-                                };
-                                block
-                            })
-                            .collect::<Vec<_>>(),
+                        microblocks_to_apply,
+                        microblocks_to_rollback,
                     },
-                ));
+                )));
             }
         }
-        None
+        Err(ChainSegmentIncompatibility::ParentBlockUnknown)
     }
 }

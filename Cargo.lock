@@ -456,7 +456,7 @@ dependencies = [
 
 [[package]]
 name = "chainhook-event-observer"
-version = "1.0.4"
+version = "1.0.6"
 dependencies = [
  "anyhow",
  "base58 0.2.0",
@@ -666,9 +666,9 @@ dependencies = [
 
 [[package]]
 name = "clarity-repl"
-version = "1.4.1"
+version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5951d17cedff3fdd6b78791231e13bedd3dd41b82e85ee279f76da576531cdf1"
+checksum = "0f70d4c9992140d15954e97c640b797f80e05ab58ceebbc3e608bffa205f799a"
 dependencies = [
  "ansi_term",
  "atty",
@@ -704,9 +704,9 @@ dependencies = [
 
 [[package]]
 name = "clarity-vm"
-version = "2.0.1"
+version = "2.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "59cbb21adf1277368fe098e129de5dc17d8797a1630fe7b598d59c536b744622"
+checksum = "c6e381821d03b70f011cf233ab3e1115a93340071010041b3923c9be0eef7c2d"
 dependencies = [
  "integer-sqrt",
  "lazy_static",

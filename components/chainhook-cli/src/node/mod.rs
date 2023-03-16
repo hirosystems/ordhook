@@ -84,7 +84,8 @@ impl Node {
                         continue;
                     }
                 };
-                chainhook_config.register_hook(chainhook);
+                // TODO
+                // chainhook_config.register_hook(chainhook);
             }
         }
 
@@ -109,6 +110,7 @@ impl Node {
             display_logs: false,
             cache_path: self.config.storage.cache_path.clone(),
             bitcoin_network: self.config.network.bitcoin_network.clone(),
+            stacks_network: self.config.network.stacks_network.clone(),
         };
         info!(
             self.ctx.expect_logger(),
@@ -473,7 +475,9 @@ impl Node {
 
                                 let mut hits = vec![];
                                 for tx in block.transactions.iter() {
-                                    if predicate_spec.predicate.evaluate_transaction_predicate(&tx)
+                                    if predicate_spec
+                                        .predicate
+                                        .evaluate_transaction_predicate(&tx, &self.ctx)
                                     {
                                         info!(
                                             self.ctx.expect_logger(),

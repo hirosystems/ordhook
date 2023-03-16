@@ -161,6 +161,7 @@ pub enum ChainSegmentIncompatibility {
     ParentBlockUnknown,
     AlreadyPresent,
     Unknown,
+    BlockNotFound,
 }
 
 #[derive(Debug)]
@@ -380,6 +381,7 @@ impl ChainSegment {
                     ChainSegmentIncompatibility::OutdatedBlock => {}
                     ChainSegmentIncompatibility::Unknown => {}
                     ChainSegmentIncompatibility::AlreadyPresent => {}
+                    ChainSegmentIncompatibility::BlockNotFound => {}
                 }
             }
         }

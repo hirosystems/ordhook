@@ -326,8 +326,9 @@ pub async fn scan_bitcoin_chain_with_predicate(
             stacks_node_rpc_url: config.network.stacks_node_rpc_url.clone(),
             operators: HashSet::new(),
             display_logs: false,
-            cache_path: "cache/tmp".to_string(),
+            cache_path: format!("{}", config.expected_cache_path().display()),
             bitcoin_network: config.network.bitcoin_network.clone(),
+            stacks_network: config.network.stacks_network.clone(),
         };
 
         let ordinal_index = match initialize_ordinal_index(&event_observer_config, None, &ctx) {
@@ -505,7 +506,10 @@ pub async fn scan_bitcoin_chain_with_predicate(
 
         let mut hits = vec![];
         for tx in block.transactions.iter() {
-            if predicate_spec.predicate.evaluate_transaction_predicate(&tx) {
+            if predicate_spec
+                .predicate
+                .evaluate_transaction_predicate(&tx, ctx)
+            {
                 info!(
                     ctx.expect_logger(),
                     "Action #{} triggered by transaction {} (block #{})",
