@@ -230,6 +230,15 @@ impl ChainhookFullSpecification {
         }
         Ok(())
     }
+
+    pub fn deserialize_specification(
+        spec: &str,
+        _key: &str,
+    ) -> Result<ChainhookFullSpecification, String> {
+        let spec: ChainhookFullSpecification = serde_json::from_str(spec)
+            .map_err(|e| format!("unable to deserialize Stacks chainhook {}", e.to_string()))?;
+        Ok(spec)
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]

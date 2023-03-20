@@ -1005,7 +1005,7 @@ impl StacksBlockPool {
         };
 
         if new_canonical_segment.eq(&previous_canonical_segment) {
-            return Err(ChainSegmentIncompatibility::BlockNotFound);
+            return Ok(None);
         }
 
         if let Ok(divergence) =

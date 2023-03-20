@@ -93,7 +93,7 @@ pub fn generate_test_tx_bitcoin_p2pkh_transfer(
         .into_script();
     let outputs = vec![TxOut {
         value: amount,
-        script_pubkey: to_hex(script.as_bytes()),
+        script_pubkey: format!("0x{}", to_hex(script.as_bytes())),
     }];
 
     BitcoinTransactionData {
