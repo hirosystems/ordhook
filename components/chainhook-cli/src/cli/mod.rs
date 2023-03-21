@@ -1,13 +1,18 @@
 use crate::block::DigestingCommand;
 use crate::config::Config;
 use crate::node::Node;
-use crate::scan::bitcoin::{
-    build_bitcoin_traversal_local_storage, scan_bitcoin_chain_with_predicate,
-};
+use crate::scan::bitcoin::scan_bitcoin_chain_with_predicate;
 use crate::scan::stacks::scan_stacks_chain_with_predicate;
 
 use chainhook_event_observer::chainhooks::types::ChainhookFullSpecification;
+use chainhook_event_observer::indexer::ordinals::db::{
+    build_bitcoin_traversal_local_storage, open_readonly_ordinals_db_conn,
+    retrieve_satoshi_point_using_local_storage,
+};
+use chainhook_event_observer::indexer::ordinals::ord::height::Height;
+use chainhook_event_observer::observer::BitcoinConfig;
 use chainhook_event_observer::utils::Context;
+use chainhook_types::{BlockIdentifier, TransactionIdentifier};
 use clap::{Parser, Subcommand};
 use ctrlc;
 use hiro_system_kit;
@@ -142,6 +147,8 @@ struct BuildOrdinalsTraversalsCommand {
     pub start_block: u64,
     /// Starting block
     pub end_block: u64,
+    /// # of Networking thread
+    pub network_threads: usize,
     /// Target Devnet network
     #[clap(
         long = "devnet",
@@ -175,6 +182,8 @@ struct BuildOrdinalsTraversalsCommand {
 
 #[derive(Parser, PartialEq, Clone, Debug)]
 struct GetSatoshiCommand {
+    /// Block height
+    pub block_height: u64,
     /// Txid
     pub txid: String,
     /// Output index
@@ -276,19 +285,46 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
         },
         Command::Protocols(ProtocolsCommand::Ordinals(subcmd)) => match subcmd {
             OrdinalsCommand::Satoshi(cmd) => {
-                let _config =
+                let config =
                     Config::default(cmd.devnet, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
+                let transaction_identifier = TransactionIdentifier {
+                    hash: cmd.txid.clone(),
+                };
+                let block_identifier = BlockIdentifier {
+                    index: cmd.block_height,
+                    hash: "".into(),
+                };
+                let storage_conn =
+                    open_readonly_ordinals_db_conn(&config.expected_cache_path()).unwrap();
+                let (block_height, offset) = retrieve_satoshi_point_using_local_storage(
+                    &storage_conn,
+                    &block_identifier,
+                    &transaction_identifier,
+                    &ctx,
+                )?;
+                let satoshi_id = Height(block_height).starting_sat().0 + offset;
+                info!(
+                    ctx.expect_logger(),
+                    "Block: {block_height}, Offset {offset}:, Satoshi ID: {satoshi_id}",
+                );
             }
             OrdinalsCommand::Traversals(cmd) => {
                 let config =
                     Config::default(cmd.devnet, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
 
-                build_bitcoin_traversal_local_storage(
-                    config,
+                let bitcoin_config = BitcoinConfig {
+                    username: config.network.bitcoin_node_rpc_username.clone(),
+                    password: config.network.bitcoin_node_rpc_password.clone(),
+                    rpc_url: config.network.bitcoin_node_rpc_url.clone(),
+                };
+
+                let _ = build_bitcoin_traversal_local_storage(
+                    &bitcoin_config,
+                    &config.expected_cache_path(),
                     cmd.start_block,
                     cmd.end_block,
                     &ctx,
-                    6,
+                    cmd.network_threads,
                 )
                 .await;
             }

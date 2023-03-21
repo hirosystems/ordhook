@@ -6,7 +6,7 @@ use bitcoincore_rpc::bitcoin::{
     BlockHash, OutPoint, Txid,
 };
 
-use crate::indexer::ordinals::{inscription_id::InscriptionId, sat::Sat, sat_point::SatPoint};
+use crate::indexer::ordinals::ord::{inscription_id::InscriptionId, sat::Sat, sat_point::SatPoint};
 
 pub trait Entry: Sized {
     type Value;

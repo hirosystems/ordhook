@@ -1,5 +1,5 @@
 use crate::{
-    indexer::ordinals::{height::Height, sat::Sat, sat_point::SatPoint},
+    indexer::ordinals::ord::{height::Height, sat::Sat, sat_point::SatPoint},
     utils::Context,
 };
 use anyhow::Context as Ctx;

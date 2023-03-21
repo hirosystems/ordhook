@@ -152,7 +152,7 @@ impl From<Height> for Epoch {
 #[cfg(test)]
 mod tests {
 
-    use crate::indexer::ordinals::{
+    use crate::indexer::ordinals::ord::{
         epoch::Epoch, height::Height, sat::Sat, SUBSIDY_HALVING_INTERVAL,
     };
 

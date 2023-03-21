@@ -10,6 +10,8 @@ use std::path::PathBuf;
 
 const DEFAULT_MAINNET_TSV_ARCHIVE: &str = "https://storage.googleapis.com/hirosystems-archive/mainnet/api/mainnet-blockchain-api-latest.tar.gz";
 const DEFAULT_TESTNET_TSV_ARCHIVE: &str = "https://storage.googleapis.com/hirosystems-archive/testnet/api/testnet-blockchain-api-latest.tar.gz";
+// const DEFAULT_MAINNET_TSV_ARCHIVE: &str = "https://archive.hiro.so/mainnet/stacks-blockchain-api/mainnet-stacks-blockchain-api-latest.gz";
+// const DEFAULT_TESTNET_TSV_ARCHIVE: &str = "https://archive.hiro.so/testnet/stacks-blockchain-api/testnet-stacks-blockchain-api-latest.gz";
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -178,13 +180,6 @@ impl Config {
     pub fn expected_cache_path(&self) -> PathBuf {
         let mut destination_path = PathBuf::new();
         destination_path.push(&self.storage.cache_path);
-        destination_path
-    }
-
-    pub fn get_bitcoin_block_traversal_db_path(&self) -> PathBuf {
-        let mut destination_path = PathBuf::new();
-        destination_path.push(&self.storage.cache_path);
-        destination_path.push("bitcoin_block_traversal.sqlite");
         destination_path
     }
 

@@ -107,6 +107,7 @@ pub fn generate_test_tx_bitcoin_p2pkh_transfer(
             ordinal_operations: vec![],
             stacks_operations: vec![],
             proof: None,
+            fee: 0,
         },
     }
 }

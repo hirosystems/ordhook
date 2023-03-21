@@ -103,7 +103,7 @@ pub async fn scan_stacks_chain_with_predicate(
         stacks_network: config.network.stacks_network.clone(),
     };
 
-    let mut indexer = Indexer::new(config.network.clone(), None);
+    let mut indexer = Indexer::new(config.network.clone());
 
     let mut canonical_fork = {
         let mut cursor = BlockIdentifier::default();

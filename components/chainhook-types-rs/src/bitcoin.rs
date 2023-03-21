@@ -35,6 +35,20 @@ pub struct OutPoint {
     pub txid: String,
     /// The index of the referenced output in its transaction's vout.
     pub vout: u32,
+    /// The value of the referenced.
+    pub value: u64,
+    /// The script which must be satisfied for the output to be spent.
+    pub block_height: u64,
+}
+
+impl TxOut {
+    pub fn get_script_pubkey_bytes(&self) -> Vec<u8> {
+        hex::decode(&self.get_script_pubkey_hex()).expect("not provided for coinbase txs")
+    }
+
+    pub fn get_script_pubkey_hex(&self) -> &str {
+        &self.script_pubkey[2..]
+    }
 }
 
 /// The Witness is the data used to unlock bitcoins since the [segwit upgrade](https://github.com/bitcoin/bips/blob/master/bip-0143.mediawiki)

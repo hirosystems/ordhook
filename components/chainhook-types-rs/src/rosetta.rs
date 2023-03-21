@@ -270,6 +270,7 @@ pub struct BitcoinTransactionMetadata {
     pub stacks_operations: Vec<StacksBaseChainOperation>,
     pub ordinal_operations: Vec<OrdinalOperation>,
     pub proof: Option<String>,
+    pub fee: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
@@ -280,7 +281,14 @@ pub enum OrdinalOperation {
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
-pub struct OrdinalInscriptionTransferData {}
+pub struct OrdinalInscriptionTransferData {
+    pub inscription_number: u64,
+    pub inscription_id: String,
+    pub satoshi_id: String,
+    pub updated_address: Option<String>,
+    pub outpoint_pre_transfer: String,
+    pub outpoint_post_transfer: String,
+}
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct OrdinalInscriptionRevealData {
@@ -290,10 +298,11 @@ pub struct OrdinalInscriptionRevealData {
     pub inscription_number: u64,
     pub inscription_fee: u64,
     pub inscription_id: String,
-    pub inscription_authors: Vec<String>,
+    pub inscriber_address: Option<String>,
     pub ordinal_number: u64,
     pub ordinal_block_height: u64,
     pub ordinal_offset: u64,
+    pub outpoint_post_inscription: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]

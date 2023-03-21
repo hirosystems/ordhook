@@ -9,11 +9,15 @@ use chainhook_types::{
 };
 use hiro_system_kit::slog;
 use rocket::serde::json::Value as JsonValue;
+use rusqlite::Connection;
 use stacks::StacksBlockPool;
 use stacks_rpc_client::PoxInfo;
-use std::collections::{HashMap, VecDeque};
+use std::{
+    collections::{HashMap, VecDeque},
+    path::PathBuf,
+};
 
-use self::{bitcoin::BitcoinBlockPool, ordinals::indexing::OrdinalIndex};
+use self::{bitcoin::BitcoinBlockPool, ordinals::ord::indexing::OrdinalIndex};
 
 #[derive(Deserialize, Debug, Clone, Default)]
 pub struct AssetClassCache {
@@ -35,15 +39,11 @@ impl StacksChainContext {
     }
 }
 
-pub struct BitcoinChainContext {
-    pub ordinal_index: Option<OrdinalIndex>,
-}
+pub struct BitcoinChainContext {}
 
 impl BitcoinChainContext {
-    pub fn new(ordinal_index: Option<OrdinalIndex>) -> BitcoinChainContext {
-        BitcoinChainContext {
-            ordinal_index: ordinal_index,
-        }
+    pub fn new() -> BitcoinChainContext {
+        BitcoinChainContext {}
     }
 }
 
@@ -66,11 +66,11 @@ pub struct Indexer {
 }
 
 impl Indexer {
-    pub fn new(config: IndexerConfig, ordinal_index: Option<OrdinalIndex>) -> Indexer {
+    pub fn new(config: IndexerConfig) -> Indexer {
         let stacks_blocks_pool = StacksBlockPool::new();
         let bitcoin_blocks_pool = BitcoinBlockPool::new();
         let stacks_context = StacksChainContext::new();
-        let bitcoin_context = BitcoinChainContext::new(ordinal_index);
+        let bitcoin_context = BitcoinChainContext::new();
 
         Indexer {
             config,
@@ -86,12 +86,7 @@ impl Indexer {
         block: BitcoinBlockFullBreakdown,
         ctx: &Context,
     ) -> Result<Option<BitcoinChainEvent>, String> {
-        let block = bitcoin::standardize_bitcoin_block(
-            &self.config,
-            block,
-            &mut self.bitcoin_context,
-            ctx,
-        )?;
+        let block = bitcoin::standardize_bitcoin_block(&self.config, block, ctx)?;
         let event = self.bitcoin_blocks_pool.process_block(block, ctx);
         event
     }

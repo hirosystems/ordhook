@@ -668,10 +668,8 @@ pub struct StacksChainhookSpecification {
 impl StacksChainhookSpecification {
     pub fn is_predicate_targeting_block_header(&self) -> bool {
         match &self.predicate {
-            StacksPredicate::BlockIdentifierIndex(_)
-            // | StacksPredicate::BlockIdentifierHash(_)
-            // | StacksPredicate::BitcoinBlockIdentifierHash(_)
-            // | StacksPredicate::BitcoinBlockIdentifierIndex(_) 
+            StacksPredicate::BlockHeight(_)
+            // | &StacksPredicate::BitcoinBlockHeight(_)
             => true,
             _ => false,
         }
@@ -682,10 +680,7 @@ impl StacksChainhookSpecification {
 #[serde(rename_all = "snake_case")]
 #[serde(tag = "scope")]
 pub enum StacksPredicate {
-    BlockIdentifierIndex(BlockIdentifierIndexRule),
-    // BlockIdentifierHash(BlockIdentifierHashRule),
-    // BitcoinBlockIdentifierHash(BlockIdentifierHashRule),
-    // BitcoinBlockIdentifierIndex(BlockIdentifierHashRule),
+    BlockHeight(BlockIdentifierIndexRule),
     ContractDeployment(StacksContractDeploymentPredicate),
     ContractCall(StacksContractCallBasedPredicate),
     PrintEvent(StacksPrintEventBasedPredicate),

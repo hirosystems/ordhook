@@ -1,23 +1,16 @@
 use crate::config::Config;
-use crate::node::ordinals::inscription_id::InscriptionId;
-use chainhook_event_observer::bitcoincore_rpc::bitcoin::BlockHash;
 use chainhook_event_observer::bitcoincore_rpc::jsonrpc;
 use chainhook_event_observer::chainhooks::bitcoin::{
     handle_bitcoin_hook_action, BitcoinChainhookOccurrence, BitcoinTriggerChainhook,
 };
 use chainhook_event_observer::chainhooks::types::{
-    BitcoinPredicateType, ChainhookConfig, OrdinalOperations, Protocols,
+    BitcoinPredicateType, ChainhookConfig, ChainhookFullSpecification, OrdinalOperations, Protocols,
 };
-use chainhook_event_observer::indexer::ordinals::indexing::entry::Entry;
-use chainhook_event_observer::indexer::ordinals::indexing::{
-    HEIGHT_TO_BLOCK_HASH, INSCRIPTION_NUMBER_TO_INSCRIPTION_ID,
-};
-use chainhook_event_observer::indexer::ordinals::{self, initialize_ordinal_index};
+use chainhook_event_observer::indexer::ordinals::{self, ord::initialize_ordinal_index};
 use chainhook_event_observer::indexer::{self, BitcoinChainContext};
 use chainhook_event_observer::observer::{
-    start_event_observer, EventObserverConfig, ObserverEvent,
+    start_event_observer, ApiKey, EventObserverConfig, ObserverEvent,
 };
-use chainhook_event_observer::redb::ReadableTable;
 use chainhook_event_observer::utils::{file_append, send_request, Context};
 use chainhook_event_observer::{
     chainhooks::stacks::{
@@ -71,7 +64,7 @@ impl Node {
             for key in chainhooks_to_load.iter() {
                 let chainhook = match redis_con.hget::<_, _, String>(key, "specification") {
                     Ok(spec) => {
-                        ChainhookSpecification::deserialize_specification(&spec, key).unwrap()
+                        ChainhookFullSpecification::deserialize_specification(&spec, key).unwrap()
                         // todo
                     }
                     Err(e) => {
@@ -84,8 +77,30 @@ impl Node {
                         continue;
                     }
                 };
-                // TODO
-                // chainhook_config.register_hook(chainhook);
+
+                match chainhook_config.register_hook(
+                    (
+                        &self.config.network.bitcoin_network,
+                        &self.config.network.stacks_network,
+                    ),
+                    chainhook,
+                    &ApiKey(None),
+                ) {
+                    Ok(spec) => {
+                        info!(
+                            self.ctx.expect_logger(),
+                            "Predicate {} retrieved from storage and loaded",
+                            spec.uuid(),
+                        );
+                    }
+                    Err(e) => {
+                        error!(
+                            self.ctx.expect_logger(),
+                            "Failed loading predicate from storage: {}",
+                            e.to_string()
+                        );
+                    }
+                }
             }
         }
 
@@ -128,7 +143,6 @@ impl Node {
                 panic!()
             }
         };
-        let mut bitcoin_context = BitcoinChainContext::new(Some(ordinal_index));
 
         let context_cloned = self.ctx.clone();
         let _ = std::thread::spawn(move || {
@@ -311,50 +325,51 @@ impl Node {
                         }
                         ChainhookSpecification::Bitcoin(predicate_spec) => {
                             let mut inscriptions_hints = BTreeMap::new();
-                            let mut use_hinting = false;
+                            let use_hinting = false;
                             if let BitcoinPredicateType::Protocol(Protocols::Ordinal(
                                 OrdinalOperations::InscriptionRevealed,
                             )) = &predicate_spec.predicate
                             {
-                                if let Some(ref ordinal_index) = bitcoin_context.ordinal_index {
-                                    for (inscription_number, inscription_id) in ordinal_index
-                                        .database
-                                        .begin_read()
-                                        .unwrap()
-                                        .open_table(INSCRIPTION_NUMBER_TO_INSCRIPTION_ID)
-                                        .unwrap()
-                                        .iter()
-                                        .unwrap()
-                                    {
-                                        let inscription =
-                                            InscriptionId::load(*inscription_id.value());
-                                        println!(
-                                            "{} -> {}",
-                                            inscription_number.value(),
-                                            inscription
-                                        );
+                                inscriptions_hints.insert(1, 1);
+                                // if let Some(ref ordinal_index) = bitcoin_context.ordinal_index {
+                                //     for (inscription_number, inscription_id) in ordinal_index
+                                //         .database
+                                //         .begin_read()
+                                //         .unwrap()
+                                //         .open_table(INSCRIPTION_NUMBER_TO_INSCRIPTION_ID)
+                                //         .unwrap()
+                                //         .iter()
+                                //         .unwrap()
+                                //     {
+                                //         let inscription =
+                                //             InscriptionId::load(*inscription_id.value());
+                                //         println!(
+                                //             "{} -> {}",
+                                //             inscription_number.value(),
+                                //             inscription
+                                //         );
 
-                                        let entry = ordinal_index
-                                            .get_inscription_entry(inscription)
-                                            .unwrap()
-                                            .unwrap();
-                                        println!("{:?}", entry);
+                                //         let entry = ordinal_index
+                                //             .get_inscription_entry(inscription)
+                                //             .unwrap()
+                                //             .unwrap();
+                                //         println!("{:?}", entry);
 
-                                        let blockhash = ordinal_index
-                                            .database
-                                            .begin_read()
-                                            .unwrap()
-                                            .open_table(HEIGHT_TO_BLOCK_HASH)
-                                            .unwrap()
-                                            .get(&entry.height)
-                                            .unwrap()
-                                            .map(|k| BlockHash::load(*k.value()))
-                                            .unwrap();
+                                //         let blockhash = ordinal_index
+                                //             .database
+                                //             .begin_read()
+                                //             .unwrap()
+                                //             .open_table(HEIGHT_TO_BLOCK_HASH)
+                                //             .unwrap()
+                                //             .get(&entry.height)
+                                //             .unwrap()
+                                //             .map(|k| BlockHash::load(*k.value()))
+                                //             .unwrap();
 
-                                        inscriptions_hints.insert(entry.height, blockhash);
-                                        use_hinting = true;
-                                    }
-                                }
+                                //         inscriptions_hints.insert(entry.height, blockhash);
+                                //         use_hinting = true;
+                                //     }
+                                // }
                             }
 
                             let start_block = match predicate_spec.start_block {
@@ -469,7 +484,6 @@ impl Node {
                                 let block = indexer::bitcoin::standardize_bitcoin_block(
                                     &self.config.network,
                                     raw_block,
-                                    &mut bitcoin_context,
                                     &self.ctx,
                                 )?;
 

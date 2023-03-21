@@ -236,16 +236,16 @@ pub fn evaluate_stacks_predicate_on_block<'a>(
     _ctx: &Context,
 ) -> bool {
     match &chainhook.predicate {
-        StacksPredicate::BlockIdentifierIndex(BlockIdentifierIndexRule::Between(a, b)) => {
+        StacksPredicate::BlockHeight(BlockIdentifierIndexRule::Between(a, b)) => {
             block.get_identifier().index.gt(a) && block.get_identifier().index.lt(b)
         }
-        StacksPredicate::BlockIdentifierIndex(BlockIdentifierIndexRule::HigherThan(a)) => {
+        StacksPredicate::BlockHeight(BlockIdentifierIndexRule::HigherThan(a)) => {
             block.get_identifier().index.gt(a)
         }
-        StacksPredicate::BlockIdentifierIndex(BlockIdentifierIndexRule::LowerThan(a)) => {
+        StacksPredicate::BlockHeight(BlockIdentifierIndexRule::LowerThan(a)) => {
             block.get_identifier().index.lt(a)
         }
-        StacksPredicate::BlockIdentifierIndex(BlockIdentifierIndexRule::Equals(a)) => {
+        StacksPredicate::BlockHeight(BlockIdentifierIndexRule::Equals(a)) => {
             block.get_identifier().index.eq(a)
         }
         StacksPredicate::ContractDeployment(_)
@@ -380,7 +380,7 @@ pub fn evaluate_stacks_predicate_on_transaction<'a>(
             false
         }
         StacksPredicate::Txid(txid) => txid.eq(&transaction.transaction_identifier.hash),
-        StacksPredicate::BlockIdentifierIndex(_) => unreachable!(),
+        StacksPredicate::BlockHeight(_) => unreachable!(),
     }
 }
 
