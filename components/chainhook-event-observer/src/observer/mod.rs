@@ -12,9 +12,10 @@ use crate::chainhooks::types::{
 use crate::indexer::bitcoin::{retrieve_full_block_breakdown_with_retry, NewBitcoinBlock};
 use crate::indexer::ordinals::db::{
     find_inscription_with_satoshi_id, find_inscriptions_at_wached_outpoint,
-    find_last_inscription_number, get_default_ordinals_db_file_path,
-    open_readonly_ordinals_db_conn, retrieve_satoshi_point_using_local_storage,
+    find_last_inscription_number, initialize_ordinal_state_storage, open_readonly_ordinals_db_conn,
+    open_readwrite_ordinals_db_conn, retrieve_satoshi_point_using_local_storage,
     scan_existing_inscriptions_id, store_new_inscription, update_transfered_inscription,
+    write_compacted_block_to_index, CompactedBlock,
 };
 use crate::indexer::ordinals::ord::height::Height;
 use crate::indexer::ordinals::ord::{
@@ -478,7 +479,9 @@ pub async fn start_observer_commands_handler(
     let event_handlers = config.event_handlers.clone();
     let mut chainhooks_lookup: HashMap<String, ApiKey> = HashMap::new();
     let networks = (&config.bitcoin_network, &config.stacks_network);
-    let ordinals_db_conn = open_readonly_ordinals_db_conn(&config.get_cache_path_buf())?;
+    // {
+    //     let _ = initialize_ordinal_state_storage(&config.get_cache_path_buf(), &ctx);
+    // }
     loop {
         let command = match observer_commands_rx.recv() {
             Ok(cmd) => cmd,
@@ -506,6 +509,9 @@ pub async fn start_observer_commands_handler(
             }
             // ObserverCommand::ProcessBitcoinBlock?
             ObserverCommand::PropagateBitcoinChainEvent(mut chain_event) => {
+                let ordinals_db_conn =
+                    open_readonly_ordinals_db_conn(&config.get_cache_path_buf(), &ctx)?;
+
                 ctx.try_log(|logger| {
                     slog::info!(logger, "Handling PropagateBitcoinChainEvent command")
                 });
@@ -515,7 +521,8 @@ pub async fn start_observer_commands_handler(
                     BitcoinChainEvent::ChainUpdatedWithBlocks(ref mut new_blocks) => {
                         // Look for inscription transfered
                         let storage_conn =
-                            open_readonly_ordinals_db_conn(&config.get_cache_path_buf()).unwrap(); // TODO(lgalabru)
+                            open_readonly_ordinals_db_conn(&config.get_cache_path_buf(), &ctx)
+                                .unwrap(); // TODO(lgalabru)
 
                         for new_block in new_blocks.new_blocks.iter_mut() {
                             let mut coinbase_offset = 0;
@@ -579,8 +586,9 @@ pub async fn start_observer_commands_handler(
 
                                             {
                                                 let storage_rw_conn =
-                                                    open_readonly_ordinals_db_conn(
+                                                    open_readwrite_ordinals_db_conn(
                                                         &config.get_cache_path_buf(),
+                                                        &ctx,
                                                     )
                                                     .unwrap(); // TODO(lgalabru)
                                                 store_new_inscription(
@@ -684,8 +692,9 @@ pub async fn start_observer_commands_handler(
 
                                         // Update watched outpoint
                                         {
-                                            let storage_rw_conn = open_readonly_ordinals_db_conn(
+                                            let storage_rw_conn = open_readwrite_ordinals_db_conn(
                                                 &config.get_cache_path_buf(),
+                                                &ctx,
                                             )
                                             .unwrap(); // TODO(lgalabru)
                                             update_transfered_inscription(
@@ -723,8 +732,30 @@ pub async fn start_observer_commands_handler(
                                 coinbase_offset += new_tx.metadata.fee;
                             }
 
-                            // TODO:
-                            // - persist compacted block in table blocks
+                            // Persist compacted block in table blocks
+                            {
+                                ctx.try_log(|logger| {
+                                    slog::info!(
+                                        logger,
+                                        "Caching Bitcoin block #{} for further traversals",
+                                        new_block.block_identifier.index
+                                    )
+                                });
+        
+                                let compacted_block =
+                                    CompactedBlock::from_standardized_block(&new_block);
+                                let storage_rw_conn = open_readwrite_ordinals_db_conn(
+                                    &config.get_cache_path_buf(),
+                                    &ctx,
+                                )
+                                .unwrap(); // TODO(lgalabru)
+                                write_compacted_block_to_index(
+                                    new_block.block_identifier.index as u32,
+                                    &compacted_block,
+                                    &storage_rw_conn,
+                                    &ctx,
+                                );
+                            }
                         }
                     }
                     BitcoinChainEvent::ChainUpdatedWithReorg(ref mut reorg) => {

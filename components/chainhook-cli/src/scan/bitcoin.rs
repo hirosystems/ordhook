@@ -13,9 +13,8 @@ use chainhook_event_observer::indexer::bitcoin::{
     retrieve_block_hash, retrieve_full_block_breakdown_with_retry,
 };
 use chainhook_event_observer::indexer::ordinals::db::{
-    get_default_ordinals_db_file_path, initialize_ordinal_state_storage,
-    open_readonly_ordinals_db_conn, retrieve_satoshi_point_using_local_storage,
-    write_compacted_block_to_index, CompactedBlock,
+    initialize_ordinal_state_storage, open_readonly_ordinals_db_conn,
+    retrieve_satoshi_point_using_local_storage, write_compacted_block_to_index, CompactedBlock,
 };
 use chainhook_event_observer::indexer::ordinals::ord::indexing::entry::Entry;
 use chainhook_event_observer::indexer::ordinals::ord::indexing::{
@@ -193,7 +192,8 @@ pub async fn scan_bitcoin_chain_with_predicate(
                     ctx_.expect_logger(),
                     "Retrieving satoshi point for {}", transaction.transaction_identifier.hash
                 );
-                let storage_conn = open_readonly_ordinals_db_conn(&cache_path).unwrap();
+
+                let storage_conn = open_readonly_ordinals_db_conn(&cache_path, &ctx_).unwrap();
                 let res = retrieve_satoshi_point_using_local_storage(
                     &storage_conn,
                     &block_identifier,
@@ -237,10 +237,9 @@ pub async fn scan_bitcoin_chain_with_predicate(
         .expect("unable to detach thread");
 
     let ctx_ = ctx.clone();
-    let db_file = get_default_ordinals_db_file_path(&config.expected_cache_path());
+    let conn = initialize_ordinal_state_storage(&config.expected_cache_path(), &ctx_);
     let handle_3 = hiro_system_kit::thread_named("Ordinal ingestion")
         .spawn(move || {
-            let conn = initialize_ordinal_state_storage(&db_file, &ctx_);
             while let Ok(Some((height, compacted_block))) = cache_block_rx.recv() {
                 info!(ctx_.expect_logger(), "Caching block #{height}");
                 write_compacted_block_to_index(height, &compacted_block, &conn, &ctx_);

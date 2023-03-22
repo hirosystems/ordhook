@@ -7,7 +7,7 @@ use crate::scan::stacks::scan_stacks_chain_with_predicate;
 use chainhook_event_observer::chainhooks::types::ChainhookFullSpecification;
 use chainhook_event_observer::indexer::ordinals::db::{
     build_bitcoin_traversal_local_storage, open_readonly_ordinals_db_conn,
-    retrieve_satoshi_point_using_local_storage,
+    retrieve_satoshi_point_using_local_storage, open_readwrite_ordinals_db_conn, initialize_ordinal_state_storage,
 };
 use chainhook_event_observer::indexer::ordinals::ord::height::Height;
 use chainhook_event_observer::observer::BitcoinConfig;
@@ -294,8 +294,9 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     index: cmd.block_height,
                     hash: "".into(),
                 };
-                let storage_conn =
-                    open_readonly_ordinals_db_conn(&config.expected_cache_path()).unwrap();
+
+                let storage_conn = open_readonly_ordinals_db_conn(&config.expected_cache_path(), &ctx).unwrap();
+
                 let (block_height, offset) = retrieve_satoshi_point_using_local_storage(
                     &storage_conn,
                     &block_identifier,
@@ -318,9 +319,11 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     rpc_url: config.network.bitcoin_node_rpc_url.clone(),
                 };
 
+                let storage_conn = initialize_ordinal_state_storage(&config.expected_cache_path(), &ctx);
+
                 let _ = build_bitcoin_traversal_local_storage(
                     &bitcoin_config,
-                    &config.expected_cache_path(),
+                    &storage_conn,
                     cmd.start_block,
                     cmd.end_block,
                     &ctx,

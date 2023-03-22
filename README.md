@@ -372,6 +372,16 @@ The current `stacks` predicates supports the following `if_this` constructs:
     }
 }
 
+// Get any stacks block matching constraints
+// `block_height` mandatory argument admits:
+//  - `equals`, `higher_than`, `lower_than`, `between`: integer type.
+{
+    "if_this": {
+        "scope": "block_height",
+        "higher_than": 10000
+    }
+}
+
 // Get any transaction related to a given fungible token asset identifier
 // `asset-identifier` mandatory argument admits:
 //  - string type, fully qualifying the asset identifier to observe. example: `ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.cbtc-sip10::cbtc`
