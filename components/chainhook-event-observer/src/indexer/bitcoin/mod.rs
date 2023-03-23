@@ -274,10 +274,13 @@ pub fn standardize_bitcoin_block(
             sats_in += value;
             inputs.push(TxIn {
                 previous_output: OutPoint {
-                    txid: input
-                        .txid
-                        .expect("not provided for coinbase txs")
-                        .to_string(),
+                    txid: format!(
+                        "0x{}",
+                        input
+                            .txid
+                            .expect("not provided for coinbase txs")
+                            .to_string()
+                    ),
                     vout: input.vout.expect("not provided for coinbase txs"),
                     block_height: input.prevout.expect("not provided for coinbase txs").height,
                     value,
@@ -366,6 +369,12 @@ fn try_parse_ordinal_operation(
                     index: 0,
                 };
 
+                let inscription_fee = tx
+                    .vout
+                    .get(0)
+                    .and_then(|o| Some(o.value.to_sat()))
+                    .unwrap_or(0);
+
                 let no_content_bytes = vec![];
                 let inscription_content_bytes = inscription.body().unwrap_or(&no_content_bytes);
 
@@ -385,12 +394,12 @@ fn try_parse_ordinal_operation(
                         content_length: inscription_content_bytes.len(),
                         inscription_id: inscription_id.to_string(),
                         inscriber_address,
+                        inscription_fee,
                         inscription_number: 0,
-                        inscription_fee: 0,
                         ordinal_number: 0,
                         ordinal_block_height: 0,
                         ordinal_offset: 0,
-                        outpoint_post_inscription: format!("{}:0:0", tx.txid.clone()),
+                        satpoint_post_inscription: format!("{}:0:0", tx.txid.clone()),
                     },
                 ));
             }

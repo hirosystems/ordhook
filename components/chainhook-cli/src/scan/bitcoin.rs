@@ -200,7 +200,7 @@ pub async fn scan_bitcoin_chain_with_predicate(
                     &transaction.transaction_identifier,
                     &ctx_,
                 );
-                let (block_number, block_offset) = match res {
+                let (block_number, block_offset, _) = match res {
                     Ok(res) => res,
                     Err(err) => {
                         println!("{err}");
