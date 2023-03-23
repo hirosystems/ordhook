@@ -172,6 +172,15 @@ The current `bitcoin` predicates supports the following `if_this` constructs:
         "operation": "inscription_revealed"
     }
 }
+
+// Get any transaction transferring a revealed Ordinal inscription
+{
+    "if_this": {
+        "protocol": "ordinals",
+        "operation": "inscription_transferred"
+    }
+}
+
 ```
 
 In terms of actions available, the following `then_that` constructs are supported:
