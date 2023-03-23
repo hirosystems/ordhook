@@ -6,8 +6,10 @@ use crate::scan::stacks::scan_stacks_chain_with_predicate;
 
 use chainhook_event_observer::chainhooks::types::ChainhookFullSpecification;
 use chainhook_event_observer::indexer::ordinals::db::{
-    build_bitcoin_traversal_local_storage, open_readonly_ordinals_db_conn,
-    retrieve_satoshi_point_using_local_storage, open_readwrite_ordinals_db_conn, initialize_ordinal_state_storage,
+    build_bitcoin_traversal_local_storage, find_inscription_with_ordinal_number,
+    find_inscriptions_at_wached_outpoint, initialize_ordinal_state_storage,
+    open_readonly_ordinals_db_conn, open_readwrite_ordinals_db_conn,
+    retrieve_satoshi_point_using_local_storage,
 };
 use chainhook_event_observer::indexer::ordinals::ord::height::Height;
 use chainhook_event_observer::observer::BitcoinConfig;
@@ -17,6 +19,7 @@ use clap::{Parser, Subcommand};
 use ctrlc;
 use hiro_system_kit;
 use std::io::{BufReader, Read};
+use std::path::PathBuf;
 use std::process;
 use std::sync::mpsc::Sender;
 
@@ -138,6 +141,9 @@ enum OrdinalsCommand {
     #[clap(name = "sat", bin_name = "sat")]
     Satoshi(GetSatoshiCommand),
     /// Retrieve Satoshi
+    #[clap(name = "inscriptions", bin_name = "inscriptions")]
+    WatchedOutpoints(GetWatchedOutpointsCommand),
+    /// Retrieve Satoshi
     Traversals(BuildOrdinalsTraversalsCommand),
 }
 
@@ -178,6 +184,15 @@ struct BuildOrdinalsTraversalsCommand {
         conflicts_with = "devnet"
     )]
     pub config_path: Option<String>,
+}
+
+#[derive(Parser, PartialEq, Clone, Debug)]
+struct GetWatchedOutpointsCommand {
+    /// Outpoint
+    pub outpoint: String,
+    /// Load config file path
+    #[clap(long = "db-path")]
+    pub db_path: Option<String>,
 }
 
 #[derive(Parser, PartialEq, Clone, Debug)]
@@ -295,18 +310,19 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     hash: "".into(),
                 };
 
-                let storage_conn = open_readonly_ordinals_db_conn(&config.expected_cache_path(), &ctx).unwrap();
+                let storage_conn =
+                    open_readonly_ordinals_db_conn(&config.expected_cache_path(), &ctx).unwrap();
 
-                let (block_height, offset) = retrieve_satoshi_point_using_local_storage(
-                    &storage_conn,
-                    &block_identifier,
-                    &transaction_identifier,
-                    &ctx,
-                )?;
-                let satoshi_id = Height(block_height).starting_sat().0 + offset;
+                let (block_height, offset, ordinal_number) =
+                    retrieve_satoshi_point_using_local_storage(
+                        &storage_conn,
+                        &block_identifier,
+                        &transaction_identifier,
+                        &ctx,
+                    )?;
                 info!(
                     ctx.expect_logger(),
-                    "Block: {block_height}, Offset {offset}:, Satoshi ID: {satoshi_id}",
+                    "Block: {block_height}, Offset {offset}:, Ordinal number: {ordinal_number}",
                 );
             }
             OrdinalsCommand::Traversals(cmd) => {
@@ -319,7 +335,8 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     rpc_url: config.network.bitcoin_node_rpc_url.clone(),
                 };
 
-                let storage_conn = initialize_ordinal_state_storage(&config.expected_cache_path(), &ctx);
+                let storage_conn =
+                    initialize_ordinal_state_storage(&config.expected_cache_path(), &ctx);
 
                 let _ = build_bitcoin_traversal_local_storage(
                     &bitcoin_config,
@@ -330,6 +347,19 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     cmd.network_threads,
                 )
                 .await;
+            }
+            OrdinalsCommand::WatchedOutpoints(cmd) => {
+                let mut db_path = PathBuf::new();
+                db_path.push(&cmd.db_path.unwrap());
+
+                let storage_conn = open_readonly_ordinals_db_conn(&db_path, &ctx).unwrap();
+
+                let results = find_inscriptions_at_wached_outpoint(&cmd.outpoint, &storage_conn);
+                println!("{:?}", results);
+
+                let result =
+                    find_inscription_with_ordinal_number(&35000010000, &storage_conn, &ctx);
+                println!("{:?}", result);
             }
         },
     }
