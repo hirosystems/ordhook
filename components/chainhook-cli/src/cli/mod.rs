@@ -356,10 +356,6 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
 
                 let results = find_inscriptions_at_wached_outpoint(&cmd.outpoint, &storage_conn);
                 println!("{:?}", results);
-
-                let result =
-                    find_inscription_with_ordinal_number(&35000010000, &storage_conn, &ctx);
-                println!("{:?}", result);
             }
         },
     }

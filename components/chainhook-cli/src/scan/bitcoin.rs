@@ -282,8 +282,11 @@ pub async fn scan_bitcoin_chain_with_predicate(
             CompactedBlock::from_full_block(&block_breakdown),
         )));
 
-        let block =
-            indexer::bitcoin::standardize_bitcoin_block(&event_observer_config, block_breakdown, ctx)?;
+        let block = indexer::bitcoin::standardize_bitcoin_block(
+            &event_observer_config,
+            block_breakdown,
+            ctx,
+        )?;
 
         let mut hits = vec![];
         for tx in block.transactions.iter() {
