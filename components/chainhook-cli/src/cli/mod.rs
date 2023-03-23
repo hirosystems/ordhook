@@ -1,17 +1,17 @@
 use crate::block::DigestingCommand;
 use crate::config::Config;
+use crate::config::generator::generate_config;
 use crate::node::Node;
 use crate::scan::bitcoin::scan_bitcoin_chain_with_predicate;
 use crate::scan::stacks::scan_stacks_chain_with_predicate;
 
 use chainhook_event_observer::chainhooks::types::ChainhookFullSpecification;
 use chainhook_event_observer::indexer::ordinals::db::{
-    build_bitcoin_traversal_local_storage, find_inscription_with_ordinal_number,
+    build_bitcoin_traversal_local_storage,
     find_inscriptions_at_wached_outpoint, initialize_ordinal_state_storage,
-    open_readonly_ordinals_db_conn, open_readwrite_ordinals_db_conn,
+    open_readonly_ordinals_db_conn,
     retrieve_satoshi_point_using_local_storage,
 };
-use chainhook_event_observer::indexer::ordinals::ord::height::Height;
 use chainhook_event_observer::observer::BitcoinConfig;
 use chainhook_event_observer::utils::Context;
 use chainhook_types::{BlockIdentifier, TransactionIdentifier};
@@ -35,6 +35,9 @@ enum Command {
     /// Manage predicates
     #[clap(subcommand)]
     Predicates(PredicatesCommand),
+    /// Manage config
+    #[clap(subcommand)]
+    Config(ConfigCommand),
     /// Start chainhook-cli
     #[clap(subcommand)]
     Node(NodeCommand),
@@ -52,6 +55,39 @@ enum PredicatesCommand {
     /// Scan blocks (one-off) from specified network and apply provided predicate
     #[clap(name = "scan", bin_name = "scan")]
     Scan(ScanPredicate),
+}
+
+#[derive(Subcommand, PartialEq, Clone, Debug)]
+#[clap(bin_name = "config", aliases = &["config"])]
+enum ConfigCommand {
+    /// Generate new predicate
+    #[clap(name = "new", bin_name = "new", aliases = &["generate"])]
+    New(NewConfig),
+}
+
+#[derive(Parser, PartialEq, Clone, Debug)]
+struct NewConfig {
+    /// Target Devnet network
+    #[clap(
+        long = "devnet",
+        conflicts_with = "testnet",
+        conflicts_with = "mainnet"
+    )]
+    pub devnet: bool,
+    /// Target Testnet network
+    #[clap(
+        long = "testnet",
+        conflicts_with = "devnet",
+        conflicts_with = "mainnet"
+    )]
+    pub testnet: bool,
+    /// Target Mainnet network
+    #[clap(
+        long = "mainnet",
+        conflicts_with = "testnet",
+        conflicts_with = "devnet"
+    )]
+    pub mainnet: bool,
 }
 
 #[derive(Parser, PartialEq, Clone, Debug)]
@@ -269,6 +305,20 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                 return node.run().await;
             }
         },
+        Command::Config(subcmd) => match subcmd {
+            ConfigCommand::New(cmd) => {
+                use std::fs::File;
+                use std::io::Write;
+                let config_content = generate_config();
+                let mut file_path = PathBuf::new();
+                file_path.push("Chainhook.toml");
+                let mut file = File::create(&file_path)
+                    .map_err(|e| format!("unable to open file {}\n{}", file_path.display(), e))?;
+                file.write_all(config_content.as_bytes())
+                    .map_err(|e| format!("unable to write file {}\n{}", file_path.display(), e))?;
+                println!("Created file Chainhook.toml");
+            }
+        }
         Command::Predicates(subcmd) => match subcmd {
             PredicatesCommand::New(_cmd) => {
                 // let manifest = clarinet_files::get_manifest_location(None);
