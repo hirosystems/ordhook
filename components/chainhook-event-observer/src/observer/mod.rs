@@ -798,7 +798,7 @@ pub async fn start_observer_commands_handler(
 
                                         // Attach transfer event
                                         new_tx.metadata.ordinal_operations.push(
-                                            OrdinalOperation::InscriptionTransfered(event_data),
+                                            OrdinalOperation::InscriptionTransferred(event_data),
                                         );
                                     }
 
