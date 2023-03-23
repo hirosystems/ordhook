@@ -441,6 +441,20 @@ The current `stacks` predicates supports the following `if_this` constructs:
     },
 }
 
+// Get any transaction calling a specific method for a given contract **directly**.
+// Warning: if the watched method is being called by another contract, this predicate won't detect it.
+// `contract-identifier` mandatory argument admits:
+//  - string type, fully qualifying the contract to observe. example: `SP000000000000000000002Q6VF78.pox`
+// `method` mandatory argument admits:
+//  - string type, used for specifying the method to observe. example: `stack-stx`
+{
+    "if_this": {
+        "scope": "contract_call",
+        "contract_identifier": "SP000000000000000000002Q6VF78.pox",
+        "method": "stack-stx"
+    },
+}
+
 // Get any transaction including a contract deployment
 // `deployer` mandatory argument admits:
 //  - string "*"
