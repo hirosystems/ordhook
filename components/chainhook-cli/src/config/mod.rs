@@ -8,10 +8,10 @@ use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::PathBuf;
 
-const DEFAULT_MAINNET_TSV_ARCHIVE: &str = "https://storage.googleapis.com/hirosystems-archive/mainnet/api/mainnet-blockchain-api-latest.tar.gz";
-const DEFAULT_TESTNET_TSV_ARCHIVE: &str = "https://storage.googleapis.com/hirosystems-archive/testnet/api/testnet-blockchain-api-latest.tar.gz";
-// const DEFAULT_MAINNET_TSV_ARCHIVE: &str = "https://archive.hiro.so/mainnet/stacks-blockchain-api/mainnet-stacks-blockchain-api-latest.gz";
-// const DEFAULT_TESTNET_TSV_ARCHIVE: &str = "https://archive.hiro.so/testnet/stacks-blockchain-api/testnet-stacks-blockchain-api-latest.gz";
+const DEFAULT_MAINNET_TSV_ARCHIVE: &str =
+    "https://archive.hiro.so/mainnet/stacks-blockchain-api/mainnet-stacks-blockchain-api-latest.gz";
+const DEFAULT_TESTNET_TSV_ARCHIVE: &str =
+    "https://archive.hiro.so/testnet/stacks-blockchain-api/testnet-stacks-blockchain-api-latest.gz";
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -99,6 +99,20 @@ impl Config {
             _ => return Err("network.mode not supported".to_string()),
         };
 
+        let mut event_sources = vec![];
+        for source in config_file.event_source.unwrap_or(vec![]).iter_mut() {
+            if let Some(dst) = source.tsv_file_path.take() {
+                let mut file_path = PathBuf::new();
+                file_path.push(dst);
+                event_sources.push(EventSourceConfig::TsvPath(TsvPathConfig { file_path }));
+                continue;
+            }
+            if let Some(file_url) = source.tsv_file_url.take() {
+                event_sources.push(EventSourceConfig::TsvUrl(TsvUrlConfig { file_url }));
+                continue;
+            }
+        }
+
         let config = Config {
             storage: StorageConfig {
                 driver: StorageDriver::Redis(RedisConfig {
@@ -106,9 +120,7 @@ impl Config {
                 }),
                 cache_path: config_file.storage.cache_path.unwrap_or("cache".into()),
             },
-            event_sources: vec![EventSourceConfig::StacksNode(StacksNodeConfig {
-                host: config_file.network.stacks_node_rpc_url.to_string(),
-            })],
+            event_sources,
             chainhooks: ChainhooksConfig {
                 max_stacks_registrations: config_file
                     .chainhooks

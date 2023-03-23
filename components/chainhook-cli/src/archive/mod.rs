@@ -3,16 +3,15 @@ use chainhook_types::StacksNetwork;
 use flate2::read::GzDecoder;
 use futures_util::StreamExt;
 use std::fs;
-use std::io::Read;
 use std::io::{self, Cursor};
-use tar::Archive;
+use std::io::{Read, Write};
 
 pub fn default_tsv_file_path(network: &StacksNetwork) -> String {
-    format!("stacks-node-events-{:?}.tsv", network).to_lowercase()
+    format!("{:?}-stacks-events.tsv", network).to_lowercase()
 }
 
 pub async fn download_tsv_file(config: &Config) -> Result<(), String> {
-    let destination_path = config.expected_cache_path();
+    let mut destination_path = config.expected_cache_path();
     let url = config.expected_remote_tsv_url();
     let res = reqwest::get(url)
         .await
@@ -20,22 +19,24 @@ pub async fn download_tsv_file(config: &Config) -> Result<(), String> {
 
     // Download chunks
     let (tx, rx) = flume::bounded(0);
+    destination_path.push(default_tsv_file_path(&config.network.stacks_network));
 
-    let mut from = destination_path.clone();
     let decoder_thread = std::thread::spawn(move || {
         let input = ChannelRead::new(rx);
-        let gz = GzDecoder::new(input);
-        let mut archive = Archive::new(gz);
-        archive.unpack(&destination_path).unwrap();
+        let mut decoder = GzDecoder::new(input);
+        let mut content = Vec::new();
+        let _ = decoder.read_to_end(&mut content);
+        let mut file = fs::File::create(&destination_path).unwrap();
+        file.write_all(&content[..]).unwrap();
     });
 
     if res.status() == reqwest::StatusCode::OK {
         let mut stream = res.bytes_stream();
         while let Some(item) = stream.next().await {
-            let chunk = item
-                .or(Err(format!("Error while downloading file")))
-                .unwrap();
-            tx.send_async(chunk.to_vec()).await.unwrap();
+            let chunk = item.or(Err(format!("Error while downloading file")))?;
+            tx.send_async(chunk.to_vec())
+                .await
+                .map_err(|e| format!("unable to download stacks event: {}", e.to_string()))?;
         }
         drop(tx);
     }
@@ -44,12 +45,6 @@ pub async fn download_tsv_file(config: &Config) -> Result<(), String> {
         .await
         .unwrap()
         .unwrap();
-
-    from.push("stacks-node-events.tsv");
-    let mut to = from.clone();
-    to.pop();
-    to.push(default_tsv_file_path(&config.network.stacks_network));
-    let _ = fs::rename(from, to);
 
     Ok(())
 }

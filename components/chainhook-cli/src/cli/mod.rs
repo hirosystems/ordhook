@@ -1,15 +1,14 @@
 use crate::block::DigestingCommand;
-use crate::config::Config;
 use crate::config::generator::generate_config;
+use crate::config::Config;
 use crate::node::Node;
 use crate::scan::bitcoin::scan_bitcoin_chain_with_predicate;
 use crate::scan::stacks::scan_stacks_chain_with_predicate;
 
 use chainhook_event_observer::chainhooks::types::ChainhookFullSpecification;
 use chainhook_event_observer::indexer::ordinals::db::{
-    build_bitcoin_traversal_local_storage,
-    find_inscriptions_at_wached_outpoint, initialize_ordinal_state_storage,
-    open_readonly_ordinals_db_conn,
+    build_bitcoin_traversal_local_storage, find_inscriptions_at_wached_outpoint,
+    initialize_ordinal_state_storage, open_readonly_ordinals_db_conn,
     retrieve_satoshi_point_using_local_storage,
 };
 use chainhook_event_observer::observer::BitcoinConfig;
@@ -318,7 +317,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     .map_err(|e| format!("unable to write file {}\n{}", file_path.display(), e))?;
                 println!("Created file Chainhook.toml");
             }
-        }
+        },
         Command::Predicates(subcmd) => match subcmd {
             PredicatesCommand::New(_cmd) => {
                 // let manifest = clarinet_files::get_manifest_location(None);

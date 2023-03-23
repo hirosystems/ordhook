@@ -3,7 +3,7 @@ pub fn generate_config() -> String {
         r#"[storage]
 driver = "redis"
 redis_uri = "redis://localhost:6379/"
-cache_path = "chainhook_cache"
+cache_path = "cache"
 
 [chainhooks]
 max_stacks_registrations = 500
@@ -15,6 +15,9 @@ bitcoin_node_rpc_url = "http://localhost:8332"
 bitcoin_node_rpc_username = "devnet"
 bitcoin_node_rpc_password = "devnet"
 stacks_node_rpc_url = "http://localhost:20443"
+
+[[event_source]]
+tsv_file_url = "https://archive.hiro.so/mainnet/stacks-blockchain-api/mainnet-stacks-blockchain-api-latest.gz"
 "#
     );
     return conf;

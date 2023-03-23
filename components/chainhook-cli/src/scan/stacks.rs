@@ -153,7 +153,14 @@ pub async fn scan_stacks_chain_with_predicate(
     };
     let proofs = HashMap::new();
 
+    let mut actions_triggered = 0;
+    let mut blocks_scanned = 0;
+    info!(
+        ctx.expect_logger(),
+        "Starting predicate evaluation on blocks"
+    );
     for (_block_identifier, _parent_block_identifier, blob) in canonical_fork.drain(..) {
+        blocks_scanned += 1;
         let block_data = match indexer::stacks::standardize_stacks_serialized_block(
             &indexer.config,
             &blob,
@@ -183,15 +190,24 @@ pub async fn scan_stacks_chain_with_predicate(
             Err(e) => {
                 error!(ctx.expect_logger(), "unable to handle action {}", e);
             }
-            Ok(StacksChainhookOccurrence::Http(request)) => {
-                send_request(request, &ctx).await;
+            Ok(action) => {
+                actions_triggered += 1;
+                match action {
+                    StacksChainhookOccurrence::Http(request) => {
+                        send_request(request, &ctx).await;
+                    }
+                    StacksChainhookOccurrence::File(path, bytes) => {
+                        file_append(path, bytes, &ctx);
+                    }
+                    StacksChainhookOccurrence::Data(_payload) => unreachable!(),
+                }
             }
-            Ok(StacksChainhookOccurrence::File(path, bytes)) => {
-                file_append(path, bytes, &ctx);
-            }
-            Ok(StacksChainhookOccurrence::Data(_payload)) => unreachable!(),
         }
     }
+    info!(
+        ctx.expect_logger(),
+        "{blocks_scanned} blocks scanned, {actions_triggered} actions triggered"
+    );
 
     Ok(())
 }
@@ -215,6 +231,12 @@ async fn download_dataset_if_required(config: &mut Config, ctx: &Context) -> boo
                         process::exit(1);
                     }
                 }
+            } else {
+                info!(
+                    ctx.expect_logger(),
+                    "Building in-memory chainstate from file {}",
+                    destination_path.display()
+                );
             }
             config.add_local_tsv_source(&destination_path);
         }
