@@ -259,7 +259,7 @@ impl BitcoinPredicateType {
     pub fn evaluate_transaction_predicate(
         &self,
         tx: &BitcoinTransactionData,
-        ctx: &Context,
+        _ctx: &Context,
     ) -> bool {
         // TODO(lgalabru): follow-up on this implementation
         match &self {

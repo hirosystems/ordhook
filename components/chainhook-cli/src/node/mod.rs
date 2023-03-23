@@ -6,8 +6,7 @@ use chainhook_event_observer::chainhooks::bitcoin::{
 use chainhook_event_observer::chainhooks::types::{
     BitcoinPredicateType, ChainhookConfig, ChainhookFullSpecification, OrdinalOperations, Protocols,
 };
-use chainhook_event_observer::indexer::ordinals::{self, ord::initialize_ordinal_index};
-use chainhook_event_observer::indexer::{self, BitcoinChainContext};
+use chainhook_event_observer::indexer;
 use chainhook_event_observer::observer::{
     start_event_observer, ApiKey, EventObserverConfig, ObserverEvent,
 };
@@ -136,13 +135,13 @@ impl Node {
             "Listening for chainhook predicate registrations on port {}", DEFAULT_CONTROL_PORT
         );
 
-        let ordinal_index = match initialize_ordinal_index(&event_observer_config, None, &self.ctx)
-        {
-            Ok(index) => index,
-            Err(e) => {
-                panic!()
-            }
-        };
+        // let ordinal_index = match initialize_ordinal_index(&event_observer_config, None, &self.ctx)
+        // {
+        //     Ok(index) => index,
+        //     Err(e) => {
+        //         panic!()
+        //     }
+        // };
 
         let context_cloned = self.ctx.clone();
         let event_observer_config_moved = event_observer_config.clone();

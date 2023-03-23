@@ -265,13 +265,9 @@ pub fn standardize_bitcoin_block(
         ctx.try_log(|logger| slog::debug!(logger, "Standardizing Bitcoin transaction {txid}"));
 
         let mut stacks_operations = vec![];
-        if let Some(op) = try_parse_stacks_operation(
-            &tx.vout,
-            &pox_config,
-            &expected_magic_bytes,
-            block_height,
-            ctx,
-        ) {
+        if let Some(op) =
+            try_parse_stacks_operation(&tx.vout, &pox_config, &expected_magic_bytes, ctx)
+        {
             stacks_operations.push(op);
         }
 
@@ -370,7 +366,7 @@ pub fn standardize_bitcoin_block(
 fn try_parse_ordinal_operation(
     tx: &BitcoinTransactionFullBreakdown,
     _block_height: u64,
-    ctx: &Context,
+    _ctx: &Context,
 ) -> Option<OrdinalOperation> {
     for input in tx.vin.iter() {
         if let Some(ref witnesses) = input.txinwitness {
@@ -433,7 +429,6 @@ fn try_parse_stacks_operation(
     outputs: &Vec<BitcoinTransactionOutputFullBreakdown>,
     pox_config: &PoxConfig,
     expected_magic_bytes: &[u8; 2],
-    block_height: u64,
     ctx: &Context,
 ) -> Option<StacksBaseChainOperation> {
     if outputs.is_empty() {

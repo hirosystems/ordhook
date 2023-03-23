@@ -287,7 +287,7 @@ pub fn update_transfered_inscription(
 
 pub fn find_last_inscription_number(
     storage_conn: &Connection,
-    ctx: &Context,
+    _ctx: &Context,
 ) -> Result<u64, String> {
     let args: &[&dyn ToSql] = &[];
     let mut stmt = storage_conn
@@ -306,7 +306,7 @@ pub fn find_last_inscription_number(
 pub fn find_inscription_with_ordinal_number(
     ordinal_number: &u64,
     storage_conn: &Connection,
-    ctx: &Context,
+    _ctx: &Context,
 ) -> Option<String> {
     let args: &[&dyn ToSql] = &[&ordinal_number.to_sql().unwrap()];
     let mut stmt = storage_conn
@@ -375,6 +375,7 @@ pub async fn build_bitcoin_traversal_local_storage(
         let block_height = block_cursor.clone();
         let block_hash_tx = block_hash_tx.clone();
         let config = bitcoin_config.clone();
+        let moved_ctx = ctx.clone();
         retrieve_block_hash_pool.execute(move || {
             let mut err_count = 0;
             let mut rng = rand::thread_rng();
@@ -386,6 +387,9 @@ pub async fn build_bitcoin_traversal_local_storage(
                         break;
                     }
                     Err(e) => {
+                        moved_ctx.try_log(|logger| {
+                            slog::error!(logger, "unable to retrieve block_hash: #{}", e)
+                        });
                         err_count += 1;
                         let delay = (err_count + (rng.next_u64() % 3)) * 1000;
                         std::thread::sleep(std::time::Duration::from_millis(delay));
@@ -398,7 +402,7 @@ pub async fn build_bitcoin_traversal_local_storage(
     let bitcoin_config = bitcoin_config.clone();
     let moved_ctx = ctx.clone();
     let block_data_tx_moved = block_data_tx.clone();
-    let handle_1 = hiro_system_kit::thread_named("Block data retrieval")
+    let _ = hiro_system_kit::thread_named("Block data retrieval")
         .spawn(move || {
             while let Ok(Some((block_height, block_hash))) = block_hash_rx.recv() {
                 let moved_bitcoin_config = bitcoin_config.clone();
@@ -421,7 +425,7 @@ pub async fn build_bitcoin_traversal_local_storage(
         })
         .expect("unable to spawn thread");
 
-    let handle_2 = hiro_system_kit::thread_named("Block data compression")
+    let _ = hiro_system_kit::thread_named("Block data compression")
         .spawn(move || {
             while let Ok(Some(block_data)) = block_data_rx.recv() {
                 let block_compressed_tx_moved = block_compressed_tx.clone();
@@ -432,7 +436,6 @@ pub async fn build_bitcoin_traversal_local_storage(
                 });
 
                 let res = compress_block_data_pool.join();
-                // let _ = block_compressed_tx.send(None);
                 res
             }
         })

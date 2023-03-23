@@ -9,6 +9,7 @@ use chainhook_event_observer::chainhooks::types::{
     BitcoinChainhookFullSpecification, BitcoinPredicateType, HookAction, OrdinalOperations,
     Protocols,
 };
+use chainhook_event_observer::indexer;
 use chainhook_event_observer::indexer::bitcoin::{
     retrieve_block_hash, retrieve_full_block_breakdown_with_retry,
 };
@@ -22,9 +23,8 @@ use chainhook_event_observer::indexer::ordinals::ord::indexing::{
 };
 use chainhook_event_observer::indexer::ordinals::ord::initialize_ordinal_index;
 use chainhook_event_observer::indexer::ordinals::ord::inscription_id::InscriptionId;
-use chainhook_event_observer::indexer::{self, BitcoinChainContext};
 use chainhook_event_observer::observer::{
-    BitcoinConfig, EventObserverConfig, DEFAULT_CONTROL_PORT, DEFAULT_INGESTION_PORT,
+    EventObserverConfig, DEFAULT_CONTROL_PORT, DEFAULT_INGESTION_PORT,
 };
 use chainhook_event_observer::redb::ReadableTable;
 use chainhook_event_observer::utils::{file_append, send_request, Context};
@@ -348,9 +348,9 @@ pub async fn scan_bitcoin_chain_with_predicate(
 
     if pipeline_started {
         let _ = retrieve_ordinal_tx.send(None);
-        handle_3.join();
-        handle_1.join();
-        handle_2.join();
+        let _ = handle_3.join();
+        let _ = handle_1.join();
+        let _ = handle_2.join();
     }
 
     Ok(())

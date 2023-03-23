@@ -1,3 +1,6 @@
+#![allow(dead_code)]
+#![allow(unused_variables)]
+
 use hiro_system_kit::slog;
 use std::{path::PathBuf, time::Duration};
 

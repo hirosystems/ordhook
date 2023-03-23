@@ -702,23 +702,34 @@ pub async fn start_observer_commands_handler(
                                         let offset = 0;
                                         let script_pub_key_hex =
                                             new_tx.metadata.outputs[index].get_script_pubkey_hex();
-                                        let updated_address =
-                                            match Script::from_hex(&script_pub_key_hex) {
-                                                Ok(script) => match Address::from_script(
-                                                    &script,
-                                                    Network::Bitcoin,
-                                                ) {
-                                                    Ok(address) => Some(address.to_string()),
-                                                    Err(e) => {
-                                                        // todo(lgalabru log error)
-                                                        None
-                                                    }
-                                                },
+                                        let updated_address = match Script::from_hex(
+                                            &script_pub_key_hex,
+                                        ) {
+                                            Ok(script) => match Address::from_script(
+                                                &script,
+                                                Network::Bitcoin,
+                                            ) {
+                                                Ok(address) => Some(address.to_string()),
                                                 Err(e) => {
-                                                    // todo(lgalabru log error)
+                                                    ctx.try_log(|logger| {
+                                                            slog::warn!(
+                                                                logger,
+                                                                "unable to retrieve address from {script_pub_key_hex}: {}", e.to_string()
+                                                            )
+                                                        });
                                                     None
                                                 }
-                                            };
+                                            },
+                                            Err(e) => {
+                                                ctx.try_log(|logger| {
+                                                        slog::warn!(
+                                                            logger,
+                                                            "unable to retrieve address from {script_pub_key_hex}: {}", e.to_string()
+                                                        )
+                                                    });
+                                                None
+                                            }
+                                        };
 
                                         // let vout = new_tx.metadata.outputs[index];
                                         (outpoint, offset, updated_address)
@@ -789,9 +800,6 @@ pub async fn start_observer_commands_handler(
                 bitcoin_block_store.insert(new_block.block_identifier.clone(), new_block);
             }
             ObserverCommand::PropagateBitcoinChainEvent(blockchain_event) => {
-                let ordinals_db_conn =
-                    open_readonly_ordinals_db_conn(&config.get_cache_path_buf(), &ctx)?;
-
                 ctx.try_log(|logger| {
                     slog::info!(logger, "Handling PropagateBitcoinChainEvent command")
                 });

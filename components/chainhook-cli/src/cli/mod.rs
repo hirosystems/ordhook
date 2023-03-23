@@ -308,6 +308,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
             ConfigCommand::New(cmd) => {
                 use std::fs::File;
                 use std::io::Write;
+                let _config = Config::default(cmd.devnet, cmd.testnet, cmd.mainnet, &None)?;
                 let config_content = generate_config();
                 let mut file_path = PathBuf::new();
                 file_path.push("Chainhook.toml");
