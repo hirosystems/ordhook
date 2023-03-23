@@ -1,7 +1,9 @@
 use crate::chainhooks::types::{
-    BitcoinChainhookSpecification, BitcoinPredicateType, ChainhookConfig, ChainhookSpecification,
-    ExactMatchingRule, HookAction, OutputPredicate, StacksChainhookSpecification,
-    StacksContractCallBasedPredicate, StacksPredicate,
+    BitcoinChainhookFullSpecification, BitcoinChainhookNetworkSpecification,
+    BitcoinChainhookSpecification, BitcoinPredicateType, ChainhookConfig,
+    ChainhookFullSpecification, ChainhookSpecification, ExactMatchingRule, HookAction,
+    OutputPredicate, StacksChainhookFullSpecification, StacksChainhookNetworkSpecification,
+    StacksChainhookSpecification, StacksContractCallBasedPredicate, StacksPredicate,
 };
 use crate::indexer::tests::helpers::transactions::generate_test_tx_bitcoin_p2pkh_transfer;
 use crate::indexer::tests::helpers::{
@@ -16,7 +18,7 @@ use chainhook_types::{
     StacksChainEvent, StacksChainUpdatedWithBlocksData, StacksNetwork,
 };
 use hiro_system_kit;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, RwLock};
 
@@ -39,6 +41,9 @@ fn generate_test_config() -> (EventObserverConfig, ChainhookStore) {
         stacks_node_rpc_url: "http://localhost:18443".into(),
         operators,
         display_logs: false,
+        cache_path: "cache".into(),
+        bitcoin_network: BitcoinNetwork::Regtest,
+        stacks_network: StacksNetwork::Devnet,
     };
     let mut entries = HashMap::new();
     entries.insert(ApiKey(None), ChainhookConfig::new());
@@ -49,24 +54,32 @@ fn generate_test_config() -> (EventObserverConfig, ChainhookStore) {
 fn stacks_chainhook_contract_call(
     id: u8,
     contract_identifier: &str,
+    expire_after_occurrence: Option<u64>,
     method: &str,
-) -> StacksChainhookSpecification {
-    let spec = StacksChainhookSpecification {
+) -> StacksChainhookFullSpecification {
+    let mut networks = BTreeMap::new();
+    networks.insert(
+        StacksNetwork::Devnet,
+        StacksChainhookNetworkSpecification {
+            start_block: None,
+            end_block: None,
+            expire_after_occurrence,
+            capture_all_events: None,
+            decode_clarity_values: Some(true),
+            predicate: StacksPredicate::ContractCall(StacksContractCallBasedPredicate {
+                contract_identifier: contract_identifier.to_string(),
+                method: method.to_string(),
+            }),
+            action: HookAction::Noop,
+        },
+    );
+
+    let spec = StacksChainhookFullSpecification {
         uuid: format!("{}", id),
         name: format!("Chainhook {}", id),
         owner_uuid: None,
-        network: StacksNetwork::Devnet,
+        networks,
         version: 1,
-        start_block: None,
-        end_block: None,
-        expire_after_occurrence: None,
-        predicate: StacksPredicate::ContractCall(StacksContractCallBasedPredicate {
-            contract_identifier: contract_identifier.to_string(),
-            method: method.to_string(),
-        }),
-        action: HookAction::Noop,
-        capture_all_events: None,
-        decode_clarity_values: Some(true),
     };
     spec
 }
@@ -75,20 +88,27 @@ fn bitcoin_chainhook_p2pkh(
     id: u8,
     address: &str,
     expire_after_occurrence: Option<u64>,
-) -> BitcoinChainhookSpecification {
-    let spec = BitcoinChainhookSpecification {
+) -> BitcoinChainhookFullSpecification {
+    let mut networks = BTreeMap::new();
+    networks.insert(
+        BitcoinNetwork::Regtest,
+        BitcoinChainhookNetworkSpecification {
+            start_block: None,
+            end_block: None,
+            expire_after_occurrence,
+            predicate: BitcoinPredicateType::Outputs(OutputPredicate::P2pkh(
+                ExactMatchingRule::Equals(address.to_string()),
+            )),
+            action: HookAction::Noop,
+        },
+    );
+
+    let spec = BitcoinChainhookFullSpecification {
         uuid: format!("{}", id),
         name: format!("Chainhook {}", id),
         owner_uuid: None,
-        network: BitcoinNetwork::Regtest,
         version: 1,
-        start_block: None,
-        end_block: None,
-        expire_after_occurrence,
-        predicate: BitcoinPredicateType::Outputs(OutputPredicate::P2pkh(
-            ExactMatchingRule::Equals(address.to_string()),
-        )),
-        action: HookAction::Noop,
+        networks,
     };
     spec
 }
@@ -101,11 +121,14 @@ fn generate_and_register_new_stacks_chainhook(
     method: &str,
 ) -> StacksChainhookSpecification {
     let contract_identifier = format!("{}.{}", accounts::deployer_stx_address(), contract_name);
-    let chainhook = stacks_chainhook_contract_call(id, &contract_identifier, method);
+    let chainhook = stacks_chainhook_contract_call(id, &contract_identifier, None, method);
     let _ = observer_commands_tx.send(ObserverCommand::RegisterHook(
-        ChainhookSpecification::Stacks(chainhook.clone()),
+        ChainhookFullSpecification::Stacks(chainhook.clone()),
         ApiKey(None),
     ));
+    let chainhook = chainhook
+        .into_selected_network_specification(&StacksNetwork::Devnet)
+        .unwrap();
     assert!(match observer_events_rx.recv() {
         Ok(ObserverEvent::HookRegistered(registered_chainhook)) => {
             assert_eq!(
@@ -128,9 +151,12 @@ fn generate_and_register_new_bitcoin_chainhook(
 ) -> BitcoinChainhookSpecification {
     let chainhook = bitcoin_chainhook_p2pkh(id, &p2pkh_address, expire_after_occurrence);
     let _ = observer_commands_tx.send(ObserverCommand::RegisterHook(
-        ChainhookSpecification::Bitcoin(chainhook.clone()),
+        ChainhookFullSpecification::Bitcoin(chainhook.clone()),
         ApiKey(None),
     ));
+    let chainhook = chainhook
+        .into_selected_network_specification(&BitcoinNetwork::Regtest)
+        .unwrap();
     assert!(match observer_events_rx.recv() {
         Ok(ObserverEvent::HookRegistered(registered_chainhook)) => {
             assert_eq!(
@@ -402,13 +428,16 @@ fn test_stacks_chainhook_auto_deregister() {
 
     // Create and register a new chainhook
     let contract_identifier = format!("{}.{}", accounts::deployer_stx_address(), "counter");
-    let mut chainhook = stacks_chainhook_contract_call(0, &contract_identifier, "increment");
-    chainhook.expire_after_occurrence = Some(1);
+    let mut chainhook =
+        stacks_chainhook_contract_call(0, &contract_identifier, Some(1), "increment");
 
     let _ = observer_commands_tx.send(ObserverCommand::RegisterHook(
-        ChainhookSpecification::Stacks(chainhook.clone()),
+        ChainhookFullSpecification::Stacks(chainhook.clone()),
         ApiKey(None),
     ));
+    let chainhook = chainhook
+        .into_selected_network_specification(&StacksNetwork::Devnet)
+        .unwrap();
     assert!(match observer_events_rx.recv() {
         Ok(ObserverEvent::HookRegistered(registered_chainhook)) => {
             assert_eq!(

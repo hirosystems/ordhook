@@ -3146,8 +3146,8 @@ pub fn get_vector_046() -> Vec<(BlockEvent, StacksChainEventExpectation)> {
 
 /// Vector 047: Generate the following blocks
 ///
-/// A1(1) -  B1(2) - [a1](3) - [b1](4) - [c1](6) - [d1](7) - C1(8)
-///                \ [a2](4) - [b2](5)
+/// A1(1) -  B1(2) - [a1](3) - [b1](4) - [c1](7) - [d1](8) - C1(9)
+///                \ [a2](5) - [b2](6)
 ///
 pub fn get_vector_047() -> Vec<(BlockEvent, StacksChainEventExpectation)> {
     vec![

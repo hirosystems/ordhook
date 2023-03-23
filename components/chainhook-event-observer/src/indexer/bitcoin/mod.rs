@@ -1,50 +1,145 @@
 mod blocks_pool;
-#[allow(dead_code)]
-mod ordinal;
 
+use std::thread::JoinHandle;
 use std::time::Duration;
 
 use crate::chainhooks::types::{
     get_canonical_pox_config, get_stacks_canonical_magic_bytes, PoxConfig, StacksOpcodes,
 };
 use crate::indexer::IndexerConfig;
-use crate::observer::BitcoinConfig;
+use crate::observer::{BitcoinConfig, EventObserverConfig};
 use crate::utils::Context;
-use bitcoincore_rpc::bitcoin::{self, Script};
-use bitcoincore_rpc_json::{GetRawTransactionResult, GetRawTransactionResultVout};
+use bitcoincore_rpc::bitcoin::hashes::hex::FromHex;
+use bitcoincore_rpc::bitcoin::hashes::Hash;
+use bitcoincore_rpc::bitcoin::{
+    self, Address, Amount, BlockHash, OutPoint as OutPointS, PackedLockTime, Script, Transaction,
+    Txid, Witness,
+};
+use bitcoincore_rpc_json::{
+    GetRawTransactionResult, GetRawTransactionResultVinScriptSig, GetRawTransactionResultVout,
+    GetRawTransactionResultVoutScriptPubKey,
+};
 pub use blocks_pool::BitcoinBlockPool;
 use chainhook_types::bitcoin::{OutPoint, TxIn, TxOut};
 use chainhook_types::{
     BitcoinBlockData, BitcoinBlockMetadata, BitcoinTransactionData, BitcoinTransactionMetadata,
-    BlockCommitmentData, BlockIdentifier, KeyRegistrationData, LockSTXData,
-    OrdinalInscriptionRevealData, OrdinalOperation, PobBlockCommitmentData, PoxBlockCommitmentData,
-    PoxReward, StacksBaseChainOperation, TransactionIdentifier, TransferSTXData,
+    BlockCommitmentData, BlockHeader, BlockIdentifier, KeyRegistrationData, LockSTXData,
+    OrdinalInscriptionRevealData, OrdinalOperation, PobBlockCommitmentData, PoxReward,
+    StacksBaseChainOperation, StacksBlockCommitmentData, TransactionIdentifier, TransferSTXData,
 };
-use clarity_repl::clarity::util::hash::to_hex;
 use hiro_system_kit::slog;
 use rocket::serde::json::Value as JsonValue;
+use serde::Deserialize;
 
-use self::ordinal::InscriptionParser;
+use super::ordinals::inscription::InscriptionParser;
+use super::ordinals::ord::chain::Chain;
+use super::ordinals::ord::indexing::entry::InscriptionEntry;
+use super::ordinals::ord::indexing::updater::{BlockData, OrdinalIndexUpdater};
+use super::ordinals::ord::indexing::OrdinalIndex;
+use super::ordinals::ord::inscription_id::InscriptionId;
+use super::ordinals::ord::sat::Sat;
+use super::BitcoinChainContext;
 
 #[derive(Clone, PartialEq, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Block {
+pub struct BitcoinBlockFullBreakdown {
     pub hash: bitcoin::BlockHash,
-    pub confirmations: i32,
-    pub size: usize,
-    pub strippedsize: Option<usize>,
-    pub weight: usize,
     pub height: usize,
-    pub version: i32,
     pub merkleroot: bitcoin::TxMerkleNode,
-    pub tx: Vec<GetRawTransactionResult>,
+    pub tx: Vec<BitcoinTransactionFullBreakdown>,
     pub time: usize,
-    pub mediantime: Option<usize>,
     pub nonce: u32,
-    pub bits: String,
-    pub difficulty: f64,
-    pub n_tx: usize,
-    pub previousblockhash: bitcoin::BlockHash,
+    pub previousblockhash: Option<bitcoin::BlockHash>,
+}
+
+impl BitcoinBlockFullBreakdown {
+    pub fn get_block_header(&self) -> BlockHeader {
+        // Block id
+        let hash = format!("0x{}", self.hash.to_string());
+        let block_identifier = BlockIdentifier {
+            index: self.height as u64,
+            hash: hash,
+        };
+        // Parent block id
+        let hash = format!("0x{}", self.previousblockhash.unwrap().to_string());
+        let parent_block_identifier = BlockIdentifier {
+            index: (self.height - 1) as u64,
+            hash,
+        };
+        BlockHeader {
+            block_identifier,
+            parent_block_identifier,
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BitcoinTransactionFullBreakdown {
+    pub txid: bitcoin::Txid,
+    pub vin: Vec<BitcoinTransactionInputFullBreakdown>,
+    pub vout: Vec<BitcoinTransactionOutputFullBreakdown>,
+}
+
+#[derive(Clone, PartialEq, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BitcoinTransactionInputFullBreakdown {
+    pub sequence: u32,
+    /// The raw scriptSig in case of a coinbase tx.
+    #[serde(default, with = "bitcoincore_rpc_json::serde_hex::opt")]
+    pub coinbase: Option<Vec<u8>>,
+    /// Not provided for coinbase txs.
+    pub txid: Option<bitcoin::Txid>,
+    /// Not provided for coinbase txs.
+    pub vout: Option<u32>,
+    /// The scriptSig in case of a non-coinbase tx.
+    pub script_sig: Option<GetRawTransactionResultVinScriptSig>,
+    /// Not provided for coinbase txs.
+    #[serde(default, deserialize_with = "deserialize_hex_array_opt")]
+    pub txinwitness: Option<Vec<Vec<u8>>>,
+    pub prevout: Option<BitcoinTransactionInputPrevoutFullBreakdown>,
+}
+
+impl BitcoinTransactionInputFullBreakdown {
+    /// Whether this input is from a coinbase tx.
+    /// The [txid], [vout] and [script_sig] fields are not provided
+    /// for coinbase transactions.
+    pub fn is_coinbase(&self) -> bool {
+        self.coinbase.is_some()
+    }
+}
+
+fn deserialize_hex_array_opt<'de, D>(deserializer: D) -> Result<Option<Vec<Vec<u8>>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use crate::serde::de::Error;
+
+    //TODO(stevenroose) Revisit when issue is fixed:
+    // https://github.com/serde-rs/serde/issues/723
+    let v: Vec<String> = Vec::deserialize(deserializer)?;
+    let mut res = Vec::new();
+    for h in v.into_iter() {
+        res.push(FromHex::from_hex(&h).map_err(D::Error::custom)?);
+    }
+    Ok(Some(res))
+}
+
+#[derive(Clone, PartialEq, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BitcoinTransactionInputPrevoutFullBreakdown {
+    pub height: u64,
+    #[serde(with = "bitcoin::util::amount::serde::as_btc")]
+    pub value: Amount,
+}
+
+#[derive(Clone, PartialEq, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BitcoinTransactionOutputFullBreakdown {
+    #[serde(with = "bitcoin::util::amount::serde::as_btc")]
+    pub value: Amount,
+    pub n: u32,
+    pub script_pub_key: GetRawTransactionResultVoutScriptPubKey,
 }
 
 #[derive(Deserialize)]
@@ -63,21 +158,39 @@ pub struct RewardParticipant {
     amt: u64,
 }
 
-pub async fn retrieve_full_block(
+pub async fn retrieve_full_block_breakdown_with_retry(
     bitcoin_config: &BitcoinConfig,
-    marshalled_block: JsonValue,
-    _ctx: &Context,
-) -> Result<(u64, Block), String> {
-    let partial_block: NewBitcoinBlock = serde_json::from_value(marshalled_block)
-        .map_err(|e| format!("unable for parse bitcoin block: {}", e.to_string()))?;
-    let block_hash = partial_block.burn_block_hash.strip_prefix("0x").unwrap();
+    block_hash: &str,
+    ctx: &Context,
+) -> Result<BitcoinBlockFullBreakdown, String> {
+    let mut errors_count = 0;
+    let block = loop {
+        match retrieve_full_block_breakdown(bitcoin_config, block_hash, ctx).await {
+            Ok(result) => break result,
+            Err(e) => {
+                errors_count += 1;
+                error!(
+                    "unable to retrieve block #{block_hash} (attempt #{errors_count}): {}",
+                    e.to_string()
+                );
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
+    };
+    Ok(block)
+}
 
+pub async fn retrieve_full_block_breakdown(
+    bitcoin_config: &BitcoinConfig,
+    block_hash: &str,
+    _ctx: &Context,
+) -> Result<BitcoinBlockFullBreakdown, String> {
     use reqwest::Client as HttpClient;
     let body = json!({
         "jsonrpc": "1.0",
         "id": "chainhook-cli",
         "method": "getblock",
-        "params": [block_hash, 2]
+        "params": [block_hash, 3]
     });
     let http_client = HttpClient::builder()
         .timeout(Duration::from_secs(20))
@@ -95,23 +208,54 @@ pub async fn retrieve_full_block(
         .json::<bitcoincore_rpc::jsonrpc::Response>()
         .await
         .map_err(|e| format!("unable to parse response ({})", e))?
-        .result::<Block>()
+        .result::<BitcoinBlockFullBreakdown>()
         .map_err(|e| format!("unable to parse response ({})", e))?;
 
-    let block_height = partial_block.burn_block_height;
-    Ok((block_height, block))
+    Ok(block)
+}
+
+pub async fn retrieve_block_hash(
+    bitcoin_config: &BitcoinConfig,
+    block_height: &u64,
+) -> Result<String, String> {
+    use reqwest::Client as HttpClient;
+    let body = json!({
+        "jsonrpc": "1.0",
+        "id": "chainhook-cli",
+        "method": "getblockhash",
+        "params": [block_height]
+    });
+    let http_client = HttpClient::builder()
+        .timeout(Duration::from_secs(20))
+        .build()
+        .expect("Unable to build http client");
+    let block_hash = http_client
+        .post(&bitcoin_config.rpc_url)
+        .basic_auth(&bitcoin_config.username, Some(&bitcoin_config.password))
+        .header("Content-Type", "application/json")
+        .header("Host", &bitcoin_config.rpc_url[7..])
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("unable to send request ({})", e))?
+        .json::<bitcoincore_rpc::jsonrpc::Response>()
+        .await
+        .map_err(|e| format!("unable to parse response ({})", e))?
+        .result::<String>()
+        .map_err(|e| format!("unable to parse response ({})", e))?;
+
+    Ok(block_hash)
 }
 
 pub fn standardize_bitcoin_block(
-    indexer_config: &IndexerConfig,
-    block_height: u64,
-    block: Block,
+    config: &EventObserverConfig,
+    block: BitcoinBlockFullBreakdown,
     ctx: &Context,
 ) -> Result<BitcoinBlockData, String> {
     let mut transactions = vec![];
-
-    let expected_magic_bytes = get_stacks_canonical_magic_bytes(&indexer_config.bitcoin_network);
-    let pox_config = get_canonical_pox_config(&indexer_config.bitcoin_network);
+    let block_height = block.height as u64;
+    let expected_magic_bytes = get_stacks_canonical_magic_bytes(&config.bitcoin_network);
+    let pox_config = get_canonical_pox_config(&config.bitcoin_network);
 
     ctx.try_log(|logger| slog::debug!(logger, "Standardizing Bitcoin block {}", block.hash,));
 
@@ -137,21 +281,34 @@ pub fn standardize_bitcoin_block(
         }
 
         let mut inputs = vec![];
+        let mut sats_in = 0;
         for input in tx.vin.drain(..) {
             if input.is_coinbase() {
                 continue;
             }
+            let value = input
+                .prevout
+                .as_ref()
+                .expect("not provided for coinbase txs")
+                .value
+                .to_sat();
+            sats_in += value;
             inputs.push(TxIn {
                 previous_output: OutPoint {
-                    txid: input
-                        .txid
-                        .expect("not provided for coinbase txs")
-                        .to_string(),
+                    txid: format!(
+                        "0x{}",
+                        input
+                            .txid
+                            .expect("not provided for coinbase txs")
+                            .to_string()
+                    ),
                     vout: input.vout.expect("not provided for coinbase txs"),
+                    block_height: input.prevout.expect("not provided for coinbase txs").height,
+                    value,
                 },
                 script_sig: format!(
                     "0x{}",
-                    to_hex(&input.script_sig.expect("not provided for coinbase txs").hex)
+                    hex::encode(&input.script_sig.expect("not provided for coinbase txs").hex)
                 ),
                 sequence: input.sequence,
                 witness: input
@@ -159,16 +316,19 @@ pub fn standardize_bitcoin_block(
                     .unwrap_or(vec![])
                     .to_vec()
                     .iter()
-                    .map(|w| format!("0x{}", to_hex(w)))
+                    .map(|w| format!("0x{}", hex::encode(w)))
                     .collect::<Vec<_>>(),
             })
         }
 
         let mut outputs = vec![];
+        let mut sats_out = 0;
         for output in tx.vout.drain(..) {
+            let value = output.value.to_sat();
+            sats_out += value;
             outputs.push(TxOut {
-                value: output.value.to_sat(),
-                script_pubkey: format!("0x{}", to_hex(&output.script_pub_key.hex)),
+                value,
+                script_pubkey: format!("0x{}", hex::encode(&output.script_pub_key.hex)),
             });
         }
 
@@ -183,6 +343,7 @@ pub fn standardize_bitcoin_block(
                 stacks_operations,
                 ordinal_operations,
                 proof: None,
+                fee: sats_out - sats_in,
             },
         };
         transactions.push(tx);
@@ -194,7 +355,10 @@ pub fn standardize_bitcoin_block(
             index: block_height,
         },
         parent_block_identifier: BlockIdentifier {
-            hash: format!("0x{}", block.previousblockhash),
+            hash: format!(
+                "0x{}",
+                block.previousblockhash.unwrap_or(BlockHash::all_zeros())
+            ),
             index: block_height - 1,
         },
         timestamp: block.time as u32,
@@ -204,9 +368,9 @@ pub fn standardize_bitcoin_block(
 }
 
 fn try_parse_ordinal_operation(
-    tx: &GetRawTransactionResult,
+    tx: &BitcoinTransactionFullBreakdown,
     _block_height: u64,
-    _ctx: &Context,
+    ctx: &Context,
 ) -> Option<OrdinalOperation> {
     for input in tx.vin.iter() {
         if let Some(ref witnesses) = input.txinwitness {
@@ -221,13 +385,42 @@ fn try_parse_ordinal_operation(
                     Err(_) => continue,
                 };
 
-                // Retrieve the sat-point of the inscription
-                //
+                let inscription_id = InscriptionId {
+                    txid: tx.txid.clone(),
+                    index: 0,
+                };
+
+                let inscription_fee = tx
+                    .vout
+                    .get(0)
+                    .and_then(|o| Some(o.value.to_sat()))
+                    .unwrap_or(0);
+
+                let no_content_bytes = vec![];
+                let inscription_content_bytes = inscription.body().unwrap_or(&no_content_bytes);
+
+                let inscriber_address = if let Ok(authors) = Address::from_script(
+                    &tx.vout[0].script_pub_key.script().unwrap(),
+                    bitcoin::Network::Bitcoin,
+                ) {
+                    Some(authors.to_string())
+                } else {
+                    None
+                };
 
                 return Some(OrdinalOperation::InscriptionRevealed(
                     OrdinalInscriptionRevealData {
                         content_type: inscription.content_type().unwrap_or("unknown").to_string(),
-                        content: format!("0x{}", to_hex(&inscription.body().unwrap_or(&vec![]))),
+                        content_bytes: format!("0x{}", hex::encode(&inscription_content_bytes)),
+                        content_length: inscription_content_bytes.len(),
+                        inscription_id: inscription_id.to_string(),
+                        inscriber_address,
+                        inscription_fee,
+                        inscription_number: 0,
+                        ordinal_number: 0,
+                        ordinal_block_height: 0,
+                        ordinal_offset: 0,
+                        satpoint_post_inscription: format!("{}:0:0", tx.txid.clone()),
                     },
                 ));
             }
@@ -237,7 +430,7 @@ fn try_parse_ordinal_operation(
 }
 
 fn try_parse_stacks_operation(
-    outputs: &Vec<GetRawTransactionResultVout>,
+    outputs: &Vec<BitcoinTransactionOutputFullBreakdown>,
     pox_config: &PoxConfig,
     expected_magic_bytes: &[u8; 2],
     block_height: u64,
@@ -274,7 +467,7 @@ fn try_parse_stacks_operation(
     let op = match op_type {
         StacksOpcodes::KeyRegister => {
             let res = try_parse_key_register_op(&op_return_output[6..])?;
-            StacksBaseChainOperation::KeyRegistration(res)
+            StacksBaseChainOperation::LeaderRegistered(res)
         }
         StacksOpcodes::PreStx => {
             let _ = try_parse_pre_stx_op(&op_return_output[6..])?;
@@ -282,42 +475,42 @@ fn try_parse_stacks_operation(
         }
         StacksOpcodes::TransferStx => {
             let res = try_parse_transfer_stx_op(&op_return_output[6..])?;
-            StacksBaseChainOperation::TransferSTX(res)
+            StacksBaseChainOperation::StxTransfered(res)
         }
         StacksOpcodes::StackStx => {
             let res = try_parse_stacks_stx_op(&op_return_output[6..])?;
-            StacksBaseChainOperation::LockSTX(res)
+            StacksBaseChainOperation::StxLocked(res)
         }
         StacksOpcodes::BlockCommit => {
             let res = try_parse_block_commit_op(&op_return_output[5..])?;
             // We need to determine wether the transaction was a PoB or a Pox commitment
-            if pox_config.is_consensus_rewarding_participants_at_block_height(block_height) {
-                if outputs.len() < 1 + pox_config.rewarded_addresses_per_block {
-                    return None;
-                }
-                let mut rewards = vec![];
-                for output in outputs[1..pox_config.rewarded_addresses_per_block].into_iter() {
-                    rewards.push(PoxReward {
-                        recipient: format!("0x{}", to_hex(&output.script_pub_key.hex)),
-                        amount: output.value.to_sat(),
-                    });
-                }
-                StacksBaseChainOperation::PoxBlockCommitment(PoxBlockCommitmentData {
-                    signers: vec![], // todo(lgalabru)
-                    stacks_block_hash: res.stacks_block_hash.clone(),
-                    rewards,
-                })
-            } else {
-                if outputs.len() < 2 {
-                    return None;
-                }
-                let amount = outputs[1].value;
-                StacksBaseChainOperation::PobBlockCommitment(PobBlockCommitmentData {
-                    signers: vec![], // todo(lgalabru)
-                    stacks_block_hash: res.stacks_block_hash.clone(),
-                    amount: amount.to_sat(),
-                })
+            // if pox_config.is_consensus_rewarding_participants_at_block_height(block_height) {
+            if outputs.len() < 1 + pox_config.rewarded_addresses_per_block {
+                return None;
             }
+            let mut rewards = vec![];
+            for output in outputs[1..pox_config.rewarded_addresses_per_block].into_iter() {
+                rewards.push(PoxReward {
+                    recipient: format!("0x{}", hex::encode(&output.script_pub_key.hex)),
+                    amount: output.value.to_sat(),
+                });
+            }
+            StacksBaseChainOperation::BlockCommitted(StacksBlockCommitmentData {
+                signers: vec![], // todo(lgalabru)
+                stacks_block_hash: res.stacks_block_hash.clone(),
+                rewards,
+            })
+            // } else {
+            //     if outputs.len() < 2 {
+            //         return None;
+            //     }
+            //     let amount = outputs[1].value;
+            //     StacksBaseChainOperation::BlockCommitted(StacksBlockCommitmentData {
+            //         signers: vec![], // todo(lgalabru)
+            //         stacks_block_hash: res.stacks_block_hash.clone(),
+            //         amount: amount.to_sat(),
+            //     })
+            // }
         }
     };
 
@@ -330,7 +523,7 @@ fn try_parse_block_commit_op(bytes: &[u8]) -> Option<BlockCommitmentData> {
     }
 
     Some(BlockCommitmentData {
-        stacks_block_hash: format!("0x{}", to_hex(&bytes[0..32])),
+        stacks_block_hash: format!("0x{}", hex::encode(&bytes[0..32])),
     })
 }
 

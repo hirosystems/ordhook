@@ -270,35 +270,51 @@ pub struct BitcoinTransactionMetadata {
     pub stacks_operations: Vec<StacksBaseChainOperation>,
     pub ordinal_operations: Vec<OrdinalOperation>,
     pub proof: Option<String>,
+    pub fee: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OrdinalOperation {
-    InscriptionCommitted(OrdinalInscriptionCommitData),
     InscriptionRevealed(OrdinalInscriptionRevealData),
+    InscriptionTransferred(OrdinalInscriptionTransferData),
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
-pub struct OrdinalInscriptionCommitData {}
+pub struct OrdinalInscriptionTransferData {
+    pub inscription_number: u64,
+    pub inscription_id: String,
+    pub ordinal_number: u64,
+    pub updated_address: Option<String>,
+    pub satpoint_pre_transfer: String,
+    pub satpoint_post_transfer: String,
+}
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct OrdinalInscriptionRevealData {
+    pub content_bytes: String,
     pub content_type: String,
-    pub content: String,
+    pub content_length: usize,
+    pub inscription_number: u64,
+    pub inscription_fee: u64,
+    pub inscription_id: String,
+    pub inscriber_address: Option<String>,
+    pub ordinal_number: u64,
+    pub ordinal_block_height: u64,
+    pub ordinal_offset: u64,
+    pub satpoint_post_inscription: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub enum StacksBaseChainOperation {
-    PoxBlockCommitment(PoxBlockCommitmentData),
-    PobBlockCommitment(PobBlockCommitmentData),
-    KeyRegistration(KeyRegistrationData),
-    TransferSTX(TransferSTXData),
-    LockSTX(LockSTXData),
+    BlockCommitted(StacksBlockCommitmentData),
+    LeaderRegistered(KeyRegistrationData),
+    StxTransfered(TransferSTXData),
+    StxLocked(LockSTXData),
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
-pub struct PoxBlockCommitmentData {
+pub struct StacksBlockCommitmentData {
     pub signers: Vec<String>,
     pub stacks_block_hash: String,
     pub rewards: Vec<PoxReward>,
@@ -554,6 +570,32 @@ pub struct CurrencyMetadata {
     pub asset_class_identifier: String,
     pub asset_identifier: Option<String>,
     pub standard: CurrencyStandard,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub enum BlockchainEvent {
+    BlockchainUpdatedWithHeaders(BlockchainUpdatedWithHeaders),
+    BlockchainUpdatedWithReorg(BlockchainUpdatedWithReorg),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct BlockchainUpdatedWithHeaders {
+    pub new_headers: Vec<BlockHeader>,
+    pub confirmed_headers: Vec<BlockHeader>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct BlockchainUpdatedWithReorg {
+    pub headers_to_rollback: Vec<BlockHeader>,
+    pub headers_to_apply: Vec<BlockHeader>,
+    pub confirmed_headers: Vec<BlockHeader>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct BlockHeader {
+    pub block_identifier: BlockIdentifier,
+    pub parent_block_identifier: BlockIdentifier,
 }
 
 #[allow(dead_code)]

@@ -1,18 +1,26 @@
 pub mod bitcoin;
+pub mod fork_scratch_pad;
+pub mod ordinals;
 pub mod stacks;
 
 use crate::utils::{AbstractBlock, Context};
-use bitcoin::Block;
+use bitcoin::BitcoinBlockFullBreakdown;
 use chainhook_types::{
-    BitcoinChainEvent, BitcoinNetwork, BlockIdentifier, StacksChainEvent, StacksNetwork,
+    BitcoinChainEvent, BitcoinNetwork, BlockHeader, BlockIdentifier, BlockchainEvent,
+    StacksChainEvent, StacksNetwork,
 };
 use hiro_system_kit::slog;
 use rocket::serde::json::Value as JsonValue;
+use rusqlite::Connection;
 use stacks::StacksBlockPool;
 use stacks_rpc_client::PoxInfo;
-use std::collections::{HashMap, VecDeque};
+use std::{
+    collections::{HashMap, VecDeque},
+    path::PathBuf,
+};
 
-use self::bitcoin::BitcoinBlockPool;
+use self::fork_scratch_pad::ForkScratchPad;
+use self::ordinals::ord::indexing::OrdinalIndex;
 
 #[derive(Deserialize, Debug, Clone, Default)]
 pub struct AssetClassCache {
@@ -34,6 +42,14 @@ impl StacksChainContext {
     }
 }
 
+pub struct BitcoinChainContext {}
+
+impl BitcoinChainContext {
+    pub fn new() -> BitcoinChainContext {
+        BitcoinChainContext {}
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct IndexerConfig {
     pub bitcoin_network: BitcoinNetwork,
@@ -47,31 +63,33 @@ pub struct IndexerConfig {
 pub struct Indexer {
     pub config: IndexerConfig,
     stacks_blocks_pool: StacksBlockPool,
-    bitcoin_blocks_pool: BitcoinBlockPool,
+    bitcoin_blocks_pool: ForkScratchPad,
     pub stacks_context: StacksChainContext,
+    pub bitcoin_context: BitcoinChainContext,
 }
 
 impl Indexer {
     pub fn new(config: IndexerConfig) -> Indexer {
         let stacks_blocks_pool = StacksBlockPool::new();
-        let bitcoin_blocks_pool = BitcoinBlockPool::new();
+        let bitcoin_blocks_pool = ForkScratchPad::new();
         let stacks_context = StacksChainContext::new();
+        let bitcoin_context = BitcoinChainContext::new();
+
         Indexer {
             config,
             stacks_blocks_pool,
             bitcoin_blocks_pool,
             stacks_context,
+            bitcoin_context,
         }
     }
 
-    pub fn handle_bitcoin_block(
+    pub fn handle_bitcoin_header(
         &mut self,
-        block_height: u64,
-        block: Block,
+        header: BlockHeader,
         ctx: &Context,
-    ) -> Result<Option<BitcoinChainEvent>, String> {
-        let block = bitcoin::standardize_bitcoin_block(&self.config, block_height, block, ctx)?;
-        let event = self.bitcoin_blocks_pool.process_block(block, ctx);
+    ) -> Result<Option<BlockchainEvent>, String> {
+        let event = self.bitcoin_blocks_pool.process_header(header, ctx);
         event
     }
 
@@ -140,12 +158,13 @@ pub enum ChainSegmentIncompatibility {
     ParentBlockUnknown,
     AlreadyPresent,
     Unknown,
+    BlockNotFound,
 }
 
 #[derive(Debug)]
 pub struct ChainSegmentDivergence {
-    blocks_to_apply: Vec<BlockIdentifier>,
-    blocks_to_rollback: Vec<BlockIdentifier>,
+    block_ids_to_apply: Vec<BlockIdentifier>,
+    block_ids_to_rollback: Vec<BlockIdentifier>,
 }
 
 impl ChainSegment {
@@ -280,34 +299,36 @@ impl ChainSegment {
         ctx: &Context,
     ) -> Result<ChainSegmentDivergence, ChainSegmentIncompatibility> {
         let mut common_root = None;
-        let mut blocks_to_rollback = vec![];
-        let mut blocks_to_apply = vec![];
+        let mut block_ids_to_rollback = vec![];
+        let mut block_ids_to_apply = vec![];
         for cursor_segment_1 in other_segment.block_ids.iter() {
-            blocks_to_apply.clear();
+            block_ids_to_apply.clear();
             for cursor_segment_2 in self.block_ids.iter() {
                 if cursor_segment_2.eq(cursor_segment_1) {
                     common_root = Some(cursor_segment_2.clone());
                     break;
                 }
-                blocks_to_apply.push(cursor_segment_2.clone());
+                block_ids_to_apply.push(cursor_segment_2.clone());
             }
             if common_root.is_some() {
                 break;
             }
-            blocks_to_rollback.push(cursor_segment_1.clone());
+            block_ids_to_rollback.push(cursor_segment_1.clone());
         }
-        ctx.try_log(|logger| slog::debug!(logger, "Blocks to rollback: {:?}", blocks_to_rollback));
-        ctx.try_log(|logger| slog::debug!(logger, "Blocks to apply: {:?}", blocks_to_apply));
-        blocks_to_rollback.reverse();
-        blocks_to_apply.reverse();
+        ctx.try_log(|logger| {
+            slog::debug!(logger, "Blocks to rollback: {:?}", block_ids_to_rollback)
+        });
+        ctx.try_log(|logger| slog::debug!(logger, "Blocks to apply: {:?}", block_ids_to_apply));
+        block_ids_to_rollback.reverse();
+        block_ids_to_apply.reverse();
         match common_root.take() {
             Some(_common_root) => Ok(ChainSegmentDivergence {
-                blocks_to_rollback,
-                blocks_to_apply,
+                block_ids_to_rollback,
+                block_ids_to_apply,
             }),
             None if allow_reset => Ok(ChainSegmentDivergence {
-                blocks_to_rollback,
-                blocks_to_apply,
+                block_ids_to_rollback,
+                block_ids_to_apply,
             }),
             None => Err(ChainSegmentIncompatibility::Unknown),
         }
@@ -359,6 +380,7 @@ impl ChainSegment {
                     ChainSegmentIncompatibility::OutdatedBlock => {}
                     ChainSegmentIncompatibility::Unknown => {}
                     ChainSegmentIncompatibility::AlreadyPresent => {}
+                    ChainSegmentIncompatibility::BlockNotFound => {}
                 }
             }
         }

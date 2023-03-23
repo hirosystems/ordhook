@@ -4,7 +4,7 @@ WORKDIR /src
 
 RUN apt update && apt install -y ca-certificates pkg-config libssl-dev
 
-RUN rustup update 1.59.0 && rustup default 1.59.0
+RUN rustup update 1.67.0 && rustup default 1.67.0
 
 COPY ./components/chainhook-cli /src/components/chainhook-cli
 
@@ -12,21 +12,13 @@ COPY ./components/chainhook-types-rs /src/components/chainhook-types-rs
 
 COPY ./components/chainhook-event-observer /src/components/chainhook-event-observer
 
-COPY ./components/stacks-rpc-client /src/components/stacks-rpc-client
-
-COPY ./components/clarity-repl /src/components/clarity-repl
-
-COPY ./components/clarinet-utils /src/components/clarinet-utils
-
-COPY ./components/hiro-system-kit /src/components/hiro-system-kit
-
 WORKDIR /src/components/chainhook-cli
 
 RUN mkdir /out
 
 RUN cargo build --features release --release
 
-RUN cp target/release/chainhook-cli /out
+RUN cp target/release/chainhook /out
 
 FROM debian:bullseye-slim
 
@@ -36,4 +28,4 @@ COPY --from=build /out/ /bin/
 
 WORKDIR /workspace
 
-ENTRYPOINT ["chainhook-cli"]
+ENTRYPOINT ["chainhook"]

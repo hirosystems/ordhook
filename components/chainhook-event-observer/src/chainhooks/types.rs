@@ -45,11 +45,27 @@ impl ChainhookConfig {
         bitcoin
     }
 
-    pub fn register_hook(&mut self, hook: ChainhookSpecification) {
-        match hook {
-            ChainhookSpecification::Stacks(hook) => self.stacks_chainhooks.push(hook),
-            ChainhookSpecification::Bitcoin(hook) => self.bitcoin_chainhooks.push(hook),
+    pub fn register_hook(
+        &mut self,
+        networks: (&BitcoinNetwork, &StacksNetwork),
+        hook: ChainhookFullSpecification,
+        api_key: &ApiKey,
+    ) -> Result<ChainhookSpecification, String> {
+        let spec = match hook {
+            ChainhookFullSpecification::Stacks(hook) => {
+                let mut spec = hook.into_selected_network_specification(networks.1)?;
+                spec.owner_uuid = api_key.0.clone();
+                self.stacks_chainhooks.push(spec.clone());
+                ChainhookSpecification::Stacks(spec)
+            }
+            ChainhookFullSpecification::Bitcoin(hook) => {
+                let mut spec = hook.into_selected_network_specification(networks.0)?;
+                spec.owner_uuid = api_key.0.clone();
+                self.bitcoin_chainhooks.push(spec.clone());
+                ChainhookSpecification::Bitcoin(spec)
+            }
         };
+        Ok(spec)
     }
 
     pub fn deregister_stacks_hook(
@@ -196,6 +212,33 @@ pub struct BitcoinChainhookSpecification {
 pub enum ChainhookFullSpecification {
     Bitcoin(BitcoinChainhookFullSpecification),
     Stacks(StacksChainhookFullSpecification),
+}
+
+impl ChainhookFullSpecification {
+    pub fn validate(&self) -> Result<(), String> {
+        match &self {
+            Self::Bitcoin(data) => {
+                for (_, spec) in data.networks.iter() {
+                    let _ = spec.action.validate()?;
+                }
+            }
+            Self::Stacks(data) => {
+                for (_, spec) in data.networks.iter() {
+                    let _ = spec.action.validate()?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn deserialize_specification(
+        spec: &str,
+        _key: &str,
+    ) -> Result<ChainhookFullSpecification, String> {
+        let spec: ChainhookFullSpecification = serde_json::from_str(spec)
+            .map_err(|e| format!("unable to deserialize Stacks chainhook {}", e.to_string()))?;
+        Ok(spec)
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
@@ -408,7 +451,8 @@ impl BitcoinPredicateType {
             BitcoinPredicateType::Txid(_rules) => true,
             BitcoinPredicateType::Inputs(_rules) => true,
             BitcoinPredicateType::Outputs(_rules) => false,
-            BitcoinPredicateType::Protocol(_rules) => false,
+            BitcoinPredicateType::Protocol(Protocols::Ordinal(_)) => false,
+            BitcoinPredicateType::Protocol(Protocols::Stacks(_)) => false,
         }
     }
 
@@ -418,7 +462,8 @@ impl BitcoinPredicateType {
             BitcoinPredicateType::Txid(_rules) => true,
             BitcoinPredicateType::Inputs(_rules) => false,
             BitcoinPredicateType::Outputs(_rules) => true,
-            BitcoinPredicateType::Protocol(_rules) => false,
+            BitcoinPredicateType::Protocol(Protocols::Ordinal(_)) => true,
+            BitcoinPredicateType::Protocol(Protocols::Stacks(_)) => false,
         }
     }
 
@@ -460,17 +505,18 @@ pub enum Protocols {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum StacksOperations {
-    Pox,
-    Pob,
-    KeyRegistration,
-    TransferSTX,
-    LockSTX,
+    StackerRewarded,
+    BlockCommitted,
+    LeaderRegistered,
+    StxTransfered,
+    StxLocked,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum OrdinalOperations {
     InscriptionRevealed,
+    InscriptionTransferred,
 }
 
 pub fn get_stacks_canonical_magic_bytes(network: &BitcoinNetwork) -> [u8; 2] {
@@ -623,10 +669,8 @@ pub struct StacksChainhookSpecification {
 impl StacksChainhookSpecification {
     pub fn is_predicate_targeting_block_header(&self) -> bool {
         match &self.predicate {
-            StacksPredicate::BlockIdentifierIndex(_)
-            // | StacksPredicate::BlockIdentifierHash(_)
-            // | StacksPredicate::BitcoinBlockIdentifierHash(_)
-            // | StacksPredicate::BitcoinBlockIdentifierIndex(_) 
+            StacksPredicate::BlockHeight(_)
+            // | &StacksPredicate::BitcoinBlockHeight(_)
             => true,
             _ => false,
         }
@@ -637,10 +681,7 @@ impl StacksChainhookSpecification {
 #[serde(rename_all = "snake_case")]
 #[serde(tag = "scope")]
 pub enum StacksPredicate {
-    BlockIdentifierIndex(BlockIdentifierIndexRule),
-    // BlockIdentifierHash(BlockIdentifierHashRule),
-    // BitcoinBlockIdentifierHash(BlockIdentifierHashRule),
-    // BitcoinBlockIdentifierIndex(BlockIdentifierHashRule),
+    BlockHeight(BlockIdentifierIndexRule),
     ContractDeployment(StacksContractDeploymentPredicate),
     ContractCall(StacksContractCallBasedPredicate),
     PrintEvent(StacksPrintEventBasedPredicate),

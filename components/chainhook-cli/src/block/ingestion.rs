@@ -9,30 +9,6 @@ use std::{sync::mpsc::channel, thread};
 
 use super::DigestingCommand;
 
-#[derive(Debug, Deserialize)]
-pub struct Record {
-    pub id: u64,
-    pub created_at: String,
-    pub kind: RecordKind,
-    pub raw_log: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub enum RecordKind {
-    #[serde(rename = "/new_block")]
-    StacksBlockReceived,
-    #[serde(rename = "/new_microblocks")]
-    StacksMicroblockReceived,
-    #[serde(rename = "/new_burn_block")]
-    BitcoinBlockReceived,
-    #[serde(rename = "/new_mempool_tx")]
-    TransactionAdmitted,
-    #[serde(rename = "/drop_mempool_tx")]
-    TransactionDropped,
-    #[serde(rename = "/attachments/new")]
-    AttachmentReceived,
-}
-
 pub fn start(
     digestion_tx: Sender<DigestingCommand>,
     config: &Config,

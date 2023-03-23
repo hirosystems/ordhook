@@ -1,6 +1,6 @@
 [package]
 name = "chainhook-event-observer"
-version = "1.0.3"
+version = "1.0.6"
 description = "Stateless Transaction Indexing Engine for Stacks and Bitcoin"
 license = "GPL-3.0"
 edition = "2021"
@@ -10,16 +10,17 @@ edition = "2021"
 [dependencies]
 serde = "1"
 serde_json = { version = "1", features = ["arbitrary_precision"] }
+serde-hex = "0.1.0"
 serde_derive = "1"
 stacks-rpc-client = "1"
 clarinet-utils = "1"
-clarity-repl = "=1.4.1"
+clarity-repl = "=1.5.0"
 hiro-system-kit = "0.1.0"
 # stacks-rpc-client = { version = "1", path = "../../../clarinet/components/stacks-rpc-client" }
 # clarinet-utils = { version = "1", path = "../../../clarinet/components/clarinet-utils" }
 # clarity-repl = { version = "1", path = "../../../clarinet/components/clarity-repl" }
 # hiro-system-kit = { version = "0.1.0", path = "../../../clarinet/components/hiro-system-kit" }
-chainhook-types = { version = "1.0.2", path = "../chainhook-types-rs" }
+chainhook-types = { version = "1.0.3", path = "../chainhook-types-rs" }
 rocket = { version = "=0.5.0-rc.2", features = ["json"] }
 bitcoincore-rpc = "0.16.0"
 bitcoincore-rpc-json = "0.16.0"
@@ -38,8 +39,22 @@ ctrlc = { version = "3.2.2", optional = true }
 schemars = { version = "0.8.10" }
 rocket_okapi = "0.8.0-rc.1"
 crossbeam-channel = "0.5.6"
+redb = { version = "0.13.0", optional = true }
+chrono = { version = "0.4.19", optional = true }
+anyhow = { version = "1.0.56", features = ["backtrace"], optional = true  }
+futures = "0.3.21"
+hyper = { version = "0.14.24", features = ["http1", "client"] }
+hex = "0.4.3"
+rusqlite = { version = "0.27.0", features = ["bundled"] }
+ciborium = "0.2.0"
+threadpool = "1.8.1"
+rand = "0.8.5"
+
+[replace]
+"jsonrpc:0.13.0" = { git = 'https://github.com/apoelstra/rust-jsonrpc', rev = "1063671f122a8985c1b7c29030071253da515839" }
 
 [features]
-default = ["cli"]
+default = ["cli", "ordinals"]
 cli = ["clap", "clap_generate", "toml", "ctrlc", "log"]
 log = ["hiro-system-kit/log"]
+ordinals = ["redb", "chrono", "anyhow"]

@@ -5,11 +5,21 @@ use crate::scan::bitcoin::scan_bitcoin_chain_with_predicate;
 use crate::scan::stacks::scan_stacks_chain_with_predicate;
 
 use chainhook_event_observer::chainhooks::types::ChainhookFullSpecification;
+use chainhook_event_observer::indexer::ordinals::db::{
+    build_bitcoin_traversal_local_storage, find_inscription_with_ordinal_number,
+    find_inscriptions_at_wached_outpoint, initialize_ordinal_state_storage,
+    open_readonly_ordinals_db_conn, open_readwrite_ordinals_db_conn,
+    retrieve_satoshi_point_using_local_storage,
+};
+use chainhook_event_observer::indexer::ordinals::ord::height::Height;
+use chainhook_event_observer::observer::BitcoinConfig;
 use chainhook_event_observer::utils::Context;
+use chainhook_types::{BlockIdentifier, TransactionIdentifier};
 use clap::{Parser, Subcommand};
 use ctrlc;
 use hiro_system_kit;
 use std::io::{BufReader, Read};
+use std::path::PathBuf;
 use std::process;
 use std::sync::mpsc::Sender;
 
@@ -28,6 +38,9 @@ enum Command {
     /// Start chainhook-cli
     #[clap(subcommand)]
     Node(NodeCommand),
+    /// Protocols specific commands
+    #[clap(subcommand)]
+    Protocols(ProtocolsCommand),
 }
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
@@ -115,8 +128,39 @@ struct StartCommand {
     pub config_path: Option<String>,
 }
 
+#[derive(Subcommand, PartialEq, Clone, Debug)]
+enum ProtocolsCommand {
+    /// Ordinals related commands
+    #[clap(subcommand)]
+    Ordinals(OrdinalsCommand),
+}
+
+#[derive(Subcommand, PartialEq, Clone, Debug)]
+enum OrdinalsCommand {
+    /// Retrieve Satoshi
+    #[clap(name = "sat", bin_name = "sat")]
+    Satoshi(GetSatoshiCommand),
+    /// Retrieve Satoshi
+    #[clap(name = "inscriptions", bin_name = "inscriptions")]
+    WatchedOutpoints(GetWatchedOutpointsCommand),
+    /// Retrieve Satoshi
+    Traversals(BuildOrdinalsTraversalsCommand),
+}
+
 #[derive(Parser, PartialEq, Clone, Debug)]
-struct ReplayCommand {
+struct BuildOrdinalsTraversalsCommand {
+    /// Starting block
+    pub start_block: u64,
+    /// Starting block
+    pub end_block: u64,
+    /// # of Networking thread
+    pub network_threads: usize,
+    /// Target Devnet network
+    #[clap(
+        long = "devnet",
+        conflicts_with = "testnet",
+        conflicts_with = "mainnet"
+    )]
     pub devnet: bool,
     /// Target Testnet network
     #[clap(
@@ -140,12 +184,54 @@ struct ReplayCommand {
         conflicts_with = "devnet"
     )]
     pub config_path: Option<String>,
-    /// Apply chainhook action (false by default)
-    #[clap(long = "apply-trigger")]
-    pub apply_trigger: bool,
-    /// Bitcoind node url override
-    #[clap(long = "bitcoind-rpc-url")]
-    pub bitcoind_rpc_url: Option<String>,
+}
+
+#[derive(Parser, PartialEq, Clone, Debug)]
+struct GetWatchedOutpointsCommand {
+    /// Outpoint
+    pub outpoint: String,
+    /// Load config file path
+    #[clap(long = "db-path")]
+    pub db_path: Option<String>,
+}
+
+#[derive(Parser, PartialEq, Clone, Debug)]
+struct GetSatoshiCommand {
+    /// Block height
+    pub block_height: u64,
+    /// Txid
+    pub txid: String,
+    /// Output index
+    pub output_index: usize,
+    /// Target Devnet network
+    #[clap(
+        long = "devnet",
+        conflicts_with = "testnet",
+        conflicts_with = "mainnet"
+    )]
+    pub devnet: bool,
+    /// Target Testnet network
+    #[clap(
+        long = "testnet",
+        conflicts_with = "devnet",
+        conflicts_with = "mainnet"
+    )]
+    pub testnet: bool,
+    /// Target Mainnet network
+    #[clap(
+        long = "mainnet",
+        conflicts_with = "testnet",
+        conflicts_with = "devnet"
+    )]
+    pub mainnet: bool,
+    /// Load config file path
+    #[clap(
+        long = "config-path",
+        conflicts_with = "mainnet",
+        conflicts_with = "testnet",
+        conflicts_with = "devnet"
+    )]
+    pub config_path: Option<String>,
 }
 
 pub fn main() {
@@ -180,7 +266,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                 let config =
                     Config::default(cmd.devnet, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
                 let mut node = Node::new(config, ctx);
-                node.run();
+                return node.run().await;
             }
         },
         Command::Predicates(subcmd) => match subcmd {
@@ -210,6 +296,66 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                             .await?;
                     }
                 }
+            }
+        },
+        Command::Protocols(ProtocolsCommand::Ordinals(subcmd)) => match subcmd {
+            OrdinalsCommand::Satoshi(cmd) => {
+                let config =
+                    Config::default(cmd.devnet, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
+                let transaction_identifier = TransactionIdentifier {
+                    hash: cmd.txid.clone(),
+                };
+                let block_identifier = BlockIdentifier {
+                    index: cmd.block_height,
+                    hash: "".into(),
+                };
+
+                let storage_conn =
+                    open_readonly_ordinals_db_conn(&config.expected_cache_path(), &ctx).unwrap();
+
+                let (block_height, offset, ordinal_number) =
+                    retrieve_satoshi_point_using_local_storage(
+                        &storage_conn,
+                        &block_identifier,
+                        &transaction_identifier,
+                        &ctx,
+                    )?;
+                info!(
+                    ctx.expect_logger(),
+                    "Block: {block_height}, Offset {offset}:, Ordinal number: {ordinal_number}",
+                );
+            }
+            OrdinalsCommand::Traversals(cmd) => {
+                let config =
+                    Config::default(cmd.devnet, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
+
+                let bitcoin_config = BitcoinConfig {
+                    username: config.network.bitcoin_node_rpc_username.clone(),
+                    password: config.network.bitcoin_node_rpc_password.clone(),
+                    rpc_url: config.network.bitcoin_node_rpc_url.clone(),
+                };
+
+                let storage_conn =
+                    initialize_ordinal_state_storage(&config.expected_cache_path(), &ctx);
+
+                let _ = build_bitcoin_traversal_local_storage(
+                    &bitcoin_config,
+                    &storage_conn,
+                    cmd.start_block,
+                    cmd.end_block,
+                    &ctx,
+                    cmd.network_threads,
+                )
+                .await;
+            }
+            OrdinalsCommand::WatchedOutpoints(cmd) => {
+                let mut db_path = PathBuf::new();
+                db_path.push(&cmd.db_path.unwrap());
+
+                let storage_conn = open_readonly_ordinals_db_conn(&db_path, &ctx).unwrap();
+
+                let results = find_inscriptions_at_wached_outpoint(&cmd.outpoint, &storage_conn);
+                println!("{:?}", results);
             }
         },
     }

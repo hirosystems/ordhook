@@ -172,6 +172,15 @@ The current `bitcoin` predicates supports the following `if_this` constructs:
         "operation": "inscription_revealed"
     }
 }
+
+// Get any transaction transferring a revealed Ordinal inscription
+{
+    "if_this": {
+        "protocol": "ordinals",
+        "operation": "inscription_transferred"
+    }
+}
+
 ```
 
 In terms of actions available, the following `then_that` constructs are supported:
@@ -369,6 +378,16 @@ The current `stacks` predicates supports the following `if_this` constructs:
     "if_this": {
         "scope": "txid",
         "equals": "0xfaaac1833dc4883e7ec28f61e35b41f896c395f8d288b1a177155de2abd6052f"
+    }
+}
+
+// Get any stacks block matching constraints
+// `block_height` mandatory argument admits:
+//  - `equals`, `higher_than`, `lower_than`, `between`: integer type.
+{
+    "if_this": {
+        "scope": "block_height",
+        "higher_than": 10000
     }
 }
 
