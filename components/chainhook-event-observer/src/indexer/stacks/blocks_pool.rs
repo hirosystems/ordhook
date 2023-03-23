@@ -840,10 +840,10 @@ impl StacksBlockPool {
         }
         if let Ok(divergence) = canonical_segment.try_identify_divergence(other_segment, false, ctx)
         {
-            if divergence.blocks_to_rollback.is_empty() {
+            if divergence.block_ids_to_rollback.is_empty() {
                 let mut new_blocks = vec![];
-                for i in 0..divergence.blocks_to_apply.len() {
-                    let block_identifier = &divergence.blocks_to_apply[i];
+                for i in 0..divergence.block_ids_to_apply.len() {
+                    let block_identifier = &divergence.block_ids_to_apply[i];
                     let block = match self.block_store.get(block_identifier) {
                         Some(block) => block.clone(),
                         None => {
@@ -891,7 +891,7 @@ impl StacksBlockPool {
                 ));
             } else {
                 let blocks_to_rollback = divergence
-                    .blocks_to_rollback
+                    .block_ids_to_rollback
                     .iter()
                     .map(|block_id| {
                         let block = match self.block_store.get(block_id) {
@@ -916,7 +916,7 @@ impl StacksBlockPool {
                     .collect::<Result<Vec<_>, _>>()?;
 
                 let blocks_to_apply = divergence
-                    .blocks_to_apply
+                    .block_ids_to_apply
                     .iter()
                     .map(|block_id| {
                         let block = match self.block_store.get(block_id) {
@@ -1011,9 +1011,9 @@ impl StacksBlockPool {
         if let Ok(divergence) =
             new_canonical_segment.try_identify_divergence(previous_canonical_segment, true, ctx)
         {
-            if divergence.blocks_to_rollback.is_empty() {
+            if divergence.block_ids_to_rollback.is_empty() {
                 let mut new_microblocks = vec![];
-                for i in 0..divergence.blocks_to_apply.len() {
+                for i in 0..divergence.block_ids_to_apply.len() {
                     let block_identifier = &new_canonical_segment.block_ids[i];
 
                     let microblock_identifier =
@@ -1038,7 +1038,7 @@ impl StacksBlockPool {
                 )));
             } else {
                 let microblocks_to_rollback = divergence
-                    .blocks_to_rollback
+                    .block_ids_to_rollback
                     .iter()
                     .map(|microblock_identifier| {
                         let microblock_identifier = (
@@ -1063,7 +1063,7 @@ impl StacksBlockPool {
                     .collect::<Result<Vec<_>, _>>()?;
 
                 let microblocks_to_apply = divergence
-                    .blocks_to_apply
+                    .block_ids_to_apply
                     .iter()
                     .map(|microblock_identifier| {
                         let microblock_identifier = (

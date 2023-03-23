@@ -307,15 +307,14 @@ pub struct OrdinalInscriptionRevealData {
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub enum StacksBaseChainOperation {
-    PoxBlockCommitment(PoxBlockCommitmentData),
-    PobBlockCommitment(PobBlockCommitmentData),
-    KeyRegistration(KeyRegistrationData),
-    TransferSTX(TransferSTXData),
-    LockSTX(LockSTXData),
+    BlockCommitted(StacksBlockCommitmentData),
+    LeaderRegistered(KeyRegistrationData),
+    StxTransfered(TransferSTXData),
+    StxLocked(LockSTXData),
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
-pub struct PoxBlockCommitmentData {
+pub struct StacksBlockCommitmentData {
     pub signers: Vec<String>,
     pub stacks_block_hash: String,
     pub rewards: Vec<PoxReward>,
@@ -571,6 +570,32 @@ pub struct CurrencyMetadata {
     pub asset_class_identifier: String,
     pub asset_identifier: Option<String>,
     pub standard: CurrencyStandard,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub enum BlockchainEvent {
+    BlockchainUpdatedWithHeaders(BlockchainUpdatedWithHeaders),
+    BlockchainUpdatedWithReorg(BlockchainUpdatedWithReorg),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct BlockchainUpdatedWithHeaders {
+    pub new_headers: Vec<BlockHeader>,
+    pub confirmed_headers: Vec<BlockHeader>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct BlockchainUpdatedWithReorg {
+    pub headers_to_rollback: Vec<BlockHeader>,
+    pub headers_to_apply: Vec<BlockHeader>,
+    pub confirmed_headers: Vec<BlockHeader>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct BlockHeader {
+    pub block_identifier: BlockIdentifier,
+    pub parent_block_identifier: BlockIdentifier,
 }
 
 #[allow(dead_code)]

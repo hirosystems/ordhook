@@ -145,9 +145,10 @@ impl Node {
         };
 
         let context_cloned = self.ctx.clone();
+        let event_observer_config_moved = event_observer_config.clone();
         let _ = std::thread::spawn(move || {
             let future = start_event_observer(
-                event_observer_config,
+                event_observer_config_moved,
                 observer_command_tx,
                 observer_command_rx,
                 Some(observer_event_tx),
@@ -482,7 +483,7 @@ impl Node {
                                     .map_err(|e| format!("unable to parse response ({})", e))?;
 
                                 let block = indexer::bitcoin::standardize_bitcoin_block(
-                                    &self.config.network,
+                                    &event_observer_config,
                                     raw_block,
                                     &self.ctx,
                                 )?;

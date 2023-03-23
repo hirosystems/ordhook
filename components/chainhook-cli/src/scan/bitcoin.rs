@@ -283,7 +283,7 @@ pub async fn scan_bitcoin_chain_with_predicate(
         )));
 
         let block =
-            indexer::bitcoin::standardize_bitcoin_block(&config.network, block_breakdown, ctx)?;
+            indexer::bitcoin::standardize_bitcoin_block(&event_observer_config, block_breakdown, ctx)?;
 
         let mut hits = vec![];
         for tx in block.transactions.iter() {

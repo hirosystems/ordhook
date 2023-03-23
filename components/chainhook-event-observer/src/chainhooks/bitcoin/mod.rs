@@ -354,43 +354,45 @@ impl BitcoinPredicateType {
                 // TODO(lgalabru)
                 unimplemented!()
             }
-            BitcoinPredicateType::Protocol(Protocols::Stacks(StacksOperations::Pob)) => {
+            BitcoinPredicateType::Protocol(Protocols::Stacks(
+                StacksOperations::StackerRewarded,
+            )) => {
                 for op in tx.metadata.stacks_operations.iter() {
-                    if let StacksBaseChainOperation::PobBlockCommitment(_) = op {
+                    if let StacksBaseChainOperation::BlockCommitted(_) = op {
                         return true;
                     }
                 }
                 false
             }
-            BitcoinPredicateType::Protocol(Protocols::Stacks(StacksOperations::Pox)) => {
+            BitcoinPredicateType::Protocol(Protocols::Stacks(StacksOperations::BlockCommitted)) => {
                 for op in tx.metadata.stacks_operations.iter() {
-                    if let StacksBaseChainOperation::PoxBlockCommitment(_) = op {
+                    if let StacksBaseChainOperation::BlockCommitted(_) = op {
                         return true;
                     }
                 }
                 false
             }
             BitcoinPredicateType::Protocol(Protocols::Stacks(
-                StacksOperations::KeyRegistration,
+                StacksOperations::LeaderRegistered,
             )) => {
                 for op in tx.metadata.stacks_operations.iter() {
-                    if let StacksBaseChainOperation::KeyRegistration(_) = op {
+                    if let StacksBaseChainOperation::LeaderRegistered(_) = op {
                         return true;
                     }
                 }
                 false
             }
-            BitcoinPredicateType::Protocol(Protocols::Stacks(StacksOperations::TransferSTX)) => {
+            BitcoinPredicateType::Protocol(Protocols::Stacks(StacksOperations::StxTransfered)) => {
                 for op in tx.metadata.stacks_operations.iter() {
-                    if let StacksBaseChainOperation::TransferSTX(_) = op {
+                    if let StacksBaseChainOperation::StxTransfered(_) = op {
                         return true;
                     }
                 }
                 false
             }
-            BitcoinPredicateType::Protocol(Protocols::Stacks(StacksOperations::LockSTX)) => {
+            BitcoinPredicateType::Protocol(Protocols::Stacks(StacksOperations::StxLocked)) => {
                 for op in tx.metadata.stacks_operations.iter() {
-                    if let StacksBaseChainOperation::LockSTX(_) = op {
+                    if let StacksBaseChainOperation::StxLocked(_) = op {
                         return true;
                     }
                 }

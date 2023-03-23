@@ -505,11 +505,11 @@ pub enum Protocols {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum StacksOperations {
-    Pox,
-    Pob,
-    KeyRegistration,
-    TransferSTX,
-    LockSTX,
+    StackerRewarded,
+    BlockCommitted,
+    LeaderRegistered,
+    StxTransfered,
+    StxLocked,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]

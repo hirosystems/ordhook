@@ -7,13 +7,13 @@ use crate::chainhooks::types::{
     get_canonical_pox_config, get_stacks_canonical_magic_bytes, PoxConfig, StacksOpcodes,
 };
 use crate::indexer::IndexerConfig;
-use crate::observer::BitcoinConfig;
+use crate::observer::{BitcoinConfig, EventObserverConfig};
 use crate::utils::Context;
 use bitcoincore_rpc::bitcoin::hashes::hex::FromHex;
 use bitcoincore_rpc::bitcoin::hashes::Hash;
 use bitcoincore_rpc::bitcoin::{
-    self, Address, Amount, BlockHash, BlockHeader, OutPoint as OutPointS, PackedLockTime, Script,
-    Transaction, Txid, Witness,
+    self, Address, Amount, BlockHash, OutPoint as OutPointS, PackedLockTime, Script, Transaction,
+    Txid, Witness,
 };
 use bitcoincore_rpc_json::{
     GetRawTransactionResult, GetRawTransactionResultVinScriptSig, GetRawTransactionResultVout,
@@ -23,9 +23,9 @@ pub use blocks_pool::BitcoinBlockPool;
 use chainhook_types::bitcoin::{OutPoint, TxIn, TxOut};
 use chainhook_types::{
     BitcoinBlockData, BitcoinBlockMetadata, BitcoinTransactionData, BitcoinTransactionMetadata,
-    BlockCommitmentData, BlockIdentifier, KeyRegistrationData, LockSTXData,
-    OrdinalInscriptionRevealData, OrdinalOperation, PobBlockCommitmentData, PoxBlockCommitmentData,
-    PoxReward, StacksBaseChainOperation, TransactionIdentifier, TransferSTXData,
+    BlockCommitmentData, BlockHeader, BlockIdentifier, KeyRegistrationData, LockSTXData,
+    OrdinalInscriptionRevealData, OrdinalOperation, PobBlockCommitmentData, PoxReward,
+    StacksBaseChainOperation, StacksBlockCommitmentData, TransactionIdentifier, TransferSTXData,
 };
 use hiro_system_kit::slog;
 use rocket::serde::json::Value as JsonValue;
@@ -50,6 +50,27 @@ pub struct BitcoinBlockFullBreakdown {
     pub time: usize,
     pub nonce: u32,
     pub previousblockhash: Option<bitcoin::BlockHash>,
+}
+
+impl BitcoinBlockFullBreakdown {
+    pub fn get_block_header(&self) -> BlockHeader {
+        // Block id
+        let hash = format!("0x{}", self.hash.to_string());
+        let block_identifier = BlockIdentifier {
+            index: self.height as u64,
+            hash: hash,
+        };
+        // Parent block id
+        let hash = format!("0x{}", self.previousblockhash.unwrap().to_string());
+        let parent_block_identifier = BlockIdentifier {
+            index: (self.height - 1) as u64,
+            hash,
+        };
+        BlockHeader {
+            block_identifier,
+            parent_block_identifier,
+        }
+    }
 }
 
 #[derive(Clone, PartialEq, Debug, Deserialize, Serialize)]
@@ -227,14 +248,14 @@ pub async fn retrieve_block_hash(
 }
 
 pub fn standardize_bitcoin_block(
-    indexer_config: &IndexerConfig,
+    config: &EventObserverConfig,
     block: BitcoinBlockFullBreakdown,
     ctx: &Context,
 ) -> Result<BitcoinBlockData, String> {
     let mut transactions = vec![];
     let block_height = block.height as u64;
-    let expected_magic_bytes = get_stacks_canonical_magic_bytes(&indexer_config.bitcoin_network);
-    let pox_config = get_canonical_pox_config(&indexer_config.bitcoin_network);
+    let expected_magic_bytes = get_stacks_canonical_magic_bytes(&config.bitcoin_network);
+    let pox_config = get_canonical_pox_config(&config.bitcoin_network);
 
     ctx.try_log(|logger| slog::debug!(logger, "Standardizing Bitcoin block {}", block.hash,));
 
@@ -446,7 +467,7 @@ fn try_parse_stacks_operation(
     let op = match op_type {
         StacksOpcodes::KeyRegister => {
             let res = try_parse_key_register_op(&op_return_output[6..])?;
-            StacksBaseChainOperation::KeyRegistration(res)
+            StacksBaseChainOperation::LeaderRegistered(res)
         }
         StacksOpcodes::PreStx => {
             let _ = try_parse_pre_stx_op(&op_return_output[6..])?;
@@ -454,42 +475,42 @@ fn try_parse_stacks_operation(
         }
         StacksOpcodes::TransferStx => {
             let res = try_parse_transfer_stx_op(&op_return_output[6..])?;
-            StacksBaseChainOperation::TransferSTX(res)
+            StacksBaseChainOperation::StxTransfered(res)
         }
         StacksOpcodes::StackStx => {
             let res = try_parse_stacks_stx_op(&op_return_output[6..])?;
-            StacksBaseChainOperation::LockSTX(res)
+            StacksBaseChainOperation::StxLocked(res)
         }
         StacksOpcodes::BlockCommit => {
             let res = try_parse_block_commit_op(&op_return_output[5..])?;
             // We need to determine wether the transaction was a PoB or a Pox commitment
-            if pox_config.is_consensus_rewarding_participants_at_block_height(block_height) {
-                if outputs.len() < 1 + pox_config.rewarded_addresses_per_block {
-                    return None;
-                }
-                let mut rewards = vec![];
-                for output in outputs[1..pox_config.rewarded_addresses_per_block].into_iter() {
-                    rewards.push(PoxReward {
-                        recipient: format!("0x{}", hex::encode(&output.script_pub_key.hex)),
-                        amount: output.value.to_sat(),
-                    });
-                }
-                StacksBaseChainOperation::PoxBlockCommitment(PoxBlockCommitmentData {
-                    signers: vec![], // todo(lgalabru)
-                    stacks_block_hash: res.stacks_block_hash.clone(),
-                    rewards,
-                })
-            } else {
-                if outputs.len() < 2 {
-                    return None;
-                }
-                let amount = outputs[1].value;
-                StacksBaseChainOperation::PobBlockCommitment(PobBlockCommitmentData {
-                    signers: vec![], // todo(lgalabru)
-                    stacks_block_hash: res.stacks_block_hash.clone(),
-                    amount: amount.to_sat(),
-                })
+            // if pox_config.is_consensus_rewarding_participants_at_block_height(block_height) {
+            if outputs.len() < 1 + pox_config.rewarded_addresses_per_block {
+                return None;
             }
+            let mut rewards = vec![];
+            for output in outputs[1..pox_config.rewarded_addresses_per_block].into_iter() {
+                rewards.push(PoxReward {
+                    recipient: format!("0x{}", hex::encode(&output.script_pub_key.hex)),
+                    amount: output.value.to_sat(),
+                });
+            }
+            StacksBaseChainOperation::BlockCommitted(StacksBlockCommitmentData {
+                signers: vec![], // todo(lgalabru)
+                stacks_block_hash: res.stacks_block_hash.clone(),
+                rewards,
+            })
+            // } else {
+            //     if outputs.len() < 2 {
+            //         return None;
+            //     }
+            //     let amount = outputs[1].value;
+            //     StacksBaseChainOperation::BlockCommitted(StacksBlockCommitmentData {
+            //         signers: vec![], // todo(lgalabru)
+            //         stacks_block_hash: res.stacks_block_hash.clone(),
+            //         amount: amount.to_sat(),
+            //     })
+            // }
         }
     };
 

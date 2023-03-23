@@ -4,53 +4,51 @@ use crate::{
 };
 use chainhook_types::{
     BitcoinBlockData, BitcoinChainEvent, BitcoinChainUpdatedWithBlocksData,
-    BitcoinChainUpdatedWithReorgData, BlockIdentifier,
+    BitcoinChainUpdatedWithReorgData, BlockHeader, BlockIdentifier, BlockchainEvent,
+    BlockchainUpdatedWithHeaders, BlockchainUpdatedWithReorg,
 };
 use hiro_system_kit::slog;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
-pub struct BitcoinBlockPool {
+pub struct ForkScratchPad {
     canonical_fork_id: usize,
     orphans: BTreeSet<BlockIdentifier>,
-    block_store: HashMap<BlockIdentifier, BitcoinBlockData>,
     forks: BTreeMap<usize, ChainSegment>,
+    headers_store: BTreeMap<BlockIdentifier, BlockHeader>,
 }
 
-impl BitcoinBlockPool {
-    pub fn new() -> BitcoinBlockPool {
+impl ForkScratchPad {
+    pub fn new() -> ForkScratchPad {
         let mut forks = BTreeMap::new();
         forks.insert(0, ChainSegment::new());
-        BitcoinBlockPool {
+        let headers_store = BTreeMap::new();
+        ForkScratchPad {
             canonical_fork_id: 0,
-            block_store: HashMap::new(),
             orphans: BTreeSet::new(),
             forks,
+            headers_store,
         }
     }
 
-    pub fn process_block(
+    pub fn process_header(
         &mut self,
-        block: BitcoinBlockData,
+        header: BlockHeader,
         ctx: &Context,
-    ) -> Result<Option<BitcoinChainEvent>, String> {
+    ) -> Result<Option<BlockchainEvent>, String> {
         ctx.try_log(|logger| {
-            slog::info!(
-                logger,
-                "Start processing Bitcoin {}",
-                block.block_identifier
-            )
+            slog::info!(logger, "Start processing Block {}", header.block_identifier)
         });
 
         // Keep block data in memory
-        let existing_entry = self
-            .block_store
-            .insert(block.block_identifier.clone(), block.clone());
-        if existing_entry.is_some() {
+        let entry_exists = self
+            .headers_store
+            .insert(header.block_identifier.clone(), header.clone());
+        if entry_exists.is_some() {
             ctx.try_log(|logger| {
                 slog::warn!(
                     logger,
-                    "Bitcoin {} has already been processed",
-                    block.block_identifier
+                    "Block {} has already been processed",
+                    header.block_identifier
                 )
             });
             return Ok(None);
@@ -73,7 +71,7 @@ impl BitcoinBlockPool {
 
         let mut fork_updated = None;
         for (_, fork) in self.forks.iter_mut() {
-            let (block_appended, mut new_fork) = fork.try_append_block(&block, ctx);
+            let (block_appended, mut new_fork) = fork.try_append_block(&header, ctx);
             if block_appended {
                 if let Some(new_fork) = new_fork.take() {
                     let fork_id = self.forks.len();
@@ -93,7 +91,7 @@ impl BitcoinBlockPool {
                     slog::debug!(
                         logger,
                         "Bitcoin {} successfully appended to {}",
-                        block.block_identifier,
+                        header.block_identifier,
                         fork
                     )
                 });
@@ -104,10 +102,10 @@ impl BitcoinBlockPool {
                     slog::debug!(
                         logger,
                         "Unable to process Bitcoin {} - inboxed for later",
-                        block.block_identifier
+                        header.block_identifier
                     )
                 });
-                self.orphans.insert(block.block_identifier.clone());
+                self.orphans.insert(header.block_identifier.clone());
                 return Ok(None);
             }
         };
@@ -127,7 +125,7 @@ impl BitcoinBlockPool {
                 if applied.contains(orphan_block_identifier) {
                     continue;
                 }
-                let block = match self.block_store.get(orphan_block_identifier) {
+                let block = match self.headers_store.get(orphan_block_identifier) {
                     Some(block) => block.clone(),
                     None => continue,
                 };
@@ -193,19 +191,19 @@ impl BitcoinBlockPool {
 
     pub fn collect_and_prune_confirmed_blocks(
         &mut self,
-        chain_event: &mut BitcoinChainEvent,
+        chain_event: &mut BlockchainEvent,
         ctx: &Context,
     ) {
         let (tip, confirmed_blocks) = match chain_event {
-            BitcoinChainEvent::ChainUpdatedWithBlocks(ref mut event) => {
-                match event.new_blocks.last() {
-                    Some(tip) => (tip.block_identifier.clone(), &mut event.confirmed_blocks),
+            BlockchainEvent::BlockchainUpdatedWithHeaders(ref mut event) => {
+                match event.new_headers.last() {
+                    Some(tip) => (tip.block_identifier.clone(), &mut event.confirmed_headers),
                     None => return,
                 }
             }
-            BitcoinChainEvent::ChainUpdatedWithReorg(ref mut event) => {
-                match event.blocks_to_apply.last() {
-                    Some(tip) => (tip.block_identifier.clone(), &mut event.confirmed_blocks),
+            BlockchainEvent::BlockchainUpdatedWithReorg(ref mut event) => {
+                match event.headers_to_apply.last() {
+                    Some(tip) => (tip.block_identifier.clone(), &mut event.confirmed_headers),
                     None => return,
                 }
             }
@@ -218,7 +216,7 @@ impl BitcoinBlockPool {
         // [1] ... [6] [7]
         let canonical_segment = {
             let mut segment = vec![];
-            while let Some(ancestor) = self.block_store.get(&ancestor_identifier) {
+            while let Some(ancestor) = self.headers_store.get(&ancestor_identifier) {
                 ancestor_identifier = &ancestor.parent_block_identifier;
                 segment.push(ancestor.block_identifier.clone());
             }
@@ -250,7 +248,7 @@ impl BitcoinBlockPool {
         }
 
         for confirmed_block in canonical_segment[6..].into_iter() {
-            let block = match self.block_store.remove(confirmed_block) {
+            let block = match self.headers_store.remove(confirmed_block) {
                 None => {
                     ctx.try_log(|logger| {
                         slog::error!(logger, "unable to retrieve data for {}", confirmed_block)
@@ -264,7 +262,7 @@ impl BitcoinBlockPool {
 
         // Prune data
         for block_to_prune in blocks_to_prune {
-            self.block_store.remove(&block_to_prune);
+            self.headers_store.remove(&block_to_prune);
         }
         for fork_id in forks_to_prune {
             self.forks.remove(&fork_id);
@@ -277,13 +275,13 @@ impl BitcoinBlockPool {
         canonical_segment: &ChainSegment,
         other_segment: &ChainSegment,
         ctx: &Context,
-    ) -> Result<BitcoinChainEvent, ChainSegmentIncompatibility> {
+    ) -> Result<BlockchainEvent, ChainSegmentIncompatibility> {
         if other_segment.is_empty() {
-            let mut new_blocks = vec![];
+            let mut new_headers = vec![];
             for i in 0..canonical_segment.block_ids.len() {
                 let block_identifier =
                     &canonical_segment.block_ids[canonical_segment.block_ids.len() - 1 - i];
-                let block = match self.block_store.get(block_identifier) {
+                let header = match self.headers_store.get(block_identifier) {
                     Some(block) => block.clone(),
                     None => {
                         ctx.try_log(|logger| {
@@ -296,59 +294,59 @@ impl BitcoinBlockPool {
                         return Err(ChainSegmentIncompatibility::Unknown);
                     }
                 };
-                new_blocks.push(block)
+                new_headers.push(header)
             }
-            return Ok(BitcoinChainEvent::ChainUpdatedWithBlocks(
-                BitcoinChainUpdatedWithBlocksData {
-                    new_blocks,
-                    confirmed_blocks: vec![],
+            return Ok(BlockchainEvent::BlockchainUpdatedWithHeaders(
+                BlockchainUpdatedWithHeaders {
+                    new_headers,
+                    confirmed_headers: vec![],
                 },
             ));
         }
         if let Ok(divergence) = canonical_segment.try_identify_divergence(other_segment, false, ctx)
         {
             if divergence.block_ids_to_rollback.is_empty() {
-                let mut new_blocks = vec![];
+                let mut new_headers = vec![];
                 for i in 0..divergence.block_ids_to_apply.len() {
                     let block_identifier = &divergence.block_ids_to_apply[i];
-                    let block = match self.block_store.get(block_identifier) {
-                        Some(block) => block.clone(),
+                    let header = match self.headers_store.get(block_identifier) {
+                        Some(header) => header.clone(),
                         None => panic!("unable to retrive block from block store"),
                     };
-                    new_blocks.push(block)
+                    new_headers.push(header)
                 }
-                return Ok(BitcoinChainEvent::ChainUpdatedWithBlocks(
-                    BitcoinChainUpdatedWithBlocksData {
-                        new_blocks,
-                        confirmed_blocks: vec![],
+                return Ok(BlockchainEvent::BlockchainUpdatedWithHeaders(
+                    BlockchainUpdatedWithHeaders {
+                        new_headers,
+                        confirmed_headers: vec![],
                     },
                 ));
             } else {
-                return Ok(BitcoinChainEvent::ChainUpdatedWithReorg(
-                    BitcoinChainUpdatedWithReorgData {
-                        blocks_to_rollback: divergence
+                return Ok(BlockchainEvent::BlockchainUpdatedWithReorg(
+                    BlockchainUpdatedWithReorg {
+                        headers_to_rollback: divergence
                             .block_ids_to_rollback
                             .iter()
                             .map(|block_id| {
-                                let block = match self.block_store.get(block_id) {
+                                let block = match self.headers_store.get(block_id) {
                                     Some(block) => block.clone(),
                                     None => panic!("unable to retrive block from block store"),
                                 };
                                 block
                             })
                             .collect::<Vec<_>>(),
-                        blocks_to_apply: divergence
+                        headers_to_apply: divergence
                             .block_ids_to_apply
                             .iter()
                             .map(|block_id| {
-                                let block = match self.block_store.get(block_id) {
+                                let block = match self.headers_store.get(block_id) {
                                     Some(block) => block.clone(),
                                     None => panic!("unable to retrive block from block store"),
                                 };
                                 block
                             })
                             .collect::<Vec<_>>(),
-                        confirmed_blocks: vec![],
+                        confirmed_headers: vec![],
                     },
                 ));
             }

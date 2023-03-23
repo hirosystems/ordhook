@@ -1,7 +1,8 @@
 use std::{fs::OpenOptions, io::Write};
 
 use chainhook_types::{
-    BitcoinBlockData, BlockIdentifier, StacksBlockData, StacksMicroblockData, StacksTransactionData,
+    BitcoinBlockData, BlockHeader, BlockIdentifier, StacksBlockData, StacksMicroblockData,
+    StacksTransactionData,
 };
 use hiro_system_kit::slog::{self, Logger};
 use reqwest::RequestBuilder;
@@ -90,6 +91,16 @@ impl AbstractStacksBlock for StacksMicroblockData {
 pub trait AbstractBlock {
     fn get_identifier(&self) -> &BlockIdentifier;
     fn get_parent_identifier(&self) -> &BlockIdentifier;
+}
+
+impl AbstractBlock for BlockHeader {
+    fn get_identifier(&self) -> &BlockIdentifier {
+        &self.block_identifier
+    }
+
+    fn get_parent_identifier(&self) -> &BlockIdentifier {
+        &self.parent_block_identifier
+    }
 }
 
 impl AbstractBlock for StacksBlockData {
