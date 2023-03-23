@@ -11,11 +11,11 @@ use crate::chainhooks::types::{
 };
 use crate::indexer::bitcoin::{retrieve_full_block_breakdown_with_retry, NewBitcoinBlock};
 use crate::indexer::ordinals::db::{
-    find_inscription_with_satoshi_id, find_inscriptions_at_wached_outpoint,
+    find_inscription_with_ordinal_number, find_inscriptions_at_wached_outpoint,
     find_last_inscription_number, initialize_ordinal_state_storage, open_readonly_ordinals_db_conn,
     open_readwrite_ordinals_db_conn, retrieve_satoshi_point_using_local_storage,
-    scan_existing_inscriptions_id, store_new_inscription, update_transfered_inscription,
-    write_compacted_block_to_index, CompactedBlock,
+    store_new_inscription, update_transfered_inscription, write_compacted_block_to_index,
+    CompactedBlock,
 };
 use crate::indexer::ordinals::ord::height::Height;
 use crate::indexer::ordinals::ord::{
@@ -520,18 +520,39 @@ pub async fn start_observer_commands_handler(
                 match chain_event {
                     BitcoinChainEvent::ChainUpdatedWithBlocks(ref mut new_blocks) => {
                         // Look for inscription transfered
-                        let storage_conn =
-                            open_readonly_ordinals_db_conn(&config.get_cache_path_buf(), &ctx)
-                                .unwrap(); // TODO(lgalabru)
-
                         for new_block in new_blocks.new_blocks.iter_mut() {
-                            let mut coinbase_offset = 0;
+                            // Persist compacted block in table blocks
+                            {
+                                ctx.try_log(|logger| {
+                                    slog::info!(
+                                        logger,
+                                        "Persisting in local storage Bitcoin block #{} for further traversals",
+                                        new_block.block_identifier.index,
+                                    )
+                                });
+
+                                let compacted_block =
+                                    CompactedBlock::from_standardized_block(&new_block);
+                                let storage_rw_conn = open_readwrite_ordinals_db_conn(
+                                    &config.get_cache_path_buf(),
+                                    &ctx,
+                                )
+                                .unwrap(); // TODO(lgalabru)
+                                write_compacted_block_to_index(
+                                    new_block.block_identifier.index as u32,
+                                    &compacted_block,
+                                    &storage_rw_conn,
+                                    &ctx,
+                                );
+                            }
+
+                            let mut cumulated_fees = 0;
                             let coinbase_txid = &new_block.transactions[0]
                                 .transaction_identifier
                                 .hash
                                 .clone();
-                            let coinbase_subsidy =
-                                Height(new_block.block_identifier.index).subsidy();
+                            let first_sat_post_subsidy =
+                                Height(new_block.block_identifier.index).starting_sat().0;
 
                             for new_tx in new_block.transactions.iter_mut().skip(1) {
                                 let mut ordinals_events_indexes_to_discard = VecDeque::new();
@@ -542,34 +563,50 @@ pub async fn start_observer_commands_handler(
                                     if let OrdinalOperation::InscriptionRevealed(inscription) =
                                         ordinal_event
                                     {
-                                        // Are we looking at a re-inscription?
-                                        let res = retrieve_satoshi_point_using_local_storage(
-                                            &storage_conn,
-                                            &new_block.block_identifier,
-                                            &new_tx.transaction_identifier,
+                                        let storage_conn = open_readonly_ordinals_db_conn(
+                                            &config.get_cache_path_buf(),
                                             &ctx,
-                                        );
-                                        let (block_height, offset) = match res {
-                                            Ok(res) => res,
-                                            Err(e) => {
-                                                continue;
+                                        )
+                                        .unwrap(); // TODO(lgalabru)
+
+                                        let (ordinal_block_height, ordinal_offset, ordinal_number) = {
+                                            // Are we looking at a re-inscription?
+                                            let res = retrieve_satoshi_point_using_local_storage(
+                                                &storage_conn,
+                                                &new_block.block_identifier,
+                                                &new_tx.transaction_identifier,
+                                                &ctx,
+                                            );
+
+                                            match res {
+                                                Ok(res) => res,
+                                                Err(e) => {
+                                                    ctx.try_log(|logger| {
+                                                        slog::error!(
+                                                            logger,
+                                                            "unable to retrieve satoshi point: {}",
+                                                            e.to_string()
+                                                        );
+                                                    });
+                                                    continue;
+                                                }
                                             }
                                         };
-                                        let satoshi_id = format!("{}:{}", block_height, offset);
-                                        if let Some(entry) = find_inscription_with_satoshi_id(
-                                            &satoshi_id,
+
+                                        if let Some(_entry) = find_inscription_with_ordinal_number(
+                                            &ordinal_number,
                                             &storage_conn,
                                             &ctx,
                                         ) {
                                             ctx.try_log(|logger| {
-                                                slog::warn!(logger, "Transaction {} in block {} is overriding an existing inscription {}", new_tx.transaction_identifier.hash, new_block.block_identifier.index, satoshi_id);
+                                                slog::warn!(logger, "Transaction {} in block {} is overriding an existing inscription {}", new_tx.transaction_identifier.hash, new_block.block_identifier.index, ordinal_number);
                                             });
                                             ordinals_events_indexes_to_discard
                                                 .push_front(ordinal_event_index);
                                         } else {
-                                            inscription.ordinal_block_height = block_height;
-                                            inscription.ordinal_offset = offset;
-                                            inscription.ordinal_number = 0;
+                                            inscription.ordinal_offset = ordinal_offset;
+                                            inscription.ordinal_block_height = ordinal_block_height;
+                                            inscription.ordinal_number = ordinal_number;
                                             inscription.inscription_number =
                                                 match find_last_inscription_number(
                                                     &storage_conn,
@@ -577,11 +614,14 @@ pub async fn start_observer_commands_handler(
                                                 ) {
                                                     Ok(inscription_number) => inscription_number,
                                                     Err(e) => {
+                                                        ctx.try_log(|logger| {
+                                                            slog::error!(logger, "unable to retrieve satoshi number: {}", e.to_string());
+                                                        });
                                                         continue;
                                                     }
                                                 };
                                             ctx.try_log(|logger| {
-                                                    slog::info!(logger, "Transaction {} in block {} inclues a new inscription {}", new_tx.transaction_identifier.hash, new_block.block_identifier.index, satoshi_id);
+                                                    slog::info!(logger, "Transaction {} in block {} includes a new inscription {}", new_tx.transaction_identifier.hash, new_block.block_identifier.index, ordinal_number);
                                                 });
 
                                             {
@@ -604,26 +644,57 @@ pub async fn start_observer_commands_handler(
                                 // Have inscriptions been transfered?
                                 let mut sats_in_offset = 0;
                                 let mut sats_out_offset = 0;
+                                let storage_conn = open_readonly_ordinals_db_conn(
+                                    &config.get_cache_path_buf(),
+                                    &ctx,
+                                )
+                                .unwrap(); // TODO(lgalabru)
+
                                 for input in new_tx.metadata.inputs.iter() {
                                     // input.previous_output.txid
                                     let outpoint_pre_transfer = format!(
                                         "{}:{}",
-                                        input.previous_output.txid, input.previous_output.vout
+                                        &input.previous_output.txid[2..],
+                                        input.previous_output.vout
                                     );
 
                                     let mut post_transfer_output_index = 0;
-                                    let mut post_transfer_offset = 0;
 
-                                    for (inscription_id, inscription_number, satoshi_id, offset) in
-                                        find_inscriptions_at_wached_outpoint(
-                                            &outpoint_pre_transfer,
-                                            &ordinals_db_conn,
+                                    let entries = find_inscriptions_at_wached_outpoint(
+                                        &outpoint_pre_transfer,
+                                        &storage_conn,
+                                    );
+
+                                    ctx.try_log(|logger| {
+                                        slog::info!(
+                                            logger,
+                                            "Checking if {} is part of our watch outpoints set: {}",
+                                            outpoint_pre_transfer,
+                                            entries.len(),
                                         )
-                                        .into_iter()
-                                    {
-                                        // At this point we know that inscriptions are being moved.
-                                        // Question is: are inscriptions moving to a new output, burnt or lost in fees and transfered to the miner?
+                                    });
 
+                                    for (
+                                        inscription_id,
+                                        inscription_number,
+                                        ordinal_number,
+                                        offset,
+                                    ) in entries.into_iter()
+                                    {
+                                        let satpoint_pre_transfer =
+                                            format!("{}:{}", outpoint_pre_transfer, offset);
+                                        // At this point we know that inscriptions are being moved.
+                                        ctx.try_log(|logger| {
+                                            slog::info!(
+                                                logger,
+                                                "Detected transaction {} involving txin {} that includes watched ordinals",
+                                                new_tx.transaction_identifier.hash,
+                                                satpoint_pre_transfer,
+                                            )
+                                        });
+
+                                        // Question is: are inscriptions moving to a new output,
+                                        // burnt or lost in fees and transfered to the miner?
                                         let post_transfer_output = loop {
                                             if sats_out_offset >= sats_in_offset + offset {
                                                 break Some(post_transfer_output_index);
@@ -647,7 +718,8 @@ pub async fn start_observer_commands_handler(
                                             Some(index) => {
                                                 let outpoint = format!(
                                                     "{}:{}",
-                                                    new_tx.transaction_identifier.hash, index
+                                                    &new_tx.transaction_identifier.hash[2..],
+                                                    index
                                                 );
                                                 let offset = 0;
                                                 let script_pub_key_hex = new_tx.metadata.outputs
@@ -678,17 +750,21 @@ pub async fn start_observer_commands_handler(
                                             }
                                             None => {
                                                 // Get Coinbase TX
-                                                let offset = coinbase_subsidy + coinbase_offset;
+                                                let offset =
+                                                    first_sat_post_subsidy + cumulated_fees;
                                                 let outpoint = coinbase_txid.clone();
                                                 (outpoint, offset, None)
                                             }
                                         };
 
-                                        // Compute the offset / new txin:vout to watch
-                                        let outpoint_post_transfer = format!(
-                                            "{}:{}",
-                                            input.previous_output.txid, input.previous_output.vout
-                                        );
+                                        ctx.try_log(|logger| {
+                                            slog::info!(
+                                                logger,
+                                                "Updating watched outpoint {} to outpoint {}",
+                                                outpoint_post_transfer,
+                                                outpoint_pre_transfer,
+                                            )
+                                        });
 
                                         // Update watched outpoint
                                         {
@@ -706,13 +782,18 @@ pub async fn start_observer_commands_handler(
                                             );
                                         }
 
+                                        let satpoint_post_transfer = format!(
+                                            "{}:{}",
+                                            outpoint_post_transfer, offset_post_transfer
+                                        );
+
                                         let event_data = OrdinalInscriptionTransferData {
                                             inscription_id,
                                             inscription_number,
-                                            satoshi_id,
+                                            ordinal_number,
                                             updated_address,
-                                            outpoint_pre_transfer: outpoint_pre_transfer.clone(),
-                                            outpoint_post_transfer,
+                                            satpoint_pre_transfer,
+                                            satpoint_post_transfer,
                                         };
 
                                         // Attach transfer event
@@ -729,32 +810,7 @@ pub async fn start_observer_commands_handler(
                                     new_tx.metadata.ordinal_operations.remove(index);
                                 }
 
-                                coinbase_offset += new_tx.metadata.fee;
-                            }
-
-                            // Persist compacted block in table blocks
-                            {
-                                ctx.try_log(|logger| {
-                                    slog::info!(
-                                        logger,
-                                        "Caching Bitcoin block #{} for further traversals",
-                                        new_block.block_identifier.index
-                                    )
-                                });
-        
-                                let compacted_block =
-                                    CompactedBlock::from_standardized_block(&new_block);
-                                let storage_rw_conn = open_readwrite_ordinals_db_conn(
-                                    &config.get_cache_path_buf(),
-                                    &ctx,
-                                )
-                                .unwrap(); // TODO(lgalabru)
-                                write_compacted_block_to_index(
-                                    new_block.block_identifier.index as u32,
-                                    &compacted_block,
-                                    &storage_rw_conn,
-                                    &ctx,
-                                );
+                                cumulated_fees += new_tx.metadata.fee;
                             }
                         }
                     }

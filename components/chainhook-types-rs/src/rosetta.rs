@@ -284,10 +284,10 @@ pub enum OrdinalOperation {
 pub struct OrdinalInscriptionTransferData {
     pub inscription_number: u64,
     pub inscription_id: String,
-    pub satoshi_id: String,
+    pub ordinal_number: u64,
     pub updated_address: Option<String>,
-    pub outpoint_pre_transfer: String,
-    pub outpoint_post_transfer: String,
+    pub satpoint_pre_transfer: String,
+    pub satpoint_post_transfer: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
@@ -302,7 +302,7 @@ pub struct OrdinalInscriptionRevealData {
     pub ordinal_number: u64,
     pub ordinal_block_height: u64,
     pub ordinal_offset: u64,
-    pub outpoint_post_inscription: String,
+    pub satpoint_post_inscription: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
