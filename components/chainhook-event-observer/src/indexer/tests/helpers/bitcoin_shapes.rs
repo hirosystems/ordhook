@@ -88,10 +88,11 @@ pub fn expect_chain_updated_with_blocks(
 }
 
 pub fn expect_chain_updated_with_block_reorg(
-    blocks_to_rollback: Vec<BitcoinBlockData>,
+    mut blocks_to_rollback: Vec<BitcoinBlockData>,
     blocks_to_apply: Vec<BitcoinBlockData>,
     _confirmed_blocks: Vec<BitcoinBlockData>,
 ) -> BlockchainEventExpectation {
+    blocks_to_rollback.reverse();
     Box::new(move |chain_event_to_check: Option<BlockchainEvent>| {
         assert!(
             match chain_event_to_check {

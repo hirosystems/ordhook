@@ -313,7 +313,6 @@ impl ChainSegment {
             slog::debug!(logger, "Blocks to rollback: {:?}", block_ids_to_rollback)
         });
         ctx.try_log(|logger| slog::debug!(logger, "Blocks to apply: {:?}", block_ids_to_apply));
-        block_ids_to_rollback.reverse();
         block_ids_to_apply.reverse();
         match common_root.take() {
             Some(_common_root) => Ok(ChainSegmentDivergence {
