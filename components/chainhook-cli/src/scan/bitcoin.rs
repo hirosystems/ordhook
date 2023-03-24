@@ -9,9 +9,8 @@ use chainhook_event_observer::chainhooks::types::{
     BitcoinChainhookFullSpecification, BitcoinPredicateType, Protocols,
 };
 use chainhook_event_observer::hord::db::{
-    build_bitcoin_traversal_local_storage, find_all_inscriptions,
-    find_compacted_block_at_block_height, find_latest_compacted_block_known,
-    open_readonly_hord_db_conn, open_readwrite_hord_db_conn,
+    fetch_and_cache_blocks_in_hord_db, find_all_inscriptions, find_compacted_block_at_block_height,
+    find_latest_compacted_block_known, open_readonly_hord_db_conn, open_readwrite_hord_db_conn,
 };
 use chainhook_event_observer::indexer;
 use chainhook_event_observer::indexer::bitcoin::{
@@ -115,13 +114,14 @@ pub async fn scan_bitcoin_chain_with_predicate(
                     "Database hord.sqlite appears to be outdated regarding the window of blocks provided. Syncing {} missing blocks",
                     (end_block - start_block)
                 );
-                build_bitcoin_traversal_local_storage(
+                fetch_and_cache_blocks_in_hord_db(
                     &config.get_event_observer_config().get_bitcoin_config(),
                     &rw_hord_db_conn,
                     start_block,
                     end_block,
                     &ctx,
                     8,
+                    None,
                 )
                 .await?;
             }
@@ -163,8 +163,8 @@ pub async fn scan_bitcoin_chain_with_predicate(
             let block_breakdown =
                 retrieve_full_block_breakdown_with_retry(&block_hash, &bitcoin_config, ctx).await?;
             let block = indexer::bitcoin::standardize_bitcoin_block(
-                &event_observer_config,
                 block_breakdown,
+                &event_observer_config.bitcoin_network,
                 ctx,
             )?;
 

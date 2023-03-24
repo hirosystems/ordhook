@@ -465,8 +465,8 @@ impl Node {
                                     .map_err(|e| format!("unable to parse response ({})", e))?;
 
                                 let block = indexer::bitcoin::standardize_bitcoin_block(
-                                    &event_observer_config,
                                     raw_block,
+                                    &event_observer_config.bitcoin_network,
                                     &self.ctx,
                                 )?;
 

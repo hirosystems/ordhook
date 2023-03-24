@@ -7,8 +7,8 @@ use crate::scan::stacks::scan_stacks_chain_with_predicate;
 
 use chainhook_event_observer::chainhooks::types::ChainhookFullSpecification;
 use chainhook_event_observer::hord::db::{
-    build_bitcoin_traversal_local_storage, find_inscriptions_at_wached_outpoint,
-    initialize_hord_db, open_readonly_hord_db_conn, retrieve_satoshi_point_using_local_storage,
+    fetch_and_cache_blocks_in_hord_db, find_inscriptions_at_wached_outpoint, initialize_hord_db,
+    open_readonly_hord_db_conn, retrieve_satoshi_point_using_local_storage,
 };
 use chainhook_event_observer::observer::BitcoinConfig;
 use chainhook_event_observer::utils::Context;
@@ -381,17 +381,19 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     username: config.network.bitcoin_node_rpc_username.clone(),
                     password: config.network.bitcoin_node_rpc_password.clone(),
                     rpc_url: config.network.bitcoin_node_rpc_url.clone(),
+                    network: config.network.bitcoin_network.clone(),
                 };
 
                 let hord_db_conn = initialize_hord_db(&config.expected_cache_path(), &ctx);
 
-                let _ = build_bitcoin_traversal_local_storage(
+                let _ = fetch_and_cache_blocks_in_hord_db(
                     &bitcoin_config,
                     &hord_db_conn,
                     cmd.start_block,
                     cmd.end_block,
                     &ctx,
                     cmd.network_threads,
+                    None,
                 )
                 .await;
             }

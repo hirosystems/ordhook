@@ -7,6 +7,7 @@ use bitcoincore_rpc::bitcoin::{Address, Network, Script};
 use chainhook_types::{BitcoinBlockData, OrdinalInscriptionTransferData, OrdinalOperation};
 use hiro_system_kit::slog;
 use std::collections::VecDeque;
+use std::path::PathBuf;
 
 use crate::{
     hord::{
@@ -64,7 +65,7 @@ pub fn revert_hord_db_with_augmented_bitcoin_block(
 
 pub fn update_hord_db_and_augment_bitcoin_block(
     new_block: &mut BitcoinBlockData,
-    config: &EventObserverConfig,
+    hord_db_path: &PathBuf,
     ctx: &Context,
 ) -> Result<(), String> {
     {
@@ -77,7 +78,7 @@ pub fn update_hord_db_and_augment_bitcoin_block(
         });
 
         let compacted_block = CompactedBlock::from_standardized_block(&new_block);
-        let rw_hord_db_conn = open_readwrite_hord_db_conn(&config.get_cache_path_buf(), &ctx)?;
+        let rw_hord_db_conn = open_readwrite_hord_db_conn(&hord_db_path, &ctx)?;
         insert_entry_in_blocks(
             new_block.block_identifier.index as u32,
             &compacted_block,
@@ -100,8 +101,7 @@ pub fn update_hord_db_and_augment_bitcoin_block(
             new_tx.metadata.ordinal_operations.iter_mut().enumerate()
         {
             if let OrdinalOperation::InscriptionRevealed(inscription) = ordinal_event {
-                let hord_db_conn =
-                    open_readonly_hord_db_conn(&config.get_cache_path_buf(), &ctx).unwrap(); // TODO(lgalabru)
+                let hord_db_conn = open_readonly_hord_db_conn(&hord_db_path, &ctx).unwrap(); // TODO(lgalabru)
 
                 let (ordinal_block_height, ordinal_offset, ordinal_number) = {
                     // Are we looking at a re-inscription?
@@ -170,8 +170,7 @@ pub fn update_hord_db_and_augment_bitcoin_block(
 
                     {
                         let rw_hord_db_conn =
-                            open_readwrite_hord_db_conn(&config.get_cache_path_buf(), &ctx)
-                                .unwrap(); // TODO(lgalabru)
+                            open_readwrite_hord_db_conn(&hord_db_path, &ctx).unwrap(); // TODO(lgalabru)
                         store_new_inscription(
                             &inscription,
                             &new_block.block_identifier,
@@ -186,7 +185,7 @@ pub fn update_hord_db_and_augment_bitcoin_block(
         // Have inscriptions been transfered?
         let mut sats_in_offset = 0;
         let mut sats_out_offset = 0;
-        let hord_db_conn = open_readonly_hord_db_conn(&config.get_cache_path_buf(), &ctx).unwrap(); // TODO(lgalabru)
+        let hord_db_conn = open_readonly_hord_db_conn(&hord_db_path, &ctx)?;
 
         for input in new_tx.metadata.inputs.iter() {
             // input.previous_output.txid
@@ -291,8 +290,7 @@ pub fn update_hord_db_and_augment_bitcoin_block(
 
                 // Update watched outpoint
                 {
-                    let rw_hord_db_conn =
-                        open_readwrite_hord_db_conn(&config.get_cache_path_buf(), &ctx).unwrap(); // TODO(lgalabru)
+                    let rw_hord_db_conn = open_readwrite_hord_db_conn(&hord_db_path, &ctx)?;
                     update_transfered_inscription(
                         &inscription_id,
                         &outpoint_post_transfer,

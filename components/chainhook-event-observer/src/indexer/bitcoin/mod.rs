@@ -6,7 +6,7 @@ use crate::chainhooks::types::{
     get_canonical_pox_config, get_stacks_canonical_magic_bytes, PoxConfig, StacksOpcodes,
 };
 
-use crate::observer::{BitcoinConfig, EventObserverConfig};
+use crate::observer::BitcoinConfig;
 use crate::utils::Context;
 use bitcoincore_rpc::bitcoin::hashes::hex::FromHex;
 use bitcoincore_rpc::bitcoin::hashes::Hash;
@@ -17,10 +17,10 @@ use bitcoincore_rpc_json::{
 pub use blocks_pool::BitcoinBlockPool;
 use chainhook_types::bitcoin::{OutPoint, TxIn, TxOut};
 use chainhook_types::{
-    BitcoinBlockData, BitcoinBlockMetadata, BitcoinTransactionData, BitcoinTransactionMetadata,
-    BlockCommitmentData, BlockHeader, BlockIdentifier, KeyRegistrationData, LockSTXData,
-    OrdinalInscriptionRevealData, OrdinalOperation, PoxReward, StacksBaseChainOperation,
-    StacksBlockCommitmentData, TransactionIdentifier, TransferSTXData,
+    BitcoinBlockData, BitcoinBlockMetadata, BitcoinNetwork, BitcoinTransactionData,
+    BitcoinTransactionMetadata, BlockCommitmentData, BlockHeader, BlockIdentifier,
+    KeyRegistrationData, LockSTXData, OrdinalInscriptionRevealData, OrdinalOperation, PoxReward,
+    StacksBaseChainOperation, StacksBlockCommitmentData, TransactionIdentifier, TransferSTXData,
 };
 use hiro_system_kit::slog;
 
@@ -261,14 +261,14 @@ pub async fn retrieve_block_hash(
 }
 
 pub fn standardize_bitcoin_block(
-    config: &EventObserverConfig,
     block: BitcoinBlockFullBreakdown,
+    network: &BitcoinNetwork,
     ctx: &Context,
 ) -> Result<BitcoinBlockData, String> {
     let mut transactions = vec![];
     let block_height = block.height as u64;
-    let expected_magic_bytes = get_stacks_canonical_magic_bytes(&config.bitcoin_network);
-    let pox_config = get_canonical_pox_config(&config.bitcoin_network);
+    let expected_magic_bytes = get_stacks_canonical_magic_bytes(&network);
+    let pox_config = get_canonical_pox_config(&network);
 
     ctx.try_log(|logger| slog::debug!(logger, "Standardizing Bitcoin block {}", block.hash,));
 

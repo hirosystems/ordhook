@@ -152,6 +152,7 @@ impl EventObserverConfig {
             username: self.bitcoin_node_username.clone(),
             password: self.bitcoin_node_password.clone(),
             rpc_url: self.bitcoin_node_rpc_url.clone(),
+            network: self.bitcoin_network.clone(),
         };
         bitcoin_config
     }
@@ -224,6 +225,7 @@ pub struct BitcoinConfig {
     pub username: String,
     pub password: String,
     pub rpc_url: String,
+    pub network: BitcoinNetwork,
 }
 
 #[derive(Debug, Clone)]
@@ -507,7 +509,8 @@ pub async fn start_observer_commands_handler(
                 break;
             }
             ObserverCommand::ProcessBitcoinBlock(block_data) => {
-                let new_block = standardize_bitcoin_block(&config, block_data, &ctx)?;
+                let new_block =
+                    standardize_bitcoin_block(block_data, &config.bitcoin_network, &ctx)?;
                 bitcoin_block_store.insert(new_block.block_identifier.clone(), new_block);
             }
             ObserverCommand::CacheBitcoinBlock(block) => {
@@ -528,7 +531,9 @@ pub async fn start_observer_commands_handler(
                             match bitcoin_block_store.get_mut(&header.block_identifier) {
                                 Some(block) => {
                                     if let Err(e) = update_hord_db_and_augment_bitcoin_block(
-                                        block, &config, &ctx,
+                                        block,
+                                        &config.get_cache_path_buf(),
+                                        &ctx,
                                     ) {
                                         ctx.try_log(|logger| {
                                             slog::error!(
@@ -612,7 +617,9 @@ pub async fn start_observer_commands_handler(
                             match bitcoin_block_store.get_mut(&header.block_identifier) {
                                 Some(block) => {
                                     if let Err(e) = update_hord_db_and_augment_bitcoin_block(
-                                        block, &config, &ctx,
+                                        block,
+                                        &config.get_cache_path_buf(),
+                                        &ctx,
                                     ) {
                                         ctx.try_log(|logger| {
                                             slog::error!(

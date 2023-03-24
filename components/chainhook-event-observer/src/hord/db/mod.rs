@@ -1,4 +1,8 @@
-use std::path::PathBuf;
+use std::{
+    collections::HashMap,
+    path::PathBuf,
+    sync::mpsc::{channel, Sender},
+};
 
 use chainhook_types::{
     BitcoinBlockData, BlockIdentifier, OrdinalInscriptionRevealData, TransactionIdentifier,
@@ -11,13 +15,13 @@ use threadpool::ThreadPool;
 use crate::{
     indexer::bitcoin::{
         retrieve_block_hash_with_retry, retrieve_full_block_breakdown_with_retry,
-        BitcoinBlockFullBreakdown,
+        standardize_bitcoin_block, BitcoinBlockFullBreakdown,
     },
     observer::BitcoinConfig,
     utils::Context,
 };
 
-use super::ord::height::Height;
+use super::{ord::height::Height, update_hord_db_and_augment_bitcoin_block};
 
 fn get_default_hord_db_file_path(base_dir: &PathBuf) -> PathBuf {
     let mut destination_path = base_dir.clone();
@@ -414,13 +418,98 @@ pub fn remove_entry_from_inscriptions(
     }
 }
 
-pub async fn build_bitcoin_traversal_local_storage(
+pub async fn update_hord_db(
+    bitcoin_config: &BitcoinConfig,
+    hord_db_path: &PathBuf,
+    hord_db_conn: &Connection,
+    start_block: u64,
+    end_block: u64,
+    _ctx: &Context,
+    network_thread: usize,
+) -> Result<(), String> {
+    let (block_tx, block_rx) = channel::<BitcoinBlockFullBreakdown>();
+    let first_inscription_block_height = 767430;
+    let ctx = _ctx.clone();
+    let network = bitcoin_config.network.clone();
+    let hord_db_path = hord_db_path.clone();
+    let handle = hiro_system_kit::thread_named("Inscriptions indexing")
+        .spawn(move || {
+            let mut cursor = first_inscription_block_height;
+            let mut inbox = HashMap::new();
+
+            while let Ok(raw_block) = block_rx.recv() {
+                // Early return, only considering blocks after 1st inscription
+                if raw_block.height < first_inscription_block_height {
+                    continue;
+                }
+                let block_height = raw_block.height;
+                inbox.insert(raw_block.height, raw_block);
+
+                // In the context of ordinals, we're constrained to process blocks sequentially
+                // Blocks are processed by a threadpool and could be coming out of order.
+                // Inbox block for later if the current block is not the one we should be
+                // processing.
+                if block_height != cursor {
+                    continue;
+                }
+
+                // Is the action of processing a block allows us
+                // to process more blocks present in the inbox?
+                while let Some(next_block) = inbox.remove(&cursor) {
+                    let mut new_block = match standardize_bitcoin_block(next_block, &network, &ctx)
+                    {
+                        Ok(block) => block,
+                        Err(e) => {
+                            ctx.try_log(|logger| {
+                                slog::error!(logger, "Unable to standardize bitcoin block: {e}",)
+                            });
+                            return;
+                        }
+                    };
+
+                    if let Err(e) = update_hord_db_and_augment_bitcoin_block(
+                        &mut new_block,
+                        &hord_db_path,
+                        &ctx,
+                    ) {
+                        ctx.try_log(|logger| {
+                            slog::error!(
+                                logger,
+                                "Unable to augment bitcoin block with hord_db: {e}",
+                            )
+                        });
+                        return;
+                    }
+                    cursor += 1;
+                }
+            }
+        })
+        .expect("unable to detach thread");
+
+    fetch_and_cache_blocks_in_hord_db(
+        bitcoin_config,
+        hord_db_conn,
+        start_block,
+        end_block,
+        &_ctx,
+        network_thread,
+        Some(block_tx),
+    )
+    .await?;
+
+    let _ = handle.join();
+
+    Ok(())
+}
+
+pub async fn fetch_and_cache_blocks_in_hord_db(
     bitcoin_config: &BitcoinConfig,
     hord_db_conn: &Connection,
     start_block: u64,
     end_block: u64,
     ctx: &Context,
     network_thread: usize,
+    block_tx: Option<Sender<BitcoinBlockFullBreakdown>>,
 ) -> Result<(), String> {
     let retrieve_block_hash_pool = ThreadPool::new(network_thread);
     let (block_hash_tx, block_hash_rx) = crossbeam_channel::unbounded();
@@ -471,10 +560,14 @@ pub async fn build_bitcoin_traversal_local_storage(
         .spawn(move || {
             while let Ok(Some(block_data)) = block_data_rx.recv() {
                 let block_compressed_tx_moved = block_compressed_tx.clone();
+                let block_tx = block_tx.clone();
                 compress_block_data_pool.execute(move || {
                     let compressed_block = CompactedBlock::from_full_block(&block_data);
-                    let _ = block_compressed_tx_moved
-                        .send(Some((block_data.height as u32, compressed_block)));
+                    let block_index = block_data.height as u32;
+                    if let Some(block_tx) = block_tx {
+                        let _ = block_tx.send(block_data);
+                    }
+                    let _ = block_compressed_tx_moved.send(Some((block_index, compressed_block)));
                 });
 
                 let res = compress_block_data_pool.join();
