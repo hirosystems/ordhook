@@ -340,6 +340,7 @@ pub fn standardize_stacks_block(
             pox_cycle_position: (current_len % pox_cycle_length) as u32,
             pox_cycle_length: pox_cycle_length.try_into().unwrap(),
             confirm_microblock_identifier,
+            stacks_block_hash: block.block_hash.clone(),
         },
         transactions,
     };
