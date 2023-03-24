@@ -480,9 +480,7 @@ pub async fn start_observer_commands_handler(
     let mut chainhooks_lookup: HashMap<String, ApiKey> = HashMap::new();
     let networks = (&config.bitcoin_network, &config.stacks_network);
     let mut bitcoin_block_store: HashMap<BlockIdentifier, BitcoinBlockData> = HashMap::new();
-    // {
-    //     let _ = initialize_hord_db(&config.get_cache_path_buf(), &ctx);
-    // }
+
     loop {
         let command = match observer_commands_rx.recv() {
             Ok(cmd) => cmd,
@@ -529,7 +527,16 @@ pub async fn start_observer_commands_handler(
                         for header in data.new_headers.iter() {
                             match bitcoin_block_store.get_mut(&header.block_identifier) {
                                 Some(block) => {
-                                    update_hord_db_and_augment_bitcoin_block(block, &config, &ctx);
+                                    if let Err(e) = update_hord_db_and_augment_bitcoin_block(
+                                        block, &config, &ctx,
+                                    ) {
+                                        ctx.try_log(|logger| {
+                                            slog::error!(
+                                                logger,
+                                                "Unable to augment bitcoin block with hord_db: {e}",
+                                            )
+                                        });
+                                    }
                                     new_blocks.push(block.clone());
                                 }
                                 None => {
@@ -576,9 +583,17 @@ pub async fn start_observer_commands_handler(
                         for header in data.headers_to_rollback.iter() {
                             match bitcoin_block_store.get(&header.block_identifier) {
                                 Some(block) => {
-                                    revert_hord_db_with_augmented_bitcoin_block(
+                                    if let Err(e) = revert_hord_db_with_augmented_bitcoin_block(
                                         block, &config, &ctx,
-                                    );
+                                    ) {
+                                        ctx.try_log(|logger| {
+                                            slog::error!(
+                                                logger,
+                                                "Unable to rollback bitcoin block {}: {e}",
+                                                header.block_identifier
+                                            )
+                                        });
+                                    }
                                     blocks_to_rollback.push(block.clone());
                                 }
                                 None => {
@@ -596,7 +611,16 @@ pub async fn start_observer_commands_handler(
                         for header in data.headers_to_apply.iter() {
                             match bitcoin_block_store.get_mut(&header.block_identifier) {
                                 Some(block) => {
-                                    update_hord_db_and_augment_bitcoin_block(block, &config, &ctx);
+                                    if let Err(e) = update_hord_db_and_augment_bitcoin_block(
+                                        block, &config, &ctx,
+                                    ) {
+                                        ctx.try_log(|logger| {
+                                            slog::error!(
+                                                logger,
+                                                "Unable to augment bitcoin block with hord_db: {e}",
+                                            )
+                                        });
+                                    }
                                     blocks_to_apply.push(block.clone());
                                 }
                                 None => {
