@@ -14,7 +14,7 @@ use crate::observer::{
 };
 use crate::utils::{AbstractBlock, Context};
 use chainhook_types::{
-    BitcoinChainEvent, BitcoinChainUpdatedWithBlocksData, BitcoinNetwork, BlockchainEvent,
+    BitcoinNetwork, BlockchainEvent,
     BlockchainUpdatedWithHeaders, StacksBlockUpdate, StacksChainEvent,
     StacksChainUpdatedWithBlocksData, StacksNetwork,
 };

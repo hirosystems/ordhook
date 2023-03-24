@@ -3,12 +3,11 @@ use crate::{
     utils::Context,
 };
 use chainhook_types::{
-    BitcoinBlockData, BitcoinChainEvent, BitcoinChainUpdatedWithBlocksData,
-    BitcoinChainUpdatedWithReorgData, BlockHeader, BlockIdentifier, BlockchainEvent,
+    BlockHeader, BlockIdentifier, BlockchainEvent,
     BlockchainUpdatedWithHeaders, BlockchainUpdatedWithReorg,
 };
 use hiro_system_kit::slog;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 pub struct ForkScratchPad {
     canonical_fork_id: usize,

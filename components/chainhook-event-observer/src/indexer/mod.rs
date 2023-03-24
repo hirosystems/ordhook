@@ -1,26 +1,24 @@
 pub mod bitcoin;
 pub mod fork_scratch_pad;
-pub mod ordinals;
 pub mod stacks;
 
 use crate::utils::{AbstractBlock, Context};
-use bitcoin::BitcoinBlockFullBreakdown;
+
 use chainhook_types::{
-    BitcoinChainEvent, BitcoinNetwork, BlockHeader, BlockIdentifier, BlockchainEvent,
+    BitcoinNetwork, BlockHeader, BlockIdentifier, BlockchainEvent,
     StacksChainEvent, StacksNetwork,
 };
 use hiro_system_kit::slog;
 use rocket::serde::json::Value as JsonValue;
-use rusqlite::Connection;
+
 use stacks::StacksBlockPool;
 use stacks_rpc_client::PoxInfo;
 use std::{
     collections::{HashMap, VecDeque},
-    path::PathBuf,
 };
 
 use self::fork_scratch_pad::ForkScratchPad;
-use self::ordinals::ord::indexing::OrdinalIndex;
+
 
 #[derive(Deserialize, Debug, Clone, Default)]
 pub struct AssetClassCache {

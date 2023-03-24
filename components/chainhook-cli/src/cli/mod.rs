@@ -6,7 +6,7 @@ use crate::scan::bitcoin::scan_bitcoin_chain_with_predicate;
 use crate::scan::stacks::scan_stacks_chain_with_predicate;
 
 use chainhook_event_observer::chainhooks::types::ChainhookFullSpecification;
-use chainhook_event_observer::indexer::ordinals::db::{
+use chainhook_event_observer::hord::db::{
     build_bitcoin_traversal_local_storage, find_inscriptions_at_wached_outpoint,
     initialize_hord_db, open_readonly_hord_db_conn, retrieve_satoshi_point_using_local_storage,
 };

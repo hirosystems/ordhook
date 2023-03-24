@@ -1,22 +1,21 @@
 mod blocks_pool;
 
-use std::thread::JoinHandle;
+
 use std::time::Duration;
 
 use crate::chainhooks::types::{
     get_canonical_pox_config, get_stacks_canonical_magic_bytes, PoxConfig, StacksOpcodes,
 };
-use crate::indexer::IndexerConfig;
+
 use crate::observer::{BitcoinConfig, EventObserverConfig};
 use crate::utils::Context;
 use bitcoincore_rpc::bitcoin::hashes::hex::FromHex;
 use bitcoincore_rpc::bitcoin::hashes::Hash;
 use bitcoincore_rpc::bitcoin::{
-    self, Address, Amount, BlockHash, OutPoint as OutPointS, PackedLockTime, Script, Transaction,
-    Txid, Witness,
+    self, Address, Amount, BlockHash, Script,
 };
 use bitcoincore_rpc_json::{
-    GetRawTransactionResult, GetRawTransactionResultVinScriptSig, GetRawTransactionResultVout,
+    GetRawTransactionResultVinScriptSig,
     GetRawTransactionResultVoutScriptPubKey,
 };
 pub use blocks_pool::BitcoinBlockPool;
@@ -24,21 +23,21 @@ use chainhook_types::bitcoin::{OutPoint, TxIn, TxOut};
 use chainhook_types::{
     BitcoinBlockData, BitcoinBlockMetadata, BitcoinTransactionData, BitcoinTransactionMetadata,
     BlockCommitmentData, BlockHeader, BlockIdentifier, KeyRegistrationData, LockSTXData,
-    OrdinalInscriptionRevealData, OrdinalOperation, PobBlockCommitmentData, PoxReward,
+    OrdinalInscriptionRevealData, OrdinalOperation, PoxReward,
     StacksBaseChainOperation, StacksBlockCommitmentData, TransactionIdentifier, TransferSTXData,
 };
 use hiro_system_kit::slog;
-use rocket::serde::json::Value as JsonValue;
+
 use serde::Deserialize;
 
-use super::ordinals::inscription::InscriptionParser;
-use super::ordinals::ord::chain::Chain;
-use super::ordinals::ord::indexing::entry::InscriptionEntry;
-use super::ordinals::ord::indexing::updater::{BlockData, OrdinalIndexUpdater};
-use super::ordinals::ord::indexing::OrdinalIndex;
-use super::ordinals::ord::inscription_id::InscriptionId;
-use super::ordinals::ord::sat::Sat;
-use super::BitcoinChainContext;
+
+use crate::hord::inscription::InscriptionParser;
+
+
+
+
+use crate::hord::ord::inscription_id::InscriptionId;
+
 
 #[derive(Clone, PartialEq, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]

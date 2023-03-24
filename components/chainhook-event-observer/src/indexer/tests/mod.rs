@@ -3,7 +3,7 @@ use crate::utils::{AbstractBlock, Context};
 
 use self::helpers::BlockEvent;
 use super::{fork_scratch_pad::ForkScratchPad, StacksBlockPool};
-use chainhook_types::{BitcoinBlockData, BitcoinChainEvent, BlockchainEvent, StacksChainEvent};
+use chainhook_types::{BitcoinBlockData, BlockchainEvent, StacksChainEvent};
 
 pub type StacksChainEventExpectation = Box<dyn Fn(Option<StacksChainEvent>) -> ()>;
 

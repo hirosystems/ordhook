@@ -1,16 +1,16 @@
-use std::{path::PathBuf, time::Duration};
+use std::{path::PathBuf};
 
 use chainhook_types::{
     BitcoinBlockData, BlockIdentifier, OrdinalInscriptionRevealData, TransactionIdentifier,
 };
 use hiro_system_kit::slog;
-use rand::RngCore;
+
 use rusqlite::{Connection, OpenFlags, ToSql};
 use threadpool::ThreadPool;
 
 use crate::{
     indexer::bitcoin::{
-        retrieve_block_hash, retrieve_block_hash_with_retry,
+        retrieve_block_hash_with_retry,
         retrieve_full_block_breakdown_with_retry, BitcoinBlockFullBreakdown,
     },
     observer::BitcoinConfig,

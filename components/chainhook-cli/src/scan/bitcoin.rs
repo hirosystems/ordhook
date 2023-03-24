@@ -8,12 +8,12 @@ use chainhook_event_observer::chainhooks::bitcoin::{
 use chainhook_event_observer::chainhooks::types::{
     BitcoinChainhookFullSpecification, BitcoinPredicateType, Protocols,
 };
+use chainhook_event_observer::hord::db::{
+    find_all_inscriptions, open_readonly_hord_db_conn, retrieve_compacted_block_from_index,
+};
 use chainhook_event_observer::indexer;
 use chainhook_event_observer::indexer::bitcoin::{
     retrieve_block_hash_with_retry, retrieve_full_block_breakdown_with_retry,
-};
-use chainhook_event_observer::indexer::ordinals::db::{
-    find_all_inscriptions, open_readonly_hord_db_conn, retrieve_compacted_block_from_index,
 };
 use chainhook_event_observer::utils::{file_append, send_request, Context};
 use chainhook_types::{BitcoinChainEvent, BitcoinChainUpdatedWithBlocksData};

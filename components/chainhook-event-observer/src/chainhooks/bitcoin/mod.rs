@@ -3,9 +3,9 @@ use super::types::{
     InputPredicate, MatchingRule, OrdinalOperations, OutputPredicate, Protocols, StacksOperations,
 };
 use crate::utils::Context;
-use base58::FromBase58;
-use bitcoincore_rpc::bitcoin::blockdata::opcodes;
-use bitcoincore_rpc::bitcoin::blockdata::script::Builder as BitcoinScriptBuilder;
+
+
+
 use bitcoincore_rpc::bitcoin::util::address::Payload;
 use bitcoincore_rpc::bitcoin::Address;
 use chainhook_types::{
@@ -13,7 +13,7 @@ use chainhook_types::{
     StacksBaseChainOperation, TransactionIdentifier,
 };
 use clarity_repl::clarity::util::hash::to_hex;
-use hiro_system_kit::slog;
+
 use reqwest::{Client, Method};
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;

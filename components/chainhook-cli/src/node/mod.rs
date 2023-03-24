@@ -313,6 +313,7 @@ impl Node {
                             )) = &predicate_spec.predicate
                             {
                                 inscriptions_hints.insert(1, 1);
+
                                 // if let Some(ref ordinal_index) = bitcoin_context.ordinal_index {
                                 //     for (inscription_number, inscription_id) in ordinal_index
                                 //         .database
