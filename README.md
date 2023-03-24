@@ -1,4 +1,4 @@
-# chainhook-cli
+# ⛓️🪝 Chainhook
 
 ## Introduction
 
