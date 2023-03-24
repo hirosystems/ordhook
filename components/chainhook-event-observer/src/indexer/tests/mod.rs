@@ -1,9 +1,9 @@
 pub mod helpers;
-use crate::utils::Context;
+use crate::utils::{AbstractBlock, Context};
 
 use self::helpers::BlockEvent;
-use super::{BitcoinBlockPool, StacksBlockPool};
-use chainhook_types::{BitcoinBlockData, BitcoinChainEvent, StacksChainEvent};
+use super::{fork_scratch_pad::ForkScratchPad, StacksBlockPool};
+use chainhook_types::{BitcoinBlockData, BitcoinChainEvent, BlockchainEvent, StacksChainEvent};
 
 pub type StacksChainEventExpectation = Box<dyn Fn(Option<StacksChainEvent>) -> ()>;
 
@@ -29,15 +29,15 @@ pub fn process_stacks_blocks_and_check_expectations(
     }
 }
 
-pub type BitcoinChainEventExpectation = Box<dyn Fn(Option<BitcoinChainEvent>) -> ()>;
+pub type BlockchainEventExpectation = Box<dyn Fn(Option<BlockchainEvent>) -> ()>;
 
 pub fn process_bitcoin_blocks_and_check_expectations(
-    steps: Vec<(BitcoinBlockData, BitcoinChainEventExpectation)>,
+    steps: Vec<(BitcoinBlockData, BlockchainEventExpectation)>,
 ) {
-    let mut blocks_processor = BitcoinBlockPool::new();
+    let mut blocks_processor = ForkScratchPad::new();
     for (block, check_chain_event_expectations) in steps.into_iter() {
         let chain_event = blocks_processor
-            .process_block(block, &Context::empty())
+            .process_header(block.get_header(), &Context::empty())
             .unwrap();
         check_chain_event_expectations(chain_event);
     }

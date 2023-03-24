@@ -1,12 +1,12 @@
 use crate::utils::Context;
 
-use super::super::BitcoinChainEventExpectation;
+use super::super::BlockchainEventExpectation;
 use super::bitcoin_blocks;
-use chainhook_types::{BitcoinBlockData, BitcoinChainEvent};
+use chainhook_types::{BitcoinBlockData, BitcoinChainEvent, BlockchainEvent};
 use hiro_system_kit::slog;
 
-pub fn expect_no_chain_update() -> BitcoinChainEventExpectation {
-    Box::new(move |chain_event_to_check: Option<BitcoinChainEvent>| {
+pub fn expect_no_chain_update() -> BlockchainEventExpectation {
+    Box::new(move |chain_event_to_check: Option<BlockchainEvent>| {
         assert!(
             match chain_event_to_check {
                 None => true,
@@ -21,21 +21,22 @@ pub fn expect_no_chain_update() -> BitcoinChainEventExpectation {
 pub fn expect_chain_updated_with_block(
     expected_block: BitcoinBlockData,
     confirmed_blocks: Vec<BitcoinBlockData>,
-) -> BitcoinChainEventExpectation {
+) -> BlockchainEventExpectation {
     expect_chain_updated_with_blocks(vec![expected_block], confirmed_blocks)
 }
 
 pub fn expect_chain_updated_with_blocks(
     expected_blocks: Vec<BitcoinBlockData>,
     confirmed_blocks: Vec<BitcoinBlockData>,
-) -> BitcoinChainEventExpectation {
+) -> BlockchainEventExpectation {
     let ctx = Context::empty();
-    Box::new(move |chain_event_to_check: Option<BitcoinChainEvent>| {
+    Box::new(move |chain_event_to_check: Option<BlockchainEvent>| {
         assert!(
             match chain_event_to_check {
-                Some(BitcoinChainEvent::ChainUpdatedWithBlocks(ref event)) => {
-                    assert_eq!(expected_blocks.len(), event.new_blocks.len());
-                    for (expected_block, new_block) in expected_blocks.iter().zip(&event.new_blocks)
+                Some(BlockchainEvent::BlockchainUpdatedWithHeaders(ref event)) => {
+                    assert_eq!(expected_blocks.len(), event.new_headers.len());
+                    for (expected_block, new_block) in
+                        expected_blocks.iter().zip(&event.new_headers)
                     {
                         ctx.try_log(|logger| {
                             slog::debug!(
@@ -54,9 +55,9 @@ pub fn expect_chain_updated_with_blocks(
                             expected_block.block_identifier
                         );
                     }
-                    assert_eq!(confirmed_blocks.len(), event.confirmed_blocks.len());
+                    assert_eq!(confirmed_blocks.len(), event.confirmed_headers.len());
                     for (expected_block, confirmed_block) in
-                        confirmed_blocks.iter().zip(&event.confirmed_blocks)
+                        confirmed_blocks.iter().zip(&event.confirmed_headers)
                     {
                         ctx.try_log(|logger| {
                             slog::debug!(
@@ -90,15 +91,15 @@ pub fn expect_chain_updated_with_block_reorg(
     blocks_to_rollback: Vec<BitcoinBlockData>,
     blocks_to_apply: Vec<BitcoinBlockData>,
     _confirmed_blocks: Vec<BitcoinBlockData>,
-) -> BitcoinChainEventExpectation {
-    Box::new(move |chain_event_to_check: Option<BitcoinChainEvent>| {
+) -> BlockchainEventExpectation {
+    Box::new(move |chain_event_to_check: Option<BlockchainEvent>| {
         assert!(
             match chain_event_to_check {
-                Some(BitcoinChainEvent::ChainUpdatedWithReorg(ref event)) => {
-                    assert_eq!(blocks_to_rollback.len(), event.blocks_to_rollback.len());
-                    assert_eq!(blocks_to_apply.len(), event.blocks_to_apply.len());
+                Some(BlockchainEvent::BlockchainUpdatedWithReorg(ref event)) => {
+                    assert_eq!(blocks_to_rollback.len(), event.headers_to_rollback.len());
+                    assert_eq!(blocks_to_apply.len(), event.headers_to_apply.len());
                     for (expected, block_update) in
-                        blocks_to_rollback.iter().zip(&event.blocks_to_rollback)
+                        blocks_to_rollback.iter().zip(&event.headers_to_rollback)
                     {
                         assert!(
                             expected.block_identifier.eq(&block_update.block_identifier),
@@ -108,7 +109,7 @@ pub fn expect_chain_updated_with_block_reorg(
                         );
                     }
                     for (expected, block_update) in
-                        blocks_to_apply.iter().zip(&event.blocks_to_apply)
+                        blocks_to_apply.iter().zip(&event.headers_to_apply)
                     {
                         assert!(
                             expected.block_identifier.eq(&block_update.block_identifier),
@@ -135,7 +136,7 @@ pub fn expect_chain_updated_with_block_reorg(
 ///
 /// A1(1)  -  B1(2)  -  C1(3)
 ///
-pub fn get_vector_001() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)> {
+pub fn get_vector_001() -> Vec<(BitcoinBlockData, BlockchainEventExpectation)> {
     vec![
         (
             bitcoin_blocks::A1(None),
@@ -157,7 +158,7 @@ pub fn get_vector_001() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)>
 /// A1(1)  -  B1(2)  -  C1(4)
 ///        \  B2(3)  -  C2(5)
 ///
-pub fn get_vector_002() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)> {
+pub fn get_vector_002() -> Vec<(BitcoinBlockData, BlockchainEventExpectation)> {
     vec![
         (
             bitcoin_blocks::A1(None),
@@ -199,7 +200,7 @@ pub fn get_vector_002() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)>
 /// A1(1)  -  B1(2)  -  C1(3)
 ///        \  B2(4)  -  C2(5)
 ///
-pub fn get_vector_003() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)> {
+pub fn get_vector_003() -> Vec<(BitcoinBlockData, BlockchainEventExpectation)> {
     vec![
         (
             bitcoin_blocks::A1(None),
@@ -230,7 +231,7 @@ pub fn get_vector_003() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)>
 /// A1(1)  -  B1(2)  -  C1(3)  -  D1(6)
 ///        \  B2(4)  -  C2(5)
 ///
-pub fn get_vector_004() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)> {
+pub fn get_vector_004() -> Vec<(BitcoinBlockData, BlockchainEventExpectation)> {
     vec![
         (
             bitcoin_blocks::A1(None),
@@ -273,7 +274,7 @@ pub fn get_vector_004() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)>
 /// A1(1)  -  B1(2)  -  C1(3)  -  D1(6)  -  E1(7)
 ///        \  B2(4)  -  C2(5)
 ///
-pub fn get_vector_005() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)> {
+pub fn get_vector_005() -> Vec<(BitcoinBlockData, BlockchainEventExpectation)> {
     vec![
         (
             bitcoin_blocks::A1(None),
@@ -320,7 +321,7 @@ pub fn get_vector_005() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)>
 /// A1(1)  -  B1(2)  -  C1(3)  -  D1(6)  -  E1(7)  -  F1(8)
 ///        \  B2(4)  -  C2(5)
 ///
-pub fn get_vector_006() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)> {
+pub fn get_vector_006() -> Vec<(BitcoinBlockData, BlockchainEventExpectation)> {
     vec![
         (
             bitcoin_blocks::A1(None),
@@ -371,7 +372,7 @@ pub fn get_vector_006() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)>
 /// A1(1)  -  B1(2)  -  C1(3)  -  D1(6)  -  E1(7)  -  F1(8)  -  G1(9)
 ///        \  B2(4)  -  C2(5)
 ///
-pub fn get_vector_007() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)> {
+pub fn get_vector_007() -> Vec<(BitcoinBlockData, BlockchainEventExpectation)> {
     vec![
         (
             bitcoin_blocks::A1(None),
@@ -429,7 +430,7 @@ pub fn get_vector_007() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)>
 /// A1(1)  -  B1(2)  -  C1(3)  -  D1(6)  -  E1(7)  -  F1(8)  -  G1(9)  -  H1(10)
 ///        \  B2(4)  -  C2(5)
 ///
-pub fn get_vector_008() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)> {
+pub fn get_vector_008() -> Vec<(BitcoinBlockData, BlockchainEventExpectation)> {
     vec![
         (
             bitcoin_blocks::A1(None),
@@ -494,7 +495,7 @@ pub fn get_vector_008() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)>
 /// A1(1)  -  B1(2)  -  C1(3)  -  D1(6)  -  E1(7)  -  F1(8)  -  G1(9)  -  H1(10)  -  I1(11)
 ///        \  B2(4)  -  C2(5)
 ///
-pub fn get_vector_009() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)> {
+pub fn get_vector_009() -> Vec<(BitcoinBlockData, BlockchainEventExpectation)> {
     vec![
         (
             bitcoin_blocks::A1(None),
@@ -566,7 +567,7 @@ pub fn get_vector_009() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)>
 /// A1(1)  -  B1(2)  -  C1(3)  -  D1(6)  -  E1(7)  -  F1(8)  -  G1(9)  -  H1(10) -  I1(11)
 ///        \  B2(4)  -  C2(5)  -  D2(12)
 ///
-pub fn get_vector_010() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)> {
+pub fn get_vector_010() -> Vec<(BitcoinBlockData, BlockchainEventExpectation)> {
     vec![
         (
             bitcoin_blocks::A1(None),
@@ -639,7 +640,7 @@ pub fn get_vector_010() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)>
 ///       \                               \ E3(9)
 ///        \  B2(4)  -  C2(5)
 ///
-pub fn get_vector_011() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)> {
+pub fn get_vector_011() -> Vec<(BitcoinBlockData, BlockchainEventExpectation)> {
     vec![
         (
             bitcoin_blocks::A1(None),
@@ -713,7 +714,7 @@ pub fn get_vector_011() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)>
 ///       \                               \ E3(9)  -  F3(11)
 ///        \  B2(4)  -  C2(5)
 ///
-pub fn get_vector_012() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)> {
+pub fn get_vector_012() -> Vec<(BitcoinBlockData, BlockchainEventExpectation)> {
     vec![
         (
             bitcoin_blocks::A1(None),
@@ -789,7 +790,7 @@ pub fn get_vector_012() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)>
 ///       \                               \ E3(9)  -  F3(11) -  G3(13)
 ///        \  B2(4)  -  C2(5)
 ///
-pub fn get_vector_013() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)> {
+pub fn get_vector_013() -> Vec<(BitcoinBlockData, BlockchainEventExpectation)> {
     vec![
         (
             bitcoin_blocks::A1(None),
@@ -865,7 +866,7 @@ pub fn get_vector_013() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)>
 ///       \                               \ E3(9)  -  F3(11) -  G3(13)  -  H3(15)
 ///        \  B2(4)  -  C2(5)
 ///
-pub fn get_vector_014() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)> {
+pub fn get_vector_014() -> Vec<(BitcoinBlockData, BlockchainEventExpectation)> {
     vec![
         (
             bitcoin_blocks::A1(None),
@@ -942,7 +943,7 @@ pub fn get_vector_014() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)>
 ///       \                               \ E3(9)  -  F3(11) -  G3(13)  -  H3(15)  -  I3(16)
 ///        \  B2(4)  -  C2(5)
 ///
-pub fn get_vector_015() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)> {
+pub fn get_vector_015() -> Vec<(BitcoinBlockData, BlockchainEventExpectation)> {
     vec![
         (
             bitcoin_blocks::A1(None),
@@ -1042,7 +1043,7 @@ pub fn get_vector_015() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)>
 ///       \                               \ E3(9)  -  F3(11) -  G3(13)  -  H3(15)  -  I3(16)
 ///        \  B2(4)  -  C2(5)  -  D2(17)
 ///
-pub fn get_vector_016() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)> {
+pub fn get_vector_016() -> Vec<(BitcoinBlockData, BlockchainEventExpectation)> {
     vec![
         (
             bitcoin_blocks::A1(None),
@@ -1143,7 +1144,7 @@ pub fn get_vector_016() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)>
 ///       \                               \ E3(9)  -  F3(11) -  G3(12)
 ///        \  B2(4)  -  C2(5)  -  D2(13) -  E2(14)  - F2(15)  - G2(16)
 ///
-pub fn get_vector_017() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)> {
+pub fn get_vector_017() -> Vec<(BitcoinBlockData, BlockchainEventExpectation)> {
     vec![
         (
             bitcoin_blocks::A1(None),
@@ -1227,7 +1228,7 @@ pub fn get_vector_017() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)>
 ///       \                               \ E3(9)  -  F3(10)
 ///        \  B2(4)  -  C2(5)  -  D2(11) -  E2(12) -  F2(13)  - G2(14)
 ///
-pub fn get_vector_018() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)> {
+pub fn get_vector_018() -> Vec<(BitcoinBlockData, BlockchainEventExpectation)> {
     vec![
         (
             bitcoin_blocks::A1(None),
@@ -1318,7 +1319,7 @@ pub fn get_vector_018() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)>
 ///       \                               \ E3(9)  -  F3(10)
 ///        \  B2(4)  -  C2(5)  -  D2(11) -  E2(12) -  F2(13) - G2(14)
 ///
-pub fn get_vector_019() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)> {
+pub fn get_vector_019() -> Vec<(BitcoinBlockData, BlockchainEventExpectation)> {
     vec![
         (
             bitcoin_blocks::A1(None),
@@ -1410,7 +1411,7 @@ pub fn get_vector_019() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)>
 ///       \                               \ E3(9)  -  F3(10) - G3(16)
 ///        \  B2(4)  -  C2(5)  -  D2(11) -  E2(12) -  F2(13) - G2(14)
 ///
-pub fn get_vector_020() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)> {
+pub fn get_vector_020() -> Vec<(BitcoinBlockData, BlockchainEventExpectation)> {
     vec![
         (
             bitcoin_blocks::A1(None),
@@ -1501,7 +1502,7 @@ pub fn get_vector_020() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)>
 ///
 /// A1(1)  -  B1(3)  -  C1(2)
 ///
-pub fn get_vector_021() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)> {
+pub fn get_vector_021() -> Vec<(BitcoinBlockData, BlockchainEventExpectation)> {
     vec![
         (
             bitcoin_blocks::A1(None),
@@ -1523,7 +1524,7 @@ pub fn get_vector_021() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)>
 /// A1(1)  -  B1(2)  -  C1(3)
 ///        \  B2(5)  -  C2(4)
 ///
-pub fn get_vector_022() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)> {
+pub fn get_vector_022() -> Vec<(BitcoinBlockData, BlockchainEventExpectation)> {
     vec![
         (
             bitcoin_blocks::A1(None),
@@ -1554,7 +1555,7 @@ pub fn get_vector_022() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)>
 /// A1(1)  -  B1(5)  -  C1(3)
 ///        \  B2(2)  -  C2(4)
 ///
-pub fn get_vector_023() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)> {
+pub fn get_vector_023() -> Vec<(BitcoinBlockData, BlockchainEventExpectation)> {
     vec![
         (
             bitcoin_blocks::A1(None),
@@ -1585,7 +1586,7 @@ pub fn get_vector_023() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)>
 /// A1(1)  -  B1(5)  -  C1(4)  -  D1(6)
 ///        \  B2(2)  -  C2(3)
 ///
-pub fn get_vector_024() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)> {
+pub fn get_vector_024() -> Vec<(BitcoinBlockData, BlockchainEventExpectation)> {
     vec![
         (
             bitcoin_blocks::A1(None),
@@ -1620,7 +1621,7 @@ pub fn get_vector_024() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)>
 /// A1(1)  -  B1(2)  -  C1(4)  -  D1(5)  -  E1(6)
 ///        \  B2(3)  -  C2(7)
 ///
-pub fn get_vector_025() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)> {
+pub fn get_vector_025() -> Vec<(BitcoinBlockData, BlockchainEventExpectation)> {
     vec![
         (
             bitcoin_blocks::A1(None),
@@ -1663,7 +1664,7 @@ pub fn get_vector_025() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)>
 /// A1(1)  -  B1(2)  -  C1(3)  -  D1(8)  -  E1(7)  -  F1(6)
 ///        \  B2(5)  -  C2(4)
 ///
-pub fn get_vector_026() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)> {
+pub fn get_vector_026() -> Vec<(BitcoinBlockData, BlockchainEventExpectation)> {
     vec![
         (
             bitcoin_blocks::A1(None),
@@ -1710,7 +1711,7 @@ pub fn get_vector_026() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)>
 /// A1(1)  -  B1(2)  -  C1(4)  -  D1(9)  -  E1(8)  -  F1(7)  -  G1(6)
 ///        \  B2(5)  -  C2(3)
 ///
-pub fn get_vector_027() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)> {
+pub fn get_vector_027() -> Vec<(BitcoinBlockData, BlockchainEventExpectation)> {
     vec![
         (
             bitcoin_blocks::A1(None),
@@ -1759,7 +1760,7 @@ pub fn get_vector_027() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)>
 /// A1(1)  -  B1(8)  -  C1(10)  -  D1(3)  -  E1(6)  -  F1(2)  -  G1(5)  -  H1(4)
 ///        \  B2(7)  -  C2(9)
 ///
-pub fn get_vector_028() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)> {
+pub fn get_vector_028() -> Vec<(BitcoinBlockData, BlockchainEventExpectation)> {
     vec![
         (
             bitcoin_blocks::A1(None),
@@ -1814,7 +1815,7 @@ pub fn get_vector_028() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)>
 /// A1(1)  -  B1(7)  -  C1(6)  -  D1(9)  -  E1(10)  -  F1(2)  -  G1(3)  -  H1(4)  -  I1(11)
 ///        \  B2(8)  -  C2(5)
 ///
-pub fn get_vector_029() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)> {
+pub fn get_vector_029() -> Vec<(BitcoinBlockData, BlockchainEventExpectation)> {
     vec![
         (
             bitcoin_blocks::A1(None),
@@ -1879,7 +1880,7 @@ pub fn get_vector_029() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)>
 /// A1(1)  -  B1(9)  -  C1(8)  -  D1(7)  -  E1(6)  -  F1(5)  -  G1(4)  -  H1(3)  -  I1(2)
 ///        \  B2(11)  -  C2(10)
 ///
-pub fn get_vector_030() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)> {
+pub fn get_vector_030() -> Vec<(BitcoinBlockData, BlockchainEventExpectation)> {
     vec![
         (
             bitcoin_blocks::A1(None),
@@ -1923,7 +1924,7 @@ pub fn get_vector_030() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)>
 ///       \                               \ E3(2)
 ///        \  B2(3)  -  C2(5)
 ///
-pub fn get_vector_031() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)> {
+pub fn get_vector_031() -> Vec<(BitcoinBlockData, BlockchainEventExpectation)> {
     vec![
         (
             bitcoin_blocks::A1(None),
@@ -1983,7 +1984,7 @@ pub fn get_vector_031() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)>
 ///       \                     \ D3(7)  -  E3(9)
 ///        \  B2(4)  -  C2(6)
 ///
-pub fn get_vector_032() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)> {
+pub fn get_vector_032() -> Vec<(BitcoinBlockData, BlockchainEventExpectation)> {
     vec![
         (
             bitcoin_blocks::A1(None),
@@ -2083,7 +2084,7 @@ pub fn get_vector_032() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)>
 ///       \                       \ D3(10) -  E3(7)  -  F3(3)
 ///        \  B2(11)  -  C2(8)
 ///
-pub fn get_vector_033() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)> {
+pub fn get_vector_033() -> Vec<(BitcoinBlockData, BlockchainEventExpectation)> {
     vec![
         (
             bitcoin_blocks::A1(None),
@@ -2151,7 +2152,7 @@ pub fn get_vector_033() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)>
 ///       \            \ C3(5)   -  D3(3)  -  E3(8)  -  F3(15)
 ///        \  B2(10)  -  C2(11)
 ///
-pub fn get_vector_034() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)> {
+pub fn get_vector_034() -> Vec<(BitcoinBlockData, BlockchainEventExpectation)> {
     vec![
         (
             bitcoin_blocks::A1(None),
@@ -2220,7 +2221,7 @@ pub fn get_vector_034() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)>
 ///       \           \ C3(6)  -  D3(7)  -  E3(11)  -  F3(9)   -  G3(16)
 ///        \  B2(2)  -  C2(3)
 ///
-pub fn get_vector_035() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)> {
+pub fn get_vector_035() -> Vec<(BitcoinBlockData, BlockchainEventExpectation)> {
     vec![
         (
             bitcoin_blocks::A1(None),
@@ -2326,7 +2327,7 @@ pub fn get_vector_035() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)>
 ///       \          \  C3(6) - D3(7) -  E3(17)  -  F3(11) -  G3(12)
 ///        \  B2(3)  -  C2(8) - D2(5) -  E2(14)  -  F2(13) -  G2(10)
 ///
-pub fn get_vector_036() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)> {
+pub fn get_vector_036() -> Vec<(BitcoinBlockData, BlockchainEventExpectation)> {
     vec![
         (
             bitcoin_blocks::A1(None),
@@ -2402,7 +2403,7 @@ pub fn get_vector_036() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)>
 ///        \  B3(6) - C3(7) - D3(17) - E3(11) - F3(12)
 ///        \  B2(3) - C2(8) - D2(5)  - E2(14) - F2(13) -  G2(10)
 ///
-pub fn get_vector_037() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)> {
+pub fn get_vector_037() -> Vec<(BitcoinBlockData, BlockchainEventExpectation)> {
     vec![
         (
             bitcoin_blocks::A1(None),
@@ -2478,7 +2479,7 @@ pub fn get_vector_037() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)>
 ///        \  B3(17) - C3(10) - D3(9)  - E3(8)  - F3(7)
 ///        \  B2(18) - C2(15) - D2(14) - E2(13) - F2(12) - G2(11)
 ///
-pub fn get_vector_038() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)> {
+pub fn get_vector_038() -> Vec<(BitcoinBlockData, BlockchainEventExpectation)> {
     vec![
         (
             bitcoin_blocks::A1(None),
@@ -2560,7 +2561,7 @@ pub fn get_vector_038() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)>
 ///       \                               \  E3(10)  - F3(9)
 ///        \  B2(14)  -  C2(13)  -  D2(12) -  E2(11) - F2(5) - G2(4)
 ///
-pub fn get_vector_039() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)> {
+pub fn get_vector_039() -> Vec<(BitcoinBlockData, BlockchainEventExpectation)> {
     vec![
         (
             bitcoin_blocks::A1(None),
@@ -2602,7 +2603,7 @@ pub fn get_vector_039() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)>
 ///       \                               \  E3(9)  - F3(8) -  G3(7)
 ///        \  B2(15)  -  C2(14)  -  D2(13) - E2(12) - F2(11) - G2(10)
 ///
-pub fn get_vector_040() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)> {
+pub fn get_vector_040() -> Vec<(BitcoinBlockData, BlockchainEventExpectation)> {
     vec![
         (
             bitcoin_blocks::A1(None),
@@ -2647,6 +2648,6 @@ pub fn get_vector_040() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)>
 /// A1(1) - B1(2) - C1(3) -  D1(5) - E1(8) - F1(9)
 ///               \ C2(4)  - D2(6) - E2(7) - F2(10) - G2(11)
 ///
-pub fn get_vector_041() -> Vec<(BitcoinBlockData, BitcoinChainEventExpectation)> {
+pub fn get_vector_041() -> Vec<(BitcoinBlockData, BlockchainEventExpectation)> {
     vec![]
 }

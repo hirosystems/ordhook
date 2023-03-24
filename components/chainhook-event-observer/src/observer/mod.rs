@@ -175,6 +175,7 @@ pub struct ContractReadonlyCall {
 #[derive(Clone, Debug, PartialEq)]
 pub enum ObserverCommand {
     ProcessBitcoinBlock(BitcoinBlockFullBreakdown),
+    CacheBitcoinBlock(BitcoinBlockData),
     PropagateBitcoinChainEvent(BlockchainEvent),
     PropagateStacksChainEvent(StacksChainEvent),
     PropagateStacksMempoolEvent(StacksChainMempoolEvent),
@@ -798,6 +799,9 @@ pub async fn start_observer_commands_handler(
                 }
 
                 bitcoin_block_store.insert(new_block.block_identifier.clone(), new_block);
+            }
+            ObserverCommand::CacheBitcoinBlock(block) => {
+                bitcoin_block_store.insert(block.block_identifier.clone(), block);
             }
             ObserverCommand::PropagateBitcoinChainEvent(blockchain_event) => {
                 ctx.try_log(|logger| {
