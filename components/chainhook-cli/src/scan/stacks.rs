@@ -25,7 +25,6 @@ use chainhook_types::BlockIdentifier;
 
 pub async fn scan_stacks_chain_with_predicate(
     predicate: StacksChainhookFullSpecification,
-    _apply: bool,
     config: &mut Config,
     ctx: &Context,
 ) -> Result<(), String> {
@@ -136,7 +135,7 @@ pub async fn scan_stacks_chain_with_predicate(
     let mut blocks_scanned = 0;
     info!(
         ctx.expect_logger(),
-        "Starting predicate evaluation on blocks"
+        "Starting predicate evaluation on Stacks blocks"
     );
     for (_block_identifier, _parent_block_identifier, blob) in canonical_fork.drain(..) {
         blocks_scanned += 1;

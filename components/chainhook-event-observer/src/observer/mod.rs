@@ -15,10 +15,9 @@ use crate::indexer::bitcoin::{
 };
 use crate::indexer::ordinals::db::{
     find_inscription_with_ordinal_number, find_inscriptions_at_wached_outpoint,
-    find_last_inscription_number, initialize_ordinal_state_storage, open_readonly_ordinals_db_conn,
-    open_readwrite_ordinals_db_conn, retrieve_satoshi_point_using_local_storage,
-    store_new_inscription, update_transfered_inscription, write_compacted_block_to_index,
-    CompactedBlock,
+    find_last_inscription_number, initialize_hord_db, open_readonly_hord_db_conn,
+    open_readwrite_hord_db_conn, retrieve_satoshi_point_using_local_storage, store_new_inscription,
+    update_transfered_inscription, write_compacted_block_to_index, CompactedBlock,
 };
 use crate::indexer::ordinals::ord::height::Height;
 use crate::indexer::ordinals::ord::{
@@ -130,8 +129,6 @@ impl EventHandler {
 
 #[derive(Clone, Debug)]
 pub struct EventObserverConfig {
-    pub normalization_enabled: bool,
-    pub grpc_server_enabled: bool,
     pub hooks_enabled: bool,
     pub chainhook_config: Option<ChainhookConfig>,
     pub bitcoin_rpc_proxy_enabled: bool,
@@ -490,7 +487,7 @@ pub async fn start_observer_commands_handler(
     let networks = (&config.bitcoin_network, &config.stacks_network);
     let mut bitcoin_block_store: HashMap<BlockIdentifier, BitcoinBlockData> = HashMap::new();
     // {
-    //     let _ = initialize_ordinal_state_storage(&config.get_cache_path_buf(), &ctx);
+    //     let _ = initialize_hord_db(&config.get_cache_path_buf(), &ctx);
     // }
     loop {
         let command = match observer_commands_rx.recv() {
@@ -531,8 +528,7 @@ pub async fn start_observer_commands_handler(
 
                     let compacted_block = CompactedBlock::from_standardized_block(&new_block);
                     let storage_rw_conn =
-                        open_readwrite_ordinals_db_conn(&config.get_cache_path_buf(), &ctx)
-                            .unwrap(); // TODO(lgalabru)
+                        open_readwrite_hord_db_conn(&config.get_cache_path_buf(), &ctx).unwrap(); // TODO(lgalabru)
                     write_compacted_block_to_index(
                         new_block.block_identifier.index as u32,
                         &compacted_block,
@@ -556,14 +552,14 @@ pub async fn start_observer_commands_handler(
                         new_tx.metadata.ordinal_operations.iter_mut().enumerate()
                     {
                         if let OrdinalOperation::InscriptionRevealed(inscription) = ordinal_event {
-                            let storage_conn =
-                                open_readonly_ordinals_db_conn(&config.get_cache_path_buf(), &ctx)
+                            let hord_db_conn =
+                                open_readonly_hord_db_conn(&config.get_cache_path_buf(), &ctx)
                                     .unwrap(); // TODO(lgalabru)
 
                             let (ordinal_block_height, ordinal_offset, ordinal_number) = {
                                 // Are we looking at a re-inscription?
                                 let res = retrieve_satoshi_point_using_local_storage(
-                                    &storage_conn,
+                                    &hord_db_conn,
                                     &new_block.block_identifier,
                                     &new_tx.transaction_identifier,
                                     &ctx,
@@ -586,7 +582,7 @@ pub async fn start_observer_commands_handler(
 
                             if let Some(_entry) = find_inscription_with_ordinal_number(
                                 &ordinal_number,
-                                &storage_conn,
+                                &hord_db_conn,
                                 &ctx,
                             ) {
                                 ctx.try_log(|logger| {
@@ -598,7 +594,7 @@ pub async fn start_observer_commands_handler(
                                 inscription.ordinal_block_height = ordinal_block_height;
                                 inscription.ordinal_number = ordinal_number;
                                 inscription.inscription_number =
-                                    match find_last_inscription_number(&storage_conn, &ctx) {
+                                    match find_last_inscription_number(&hord_db_conn, &ctx) {
                                         Ok(inscription_number) => inscription_number,
                                         Err(e) => {
                                             ctx.try_log(|logger| {
@@ -622,12 +618,17 @@ pub async fn start_observer_commands_handler(
                                 });
 
                                 {
-                                    let storage_rw_conn = open_readwrite_ordinals_db_conn(
+                                    let storage_rw_conn = open_readwrite_hord_db_conn(
                                         &config.get_cache_path_buf(),
                                         &ctx,
                                     )
                                     .unwrap(); // TODO(lgalabru)
-                                    store_new_inscription(&inscription, &storage_rw_conn, &ctx)
+                                    store_new_inscription(
+                                        &inscription,
+                                        &new_block.block_identifier,
+                                        &storage_rw_conn,
+                                        &ctx,
+                                    )
                                 }
                             }
                         }
@@ -636,8 +637,8 @@ pub async fn start_observer_commands_handler(
                     // Have inscriptions been transfered?
                     let mut sats_in_offset = 0;
                     let mut sats_out_offset = 0;
-                    let storage_conn =
-                        open_readonly_ordinals_db_conn(&config.get_cache_path_buf(), &ctx).unwrap(); // TODO(lgalabru)
+                    let hord_db_conn =
+                        open_readonly_hord_db_conn(&config.get_cache_path_buf(), &ctx).unwrap(); // TODO(lgalabru)
 
                     for input in new_tx.metadata.inputs.iter() {
                         // input.previous_output.txid
@@ -651,7 +652,7 @@ pub async fn start_observer_commands_handler(
 
                         let entries = find_inscriptions_at_wached_outpoint(
                             &outpoint_pre_transfer,
-                            &storage_conn,
+                            &hord_db_conn,
                         );
 
                         ctx.try_log(|logger| {
@@ -754,11 +755,9 @@ pub async fn start_observer_commands_handler(
 
                             // Update watched outpoint
                             {
-                                let storage_rw_conn = open_readwrite_ordinals_db_conn(
-                                    &config.get_cache_path_buf(),
-                                    &ctx,
-                                )
-                                .unwrap(); // TODO(lgalabru)
+                                let storage_rw_conn =
+                                    open_readwrite_hord_db_conn(&config.get_cache_path_buf(), &ctx)
+                                        .unwrap(); // TODO(lgalabru)
                                 update_transfered_inscription(
                                     &inscription_id,
                                     &outpoint_post_transfer,
@@ -1417,7 +1416,7 @@ pub async fn handle_new_bitcoin_block(
 
     let block_hash = bitcoin_block.burn_block_hash.strip_prefix("0x").unwrap();
     let block =
-        match retrieve_full_block_breakdown_with_retry(bitcoin_config, block_hash, ctx).await {
+        match retrieve_full_block_breakdown_with_retry(block_hash, bitcoin_config, ctx).await {
             Ok(block) => block,
             Err(e) => {
                 ctx.try_log(|logger| {

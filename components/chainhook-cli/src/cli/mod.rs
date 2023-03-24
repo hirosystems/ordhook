@@ -8,8 +8,7 @@ use crate::scan::stacks::scan_stacks_chain_with_predicate;
 use chainhook_event_observer::chainhooks::types::ChainhookFullSpecification;
 use chainhook_event_observer::indexer::ordinals::db::{
     build_bitcoin_traversal_local_storage, find_inscriptions_at_wached_outpoint,
-    initialize_ordinal_state_storage, open_readonly_ordinals_db_conn,
-    retrieve_satoshi_point_using_local_storage,
+    initialize_hord_db, open_readonly_hord_db_conn, retrieve_satoshi_point_using_local_storage,
 };
 use chainhook_event_observer::observer::BitcoinConfig;
 use chainhook_event_observer::utils::Context;
@@ -339,11 +338,10 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     })?;
                 match predicate {
                     ChainhookFullSpecification::Bitcoin(predicate) => {
-                        scan_bitcoin_chain_with_predicate(predicate, true, &config, &ctx).await?;
+                        scan_bitcoin_chain_with_predicate(predicate, &config, &ctx).await?;
                     }
                     ChainhookFullSpecification::Stacks(predicate) => {
-                        scan_stacks_chain_with_predicate(predicate, true, &mut config, &ctx)
-                            .await?;
+                        scan_stacks_chain_with_predicate(predicate, &mut config, &ctx).await?;
                     }
                 }
             }
@@ -360,12 +358,12 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     hash: "".into(),
                 };
 
-                let storage_conn =
-                    open_readonly_ordinals_db_conn(&config.expected_cache_path(), &ctx).unwrap();
+                let hord_db_conn =
+                    open_readonly_hord_db_conn(&config.expected_cache_path(), &ctx).unwrap();
 
                 let (block_height, offset, ordinal_number) =
                     retrieve_satoshi_point_using_local_storage(
-                        &storage_conn,
+                        &hord_db_conn,
                         &block_identifier,
                         &transaction_identifier,
                         &ctx,
@@ -385,12 +383,11 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     rpc_url: config.network.bitcoin_node_rpc_url.clone(),
                 };
 
-                let storage_conn =
-                    initialize_ordinal_state_storage(&config.expected_cache_path(), &ctx);
+                let hord_db_conn = initialize_hord_db(&config.expected_cache_path(), &ctx);
 
                 let _ = build_bitcoin_traversal_local_storage(
                     &bitcoin_config,
-                    &storage_conn,
+                    &hord_db_conn,
                     cmd.start_block,
                     cmd.end_block,
                     &ctx,
@@ -402,9 +399,9 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                 let mut db_path = PathBuf::new();
                 db_path.push(&cmd.db_path.unwrap());
 
-                let storage_conn = open_readonly_ordinals_db_conn(&db_path, &ctx).unwrap();
+                let hord_db_conn = open_readonly_hord_db_conn(&db_path, &ctx).unwrap();
 
-                let results = find_inscriptions_at_wached_outpoint(&cmd.outpoint, &storage_conn);
+                let results = find_inscriptions_at_wached_outpoint(&cmd.outpoint, &hord_db_conn);
                 println!("{:?}", results);
             }
         },

@@ -28,8 +28,6 @@ use super::ObserverEvent;
 fn generate_test_config() -> (EventObserverConfig, ChainhookStore) {
     let operators = HashSet::new();
     let config = EventObserverConfig {
-        normalization_enabled: true,
-        grpc_server_enabled: false,
         hooks_enabled: true,
         chainhook_config: Some(ChainhookConfig::new()),
         bitcoin_rpc_proxy_enabled: false,
@@ -429,8 +427,7 @@ fn test_stacks_chainhook_auto_deregister() {
 
     // Create and register a new chainhook
     let contract_identifier = format!("{}.{}", accounts::deployer_stx_address(), "counter");
-    let chainhook =
-        stacks_chainhook_contract_call(0, &contract_identifier, Some(1), "increment");
+    let chainhook = stacks_chainhook_contract_call(0, &contract_identifier, Some(1), "increment");
 
     let _ = observer_commands_tx.send(ObserverCommand::RegisterHook(
         ChainhookFullSpecification::Stacks(chainhook.clone()),

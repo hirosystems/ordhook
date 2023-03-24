@@ -2,8 +2,12 @@ pub mod file;
 pub mod generator;
 
 pub use chainhook_event_observer::indexer::IndexerConfig;
+use chainhook_event_observer::observer::{
+    EventObserverConfig, DEFAULT_CONTROL_PORT, DEFAULT_INGESTION_PORT,
+};
 use chainhook_types::{BitcoinNetwork, StacksNetwork};
 pub use file::ConfigFile;
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::PathBuf;
@@ -89,6 +93,26 @@ impl Config {
             }
         };
         Config::from_config_file(config_file)
+    }
+
+    pub fn get_event_observer_config(&self) -> EventObserverConfig {
+        EventObserverConfig {
+            hooks_enabled: true,
+            bitcoin_rpc_proxy_enabled: true,
+            event_handlers: vec![],
+            chainhook_config: None,
+            ingestion_port: DEFAULT_INGESTION_PORT,
+            control_port: DEFAULT_CONTROL_PORT,
+            bitcoin_node_username: self.network.bitcoin_node_rpc_username.clone(),
+            bitcoin_node_password: self.network.bitcoin_node_rpc_password.clone(),
+            bitcoin_node_rpc_url: self.network.bitcoin_node_rpc_url.clone(),
+            stacks_node_rpc_url: self.network.stacks_node_rpc_url.clone(),
+            operators: HashSet::new(),
+            display_logs: false,
+            cache_path: self.storage.cache_path.clone(),
+            bitcoin_network: self.network.bitcoin_network.clone(),
+            stacks_network: self.network.stacks_network.clone(),
+        }
     }
 
     pub fn from_config_file(config_file: ConfigFile) -> Result<Config, String> {

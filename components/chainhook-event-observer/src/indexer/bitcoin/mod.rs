@@ -159,13 +159,13 @@ pub struct RewardParticipant {
 }
 
 pub async fn retrieve_full_block_breakdown_with_retry(
-    bitcoin_config: &BitcoinConfig,
     block_hash: &str,
+    bitcoin_config: &BitcoinConfig,
     ctx: &Context,
 ) -> Result<BitcoinBlockFullBreakdown, String> {
     let mut errors_count = 0;
     let block = loop {
-        match retrieve_full_block_breakdown(bitcoin_config, block_hash, ctx).await {
+        match retrieve_full_block_breakdown(block_hash, bitcoin_config, ctx).await {
             Ok(result) => break result,
             Err(e) => {
                 errors_count += 1;
@@ -180,9 +180,31 @@ pub async fn retrieve_full_block_breakdown_with_retry(
     Ok(block)
 }
 
-pub async fn retrieve_full_block_breakdown(
+pub async fn retrieve_block_hash_with_retry(
+    block_height: &u64,
     bitcoin_config: &BitcoinConfig,
+    ctx: &Context,
+) -> Result<String, String> {
+    let mut errors_count = 0;
+    let block_hash = loop {
+        match retrieve_block_hash(block_height, bitcoin_config, ctx).await {
+            Ok(result) => break result,
+            Err(e) => {
+                errors_count += 1;
+                error!(
+                    "unable to retrieve block #{block_height} (attempt #{errors_count}): {}",
+                    e.to_string()
+                );
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
+    };
+    Ok(block_hash)
+}
+
+pub async fn retrieve_full_block_breakdown(
     block_hash: &str,
+    bitcoin_config: &BitcoinConfig,
     _ctx: &Context,
 ) -> Result<BitcoinBlockFullBreakdown, String> {
     use reqwest::Client as HttpClient;
@@ -215,8 +237,9 @@ pub async fn retrieve_full_block_breakdown(
 }
 
 pub async fn retrieve_block_hash(
-    bitcoin_config: &BitcoinConfig,
     block_height: &u64,
+    bitcoin_config: &BitcoinConfig,
+    _ctx: &Context,
 ) -> Result<String, String> {
     use reqwest::Client as HttpClient;
     let body = json!({

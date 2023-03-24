@@ -7,9 +7,7 @@ use chainhook_event_observer::chainhooks::types::{
     BitcoinPredicateType, ChainhookConfig, ChainhookFullSpecification, OrdinalOperations, Protocols,
 };
 use chainhook_event_observer::indexer;
-use chainhook_event_observer::observer::{
-    start_event_observer, ApiKey, EventObserverConfig, ObserverEvent,
-};
+use chainhook_event_observer::observer::{start_event_observer, ApiKey, ObserverEvent};
 use chainhook_event_observer::utils::{file_append, send_request, Context};
 use chainhook_event_observer::{
     chainhooks::stacks::{
@@ -23,7 +21,7 @@ use chainhook_types::{
 };
 use redis::{Commands, Connection};
 use reqwest::Client as HttpClient;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 use std::sync::mpsc::channel;
 use std::time::Duration;
 
@@ -107,25 +105,9 @@ impl Node {
         let (observer_event_tx, observer_event_rx) = crossbeam_channel::unbounded();
         // let (ordinal_indexer_command_tx, ordinal_indexer_command_rx) = channel();
 
-        let event_observer_config = EventObserverConfig {
-            normalization_enabled: true,
-            grpc_server_enabled: false,
-            hooks_enabled: true,
-            bitcoin_rpc_proxy_enabled: true,
-            event_handlers: vec![],
-            chainhook_config: Some(chainhook_config),
-            ingestion_port: DEFAULT_INGESTION_PORT,
-            control_port: DEFAULT_CONTROL_PORT,
-            bitcoin_node_username: self.config.network.bitcoin_node_rpc_username.clone(),
-            bitcoin_node_password: self.config.network.bitcoin_node_rpc_password.clone(),
-            bitcoin_node_rpc_url: self.config.network.bitcoin_node_rpc_url.clone(),
-            stacks_node_rpc_url: self.config.network.stacks_node_rpc_url.clone(),
-            operators: HashSet::new(),
-            display_logs: false,
-            cache_path: self.config.storage.cache_path.clone(),
-            bitcoin_network: self.config.network.bitcoin_network.clone(),
-            stacks_network: self.config.network.stacks_network.clone(),
-        };
+        let mut event_observer_config = self.config.get_event_observer_config();
+        event_observer_config.chainhook_config = Some(chainhook_config);
+
         info!(
             self.ctx.expect_logger(),
             "Listening for new blockchain events on port {}", DEFAULT_INGESTION_PORT
