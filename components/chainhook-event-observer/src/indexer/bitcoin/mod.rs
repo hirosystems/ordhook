@@ -1,6 +1,5 @@
 mod blocks_pool;
 
-
 use std::time::Duration;
 
 use crate::chainhooks::types::{
@@ -11,33 +10,25 @@ use crate::observer::{BitcoinConfig, EventObserverConfig};
 use crate::utils::Context;
 use bitcoincore_rpc::bitcoin::hashes::hex::FromHex;
 use bitcoincore_rpc::bitcoin::hashes::Hash;
-use bitcoincore_rpc::bitcoin::{
-    self, Address, Amount, BlockHash, Script,
-};
+use bitcoincore_rpc::bitcoin::{self, Address, Amount, BlockHash, Script};
 use bitcoincore_rpc_json::{
-    GetRawTransactionResultVinScriptSig,
-    GetRawTransactionResultVoutScriptPubKey,
+    GetRawTransactionResultVinScriptSig, GetRawTransactionResultVoutScriptPubKey,
 };
 pub use blocks_pool::BitcoinBlockPool;
 use chainhook_types::bitcoin::{OutPoint, TxIn, TxOut};
 use chainhook_types::{
     BitcoinBlockData, BitcoinBlockMetadata, BitcoinTransactionData, BitcoinTransactionMetadata,
     BlockCommitmentData, BlockHeader, BlockIdentifier, KeyRegistrationData, LockSTXData,
-    OrdinalInscriptionRevealData, OrdinalOperation, PoxReward,
-    StacksBaseChainOperation, StacksBlockCommitmentData, TransactionIdentifier, TransferSTXData,
+    OrdinalInscriptionRevealData, OrdinalOperation, PoxReward, StacksBaseChainOperation,
+    StacksBlockCommitmentData, TransactionIdentifier, TransferSTXData,
 };
 use hiro_system_kit::slog;
 
 use serde::Deserialize;
 
-
 use crate::hord::inscription::InscriptionParser;
 
-
-
-
 use crate::hord::ord::inscription_id::InscriptionId;
-
 
 #[derive(Clone, PartialEq, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]

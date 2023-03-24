@@ -4,8 +4,6 @@ use super::types::{
 };
 use crate::utils::Context;
 
-
-
 use bitcoincore_rpc::bitcoin::util::address::Payload;
 use bitcoincore_rpc::bitcoin::Address;
 use chainhook_types::{

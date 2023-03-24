@@ -3,8 +3,8 @@ use crate::{
     utils::Context,
 };
 use chainhook_types::{
-    BlockHeader, BlockIdentifier, BlockchainEvent,
-    BlockchainUpdatedWithHeaders, BlockchainUpdatedWithReorg,
+    BlockHeader, BlockIdentifier, BlockchainEvent, BlockchainUpdatedWithHeaders,
+    BlockchainUpdatedWithReorg,
 };
 use hiro_system_kit::slog;
 use std::collections::{BTreeMap, BTreeSet, HashSet};

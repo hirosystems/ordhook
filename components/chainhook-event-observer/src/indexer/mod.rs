@@ -5,20 +5,16 @@ pub mod stacks;
 use crate::utils::{AbstractBlock, Context};
 
 use chainhook_types::{
-    BitcoinNetwork, BlockHeader, BlockIdentifier, BlockchainEvent,
-    StacksChainEvent, StacksNetwork,
+    BitcoinNetwork, BlockHeader, BlockIdentifier, BlockchainEvent, StacksChainEvent, StacksNetwork,
 };
 use hiro_system_kit::slog;
 use rocket::serde::json::Value as JsonValue;
 
 use stacks::StacksBlockPool;
 use stacks_rpc_client::PoxInfo;
-use std::{
-    collections::{HashMap, VecDeque},
-};
+use std::collections::{HashMap, VecDeque};
 
 use self::fork_scratch_pad::ForkScratchPad;
-
 
 #[derive(Deserialize, Debug, Clone, Default)]
 pub struct AssetClassCache {

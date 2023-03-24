@@ -2,21 +2,19 @@ pub mod db;
 pub mod inscription;
 pub mod ord;
 
-use std::collections::VecDeque;
 use bitcoincore_rpc::bitcoin::hashes::hex::FromHex;
-use bitcoincore_rpc::bitcoin::{
-    Address, Script, Network,
-};
+use bitcoincore_rpc::bitcoin::{Address, Network, Script};
 use chainhook_types::{BitcoinBlockData, OrdinalInscriptionTransferData, OrdinalOperation};
 use hiro_system_kit::slog;
+use std::collections::VecDeque;
 
 use crate::{
     hord::{
         db::{
             find_inscription_with_ordinal_number, find_inscriptions_at_wached_outpoint,
-            find_last_inscription_number, open_readonly_hord_db_conn, open_readwrite_hord_db_conn,
-            retrieve_satoshi_point_using_local_storage, store_new_inscription,
-            update_transfered_inscription, write_compacted_block_to_index, CompactedBlock,
+            find_last_inscription_number, insert_entry_in_blocks, open_readonly_hord_db_conn,
+            open_readwrite_hord_db_conn, retrieve_satoshi_point_using_local_storage,
+            store_new_inscription, update_transfered_inscription, CompactedBlock,
         },
         ord::height::Height,
     },
@@ -24,27 +22,66 @@ use crate::{
     utils::Context,
 };
 
-pub fn process_bitcoin_block_using_hord(
+use self::db::{remove_entry_from_blocks, remove_entry_from_inscriptions};
+
+pub fn revert_hord_db_with_augmented_bitcoin_block(
+    block: &BitcoinBlockData,
     config: &EventObserverConfig,
-    new_block: &mut BitcoinBlockData,
     ctx: &Context,
-) {
+) -> Result<(), String> {
+    // Remove block from
+    let rw_hord_db_conn = open_readwrite_hord_db_conn(&config.get_cache_path_buf(), &ctx)?;
+    remove_entry_from_blocks(block.block_identifier.index as u32, &rw_hord_db_conn, ctx);
+    for tx_index in 1..=block.transactions.len() {
+        // Undo the changes in reverse order
+        let tx = &block.transactions[block.transactions.len() - tx_index];
+        for ordinal_event in tx.metadata.ordinal_operations.iter() {
+            match ordinal_event {
+                OrdinalOperation::InscriptionRevealed(data) => {
+                    // We remove any new inscription created
+                    remove_entry_from_inscriptions(&data.inscription_id, &rw_hord_db_conn, ctx);
+                }
+                OrdinalOperation::InscriptionTransferred(data) => {
+                    // We revert the outpoint to the pre-transfer value
+                    let comps = data.satpoint_pre_transfer.split(":").collect::<Vec<_>>();
+                    let outpoint_pre_transfer = format!("{}:{}", comps[0], comps[1]);
+                    let offset_pre_transfer = comps[2]
+                        .parse::<u64>()
+                        .map_err(|e| format!("hord_db corrupted {}", e.to_string()))?;
+                    update_transfered_inscription(
+                        &&data.inscription_id,
+                        &outpoint_pre_transfer,
+                        offset_pre_transfer,
+                        &rw_hord_db_conn,
+                        &ctx,
+                    );
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+pub fn update_hord_db_and_augment_bitcoin_block(
+    new_block: &mut BitcoinBlockData,
+    config: &EventObserverConfig,
+    ctx: &Context,
+) -> Result<(), String> {
     {
         ctx.try_log(|logger| {
             slog::info!(
                 logger,
-                "Persisting in local storage Bitcoin block #{} for further traversals",
+                "Updating hord.sqlite with Bitcoin block #{} for future traversals",
                 new_block.block_identifier.index,
             )
         });
 
         let compacted_block = CompactedBlock::from_standardized_block(&new_block);
-        let storage_rw_conn =
-            open_readwrite_hord_db_conn(&config.get_cache_path_buf(), &ctx).unwrap(); // TODO(lgalabru)
-        write_compacted_block_to_index(
+        let rw_hord_db_conn = open_readwrite_hord_db_conn(&config.get_cache_path_buf(), &ctx)?;
+        insert_entry_in_blocks(
             new_block.block_identifier.index as u32,
             &compacted_block,
-            &storage_rw_conn,
+            &rw_hord_db_conn,
             &ctx,
         );
     }
@@ -132,13 +169,13 @@ pub fn process_bitcoin_block_using_hord(
                     });
 
                     {
-                        let storage_rw_conn =
+                        let rw_hord_db_conn =
                             open_readwrite_hord_db_conn(&config.get_cache_path_buf(), &ctx)
                                 .unwrap(); // TODO(lgalabru)
                         store_new_inscription(
                             &inscription,
                             &new_block.block_identifier,
-                            &storage_rw_conn,
+                            &rw_hord_db_conn,
                             &ctx,
                         )
                     }
@@ -254,13 +291,13 @@ pub fn process_bitcoin_block_using_hord(
 
                 // Update watched outpoint
                 {
-                    let storage_rw_conn =
+                    let rw_hord_db_conn =
                         open_readwrite_hord_db_conn(&config.get_cache_path_buf(), &ctx).unwrap(); // TODO(lgalabru)
                     update_transfered_inscription(
                         &inscription_id,
                         &outpoint_post_transfer,
                         offset_post_transfer,
-                        &storage_rw_conn,
+                        &rw_hord_db_conn,
                         &ctx,
                     );
                 }
@@ -294,4 +331,5 @@ pub fn process_bitcoin_block_using_hord(
 
         cumulated_fees += new_tx.metadata.fee;
     }
+    Ok(())
 }

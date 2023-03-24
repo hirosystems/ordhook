@@ -10,9 +10,10 @@ use crate::chainhooks::types::{
     ChainhookConfig, ChainhookFullSpecification, ChainhookSpecification,
 };
 
-
 use crate::hord::ord::{indexing::updater::OrdinalIndexUpdater, initialize_ordinal_index};
-use crate::hord::process_bitcoin_block_using_hord;
+use crate::hord::{
+    revert_hord_db_with_augmented_bitcoin_block, update_hord_db_and_augment_bitcoin_block,
+};
 use crate::indexer::bitcoin::{
     retrieve_full_block_breakdown_with_retry, standardize_bitcoin_block, BitcoinBlockFullBreakdown,
     NewBitcoinBlock,
@@ -23,8 +24,9 @@ use crate::utils::{send_request, Context};
 use bitcoincore_rpc::bitcoin::{BlockHash, Txid};
 use bitcoincore_rpc::{Auth, Client, RpcApi};
 use chainhook_types::{
-    BitcoinBlockData, BitcoinChainEvent,
-    BitcoinChainUpdatedWithBlocksData, BitcoinChainUpdatedWithReorgData, BitcoinNetwork, BlockIdentifier, BlockchainEvent, StacksChainEvent, StacksNetwork, TransactionIdentifier,
+    BitcoinBlockData, BitcoinChainEvent, BitcoinChainUpdatedWithBlocksData,
+    BitcoinChainUpdatedWithReorgData, BitcoinNetwork, BlockIdentifier, BlockchainEvent,
+    StacksChainEvent, StacksNetwork, TransactionIdentifier,
 };
 use clarity_repl::clarity::util::hash::bytes_to_hex;
 use hiro_system_kit;
@@ -507,8 +509,7 @@ pub async fn start_observer_commands_handler(
                 break;
             }
             ObserverCommand::ProcessBitcoinBlock(block_data) => {
-                let mut new_block = standardize_bitcoin_block(&config, block_data, &ctx)?;
-                process_bitcoin_block_using_hord(&config, &mut new_block, &ctx);
+                let new_block = standardize_bitcoin_block(&config, block_data, &ctx)?;
                 bitcoin_block_store.insert(new_block.block_identifier.clone(), new_block);
             }
             ObserverCommand::CacheBitcoinBlock(block) => {
@@ -526,8 +527,9 @@ pub async fn start_observer_commands_handler(
                         let mut confirmed_blocks = vec![];
 
                         for header in data.new_headers.iter() {
-                            match bitcoin_block_store.get(&header.block_identifier) {
+                            match bitcoin_block_store.get_mut(&header.block_identifier) {
                                 Some(block) => {
+                                    update_hord_db_and_augment_bitcoin_block(block, &config, &ctx);
                                     new_blocks.push(block.clone());
                                 }
                                 None => {
@@ -571,10 +573,13 @@ pub async fn start_observer_commands_handler(
                         let mut blocks_to_rollback = vec![];
                         let mut confirmed_blocks = vec![];
 
-                        for header in data.headers_to_apply.iter() {
+                        for header in data.headers_to_rollback.iter() {
                             match bitcoin_block_store.get(&header.block_identifier) {
                                 Some(block) => {
-                                    blocks_to_apply.push(block.clone());
+                                    revert_hord_db_with_augmented_bitcoin_block(
+                                        block, &config, &ctx,
+                                    );
+                                    blocks_to_rollback.push(block.clone());
                                 }
                                 None => {
                                     ctx.try_log(|logger| {
@@ -588,10 +593,11 @@ pub async fn start_observer_commands_handler(
                             }
                         }
 
-                        for header in data.headers_to_rollback.iter() {
-                            match bitcoin_block_store.get(&header.block_identifier) {
+                        for header in data.headers_to_apply.iter() {
+                            match bitcoin_block_store.get_mut(&header.block_identifier) {
                                 Some(block) => {
-                                    blocks_to_rollback.push(block.clone());
+                                    update_hord_db_and_augment_bitcoin_block(block, &config, &ctx);
+                                    blocks_to_apply.push(block.clone());
                                 }
                                 None => {
                                     ctx.try_log(|logger| {

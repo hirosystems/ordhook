@@ -1,4 +1,4 @@
-use std::{path::PathBuf};
+use std::path::PathBuf;
 
 use chainhook_types::{
     BitcoinBlockData, BlockIdentifier, OrdinalInscriptionRevealData, TransactionIdentifier,
@@ -10,8 +10,8 @@ use threadpool::ThreadPool;
 
 use crate::{
     indexer::bitcoin::{
-        retrieve_block_hash_with_retry,
-        retrieve_full_block_breakdown_with_retry, BitcoinBlockFullBreakdown,
+        retrieve_block_hash_with_retry, retrieve_full_block_breakdown_with_retry,
+        BitcoinBlockFullBreakdown,
     },
     observer::BitcoinConfig,
     utils::Context,
@@ -236,11 +236,24 @@ impl CompactedBlock {
     }
 }
 
-pub fn retrieve_compacted_block_from_index(
-    block_id: u32,
+pub fn find_latest_compacted_block_known(hord_db_conn: &Connection) -> u32 {
+    let args: &[&dyn ToSql] = &[];
+    let mut stmt = hord_db_conn
+        .prepare("SELECT id FROM blocks ORDER BY id DESC LIMIT 1")
+        .unwrap();
+    let mut rows = stmt.query(args).unwrap();
+    while let Ok(Some(row)) = rows.next() {
+        let id: u32 = row.get(0).unwrap();
+        return id;
+    }
+    0
+}
+
+pub fn find_compacted_block_at_block_height(
+    block_height: u32,
     hord_db_conn: &Connection,
 ) -> Option<CompactedBlock> {
-    let args: &[&dyn ToSql] = &[&block_id.to_sql().unwrap()];
+    let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
     let mut stmt = hord_db_conn
         .prepare("SELECT compacted_bytes FROM blocks WHERE id = ?")
         .unwrap();
@@ -363,7 +376,7 @@ pub fn find_inscriptions_at_wached_outpoint(
     return results;
 }
 
-pub fn write_compacted_block_to_index(
+pub fn insert_entry_in_blocks(
     block_id: u32,
     compacted_block: &CompactedBlock,
     hord_db_conn: &Connection,
@@ -374,6 +387,28 @@ pub fn write_compacted_block_to_index(
     if let Err(e) = hord_db_conn.execute(
         "INSERT INTO blocks (id, compacted_bytes) VALUES (?1, ?2)",
         rusqlite::params![&block_id, &serialized_compacted_block],
+    ) {
+        ctx.try_log(|logger| slog::error!(logger, "{}", e.to_string()));
+    }
+}
+
+pub fn remove_entry_from_blocks(block_id: u32, hord_db_conn: &Connection, ctx: &Context) {
+    if let Err(e) = hord_db_conn.execute(
+        "DELETE FROM blocks WHERE id = ?1",
+        rusqlite::params![&block_id],
+    ) {
+        ctx.try_log(|logger| slog::error!(logger, "{}", e.to_string()));
+    }
+}
+
+pub fn remove_entry_from_inscriptions(
+    inscription_id: &str,
+    hord_db_conn: &Connection,
+    ctx: &Context,
+) {
+    if let Err(e) = hord_db_conn.execute(
+        "DELETE FROM inscriptions WHERE inscription_id = ?1",
+        rusqlite::params![&inscription_id],
     ) {
         ctx.try_log(|logger| slog::error!(logger, "{}", e.to_string()));
     }
@@ -417,7 +452,7 @@ pub async fn build_bitcoin_traversal_local_storage(
                 let moved_ctx = moved_ctx.clone();
                 retrieve_block_data_pool.execute(move || {
                     moved_ctx
-                        .try_log(|logger| slog::info!(logger, "Fetching block #{block_height}"));
+                        .try_log(|logger| slog::debug!(logger, "Fetching block #{block_height}"));
                     let future = retrieve_full_block_breakdown_with_retry(
                         &block_hash,
                         &moved_bitcoin_config,
@@ -450,8 +485,8 @@ pub async fn build_bitcoin_traversal_local_storage(
 
     let mut blocks_stored = 0;
     while let Ok(Some((block_height, compacted_block))) = block_compressed_rx.recv() {
-        ctx.try_log(|logger| slog::info!(logger, "Storing block #{block_height}"));
-        write_compacted_block_to_index(block_height, &compacted_block, &hord_db_conn, &ctx);
+        ctx.try_log(|logger| slog::info!(logger, "Storing compacted block #{block_height}"));
+        insert_entry_in_blocks(block_height, &compacted_block, &hord_db_conn, &ctx);
         blocks_stored += 1;
         if blocks_stored == end_block - start_block {
             let _ = block_data_tx.send(None);
@@ -486,7 +521,7 @@ pub fn retrieve_satoshi_point_using_local_storage(
     let mut tx_cursor = (txid, 0);
 
     loop {
-        let res = match retrieve_compacted_block_from_index(ordinal_block_number, &hord_db_conn) {
+        let res = match find_compacted_block_at_block_height(ordinal_block_number, &hord_db_conn) {
             Some(res) => res,
             None => {
                 return Err(format!("unable to retrieve block ##{ordinal_block_number}"));
@@ -496,17 +531,17 @@ pub fn retrieve_satoshi_point_using_local_storage(
         let coinbase_txid = &res.0 .0 .0;
         let txid = tx_cursor.0;
 
-        ctx.try_log(|logger| {
-            slog::info!(
-                logger,
-                "{ordinal_block_number}:{:?}:{:?}",
-                hex::encode(&coinbase_txid),
-                hex::encode(&txid)
-            )
-        });
+        // ctx.try_log(|logger| {
+        //     slog::debug!(
+        //         logger,
+        //         "{ordinal_block_number}:{:?}:{:?}",
+        //         hex::encode(&coinbase_txid),
+        //         hex::encode(&txid)
+        //     )
+        // });
 
         // to remove
-        std::thread::sleep(std::time::Duration::from_millis(300));
+        //std::thread::sleep(std::time::Duration::from_millis(300));
 
         // evaluate exit condition: did we reach the **final** coinbase transaction
         if coinbase_txid.eq(&txid) {
@@ -556,38 +591,38 @@ pub fn retrieve_satoshi_point_using_local_storage(
                     continue;
                 }
 
-                ctx.try_log(|logger| {
-                    slog::info!(logger, "Evaluating {}: {:?}", hex::encode(&txid_n), outputs)
-                });
+                // ctx.try_log(|logger| {
+                //     slog::debug!(logger, "Evaluating {}: {:?}", hex::encode(&txid_n), outputs)
+                // });
 
                 let mut sats_out = 0;
                 for (index, output_value) in outputs.iter().enumerate() {
                     if index == tx_cursor.1 {
                         break;
                     }
-                    ctx.try_log(|logger| {
-                        slog::info!(logger, "Adding {} from output #{}", output_value, index)
-                    });
+                    // ctx.try_log(|logger| {
+                    //     slog::debug!(logger, "Adding {} from output #{}", output_value, index)
+                    // });
                     sats_out += output_value;
                 }
                 sats_out += ordinal_offset;
-                ctx.try_log(|logger| {
-                    slog::info!(
-                        logger,
-                        "Adding offset {ordinal_offset} to sats_out {sats_out}"
-                    )
-                });
+                // ctx.try_log(|logger| {
+                //     slog::debug!(
+                //         logger,
+                //         "Adding offset {ordinal_offset} to sats_out {sats_out}"
+                //     )
+                // });
 
                 let mut sats_in = 0;
                 for (txin, block_height, vout, txin_value) in inputs.into_iter() {
                     sats_in += txin_value;
-                    ctx.try_log(|logger| {
-                        slog::info!(
-                            logger,
-                            "Adding txin_value {txin_value} to sats_in {sats_in} (txin: {})",
-                            hex::encode(&txin)
-                        )
-                    });
+                    // ctx.try_log(|logger| {
+                    //     slog::debug!(
+                    //         logger,
+                    //         "Adding txin_value {txin_value} to sats_in {sats_in} (txin: {})",
+                    //         hex::encode(&txin)
+                    //     )
+                    // });
 
                     if sats_in >= sats_out {
                         ordinal_offset = sats_out - (sats_in - txin_value);

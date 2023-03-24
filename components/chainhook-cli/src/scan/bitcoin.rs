@@ -9,7 +9,9 @@ use chainhook_event_observer::chainhooks::types::{
     BitcoinChainhookFullSpecification, BitcoinPredicateType, Protocols,
 };
 use chainhook_event_observer::hord::db::{
-    find_all_inscriptions, open_readonly_hord_db_conn, retrieve_compacted_block_from_index,
+    build_bitcoin_traversal_local_storage, find_all_inscriptions,
+    find_compacted_block_at_block_height, find_latest_compacted_block_known,
+    open_readonly_hord_db_conn, open_readwrite_hord_db_conn,
 };
 use chainhook_event_observer::indexer;
 use chainhook_event_observer::indexer::bitcoin::{
@@ -88,7 +90,7 @@ pub async fn scan_bitcoin_chain_with_predicate(
                 );
             }
             // Will we have to update the blocks table?
-            if retrieve_compacted_block_from_index(end_block as u32, &hord_db_conn).is_none() {
+            if find_compacted_block_at_block_height(end_block as u32, &hord_db_conn).is_none() {
                 hord_blocks_requires_update = true;
             }
         }
@@ -101,6 +103,28 @@ pub async fn scan_bitcoin_chain_with_predicate(
             // Count how many entries in the table
             // Compute the right interval
             // Start the build local storage routine
+
+            // TODO: make sure that we have a contiguous chain
+            // check_compacted_blocks_chain_integrity(&hord_db_conn);
+            let rw_hord_db_conn = open_readwrite_hord_db_conn(&config.expected_cache_path(), ctx)?;
+
+            let start_block = find_latest_compacted_block_known(&rw_hord_db_conn) as u64;
+            if start_block < end_block {
+                warn!(
+                    ctx.expect_logger(),
+                    "Database hord.sqlite appears to be outdated regarding the window of blocks provided. Syncing {} missing blocks",
+                    (end_block - start_block)
+                );
+                build_bitcoin_traversal_local_storage(
+                    &config.get_event_observer_config().get_bitcoin_config(),
+                    &rw_hord_db_conn,
+                    start_block,
+                    end_block,
+                    &ctx,
+                    8,
+                )
+                .await?;
+            }
         }
     }
 

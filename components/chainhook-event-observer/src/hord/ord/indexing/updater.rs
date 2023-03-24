@@ -3,13 +3,11 @@ use crate::{
     utils::Context,
 };
 use anyhow::Context as Ctx;
-use bitcoincore_rpc::bitcoin::{
-    OutPoint, Transaction, Txid,
-};
+use bitcoincore_rpc::bitcoin::{OutPoint, Transaction, Txid};
 use hiro_system_kit::slog;
 
 use std::{
-    collections::{VecDeque},
+    collections::VecDeque,
     time::{Instant, SystemTime},
 };
 
@@ -17,7 +15,7 @@ use super::Result;
 use {self::inscription_updater::InscriptionUpdater, super::*, std::sync::mpsc};
 
 use {
-    super::{fetcher::Fetcher},
+    super::fetcher::Fetcher,
     futures::future::try_join_all,
     tokio::sync::mpsc::{error::TryRecvError, Receiver, Sender},
 };

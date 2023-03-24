@@ -2,7 +2,7 @@
 #![allow(unused_variables)]
 
 use hiro_system_kit::slog;
-use std::{path::PathBuf};
+use std::path::PathBuf;
 
 type Result<T = (), E = anyhow::Error> = std::result::Result<T, E>;
 
