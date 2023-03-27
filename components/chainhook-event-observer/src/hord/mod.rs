@@ -13,7 +13,7 @@ use crate::{
     hord::{
         db::{
             find_inscription_with_ordinal_number, find_inscriptions_at_wached_outpoint,
-            find_last_inscription_number, insert_entry_in_blocks,
+            find_latest_inscription_number, insert_entry_in_blocks,
             retrieve_satoshi_point_using_local_storage, store_new_inscription,
             update_transfered_inscription, CompactedBlock,
         },
@@ -65,8 +65,9 @@ pub fn update_hord_db_and_augment_bitcoin_block(
     new_block: &mut BitcoinBlockData,
     rw_hord_db_conn: &Connection,
     ctx: &Context,
+    write_block: bool,
 ) -> Result<(), String> {
-    {
+    if write_block {
         ctx.try_log(|logger| {
             slog::info!(
                 logger,
@@ -98,7 +99,7 @@ pub fn update_hord_db_and_augment_bitcoin_block(
             new_tx.metadata.ordinal_operations.iter_mut().enumerate()
         {
             if let OrdinalOperation::InscriptionRevealed(inscription) = ordinal_event {
-                let (ordinal_block_height, ordinal_offset, ordinal_number) = {
+                let (ordinal_block_height, ordinal_offset, ordinal_number, _) = {
                     // Are we looking at a re-inscription?
                     let res = retrieve_satoshi_point_using_local_storage(
                         &rw_hord_db_conn,
@@ -140,7 +141,7 @@ pub fn update_hord_db_and_augment_bitcoin_block(
                     inscription.ordinal_block_height = ordinal_block_height;
                     inscription.ordinal_number = ordinal_number;
                     inscription.inscription_number =
-                        match find_last_inscription_number(&rw_hord_db_conn, &ctx) {
+                        match find_latest_inscription_number(&rw_hord_db_conn, &ctx) {
                             Ok(inscription_number) => inscription_number,
                             Err(e) => {
                                 ctx.try_log(|logger| {
@@ -156,9 +157,10 @@ pub fn update_hord_db_and_augment_bitcoin_block(
                     ctx.try_log(|logger| {
                         slog::info!(
                             logger,
-                            "Transaction {} in block {} includes a new inscription {}",
+                            "Transaction {} in block {} inscribed some content ({}) on Satoshi #{}",
                             new_tx.transaction_identifier.hash,
                             new_block.block_identifier.index,
+                            inscription.content_type,
                             ordinal_number
                         );
                     });
@@ -177,7 +179,7 @@ pub fn update_hord_db_and_augment_bitcoin_block(
 
         // Have inscriptions been transfered?
         let mut sats_in_offset = 0;
-        let mut sats_out_offset = 0;
+        let mut sats_out_offset = new_tx.metadata.outputs[0].value;
 
         for input in new_tx.metadata.inputs.iter() {
             // input.previous_output.txid
@@ -192,27 +194,18 @@ pub fn update_hord_db_and_augment_bitcoin_block(
             let entries =
                 find_inscriptions_at_wached_outpoint(&outpoint_pre_transfer, &rw_hord_db_conn);
 
-            ctx.try_log(|logger| {
-                slog::info!(
-                    logger,
-                    "Checking if {} is part of our watch outpoints set: {}",
-                    outpoint_pre_transfer,
-                    entries.len(),
-                )
-            });
+            // ctx.try_log(|logger| {
+            //     slog::info!(
+            //         logger,
+            //         "Checking if {} is part of our watch outpoints set: {}",
+            //         outpoint_pre_transfer,
+            //         entries.len(),
+            //     )
+            // });
 
             for (inscription_id, inscription_number, ordinal_number, offset) in entries.into_iter()
             {
                 let satpoint_pre_transfer = format!("{}:{}", outpoint_pre_transfer, offset);
-                // At this point we know that inscriptions are being moved.
-                ctx.try_log(|logger| {
-                    slog::info!(
-                        logger,
-                        "Detected transaction {} involving txin {} that includes watched ordinals",
-                        new_tx.transaction_identifier.hash,
-                        satpoint_pre_transfer,
-                    )
-                });
 
                 // Question is: are inscriptions moving to a new output,
                 // burnt or lost in fees and transfered to the miner?
@@ -220,11 +213,13 @@ pub fn update_hord_db_and_augment_bitcoin_block(
                     if sats_out_offset >= sats_in_offset + offset {
                         break Some(post_transfer_output_index);
                     }
-                    if post_transfer_output_index >= new_tx.metadata.outputs.len() {
+                    if post_transfer_output_index + 1 >= new_tx.metadata.outputs.len() {
                         break None;
+                    } else {
+                        post_transfer_output_index += 1;
+                        sats_out_offset +=
+                            new_tx.metadata.outputs[post_transfer_output_index].value;
                     }
-                    sats_out_offset += new_tx.metadata.outputs[post_transfer_output_index].value;
-                    post_transfer_output_index += 1;
                 };
 
                 let (outpoint_post_transfer, offset_post_transfer, updated_address) =
@@ -271,12 +266,24 @@ pub fn update_hord_db_and_augment_bitcoin_block(
                         }
                     };
 
+                // ctx.try_log(|logger| {
+                //     slog::info!(
+                //         logger,
+                //         "Updating watched outpoint {} to outpoint {}",
+                //         outpoint_post_transfer,
+                //         outpoint_pre_transfer,
+                //     )
+                // });
+                // At this point we know that inscriptions are being moved.
                 ctx.try_log(|logger| {
                     slog::info!(
                         logger,
-                        "Updating watched outpoint {} to outpoint {}",
+                        "Transaction {} in block {} moved inscribed Satoshi #{} from {} to {}",
+                        new_tx.transaction_identifier.hash,
+                        new_block.block_identifier.index,
+                        ordinal_number,
+                        satpoint_pre_transfer,
                         outpoint_post_transfer,
-                        outpoint_pre_transfer,
                     )
                 });
 

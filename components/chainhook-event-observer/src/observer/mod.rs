@@ -554,6 +554,7 @@ pub async fn start_observer_commands_handler(
                                         block,
                                         &rw_hord_db_conn,
                                         &ctx,
+                                        true,
                                     ) {
                                         ctx.try_log(|logger| {
                                             slog::error!(
@@ -663,6 +664,7 @@ pub async fn start_observer_commands_handler(
                                         block,
                                         &rw_hord_db_conn,
                                         &ctx,
+                                        true,
                                     ) {
                                         ctx.try_log(|logger| {
                                             slog::error!(
