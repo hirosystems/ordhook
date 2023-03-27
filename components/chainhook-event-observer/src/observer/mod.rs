@@ -10,6 +10,7 @@ use crate::chainhooks::types::{
     ChainhookConfig, ChainhookFullSpecification, ChainhookSpecification,
 };
 
+use crate::hord::db::open_readwrite_hord_db_conn;
 use crate::hord::ord::{indexing::updater::OrdinalIndexUpdater, initialize_ordinal_index};
 use crate::hord::{
     revert_hord_db_with_augmented_bitcoin_block, update_hord_db_and_augment_bitcoin_block,
@@ -526,13 +527,32 @@ pub async fn start_observer_commands_handler(
                     BlockchainEvent::BlockchainUpdatedWithHeaders(data) => {
                         let mut new_blocks = vec![];
                         let mut confirmed_blocks = vec![];
-
+                        let rw_hord_db_conn =
+                            match open_readwrite_hord_db_conn(&config.get_cache_path_buf(), &ctx) {
+                                Ok(conn) => conn,
+                                Err(e) => {
+                                    if let Some(ref tx) = observer_events_tx {
+                                        let _ = tx.send(ObserverEvent::Error(format!(
+                                            "Channel error: {:?}",
+                                            e
+                                        )));
+                                    } else {
+                                        ctx.try_log(|logger| {
+                                            slog::error!(
+                                                logger,
+                                                "Unable to open readwtite connection",
+                                            )
+                                        });
+                                    }
+                                    continue;
+                                }
+                            };
                         for header in data.new_headers.iter() {
                             match bitcoin_block_store.get_mut(&header.block_identifier) {
                                 Some(block) => {
                                     if let Err(e) = update_hord_db_and_augment_bitcoin_block(
                                         block,
-                                        &config.get_cache_path_buf(),
+                                        &rw_hord_db_conn,
                                         &ctx,
                                     ) {
                                         ctx.try_log(|logger| {
@@ -585,11 +605,34 @@ pub async fn start_observer_commands_handler(
                         let mut blocks_to_rollback = vec![];
                         let mut confirmed_blocks = vec![];
 
+                        let rw_hord_db_conn =
+                            match open_readwrite_hord_db_conn(&config.get_cache_path_buf(), &ctx) {
+                                Ok(conn) => conn,
+                                Err(e) => {
+                                    if let Some(ref tx) = observer_events_tx {
+                                        let _ = tx.send(ObserverEvent::Error(format!(
+                                            "Channel error: {:?}",
+                                            e
+                                        )));
+                                    } else {
+                                        ctx.try_log(|logger| {
+                                            slog::error!(
+                                                logger,
+                                                "Unable to open readwtite connection",
+                                            )
+                                        });
+                                    }
+                                    continue;
+                                }
+                            };
+
                         for header in data.headers_to_rollback.iter() {
                             match bitcoin_block_store.get(&header.block_identifier) {
                                 Some(block) => {
                                     if let Err(e) = revert_hord_db_with_augmented_bitcoin_block(
-                                        block, &config, &ctx,
+                                        block,
+                                        &rw_hord_db_conn,
+                                        &ctx,
                                     ) {
                                         ctx.try_log(|logger| {
                                             slog::error!(
@@ -618,7 +661,7 @@ pub async fn start_observer_commands_handler(
                                 Some(block) => {
                                     if let Err(e) = update_hord_db_and_augment_bitcoin_block(
                                         block,
-                                        &config.get_cache_path_buf(),
+                                        &rw_hord_db_conn,
                                         &ctx,
                                     ) {
                                         ctx.try_log(|logger| {

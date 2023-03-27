@@ -79,15 +79,7 @@ pub async fn scan_bitcoin_chain_with_predicate(
     if let BitcoinPredicateType::Protocol(Protocols::Ordinal(_)) = &predicate_spec.predicate {
         is_predicate_evaluating_ordinals = true;
         if let Ok(hord_db_conn) = open_readonly_hord_db_conn(&config.expected_cache_path(), &ctx) {
-            let inscriptions = find_all_inscriptions(&hord_db_conn);
-            for (inscription_id, inscription_number, ordinal_number, block_number) in
-                inscriptions.into_iter()
-            {
-                inscriptions_cache.insert(
-                    inscription_id,
-                    (inscription_number, ordinal_number, block_number),
-                );
-            }
+            inscriptions_cache = find_all_inscriptions(&hord_db_conn);
             // Will we have to update the blocks table?
             if find_compacted_block_at_block_height(end_block as u32, &hord_db_conn).is_none() {
                 hord_blocks_requires_update = true;
@@ -105,15 +97,18 @@ pub async fn scan_bitcoin_chain_with_predicate(
 
             // TODO: make sure that we have a contiguous chain
             // check_compacted_blocks_chain_integrity(&hord_db_conn);
-            let rw_hord_db_conn = open_readwrite_hord_db_conn(&config.expected_cache_path(), ctx)?;
 
-            let start_block = find_latest_compacted_block_known(&rw_hord_db_conn) as u64;
+            let hord_db_conn = open_readonly_hord_db_conn(&config.expected_cache_path(), ctx)?;
+
+            let start_block = find_latest_compacted_block_known(&hord_db_conn) as u64;
             if start_block < end_block {
                 warn!(
                     ctx.expect_logger(),
                     "Database hord.sqlite appears to be outdated regarding the window of blocks provided. Syncing {} missing blocks",
                     (end_block - start_block)
                 );
+                let rw_hord_db_conn =
+                    open_readwrite_hord_db_conn(&config.expected_cache_path(), ctx)?;
                 fetch_and_cache_blocks_in_hord_db(
                     &config.get_event_observer_config().get_bitcoin_config(),
                     &rw_hord_db_conn,
@@ -121,9 +116,10 @@ pub async fn scan_bitcoin_chain_with_predicate(
                     end_block,
                     &ctx,
                     8,
-                    None,
                 )
                 .await?;
+
+                inscriptions_cache = find_all_inscriptions(&hord_db_conn);
             }
         }
     }
@@ -137,7 +133,7 @@ pub async fn scan_bitcoin_chain_with_predicate(
     let mut actions_triggered = 0;
 
     if is_predicate_evaluating_ordinals {
-        for (inscription_id, (inscription_number, ordinal_number, block_number)) in
+        for (_inscription_id, (_inscription_number, _ordinal_number, block_number)) in
             inscriptions_cache.into_iter()
         {
             // Only consider inscriptions in the interval specified

@@ -5,10 +5,12 @@ use crate::node::Node;
 use crate::scan::bitcoin::scan_bitcoin_chain_with_predicate;
 use crate::scan::stacks::scan_stacks_chain_with_predicate;
 
+use chainhook_event_observer::bitcoincore_rpc::{Auth, Client, RpcApi};
 use chainhook_event_observer::chainhooks::types::ChainhookFullSpecification;
 use chainhook_event_observer::hord::db::{
     fetch_and_cache_blocks_in_hord_db, find_inscriptions_at_wached_outpoint, initialize_hord_db,
-    open_readonly_hord_db_conn, retrieve_satoshi_point_using_local_storage,
+    open_readonly_hord_db_conn, open_readwrite_hord_db_conn,
+    retrieve_satoshi_point_using_local_storage,
 };
 use chainhook_event_observer::observer::BitcoinConfig;
 use chainhook_event_observer::utils::Context;
@@ -41,7 +43,7 @@ enum Command {
     Node(NodeCommand),
     /// Protocols specific commands
     #[clap(subcommand)]
-    Protocols(ProtocolsCommand),
+    Hord(HordCommand),
 }
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
@@ -163,74 +165,37 @@ struct StartCommand {
 }
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
-enum ProtocolsCommand {
-    /// Ordinals related commands
+enum HordCommand {
+    /// Db maintenance related commands
     #[clap(subcommand)]
-    Ordinals(OrdinalsCommand),
+    Db(DbCommand),
+    /// Db maintenance related commands
+    #[clap(subcommand)]
+    Find(FindCommand),
 }
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
-enum OrdinalsCommand {
-    /// Retrieve Satoshi
-    #[clap(name = "sat", bin_name = "sat")]
-    Satoshi(GetSatoshiCommand),
-    /// Retrieve Satoshi
-    #[clap(name = "inscriptions", bin_name = "inscriptions")]
-    WatchedOutpoints(GetWatchedOutpointsCommand),
-    /// Retrieve Satoshi
-    Traversals(BuildOrdinalsTraversalsCommand),
+enum DbCommand {
+    /// Init hord db
+    #[clap(name = "init", bin_name = "init")]
+    Init(InitHordDbCommand),
+    /// Update hord db
+    #[clap(name = "update", bin_name = "update")]
+    Update(UpdateHordDbCommand),
+}
+
+#[derive(Subcommand, PartialEq, Clone, Debug)]
+enum FindCommand {
+    /// Init hord db
+    #[clap(name = "sat_point", bin_name = "sat_point")]
+    SatPoint(FindSatPointCommand),
+    /// Update hord db
+    #[clap(name = "inscription", bin_name = "inscription")]
+    Inscription(FindInscriptionCommand),
 }
 
 #[derive(Parser, PartialEq, Clone, Debug)]
-struct BuildOrdinalsTraversalsCommand {
-    /// Starting block
-    pub start_block: u64,
-    /// Starting block
-    pub end_block: u64,
-    /// # of Networking thread
-    pub network_threads: usize,
-    /// Target Devnet network
-    #[clap(
-        long = "devnet",
-        conflicts_with = "testnet",
-        conflicts_with = "mainnet"
-    )]
-    pub devnet: bool,
-    /// Target Testnet network
-    #[clap(
-        long = "testnet",
-        conflicts_with = "devnet",
-        conflicts_with = "mainnet"
-    )]
-    pub testnet: bool,
-    /// Target Mainnet network
-    #[clap(
-        long = "mainnet",
-        conflicts_with = "testnet",
-        conflicts_with = "devnet"
-    )]
-    pub mainnet: bool,
-    /// Load config file path
-    #[clap(
-        long = "config-path",
-        conflicts_with = "mainnet",
-        conflicts_with = "testnet",
-        conflicts_with = "devnet"
-    )]
-    pub config_path: Option<String>,
-}
-
-#[derive(Parser, PartialEq, Clone, Debug)]
-struct GetWatchedOutpointsCommand {
-    /// Outpoint
-    pub outpoint: String,
-    /// Load config file path
-    #[clap(long = "db-path")]
-    pub db_path: Option<String>,
-}
-
-#[derive(Parser, PartialEq, Clone, Debug)]
-struct GetSatoshiCommand {
+struct FindSatPointCommand {
     /// Block height
     pub block_height: u64,
     /// Txid
@@ -265,6 +230,37 @@ struct GetSatoshiCommand {
         conflicts_with = "testnet",
         conflicts_with = "devnet"
     )]
+    pub config_path: Option<String>,
+}
+
+#[derive(Parser, PartialEq, Clone, Debug)]
+struct FindInscriptionCommand {
+    /// Outpoint
+    pub outpoint: String,
+    /// Load config file path
+    #[clap(long = "db-path")]
+    pub db_path: Option<String>,
+}
+
+#[derive(Parser, PartialEq, Clone, Debug)]
+struct InitHordDbCommand {
+    /// # of Networking thread
+    pub network_threads: usize,
+    /// Load config file path
+    #[clap(long = "config-path")]
+    pub config_path: Option<String>,
+}
+
+#[derive(Parser, PartialEq, Clone, Debug)]
+struct UpdateHordDbCommand {
+    /// Starting block
+    pub start_block: u64,
+    /// Starting block
+    pub end_block: u64,
+    /// # of Networking thread
+    pub network_threads: usize,
+    /// Load config file path
+    #[clap(long = "config-path")]
     pub config_path: Option<String>,
 }
 
@@ -346,8 +342,8 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                 }
             }
         },
-        Command::Protocols(ProtocolsCommand::Ordinals(subcmd)) => match subcmd {
-            OrdinalsCommand::Satoshi(cmd) => {
+        Command::Hord(HordCommand::Find(subcmd)) => match subcmd {
+            FindCommand::SatPoint(cmd) => {
                 let config =
                     Config::default(cmd.devnet, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
                 let transaction_identifier = TransactionIdentifier {
@@ -373,9 +369,19 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     "Block: {block_height}, Offset {offset}:, Ordinal number: {ordinal_number}",
                 );
             }
-            OrdinalsCommand::Traversals(cmd) => {
-                let config =
-                    Config::default(cmd.devnet, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
+            FindCommand::Inscription(cmd) => {
+                let mut db_path = PathBuf::new();
+                db_path.push(&cmd.db_path.unwrap());
+
+                let hord_db_conn = open_readonly_hord_db_conn(&db_path, &ctx).unwrap();
+
+                let results = find_inscriptions_at_wached_outpoint(&cmd.outpoint, &hord_db_conn);
+                println!("{:?}", results);
+            }
+        },
+        Command::Hord(HordCommand::Db(subcmd)) => match subcmd {
+            DbCommand::Init(cmd) => {
+                let config = Config::default(false, false, false, &cmd.config_path)?;
 
                 let bitcoin_config = BitcoinConfig {
                     username: config.network.bitcoin_node_rpc_username.clone(),
@@ -384,27 +390,62 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     network: config.network.bitcoin_network.clone(),
                 };
 
-                let hord_db_conn = initialize_hord_db(&config.expected_cache_path(), &ctx);
+                let auth = Auth::UserPass(
+                    config.network.bitcoin_node_rpc_username.clone(),
+                    config.network.bitcoin_node_rpc_password.clone(),
+                );
+
+                let bitcoin_rpc = match Client::new(&config.network.bitcoin_node_rpc_url, auth) {
+                    Ok(con) => con,
+                    Err(message) => {
+                        return Err(format!("Bitcoin RPC error: {}", message.to_string()));
+                    }
+                };
+
+                let end_block = match bitcoin_rpc.get_blockchain_info() {
+                    Ok(result) => result.blocks,
+                    Err(e) => {
+                        return Err(format!(
+                            "unable to retrieve Bitcoin chain tip ({})",
+                            e.to_string()
+                        ));
+                    }
+                };
+
+                let rw_hord_db_conn = initialize_hord_db(&config.expected_cache_path(), &ctx);
 
                 let _ = fetch_and_cache_blocks_in_hord_db(
                     &bitcoin_config,
-                    &hord_db_conn,
+                    &rw_hord_db_conn,
+                    0,
+                    end_block,
+                    &ctx,
+                    cmd.network_threads,
+                )
+                .await?;
+            }
+            DbCommand::Update(cmd) => {
+                let config = Config::default(false, false, false, &cmd.config_path)?;
+
+                let bitcoin_config = BitcoinConfig {
+                    username: config.network.bitcoin_node_rpc_username.clone(),
+                    password: config.network.bitcoin_node_rpc_password.clone(),
+                    rpc_url: config.network.bitcoin_node_rpc_url.clone(),
+                    network: config.network.bitcoin_network.clone(),
+                };
+
+                let rw_hord_db_conn =
+                    open_readwrite_hord_db_conn(&config.expected_cache_path(), &ctx)?;
+
+                let _ = fetch_and_cache_blocks_in_hord_db(
+                    &bitcoin_config,
+                    &rw_hord_db_conn,
                     cmd.start_block,
                     cmd.end_block,
                     &ctx,
                     cmd.network_threads,
-                    None,
                 )
-                .await;
-            }
-            OrdinalsCommand::WatchedOutpoints(cmd) => {
-                let mut db_path = PathBuf::new();
-                db_path.push(&cmd.db_path.unwrap());
-
-                let hord_db_conn = open_readonly_hord_db_conn(&db_path, &ctx).unwrap();
-
-                let results = find_inscriptions_at_wached_outpoint(&cmd.outpoint, &hord_db_conn);
-                println!("{:?}", results);
+                .await?;
             }
         },
     }
