@@ -13,8 +13,9 @@ use chainhook_event_observer::chainhooks::types::{
     StacksPrintEventBasedPredicate,
 };
 use chainhook_event_observer::hord::db::{
-    fetch_and_cache_blocks_in_hord_db, find_inscriptions_at_wached_outpoint,
-    find_latest_compacted_block_known, open_readonly_hord_db_conn, open_readwrite_hord_db_conn,
+    delete_data_in_hord_db, fetch_and_cache_blocks_in_hord_db,
+    find_inscriptions_at_wached_outpoint, find_latest_compacted_block_known,
+    open_readonly_hord_db_conn, open_readwrite_hord_db_conn,
     retrieve_satoshi_point_using_local_storage,
 };
 use chainhook_event_observer::observer::BitcoinConfig;
@@ -185,6 +186,9 @@ enum DbCommand {
     /// Update hord db
     #[clap(name = "update", bin_name = "update")]
     Update(UpdateHordDbCommand),
+    /// Rebuild inscriptions entries for a given block
+    #[clap(name = "drop", bin_name = "drop")]
+    Drop(DropHordDbCommand),
 }
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
@@ -260,6 +264,17 @@ struct UpdateHordDbCommand {
     pub end_block: u64,
     /// # of Networking thread
     pub network_threads: usize,
+    /// Load config file path
+    #[clap(long = "config-path")]
+    pub config_path: Option<String>,
+}
+
+#[derive(Parser, PartialEq, Clone, Debug)]
+struct DropHordDbCommand {
+    /// Starting block
+    pub start_block: u64,
+    /// Starting block
+    pub end_block: u64,
     /// Load config file path
     #[clap(long = "config-path")]
     pub config_path: Option<String>,
@@ -454,11 +469,6 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                 let config =
                     Config::default(cmd.devnet, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
 
-                info!(
-                    ctx.expect_logger(),
-                    "Computing satoshi number for satoshi at offet 0 in 1st output of transaction {} (block ${})", cmd.txid, cmd.block_height
-                );
-
                 let hord_db_conn =
                     open_readonly_hord_db_conn(&config.expected_cache_path(), &ctx).unwrap();
 
@@ -536,6 +546,17 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                 )
                 .await?;
             }
+            DbCommand::Drop(cmd) => {
+                let config = Config::default(false, false, false, &cmd.config_path)?;
+                let rw_hord_db_conn =
+                    open_readwrite_hord_db_conn(&config.expected_cache_path(), &ctx)?;
+                delete_data_in_hord_db(cmd.start_block, cmd.end_block, &rw_hord_db_conn, &ctx)?;
+                info!(
+                    ctx.expect_logger(),
+                    "Cleaning hord_db: {} blocks dropped",
+                    cmd.end_block - cmd.start_block + 1
+                );
+            }
         },
     }
     Ok(())
@@ -550,7 +571,7 @@ pub async fn perform_hord_db_update(
 ) -> Result<(), String> {
     info!(
         ctx.expect_logger(),
-        "Syncing hord_db: {} blocks to download ({start_block}: {end_block}), using {network_threads} network threads", end_block - start_block
+        "Syncing hord_db: {} blocks to download ({start_block}: {end_block}), using {network_threads} network threads", end_block - start_block + 1
     );
 
     let bitcoin_config = BitcoinConfig {
