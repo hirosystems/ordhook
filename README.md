@@ -1,4 +1,4 @@
-# chainhook-cli
+# ⛓️🪝 Chainhook
 
 ## Introduction
 
@@ -27,7 +27,7 @@ $ cargo chainhook-install
 To get started with bitcoin predicates, we can use the `chainhook` to generate a template: 
 
 ```bash
-$ chainhook predicates new --bitcoin
+$ chainhook predicates new hello-ordinals.json --bitcoin
 ```
 
 We will focus on the `if_this` and `then_that` parts of the specifications.
@@ -363,7 +363,7 @@ To optimize their experience with scanning, developers have a few knobs they can
 To get started with stacks predicates, we can use the `chainhook` to generate a template: 
 
 ```bash
-$ chainhook predicates new --stacks
+$ chainhook predicates new hello-arkadiko.json --stacks
 ```
 
 We will focus on the `if_this` and `then_that` parts of the specifications.
@@ -438,6 +438,20 @@ The current `stacks` predicates supports the following `if_this` constructs:
         "scope": "print_event",
         "contract_identifier": "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.monkey-sip09",
         "contains": "vault"
+    },
+}
+
+// Get any transaction calling a specific method for a given contract **directly**.
+// Warning: if the watched method is being called by another contract, this predicate won't detect it.
+// `contract-identifier` mandatory argument admits:
+//  - string type, fully qualifying the contract to observe. example: `SP000000000000000000002Q6VF78.pox`
+// `method` mandatory argument admits:
+//  - string type, used for specifying the method to observe. example: `stack-stx`
+{
+    "if_this": {
+        "scope": "contract_call",
+        "contract_identifier": "SP000000000000000000002Q6VF78.pox",
+        "method": "stack-stx"
     },
 }
 

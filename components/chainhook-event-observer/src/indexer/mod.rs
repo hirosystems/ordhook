@@ -1,26 +1,20 @@
 pub mod bitcoin;
 pub mod fork_scratch_pad;
-pub mod ordinals;
 pub mod stacks;
 
 use crate::utils::{AbstractBlock, Context};
-use bitcoin::BitcoinBlockFullBreakdown;
+
 use chainhook_types::{
-    BitcoinChainEvent, BitcoinNetwork, BlockHeader, BlockIdentifier, BlockchainEvent,
-    StacksChainEvent, StacksNetwork,
+    BitcoinNetwork, BlockHeader, BlockIdentifier, BlockchainEvent, StacksChainEvent, StacksNetwork,
 };
 use hiro_system_kit::slog;
 use rocket::serde::json::Value as JsonValue;
-use rusqlite::Connection;
+
 use stacks::StacksBlockPool;
 use stacks_rpc_client::PoxInfo;
-use std::{
-    collections::{HashMap, VecDeque},
-    path::PathBuf,
-};
+use std::collections::{HashMap, VecDeque};
 
 use self::fork_scratch_pad::ForkScratchPad;
-use self::ordinals::ord::indexing::OrdinalIndex;
 
 #[derive(Deserialize, Debug, Clone, Default)]
 pub struct AssetClassCache {
@@ -319,7 +313,6 @@ impl ChainSegment {
             slog::debug!(logger, "Blocks to rollback: {:?}", block_ids_to_rollback)
         });
         ctx.try_log(|logger| slog::debug!(logger, "Blocks to apply: {:?}", block_ids_to_apply));
-        block_ids_to_rollback.reverse();
         block_ids_to_apply.reverse();
         match common_root.take() {
             Some(_common_root) => Ok(ChainSegmentDivergence {

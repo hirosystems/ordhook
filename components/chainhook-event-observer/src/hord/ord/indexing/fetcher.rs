@@ -1,5 +1,5 @@
 use {
-    anyhow::{anyhow, Result},
+    anyhow::Result,
     bitcoincore_rpc::bitcoin::{Transaction, Txid},
     bitcoincore_rpc::Auth,
     hyper::{client::HttpConnector, Body, Client, Method, Request, Uri},

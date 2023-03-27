@@ -5,8 +5,6 @@ use bitcoincore_rpc::bitcoin::{Amount, Block, BlockHash, OutPoint, Transaction, 
 use bitcoincore_rpc::RpcApi;
 use chrono::{DateTime, TimeZone, Utc};
 
-use crate::utils::Context;
-
 use super::blocktime::Blocktime;
 use super::chain::Chain;
 use super::height::Height;
@@ -18,12 +16,9 @@ pub mod entry;
 mod fetcher;
 
 use {
-    self::{
-        entry::{
-            BlockHashValue, Entry, InscriptionEntry, InscriptionEntryValue, InscriptionIdValue,
-            OutPointValue, SatPointValue, SatRange,
-        },
-        updater::OrdinalIndexUpdater,
+    self::entry::{
+        BlockHashValue, Entry, InscriptionEntry, InscriptionEntryValue, InscriptionIdValue,
+        OutPointValue, SatPointValue, SatRange,
     },
     super::*,
     bitcoincore_rpc::bitcoin::BlockHeader,

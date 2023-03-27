@@ -2,16 +2,20 @@ pub mod file;
 pub mod generator;
 
 pub use chainhook_event_observer::indexer::IndexerConfig;
+use chainhook_event_observer::observer::{
+    EventObserverConfig, DEFAULT_CONTROL_PORT, DEFAULT_INGESTION_PORT,
+};
 use chainhook_types::{BitcoinNetwork, StacksNetwork};
 pub use file::ConfigFile;
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::PathBuf;
 
-const DEFAULT_MAINNET_TSV_ARCHIVE: &str = "https://storage.googleapis.com/hirosystems-archive/mainnet/api/mainnet-blockchain-api-latest.tar.gz";
-const DEFAULT_TESTNET_TSV_ARCHIVE: &str = "https://storage.googleapis.com/hirosystems-archive/testnet/api/testnet-blockchain-api-latest.tar.gz";
-// const DEFAULT_MAINNET_TSV_ARCHIVE: &str = "https://archive.hiro.so/mainnet/stacks-blockchain-api/mainnet-stacks-blockchain-api-latest.gz";
-// const DEFAULT_TESTNET_TSV_ARCHIVE: &str = "https://archive.hiro.so/testnet/stacks-blockchain-api/testnet-stacks-blockchain-api-latest.gz";
+const DEFAULT_MAINNET_TSV_ARCHIVE: &str =
+    "https://archive.hiro.so/mainnet/stacks-blockchain-api/mainnet-stacks-blockchain-api-latest.gz";
+const DEFAULT_TESTNET_TSV_ARCHIVE: &str =
+    "https://archive.hiro.so/testnet/stacks-blockchain-api/testnet-stacks-blockchain-api-latest.gz";
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -91,6 +95,26 @@ impl Config {
         Config::from_config_file(config_file)
     }
 
+    pub fn get_event_observer_config(&self) -> EventObserverConfig {
+        EventObserverConfig {
+            hooks_enabled: true,
+            bitcoin_rpc_proxy_enabled: true,
+            event_handlers: vec![],
+            chainhook_config: None,
+            ingestion_port: DEFAULT_INGESTION_PORT,
+            control_port: DEFAULT_CONTROL_PORT,
+            bitcoin_node_username: self.network.bitcoin_node_rpc_username.clone(),
+            bitcoin_node_password: self.network.bitcoin_node_rpc_password.clone(),
+            bitcoin_node_rpc_url: self.network.bitcoin_node_rpc_url.clone(),
+            stacks_node_rpc_url: self.network.stacks_node_rpc_url.clone(),
+            operators: HashSet::new(),
+            display_logs: false,
+            cache_path: self.storage.cache_path.clone(),
+            bitcoin_network: self.network.bitcoin_network.clone(),
+            stacks_network: self.network.stacks_network.clone(),
+        }
+    }
+
     pub fn from_config_file(config_file: ConfigFile) -> Result<Config, String> {
         let (stacks_network, bitcoin_network) = match config_file.network.mode.as_str() {
             "devnet" => (StacksNetwork::Devnet, BitcoinNetwork::Regtest),
@@ -99,6 +123,20 @@ impl Config {
             _ => return Err("network.mode not supported".to_string()),
         };
 
+        let mut event_sources = vec![];
+        for source in config_file.event_source.unwrap_or(vec![]).iter_mut() {
+            if let Some(dst) = source.tsv_file_path.take() {
+                let mut file_path = PathBuf::new();
+                file_path.push(dst);
+                event_sources.push(EventSourceConfig::TsvPath(TsvPathConfig { file_path }));
+                continue;
+            }
+            if let Some(file_url) = source.tsv_file_url.take() {
+                event_sources.push(EventSourceConfig::TsvUrl(TsvUrlConfig { file_url }));
+                continue;
+            }
+        }
+
         let config = Config {
             storage: StorageConfig {
                 driver: StorageDriver::Redis(RedisConfig {
@@ -106,9 +144,7 @@ impl Config {
                 }),
                 cache_path: config_file.storage.cache_path.unwrap_or("cache".into()),
             },
-            event_sources: vec![EventSourceConfig::StacksNode(StacksNodeConfig {
-                host: config_file.network.stacks_node_rpc_url.to_string(),
-            })],
+            event_sources,
             chainhooks: ChainhooksConfig {
                 max_stacks_registrations: config_file
                     .chainhooks

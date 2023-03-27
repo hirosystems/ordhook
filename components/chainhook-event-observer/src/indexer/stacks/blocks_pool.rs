@@ -621,7 +621,10 @@ impl StacksBlockPool {
             ctx,
         ) {
             Ok(res) => res,
-            Err(e) => None,
+            Err(e) => {
+                ctx.try_log(|logger| slog::error!(logger, "Unable to detect convergence: {:?}", e));
+                None
+            }
         };
 
         Ok(chain_event)

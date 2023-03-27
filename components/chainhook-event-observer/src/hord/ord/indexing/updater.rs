@@ -1,15 +1,13 @@
 use crate::{
-    indexer::ordinals::ord::{height::Height, sat::Sat, sat_point::SatPoint},
+    hord::ord::{height::Height, sat::Sat, sat_point::SatPoint},
     utils::Context,
 };
 use anyhow::Context as Ctx;
-use bitcoincore_rpc::bitcoin::{
-    hashes::Hash, OutPoint, PackedLockTime, Script, Transaction, TxIn, TxOut, Txid, Witness,
-};
+use bitcoincore_rpc::bitcoin::{OutPoint, Transaction, Txid};
 use hiro_system_kit::slog;
 
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::VecDeque,
     time::{Instant, SystemTime},
 };
 
@@ -17,7 +15,7 @@ use super::Result;
 use {self::inscription_updater::InscriptionUpdater, super::*, std::sync::mpsc};
 
 use {
-    super::{fetcher::Fetcher, *},
+    super::fetcher::Fetcher,
     futures::future::try_join_all,
     tokio::sync::mpsc::{error::TryRecvError, Receiver, Sender},
 };
@@ -224,9 +222,9 @@ impl OrdinalIndexUpdater {
     }
 
     fn get_block_with_retries(
-        client: &Client,
-        height: u64,
-        ctx: &Context,
+        _client: &Client,
+        _height: u64,
+        _ctx: &Context,
     ) -> Result<Option<BlockData>> {
         return Ok(None);
     }
@@ -278,7 +276,7 @@ impl OrdinalIndexUpdater {
             }
             let txs = match try_join_all(futs).await {
               Ok(txs) => txs,
-              Err(e) => {
+              Err(_e) => {
                 // log::error!("Couldn't receive txs {e}");
                 return;
               }
@@ -300,7 +298,7 @@ impl OrdinalIndexUpdater {
     async fn index_block(
         &mut self,
         index: &OrdinalIndex,
-        outpoint_sender: &mut Sender<OutPoint>,
+        _outpoint_sender: &mut Sender<OutPoint>,
         value_receiver: &mut Receiver<u64>,
         wtx: &mut WriteTransaction<'_>,
         block: BlockData,
@@ -317,7 +315,7 @@ impl OrdinalIndexUpdater {
 
         let mut height_to_block_hash = wtx.open_table(HEIGHT_TO_BLOCK_HASH)?;
 
-        let start = Instant::now();
+        let _start = Instant::now();
         let mut sat_ranges_written = 0;
         let mut outputs_in_block = 0;
 
@@ -382,7 +380,7 @@ impl OrdinalIndexUpdater {
             self.sat_ranges_since_flush += 1;
         }
 
-        for (tx_offset, (tx, txid)) in block.txdata.iter().enumerate().skip(1) {
+        for (_tx_offset, (tx, txid)) in block.txdata.iter().enumerate().skip(1) {
             let mut input_sat_ranges = VecDeque::new();
 
             for input in &tx.input {

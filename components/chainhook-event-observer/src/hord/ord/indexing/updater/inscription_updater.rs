@@ -1,5 +1,5 @@
-use crate::indexer::ordinals::inscription::{Inscription, InscriptionParser};
-use crate::indexer::ordinals::ord::{inscription_id::InscriptionId, sat::Sat, sat_point::SatPoint};
+use crate::hord::inscription::{Inscription, InscriptionParser};
+use crate::hord::ord::{inscription_id::InscriptionId, sat::Sat, sat_point::SatPoint};
 
 use super::*;
 

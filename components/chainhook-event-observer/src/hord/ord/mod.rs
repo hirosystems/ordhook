@@ -1,5 +1,8 @@
+#![allow(dead_code)]
+#![allow(unused_variables)]
+
 use hiro_system_kit::slog;
-use std::{path::PathBuf, time::Duration};
+use std::path::PathBuf;
 
 type Result<T = (), E = anyhow::Error> = std::result::Result<T, E>;
 

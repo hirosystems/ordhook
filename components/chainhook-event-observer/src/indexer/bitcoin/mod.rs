@@ -1,44 +1,34 @@
 mod blocks_pool;
 
-use std::thread::JoinHandle;
 use std::time::Duration;
 
 use crate::chainhooks::types::{
     get_canonical_pox_config, get_stacks_canonical_magic_bytes, PoxConfig, StacksOpcodes,
 };
-use crate::indexer::IndexerConfig;
-use crate::observer::{BitcoinConfig, EventObserverConfig};
+
+use crate::observer::BitcoinConfig;
 use crate::utils::Context;
 use bitcoincore_rpc::bitcoin::hashes::hex::FromHex;
 use bitcoincore_rpc::bitcoin::hashes::Hash;
-use bitcoincore_rpc::bitcoin::{
-    self, Address, Amount, BlockHash, OutPoint as OutPointS, PackedLockTime, Script, Transaction,
-    Txid, Witness,
-};
+use bitcoincore_rpc::bitcoin::{self, Address, Amount, BlockHash, Script};
 use bitcoincore_rpc_json::{
-    GetRawTransactionResult, GetRawTransactionResultVinScriptSig, GetRawTransactionResultVout,
-    GetRawTransactionResultVoutScriptPubKey,
+    GetRawTransactionResultVinScriptSig, GetRawTransactionResultVoutScriptPubKey,
 };
 pub use blocks_pool::BitcoinBlockPool;
 use chainhook_types::bitcoin::{OutPoint, TxIn, TxOut};
 use chainhook_types::{
-    BitcoinBlockData, BitcoinBlockMetadata, BitcoinTransactionData, BitcoinTransactionMetadata,
-    BlockCommitmentData, BlockHeader, BlockIdentifier, KeyRegistrationData, LockSTXData,
-    OrdinalInscriptionRevealData, OrdinalOperation, PobBlockCommitmentData, PoxReward,
+    BitcoinBlockData, BitcoinBlockMetadata, BitcoinNetwork, BitcoinTransactionData,
+    BitcoinTransactionMetadata, BlockCommitmentData, BlockHeader, BlockIdentifier,
+    KeyRegistrationData, LockSTXData, OrdinalInscriptionRevealData, OrdinalOperation, PoxReward,
     StacksBaseChainOperation, StacksBlockCommitmentData, TransactionIdentifier, TransferSTXData,
 };
 use hiro_system_kit::slog;
-use rocket::serde::json::Value as JsonValue;
+
 use serde::Deserialize;
 
-use super::ordinals::inscription::InscriptionParser;
-use super::ordinals::ord::chain::Chain;
-use super::ordinals::ord::indexing::entry::InscriptionEntry;
-use super::ordinals::ord::indexing::updater::{BlockData, OrdinalIndexUpdater};
-use super::ordinals::ord::indexing::OrdinalIndex;
-use super::ordinals::ord::inscription_id::InscriptionId;
-use super::ordinals::ord::sat::Sat;
-use super::BitcoinChainContext;
+use crate::hord::inscription::InscriptionParser;
+
+use crate::hord::ord::inscription_id::InscriptionId;
 
 #[derive(Clone, PartialEq, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -159,13 +149,13 @@ pub struct RewardParticipant {
 }
 
 pub async fn retrieve_full_block_breakdown_with_retry(
-    bitcoin_config: &BitcoinConfig,
     block_hash: &str,
+    bitcoin_config: &BitcoinConfig,
     ctx: &Context,
 ) -> Result<BitcoinBlockFullBreakdown, String> {
     let mut errors_count = 0;
     let block = loop {
-        match retrieve_full_block_breakdown(bitcoin_config, block_hash, ctx).await {
+        match retrieve_full_block_breakdown(block_hash, bitcoin_config, ctx).await {
             Ok(result) => break result,
             Err(e) => {
                 errors_count += 1;
@@ -180,9 +170,31 @@ pub async fn retrieve_full_block_breakdown_with_retry(
     Ok(block)
 }
 
-pub async fn retrieve_full_block_breakdown(
+pub async fn retrieve_block_hash_with_retry(
+    block_height: &u64,
     bitcoin_config: &BitcoinConfig,
+    ctx: &Context,
+) -> Result<String, String> {
+    let mut errors_count = 0;
+    let block_hash = loop {
+        match retrieve_block_hash(block_height, bitcoin_config, ctx).await {
+            Ok(result) => break result,
+            Err(e) => {
+                errors_count += 1;
+                error!(
+                    "unable to retrieve block #{block_height} (attempt #{errors_count}): {}",
+                    e.to_string()
+                );
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
+    };
+    Ok(block_hash)
+}
+
+pub async fn retrieve_full_block_breakdown(
     block_hash: &str,
+    bitcoin_config: &BitcoinConfig,
     _ctx: &Context,
 ) -> Result<BitcoinBlockFullBreakdown, String> {
     use reqwest::Client as HttpClient;
@@ -215,8 +227,9 @@ pub async fn retrieve_full_block_breakdown(
 }
 
 pub async fn retrieve_block_hash(
-    bitcoin_config: &BitcoinConfig,
     block_height: &u64,
+    bitcoin_config: &BitcoinConfig,
+    _ctx: &Context,
 ) -> Result<String, String> {
     use reqwest::Client as HttpClient;
     let body = json!({
@@ -248,14 +261,14 @@ pub async fn retrieve_block_hash(
 }
 
 pub fn standardize_bitcoin_block(
-    config: &EventObserverConfig,
     block: BitcoinBlockFullBreakdown,
+    network: &BitcoinNetwork,
     ctx: &Context,
 ) -> Result<BitcoinBlockData, String> {
     let mut transactions = vec![];
     let block_height = block.height as u64;
-    let expected_magic_bytes = get_stacks_canonical_magic_bytes(&config.bitcoin_network);
-    let pox_config = get_canonical_pox_config(&config.bitcoin_network);
+    let expected_magic_bytes = get_stacks_canonical_magic_bytes(&network);
+    let pox_config = get_canonical_pox_config(&network);
 
     ctx.try_log(|logger| slog::debug!(logger, "Standardizing Bitcoin block {}", block.hash,));
 
@@ -265,13 +278,9 @@ pub fn standardize_bitcoin_block(
         ctx.try_log(|logger| slog::debug!(logger, "Standardizing Bitcoin transaction {txid}"));
 
         let mut stacks_operations = vec![];
-        if let Some(op) = try_parse_stacks_operation(
-            &tx.vout,
-            &pox_config,
-            &expected_magic_bytes,
-            block_height,
-            ctx,
-        ) {
+        if let Some(op) =
+            try_parse_stacks_operation(&tx.vout, &pox_config, &expected_magic_bytes, ctx)
+        {
             stacks_operations.push(op);
         }
 
@@ -370,7 +379,7 @@ pub fn standardize_bitcoin_block(
 fn try_parse_ordinal_operation(
     tx: &BitcoinTransactionFullBreakdown,
     _block_height: u64,
-    ctx: &Context,
+    _ctx: &Context,
 ) -> Option<OrdinalOperation> {
     for input in tx.vin.iter() {
         if let Some(ref witnesses) = input.txinwitness {
@@ -433,7 +442,6 @@ fn try_parse_stacks_operation(
     outputs: &Vec<BitcoinTransactionOutputFullBreakdown>,
     pox_config: &PoxConfig,
     expected_magic_bytes: &[u8; 2],
-    block_height: u64,
     ctx: &Context,
 ) -> Option<StacksBaseChainOperation> {
     if outputs.is_empty() {

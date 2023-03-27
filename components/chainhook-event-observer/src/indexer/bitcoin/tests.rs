@@ -1,6 +1,6 @@
 use bitcoincore_rpc::bitcoin::Script;
 
-use crate::indexer::ordinals::inscription::InscriptionParser;
+use crate::hord::inscription::InscriptionParser;
 
 use super::super::tests::{helpers, process_bitcoin_blocks_and_check_expectations};
 
