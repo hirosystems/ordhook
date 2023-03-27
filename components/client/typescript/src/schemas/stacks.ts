@@ -1,13 +1,15 @@
 import { Type } from '@sinclair/typebox';
 import { BlockIdentifier, Nullable, TransactionIdentifier } from '.';
 
+const Principal = Type.String();
+
 const FtTransferEvent = Type.Object({
   type: Type.Literal('FTTransferEvent'),
   data: Type.Object({
     amount: Type.String(),
     asset_identifier: Type.String(),
-    recipient: Type.String(),
-    sender: Type.String()
+    recipient: Principal,
+    sender: Principal
   }),
 });
 
@@ -16,14 +18,14 @@ const FtMintEvent = Type.Object({
   data: Type.Object({
     amount: Type.String(),
     asset_identifier: Type.String(),
-    recipient: Type.String(),
+    recipient: Principal,
   }),
 });
 
 const SmartContractEvent = Type.Object({
   type: Type.Literal('SmartContractEvent'),
   data: Type.Object({
-    contract_identifier: Type.String(),
+    contract_identifier: Principal,
     raw_value: Type.String(),
     topic: Type.String()
   }),
@@ -33,9 +35,21 @@ const StxTransferEvent = Type.Object({
   type: Type.Literal('STXTransferEvent'),
   data: Type.Object({
     amount: Type.String(),
-    sender: Type.String(),
-    recipient: Type.String(),
+    sender: Principal,
+    recipient: Principal,
   })
+});
+
+const ContractCall = Type.Object({
+  ContractCall: Type.Object({
+    args: Type.Array(Type.String()),
+    contract_identifier: Principal,
+    method: Type.String(),
+  }),
+});
+
+const OperationIdentifier = Type.Object({
+  index: Type.Integer(),
 });
 
 const StacksTransaction = Type.Object({
@@ -51,14 +65,10 @@ const StacksTransaction = Type.Object({
       }),
       value: Type.Integer(),
     }),
-    operation_identifier: Type.Object({
-      index: Type.Integer(),
-    }),
-    related_operations: Type.Array(Type.Object({
-      index: Type.Integer(),
-    })),
+    operation_identifier: OperationIdentifier,
+    related_operations: Type.Array(OperationIdentifier),
     status: Type.String(),
-    type: Type.String(),
+    type: Type.Union([Type.Literal('CREDIT'), Type.Literal('DEBIT')]),
   })),
   metadata: Type.Object({
     description: Type.String(),
@@ -70,7 +80,9 @@ const StacksTransaction = Type.Object({
       write_length: Type.Integer(),
     }),
     fee: Type.Integer(),
-    kind: Type.Any(), // TODO
+    kind: Type.Union([
+      ContractCall
+    ]),
     nonce: Type.Integer(),
     position: Type.Object({
       index: Type.Integer(),
