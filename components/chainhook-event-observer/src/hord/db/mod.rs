@@ -302,7 +302,23 @@ pub fn update_transfered_inscription(
     }
 }
 
-pub fn find_last_inscription_number(
+pub fn find_latest_inscription_block_height(
+    hord_db_conn: &Connection,
+    _ctx: &Context,
+) -> Result<u64, String> {
+    let args: &[&dyn ToSql] = &[];
+    let mut stmt = hord_db_conn
+        .prepare("SELECT block_height FROM inscriptions ORDER BY block_height DESC LIMIT 1")
+        .unwrap();
+    let mut rows = stmt.query(args).unwrap();
+    while let Ok(Some(row)) = rows.next() {
+        let block_height: u64 = row.get(0).unwrap();
+        return Ok(block_height);
+    }
+    Ok(0)
+}
+
+pub fn find_latest_inscription_number(
     hord_db_conn: &Connection,
     _ctx: &Context,
 ) -> Result<u64, String> {
@@ -513,7 +529,7 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
     let (block_compressed_tx, block_compressed_rx) = crossbeam_channel::unbounded();
     let first_inscription_block_height = 767430;
 
-    for block_cursor in start_block..end_block {
+    for block_cursor in start_block..=end_block {
         let block_height = block_cursor.clone();
         let block_hash_tx = block_hash_tx.clone();
         let config = bitcoin_config.clone();
@@ -573,7 +589,8 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
         .expect("unable to spawn thread");
 
     let mut blocks_stored = 0;
-    let mut cursor = first_inscription_block_height;
+    let mut cursor = find_latest_inscription_block_height(&rw_hord_db_conn, &ctx)
+        .unwrap_or(first_inscription_block_height) as usize;
     let mut inbox = HashMap::new();
 
     while let Ok(Some((block_height, compacted_block, raw_block))) = block_compressed_rx.recv() {
@@ -582,7 +599,7 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
         insert_entry_in_blocks(block_height, &compacted_block, &rw_hord_db_conn, &ctx);
 
         // Early return, only considering blocks after 1st inscription
-        if raw_block.height < first_inscription_block_height {
+        if raw_block.height < cursor {
             continue;
         }
         let block_height = raw_block.height;
@@ -645,7 +662,7 @@ pub fn retrieve_satoshi_point_using_local_storage(
     block_identifier: &BlockIdentifier,
     transaction_identifier: &TransactionIdentifier,
     ctx: &Context,
-) -> Result<(u64, u64, u64), String> {
+) -> Result<(u64, u64, u64, u32), String> {
     let mut ordinal_offset = 0;
     let mut ordinal_block_number = block_identifier.index as u32;
     let txid = {
@@ -653,8 +670,9 @@ pub fn retrieve_satoshi_point_using_local_storage(
         [bytes[0], bytes[1], bytes[2], bytes[3]]
     };
     let mut tx_cursor = (txid, 0);
-
+    let mut hops: u32 = 0;
     loop {
+        hops += 1;
         let res = match find_compacted_block_at_block_height(ordinal_block_number, &hord_db_conn) {
             Some(res) => res,
             None => {
@@ -776,5 +794,10 @@ pub fn retrieve_satoshi_point_using_local_storage(
     let height = Height(ordinal_block_number.into());
     let ordinal_number = height.starting_sat().0 + ordinal_offset;
 
-    Ok((ordinal_block_number.into(), ordinal_offset, ordinal_number))
+    Ok((
+        ordinal_block_number.into(),
+        ordinal_offset,
+        ordinal_number,
+        hops,
+    ))
 }

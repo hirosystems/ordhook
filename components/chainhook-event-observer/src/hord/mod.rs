@@ -13,7 +13,7 @@ use crate::{
     hord::{
         db::{
             find_inscription_with_ordinal_number, find_inscriptions_at_wached_outpoint,
-            find_last_inscription_number, insert_entry_in_blocks,
+            find_latest_inscription_number, insert_entry_in_blocks,
             retrieve_satoshi_point_using_local_storage, store_new_inscription,
             update_transfered_inscription, CompactedBlock,
         },
@@ -98,7 +98,7 @@ pub fn update_hord_db_and_augment_bitcoin_block(
             new_tx.metadata.ordinal_operations.iter_mut().enumerate()
         {
             if let OrdinalOperation::InscriptionRevealed(inscription) = ordinal_event {
-                let (ordinal_block_height, ordinal_offset, ordinal_number) = {
+                let (ordinal_block_height, ordinal_offset, ordinal_number, _) = {
                     // Are we looking at a re-inscription?
                     let res = retrieve_satoshi_point_using_local_storage(
                         &rw_hord_db_conn,
@@ -140,7 +140,7 @@ pub fn update_hord_db_and_augment_bitcoin_block(
                     inscription.ordinal_block_height = ordinal_block_height;
                     inscription.ordinal_number = ordinal_number;
                     inscription.inscription_number =
-                        match find_last_inscription_number(&rw_hord_db_conn, &ctx) {
+                        match find_latest_inscription_number(&rw_hord_db_conn, &ctx) {
                             Ok(inscription_number) => inscription_number,
                             Err(e) => {
                                 ctx.try_log(|logger| {

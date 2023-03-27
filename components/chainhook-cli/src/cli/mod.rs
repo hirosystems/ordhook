@@ -13,8 +13,8 @@ use chainhook_event_observer::chainhooks::types::{
     StacksPrintEventBasedPredicate,
 };
 use chainhook_event_observer::hord::db::{
-    fetch_and_cache_blocks_in_hord_db, find_inscriptions_at_wached_outpoint, initialize_hord_db,
-    open_readonly_hord_db_conn, open_readwrite_hord_db_conn,
+    fetch_and_cache_blocks_in_hord_db, find_inscriptions_at_wached_outpoint,
+    find_latest_compacted_block_known, open_readonly_hord_db_conn, open_readwrite_hord_db_conn,
     retrieve_satoshi_point_using_local_storage,
 };
 use chainhook_event_observer::observer::BitcoinConfig;
@@ -203,8 +203,6 @@ struct FindSatPointCommand {
     pub block_height: u64,
     /// Txid
     pub txid: String,
-    /// Output index
-    pub output_index: usize,
     /// Target Devnet network
     #[clap(
         long = "devnet",
@@ -455,6 +453,21 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
             FindCommand::SatPoint(cmd) => {
                 let config =
                     Config::default(cmd.devnet, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
+
+                info!(
+                    ctx.expect_logger(),
+                    "Computing satoshi number for satoshi at offet 0 in 1st output of transaction {} (block ${})", cmd.txid, cmd.block_height
+                );
+
+                let hord_db_conn =
+                    open_readonly_hord_db_conn(&config.expected_cache_path(), &ctx).unwrap();
+
+                let tip_height = find_latest_compacted_block_known(&hord_db_conn) as u64;
+
+                if cmd.block_height > tip_height {
+                    perform_hord_db_update(tip_height, cmd.block_height, 8, &config, &ctx).await?;
+                }
+
                 let transaction_identifier = TransactionIdentifier {
                     hash: cmd.txid.clone(),
                 };
@@ -463,10 +476,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     hash: "".into(),
                 };
 
-                let hord_db_conn =
-                    open_readonly_hord_db_conn(&config.expected_cache_path(), &ctx).unwrap();
-
-                let (block_height, offset, ordinal_number) =
+                let (block_height, offset, ordinal_number, hops) =
                     retrieve_satoshi_point_using_local_storage(
                         &hord_db_conn,
                         &block_identifier,
@@ -475,7 +485,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     )?;
                 info!(
                     ctx.expect_logger(),
-                    "Block: {block_height}, Offset {offset}:, Ordinal number: {ordinal_number}",
+                    "Satoshi #{ordinal_number} was minted in block #{block_height} at offset {offset} and was transferred {hops} times.",
                 );
             }
             FindCommand::Inscription(cmd) => {
@@ -491,14 +501,6 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
         Command::Hord(HordCommand::Db(subcmd)) => match subcmd {
             DbCommand::Init(cmd) => {
                 let config = Config::default(false, false, false, &cmd.config_path)?;
-
-                let bitcoin_config = BitcoinConfig {
-                    username: config.network.bitcoin_node_rpc_username.clone(),
-                    password: config.network.bitcoin_node_rpc_password.clone(),
-                    rpc_url: config.network.bitcoin_node_rpc_url.clone(),
-                    network: config.network.bitcoin_network.clone(),
-                };
-
                 let auth = Auth::UserPass(
                     config.network.bitcoin_node_rpc_username.clone(),
                     config.network.bitcoin_node_rpc_password.clone(),
@@ -521,43 +523,55 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     }
                 };
 
-                let rw_hord_db_conn = initialize_hord_db(&config.expected_cache_path(), &ctx);
-
-                let _ = fetch_and_cache_blocks_in_hord_db(
-                    &bitcoin_config,
-                    &rw_hord_db_conn,
-                    0,
-                    end_block,
-                    &ctx,
-                    cmd.network_threads,
-                )
-                .await?;
+                perform_hord_db_update(0, end_block, cmd.network_threads, &config, &ctx).await?;
             }
             DbCommand::Update(cmd) => {
                 let config = Config::default(false, false, false, &cmd.config_path)?;
-
-                let bitcoin_config = BitcoinConfig {
-                    username: config.network.bitcoin_node_rpc_username.clone(),
-                    password: config.network.bitcoin_node_rpc_password.clone(),
-                    rpc_url: config.network.bitcoin_node_rpc_url.clone(),
-                    network: config.network.bitcoin_network.clone(),
-                };
-
-                let rw_hord_db_conn =
-                    open_readwrite_hord_db_conn(&config.expected_cache_path(), &ctx)?;
-
-                let _ = fetch_and_cache_blocks_in_hord_db(
-                    &bitcoin_config,
-                    &rw_hord_db_conn,
+                perform_hord_db_update(
                     cmd.start_block,
                     cmd.end_block,
-                    &ctx,
                     cmd.network_threads,
+                    &config,
+                    &ctx,
                 )
                 .await?;
             }
         },
     }
+    Ok(())
+}
+
+pub async fn perform_hord_db_update(
+    start_block: u64,
+    end_block: u64,
+    network_threads: usize,
+    config: &Config,
+    ctx: &Context,
+) -> Result<(), String> {
+    info!(
+        ctx.expect_logger(),
+        "Syncing hord_db: {} blocks to download ({start_block}: {end_block}), using {network_threads} network threads", end_block - start_block
+    );
+
+    let bitcoin_config = BitcoinConfig {
+        username: config.network.bitcoin_node_rpc_username.clone(),
+        password: config.network.bitcoin_node_rpc_password.clone(),
+        rpc_url: config.network.bitcoin_node_rpc_url.clone(),
+        network: config.network.bitcoin_network.clone(),
+    };
+
+    let rw_hord_db_conn = open_readwrite_hord_db_conn(&config.expected_cache_path(), &ctx)?;
+
+    let _ = fetch_and_cache_blocks_in_hord_db(
+        &bitcoin_config,
+        &rw_hord_db_conn,
+        start_block,
+        end_block,
+        &ctx,
+        network_threads,
+    )
+    .await?;
+
     Ok(())
 }
 
