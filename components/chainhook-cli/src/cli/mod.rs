@@ -6,7 +6,12 @@ use crate::scan::bitcoin::scan_bitcoin_chain_with_predicate;
 use crate::scan::stacks::scan_stacks_chain_with_predicate;
 
 use chainhook_event_observer::bitcoincore_rpc::{Auth, Client, RpcApi};
-use chainhook_event_observer::chainhooks::types::ChainhookFullSpecification;
+use chainhook_event_observer::chainhooks::types::{
+    BitcoinChainhookFullSpecification, BitcoinChainhookNetworkSpecification, BitcoinPredicateType,
+    ChainhookFullSpecification, FileHook, HookAction, OrdinalOperations, Protocols,
+    StacksChainhookFullSpecification, StacksChainhookNetworkSpecification, StacksPredicate,
+    StacksPrintEventBasedPredicate,
+};
 use chainhook_event_observer::hord::db::{
     fetch_and_cache_blocks_in_hord_db, find_inscriptions_at_wached_outpoint, initialize_hord_db,
     open_readonly_hord_db_conn, open_readwrite_hord_db_conn,
@@ -14,10 +19,11 @@ use chainhook_event_observer::hord::db::{
 };
 use chainhook_event_observer::observer::BitcoinConfig;
 use chainhook_event_observer::utils::Context;
-use chainhook_types::{BlockIdentifier, TransactionIdentifier};
+use chainhook_types::{BitcoinNetwork, BlockIdentifier, StacksNetwork, TransactionIdentifier};
 use clap::{Parser, Subcommand};
 use ctrlc;
 use hiro_system_kit;
+use std::collections::BTreeMap;
 use std::io::{BufReader, Read};
 use std::path::PathBuf;
 use std::process;
@@ -94,9 +100,6 @@ struct NewConfig {
 struct NewPredicate {
     /// Predicate's name
     pub name: String,
-    /// Path to Clarinet.toml
-    #[clap(long = "manifest-path")]
-    pub manifest_path: Option<String>,
     /// Generate a Bitcoin chainhook
     #[clap(long = "bitcoin", conflicts_with = "stacks")]
     pub bitcoin: bool,
@@ -315,8 +318,114 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
             }
         },
         Command::Predicates(subcmd) => match subcmd {
-            PredicatesCommand::New(_cmd) => {
-                // let manifest = clarinet_files::get_manifest_location(None);
+            PredicatesCommand::New(cmd) => {
+                use uuid::Uuid;
+
+                let id = Uuid::new_v4();
+
+                let predicate = match (cmd.stacks, cmd.bitcoin) {
+                    (true, false) => {
+                        let mut networks = BTreeMap::new();
+
+                        networks.insert(StacksNetwork::Simnet, StacksChainhookNetworkSpecification {
+                            start_block: Some(0),
+                            end_block: Some(100),
+                            predicate: StacksPredicate::PrintEvent(StacksPrintEventBasedPredicate {
+                                contract_identifier: "ST1SVA0SST0EDT4MFYGWGP6GNSXMMQJDVP1G8QTTC.arkadiko-freddie-v1-1".into(),
+                                contains: "vault".into(),
+                            }),
+                            expire_after_occurrence: None,
+                            capture_all_events: None,
+                            decode_clarity_values: None,
+                            action:  HookAction::FileAppend(FileHook {
+                                path: "arkadiko.txt".into()
+                            })
+                        });
+
+                        networks.insert(StacksNetwork::Mainnet, StacksChainhookNetworkSpecification {
+                            start_block: Some(0),
+                            end_block: Some(100),
+                            predicate: StacksPredicate::PrintEvent(StacksPrintEventBasedPredicate {
+                                contract_identifier: "SP2C2YFP12AJZB4MABJBAJ55XECVS7E4PMMZ89YZR.arkadiko-freddie-v1-1".into(),
+                                contains: "vault".into(),
+                            }),
+                            expire_after_occurrence: None,
+                            capture_all_events: None,
+                            decode_clarity_values: None,
+                            action:  HookAction::FileAppend(FileHook {
+                                path: "arkadiko.txt".into()
+                            })
+                        });
+
+                        ChainhookFullSpecification::Stacks(StacksChainhookFullSpecification {
+                            uuid: id.to_string(),
+                            owner_uuid: None,
+                            name: "Hello world".into(),
+                            version: 1,
+                            networks,
+                        })
+                    }
+                    (false, true) => {
+                        let mut networks = BTreeMap::new();
+
+                        networks.insert(
+                            BitcoinNetwork::Mainnet,
+                            BitcoinChainhookNetworkSpecification {
+                                start_block: Some(0),
+                                end_block: Some(100),
+                                predicate: BitcoinPredicateType::Protocol(Protocols::Ordinal(
+                                    OrdinalOperations::InscriptionRevealed,
+                                )),
+                                expire_after_occurrence: None,
+                                action: HookAction::FileAppend(FileHook {
+                                    path: "ordinals.txt".into(),
+                                }),
+                            },
+                        );
+
+                        ChainhookFullSpecification::Bitcoin(BitcoinChainhookFullSpecification {
+                            uuid: id.to_string(),
+                            owner_uuid: None,
+                            name: "Hello world".into(),
+                            version: 1,
+                            networks,
+                        })
+                    }
+                    _ => {
+                        return Err("command `predicates new` should either provide the flag --stacks or --bitcoin".into());
+                    }
+                };
+
+                let content = serde_json::to_string_pretty(&predicate).unwrap();
+                let mut path = PathBuf::new();
+                path.push(cmd.name);
+
+                match std::fs::metadata(&path) {
+                    Err(e) => {
+                        if e.kind() == std::io::ErrorKind::NotFound {
+                            // need to create
+                            if let Some(dirp) = PathBuf::from(&path).parent() {
+                                std::fs::create_dir_all(dirp).unwrap_or_else(|e| {
+                                    println!("{}", e.to_string());
+                                });
+                            }
+                            let mut f = std::fs::OpenOptions::new()
+                                .write(true)
+                                .create(true)
+                                .truncate(true)
+                                .open(&path)
+                                .map_err(|e| format!("{}", e.to_string()))?;
+                            use std::io::Write;
+                            let _ = f.write_all(content.as_bytes());
+                        } else {
+                            panic!("FATAL: could not stat {}", path.display());
+                        }
+                    }
+                    Ok(_m) => {
+                        let err = format!("File {} already exists", path.display());
+                        return Err(err);
+                    }
+                };
             }
             PredicatesCommand::Scan(cmd) => {
                 let mut config =

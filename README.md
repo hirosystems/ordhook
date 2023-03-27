@@ -27,7 +27,7 @@ $ cargo chainhook-install
 To get started with bitcoin predicates, we can use the `chainhook` to generate a template: 
 
 ```bash
-$ chainhook predicates new --bitcoin
+$ chainhook predicates new hello-ordinals.json --bitcoin
 ```
 
 We will focus on the `if_this` and `then_that` parts of the specifications.
@@ -363,7 +363,7 @@ To optimize their experience with scanning, developers have a few knobs they can
 To get started with stacks predicates, we can use the `chainhook` to generate a template: 
 
 ```bash
-$ chainhook predicates new --stacks
+$ chainhook predicates new hello-arkadiko.json --stacks
 ```
 
 We will focus on the `if_this` and `then_that` parts of the specifications.
