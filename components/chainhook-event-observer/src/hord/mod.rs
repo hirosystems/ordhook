@@ -99,7 +99,12 @@ pub fn update_hord_db_and_augment_bitcoin_block(
             new_tx.metadata.ordinal_operations.iter_mut().enumerate()
         {
             if let OrdinalOperation::InscriptionRevealed(inscription) = ordinal_event {
-                let (ordinal_block_height, ordinal_offset, ordinal_number, _) = {
+                let (
+                    ordinal_block_height,
+                    ordinal_offset,
+                    ordinal_number,
+                    transfers_pre_inscription,
+                ) = {
                     // Are we looking at a re-inscription?
                     let res = retrieve_satoshi_point_using_local_storage(
                         &rw_hord_db_conn,
@@ -140,6 +145,7 @@ pub fn update_hord_db_and_augment_bitcoin_block(
                     inscription.ordinal_offset = ordinal_offset;
                     inscription.ordinal_block_height = ordinal_block_height;
                     inscription.ordinal_number = ordinal_number;
+                    inscription.transfers_pre_inscription = transfers_pre_inscription;
                     inscription.inscription_number =
                         match find_latest_inscription_number(&rw_hord_db_conn, &ctx) {
                             Ok(inscription_number) => inscription_number,
