@@ -490,12 +490,13 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     &hord_db_conn,
                     &block_identifier,
                     &transaction_identifier,
+                    0,
                     &ctx,
                 )?;
                 info!(
                     ctx.expect_logger(),
                     "Satoshi #{} was minted in block #{} at offset {} and was transferred {} times.",
-                    traversal.ordinal_number, traversal.ordinal_block_number, traversal.ordinal_offset, traversal.transfers
+                    traversal.ordinal_number, traversal.get_ordinal_coinbase_height(), traversal.get_ordinal_coinbase_offset(), traversal.transfers
                 );
             }
             FindCommand::Inscription(cmd) => {
