@@ -3,7 +3,7 @@ use chainhook_event_observer::bitcoincore_rpc::RpcApi;
 use chainhook_event_observer::bitcoincore_rpc::{Auth, Client};
 use chainhook_event_observer::chainhooks::bitcoin::{
     evaluate_bitcoin_chainhooks_on_chain_event, handle_bitcoin_hook_action,
-    BitcoinChainhookOccurrence,
+    BitcoinChainhookOccurrence, BitcoinTriggerChainhook,
 };
 use chainhook_event_observer::chainhooks::types::{
     BitcoinChainhookFullSpecification, BitcoinPredicateType, Protocols,
@@ -133,16 +133,40 @@ pub async fn scan_bitcoin_chain_with_predicate(
     let mut blocks_scanned = 0;
     let mut actions_triggered = 0;
 
+    let event_observer_config = config.get_event_observer_config();
+    let bitcoin_config = event_observer_config.get_bitcoin_config();
+
     if is_predicate_evaluating_ordinals {
-        for (_inscription_id, (_inscription_number, _ordinal_number, block_number)) in
-            inscriptions_cache.into_iter()
-        {
+        for (cursor, _inscriptions) in inscriptions_cache.into_iter() {
             // Only consider inscriptions in the interval specified
-            if block_number < start_block || block_number > end_block {
+            if cursor < start_block || cursor > end_block {
                 continue;
             }
 
-            // Retrieve the transaction (including witness data) to get the inscription data
+            blocks_scanned += 1;
+
+            let block_hash = retrieve_block_hash_with_retry(&cursor, &bitcoin_config, ctx).await?;
+            let block_breakdown =
+                retrieve_full_block_breakdown_with_retry(&block_hash, &bitcoin_config, ctx).await?;
+            let block = indexer::bitcoin::standardize_bitcoin_block(
+                block_breakdown,
+                &event_observer_config.bitcoin_network,
+                ctx,
+            )?;
+
+            let chain_event =
+                BitcoinChainEvent::ChainUpdatedWithBlocks(BitcoinChainUpdatedWithBlocksData {
+                    new_blocks: vec![block],
+                    confirmed_blocks: vec![],
+                });
+
+            let hits = evaluate_bitcoin_chainhooks_on_chain_event(
+                &chain_event,
+                vec![&predicate_spec],
+                ctx,
+            );
+
+            actions_triggered += execute_predicates_action(hits, &ctx).await;
         }
     } else {
         let use_scan_to_seed_hord_db = true;
@@ -150,9 +174,6 @@ pub async fn scan_bitcoin_chain_with_predicate(
         if use_scan_to_seed_hord_db {
             // Start ingestion pipeline
         }
-
-        let event_observer_config = config.get_event_observer_config();
-        let bitcoin_config = event_observer_config.get_bitcoin_config();
 
         for cursor in start_block..=end_block {
             blocks_scanned += 1;
@@ -185,26 +206,8 @@ pub async fn scan_bitcoin_chain_with_predicate(
                 vec![&predicate_spec],
                 ctx,
             );
-            for hit in hits.into_iter() {
-                let proofs = HashMap::new();
-                match handle_bitcoin_hook_action(hit, &proofs) {
-                    Err(e) => {
-                        error!(ctx.expect_logger(), "unable to handle action {}", e);
-                    }
-                    Ok(action) => {
-                        actions_triggered += 1;
-                        match action {
-                            BitcoinChainhookOccurrence::Http(request) => {
-                                send_request(request, &ctx).await
-                            }
-                            BitcoinChainhookOccurrence::File(path, bytes) => {
-                                file_append(path, bytes, &ctx)
-                            }
-                            BitcoinChainhookOccurrence::Data(_payload) => unreachable!(),
-                        }
-                    }
-                }
-            }
+
+            actions_triggered += execute_predicates_action(hits, &ctx).await;
         }
     }
     info!(
@@ -213,4 +216,30 @@ pub async fn scan_bitcoin_chain_with_predicate(
     );
 
     Ok(())
+}
+
+pub async fn execute_predicates_action<'a>(
+    hits: Vec<BitcoinTriggerChainhook<'a>>,
+    ctx: &Context,
+) -> u32 {
+    let mut actions_triggered = 0;
+
+    for hit in hits.into_iter() {
+        let proofs = HashMap::new();
+        match handle_bitcoin_hook_action(hit, &proofs) {
+            Err(e) => {
+                error!(ctx.expect_logger(), "unable to handle action {}", e);
+            }
+            Ok(action) => {
+                actions_triggered += 1;
+                match action {
+                    BitcoinChainhookOccurrence::Http(request) => send_request(request, &ctx).await,
+                    BitcoinChainhookOccurrence::File(path, bytes) => file_append(path, bytes, &ctx),
+                    BitcoinChainhookOccurrence::Data(_payload) => unreachable!(),
+                }
+            }
+        }
+    }
+
+    actions_triggered
 }
