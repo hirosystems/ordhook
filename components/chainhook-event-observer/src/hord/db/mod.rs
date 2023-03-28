@@ -119,8 +119,14 @@ fn create_or_open_readwrite_db(cache_path: &PathBuf, ctx: &Context) -> Connectio
     };
     // db.profile(Some(trace_profile));
     // db.busy_handler(Some(tx_busy_handler))?;
+
+    let mmap_size: i64 = 256 * 1024 * 1024;
+    let page_size: i64 = 32768;
+    conn.pragma_update(None, "mmap_size", mmap_size).unwrap();
+    conn.pragma_update(None, "page_size", page_size).unwrap();
     conn.pragma_update(None, "journal_mode", &"WAL").unwrap();
     conn.pragma_update(None, "synchronous", &"NORMAL").unwrap();
+
     conn
 }
 
