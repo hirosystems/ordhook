@@ -553,8 +553,9 @@ pub async fn start_observer_commands_handler(
                                     if let Err(e) = update_hord_db_and_augment_bitcoin_block(
                                         block,
                                         &rw_hord_db_conn,
-                                        &ctx,
                                         true,
+                                        &config.get_cache_path_buf(),
+                                        &ctx,
                                     ) {
                                         ctx.try_log(|logger| {
                                             slog::error!(
@@ -663,8 +664,9 @@ pub async fn start_observer_commands_handler(
                                     if let Err(e) = update_hord_db_and_augment_bitcoin_block(
                                         block,
                                         &rw_hord_db_conn,
-                                        &ctx,
                                         true,
+                                        &config.get_cache_path_buf(),
+                                        &ctx,
                                     ) {
                                         ctx.try_log(|logger| {
                                             slog::error!(
