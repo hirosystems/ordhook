@@ -566,7 +566,7 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
     let (block_hash_tx, block_hash_rx) = crossbeam_channel::bounded(128);
     let retrieve_block_data_pool = ThreadPool::new(network_thread);
     let (block_data_tx, block_data_rx) = crossbeam_channel::bounded(64);
-    let compress_block_data_pool = ThreadPool::new(8);
+    let compress_block_data_pool = ThreadPool::new(16);
     let (block_compressed_tx, block_compressed_rx) = crossbeam_channel::bounded(32);
     let first_inscription_block_height = 767430;
 
@@ -635,8 +635,6 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
     let mut inbox = HashMap::new();
 
     while let Ok(Some((block_height, compacted_block, raw_block))) = block_compressed_rx.recv() {
-        ctx.try_log(|logger| slog::info!(logger, "Storing compacted block #{block_height}"));
-
         insert_entry_in_blocks(block_height, &compacted_block, &rw_hord_db_conn, &ctx);
         blocks_stored += 1;
 
@@ -660,6 +658,7 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
         // Is the action of processing a block allows us
         // to process more blocks present in the inbox?
         while let Some(next_block) = inbox.remove(&cursor) {
+            ctx.try_log(|logger| slog::info!(logger, "Processing block #{cursor}"));
             let mut new_block = match standardize_bitcoin_block(next_block, &bitcoin_network, &ctx)
             {
                 Ok(block) => block,

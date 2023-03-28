@@ -104,43 +104,44 @@ pub fn update_hord_db_and_augment_bitcoin_block(
     let mut transactions_ids = vec![];
     for new_tx in new_block.transactions.iter_mut().skip(1) {
         // Have a new inscription been revealed, if so, are looking at a re-inscription
-        for ordinal_event in
-            new_tx.metadata.ordinal_operations.iter_mut()
-        {
+        for ordinal_event in new_tx.metadata.ordinal_operations.iter_mut() {
             if let OrdinalOperation::InscriptionRevealed(_) = ordinal_event {
                 transactions_ids.push(new_tx.transaction_identifier.clone());
             }
         }
     }
-    let expected_traversals = transactions_ids.len();
-    let (traversal_tx, traversal_rx) = channel::<(TransactionIdentifier, TraversalResult)>();
-    let traversal_data_pool = ThreadPool::new(10);
-
-    for transaction_id in transactions_ids.into_iter() {
-        let moved_traversal_tx = traversal_tx.clone();
-        let moved_ctx = ctx.clone();
-        let block_identifier = new_block.block_identifier.clone();
-        let hord_db_path = hord_db_path.clone();
-        traversal_data_pool.execute(move || {
-            let hord_db_conn = open_readonly_hord_db_conn(&hord_db_path, &moved_ctx).unwrap();
-            let traversal = retrieve_satoshi_point_using_local_storage(
-                &hord_db_conn,
-                &block_identifier,
-                &transaction_id,
-                &moved_ctx,
-            )
-            .unwrap();
-            let _ = moved_traversal_tx.send((transaction_id, traversal));
-        });
-    }
 
     let mut traversals = HashMap::new();
-    let mut traversals_received = 0;
-    while let Ok((transaction_identifier, traversal_result)) = traversal_rx.recv() {
-        traversals_received += 1;
-        traversals.insert(transaction_identifier, traversal_result);
-        if traversals_received == expected_traversals {
-            break;
+    if !transactions_ids.is_empty() {
+        let expected_traversals = transactions_ids.len();
+        let (traversal_tx, traversal_rx) = channel::<(TransactionIdentifier, TraversalResult)>();
+        let traversal_data_pool = ThreadPool::new(10);
+
+        for transaction_id in transactions_ids.into_iter() {
+            let moved_traversal_tx = traversal_tx.clone();
+            let moved_ctx = ctx.clone();
+            let block_identifier = new_block.block_identifier.clone();
+            let hord_db_path = hord_db_path.clone();
+            traversal_data_pool.execute(move || {
+                let hord_db_conn = open_readonly_hord_db_conn(&hord_db_path, &moved_ctx).unwrap();
+                let traversal = retrieve_satoshi_point_using_local_storage(
+                    &hord_db_conn,
+                    &block_identifier,
+                    &transaction_id,
+                    &moved_ctx,
+                )
+                .unwrap();
+                let _ = moved_traversal_tx.send((transaction_id, traversal));
+            });
+        }
+
+        let mut traversals_received = 0;
+        while let Ok((transaction_identifier, traversal_result)) = traversal_rx.recv() {
+            traversals_received += 1;
+            traversals.insert(transaction_identifier, traversal_result);
+            if traversals_received == expected_traversals {
+                break;
+            }
         }
     }
 
