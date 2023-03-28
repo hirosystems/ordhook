@@ -266,22 +266,6 @@ pub async fn start_event_observer(
         )
     });
 
-    let ordinal_index = initialize_ordinal_index(&config, None, &ctx)?;
-    match OrdinalIndexUpdater::update(&ordinal_index, None, &ctx).await {
-        Ok(_r) => {}
-        Err(e) => {
-            ctx.try_log(|logger| slog::error!(logger, "{}", e.to_string()));
-        }
-    }
-
-    ctx.try_log(|logger| {
-        slog::info!(
-            logger,
-            "Genesis ordinal indexing successful {:?}",
-            ordinal_index.info()
-        )
-    });
-
     let indexer_config = IndexerConfig {
         stacks_node_rpc_url: config.stacks_node_rpc_url.clone(),
         bitcoin_node_rpc_url: config.bitcoin_node_rpc_url.clone(),
