@@ -20,7 +20,10 @@ use crate::{
     utils::Context,
 };
 
-use super::{ord::height::Height, update_hord_db_and_augment_bitcoin_block};
+use super::{
+    ord::{height::Height, sat::Sat},
+    update_hord_db_and_augment_bitcoin_block,
+};
 
 fn get_default_hord_db_file_path(base_dir: &PathBuf) -> PathBuf {
     let mut destination_path = base_dir.clone();
@@ -350,30 +353,50 @@ pub fn find_inscription_with_ordinal_number(
     return None;
 }
 
-pub fn find_all_inscriptions(hord_db_conn: &Connection) -> BTreeMap<u64, Vec<(String, u64, u64)>> {
+pub fn find_all_inscriptions(
+    hord_db_conn: &Connection,
+) -> BTreeMap<u64, Vec<(TransactionIdentifier, TraversalResult)>> {
     let args: &[&dyn ToSql] = &[];
     let mut stmt = hord_db_conn
-        .prepare("SELECT inscription_id, inscription_number, ordinal_number, block_height FROM inscriptions ORDER BY inscription_number ASC")
+        .prepare("SELECT inscription_number, ordinal_number, block_height, inscription_id FROM inscriptions ORDER BY inscription_number ASC")
         .unwrap();
-    let mut results: BTreeMap<u64, Vec<(String, u64, u64)>> = BTreeMap::new();
+    let mut results: BTreeMap<u64, Vec<(TransactionIdentifier, TraversalResult)>> = BTreeMap::new();
     let mut rows = stmt.query(args).unwrap();
     while let Ok(Some(row)) = rows.next() {
-        let inscription_id: String = row.get(0).unwrap();
-        let inscription_number: u64 = row.get(1).unwrap();
-        let ordinal_number: u64 = row.get(2).unwrap();
-        let block_height: u64 = row.get(3).unwrap();
+        let inscription_number: u64 = row.get(0).unwrap();
+        let ordinal_number: u64 = row.get(1).unwrap();
+        let block_height: u64 = row.get(2).unwrap();
+        let transaction_id = {
+            let inscription_id: String = row.get(3).unwrap();
+            TransactionIdentifier {
+                hash: format!("0x{}", &inscription_id[0..inscription_id.len() - 2]),
+            }
+        };
+        let traversal = TraversalResult {
+            inscription_number,
+            ordinal_number,
+            transfers: 0,
+        };
         results
             .entry(block_height)
-            .and_modify(|v| v.push((inscription_id.clone(), inscription_number, ordinal_number)))
-            .or_insert(vec![(inscription_id, inscription_number, ordinal_number)]);
+            .and_modify(|v| v.push((transaction_id.clone(), traversal.clone())))
+            .or_insert(vec![(transaction_id, traversal)]);
     }
     return results;
+}
+
+#[derive(Clone, Debug)]
+pub struct WatchedSatpoint {
+    pub inscription_id: String,
+    pub inscription_number: u64,
+    pub ordinal_number: u64,
+    pub offset: u64,
 }
 
 pub fn find_inscriptions_at_wached_outpoint(
     outpoint: &str,
     hord_db_conn: &Connection,
-) -> Vec<(String, u64, u64, u64)> {
+) -> Vec<WatchedSatpoint> {
     let args: &[&dyn ToSql] = &[&outpoint.to_sql().unwrap()];
     let mut stmt = hord_db_conn
         .prepare("SELECT inscription_id, inscription_number, ordinal_number, offset FROM inscriptions WHERE outpoint_to_watch = ? ORDER BY offset ASC")
@@ -385,7 +408,12 @@ pub fn find_inscriptions_at_wached_outpoint(
         let inscription_number: u64 = row.get(1).unwrap();
         let ordinal_number: u64 = row.get(2).unwrap();
         let offset: u64 = row.get(3).unwrap();
-        results.push((inscription_id, inscription_number, ordinal_number, offset));
+        results.push(WatchedSatpoint {
+            inscription_id,
+            inscription_number,
+            ordinal_number,
+            offset,
+        });
     }
     return results;
 }
@@ -455,88 +483,6 @@ pub fn remove_entry_from_inscriptions(
         ctx.try_log(|logger| slog::error!(logger, "{}", e.to_string()));
     }
 }
-
-// pub async fn update_hord_db(
-//     bitcoin_config: &BitcoinConfig,
-//     hord_db_path: &PathBuf,
-//     start_block: u64,
-//     end_block: u64,
-//     _ctx: &Context,
-//     network_thread: usize,
-// ) -> Result<(), String> {
-//     let (block_tx, block_rx) = channel::<BitcoinBlockFullBreakdown>();
-//     let first_inscription_block_height = 767430;
-//     let ctx = _ctx.clone();
-//     let network = bitcoin_config.network.clone();
-//     let hord_db_path = hord_db_path.clone();
-//     let handle = hiro_system_kit::thread_named("Inscriptions indexing")
-//         .spawn(move || {
-//             let mut cursor = first_inscription_block_height;
-//             let mut inbox = HashMap::new();
-
-//             while let Ok(raw_block) = block_rx.recv() {
-//                 // Early return, only considering blocks after 1st inscription
-//                 if raw_block.height < first_inscription_block_height {
-//                     continue;
-//                 }
-//                 let block_height = raw_block.height;
-//                 inbox.insert(raw_block.height, raw_block);
-
-//                 // In the context of ordinals, we're constrained to process blocks sequentially
-//                 // Blocks are processed by a threadpool and could be coming out of order.
-//                 // Inbox block for later if the current block is not the one we should be
-//                 // processing.
-//                 if block_height != cursor {
-//                     continue;
-//                 }
-
-//                 // Is the action of processing a block allows us
-//                 // to process more blocks present in the inbox?
-//                 while let Some(next_block) = inbox.remove(&cursor) {
-//                     let mut new_block = match standardize_bitcoin_block(next_block, &network, &ctx)
-//                     {
-//                         Ok(block) => block,
-//                         Err(e) => {
-//                             ctx.try_log(|logger| {
-//                                 slog::error!(logger, "Unable to standardize bitcoin block: {e}",)
-//                             });
-//                             return;
-//                         }
-//                     };
-
-//                     if let Err(e) = update_hord_db_and_augment_bitcoin_block(
-//                         &mut new_block,
-//                         &hord_db_path,
-//                         &ctx,
-//                     ) {
-//                         ctx.try_log(|logger| {
-//                             slog::error!(
-//                                 logger,
-//                                 "Unable to augment bitcoin block with hord_db: {e}",
-//                             )
-//                         });
-//                         return;
-//                     }
-//                     cursor += 1;
-//                 }
-//             }
-//         })
-//         .expect("unable to detach thread");
-
-//     fetch_and_cache_blocks_in_hord_db(
-//         bitcoin_config,
-//         hord_db_conn,
-//         start_block,
-//         end_block,
-//         &_ctx,
-//         network_thread,
-//     )
-//     .await?;
-
-//     let _ = handle.join();
-
-//     Ok(())
-// }
 
 pub fn delete_data_in_hord_db(
     start_block: u64,
@@ -698,17 +644,30 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
     Ok(())
 }
 
+#[derive(Clone)]
 pub struct TraversalResult {
-    pub ordinal_block_number: u64,
-    pub ordinal_offset: u64,
+    pub inscription_number: u64,
     pub ordinal_number: u64,
     pub transfers: u32,
+}
+
+impl TraversalResult {
+    pub fn get_ordinal_coinbase_height(&self) -> u64 {
+        let sat = Sat(self.ordinal_number);
+        sat.height().n()
+    }
+
+    pub fn get_ordinal_coinbase_offset(&self) -> u64 {
+        let sat = Sat(self.ordinal_number);
+        self.ordinal_number - sat.height().starting_sat().n()
+    }
 }
 
 pub fn retrieve_satoshi_point_using_local_storage(
     hord_db_conn: &Connection,
     block_identifier: &BlockIdentifier,
     transaction_identifier: &TransactionIdentifier,
+    inscription_number: u64,
     ctx: &Context,
 ) -> Result<TraversalResult, String> {
     ctx.try_log(|logger| {
@@ -851,8 +810,7 @@ pub fn retrieve_satoshi_point_using_local_storage(
     let ordinal_number = height.starting_sat().0 + ordinal_offset;
 
     Ok(TraversalResult {
-        ordinal_block_number: ordinal_block_number.into(),
-        ordinal_offset,
+        inscription_number,
         ordinal_number,
         transfers: hops,
     })

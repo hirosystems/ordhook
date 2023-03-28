@@ -12,6 +12,10 @@ use chainhook_event_observer::hord::db::{
     fetch_and_cache_blocks_in_hord_db, find_all_inscriptions, find_compacted_block_at_block_height,
     find_latest_compacted_block_known, open_readonly_hord_db_conn, open_readwrite_hord_db_conn,
 };
+use chainhook_event_observer::hord::{
+    update_storage_and_augment_bitcoin_block_with_inscription_reveal_data,
+    update_storage_and_augment_bitcoin_block_with_inscription_transfer_data, Storage,
+};
 use chainhook_event_observer::indexer;
 use chainhook_event_observer::indexer::bitcoin::{
     retrieve_block_hash_with_retry, retrieve_full_block_breakdown_with_retry,
@@ -135,12 +139,18 @@ pub async fn scan_bitcoin_chain_with_predicate(
 
     let event_observer_config = config.get_event_observer_config();
     let bitcoin_config = event_observer_config.get_bitcoin_config();
-
+    let mut traversals = HashMap::new();
     if is_predicate_evaluating_ordinals {
-        for (cursor, _inscriptions) in inscriptions_cache.into_iter() {
+        let hord_db_conn = open_readonly_hord_db_conn(&config.expected_cache_path(), ctx)?;
+
+        let mut storage = Storage::Memory(BTreeMap::new());
+        for (cursor, local_traverals) in inscriptions_cache.into_iter() {
             // Only consider inscriptions in the interval specified
             if cursor < start_block || cursor > end_block {
                 continue;
+            }
+            for (transaction_identifier, traversal_result) in local_traverals.into_iter() {
+                traversals.insert(transaction_identifier, traversal_result);
             }
 
             blocks_scanned += 1;
@@ -148,12 +158,25 @@ pub async fn scan_bitcoin_chain_with_predicate(
             let block_hash = retrieve_block_hash_with_retry(&cursor, &bitcoin_config, ctx).await?;
             let block_breakdown =
                 retrieve_full_block_breakdown_with_retry(&block_hash, &bitcoin_config, ctx).await?;
-            let block = indexer::bitcoin::standardize_bitcoin_block(
+            let mut block = indexer::bitcoin::standardize_bitcoin_block(
                 block_breakdown,
                 &event_observer_config.bitcoin_network,
                 ctx,
             )?;
 
+            update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
+                &mut block,
+                &mut storage,
+                &traversals,
+                &hord_db_conn,
+                &ctx,
+            );
+
+            update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
+                &mut block,
+                &mut storage,
+                &ctx,
+            );
             let chain_event =
                 BitcoinChainEvent::ChainUpdatedWithBlocks(BitcoinChainUpdatedWithBlocksData {
                     new_blocks: vec![block],
