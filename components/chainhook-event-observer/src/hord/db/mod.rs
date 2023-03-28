@@ -563,11 +563,11 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
 ) -> Result<(), String> {
     let number_of_blocks_to_process = end_block - start_block + 1;
     let retrieve_block_hash_pool = ThreadPool::new(network_thread);
-    let (block_hash_tx, block_hash_rx) = crossbeam_channel::unbounded();
+    let (block_hash_tx, block_hash_rx) = crossbeam_channel::bounded(128);
     let retrieve_block_data_pool = ThreadPool::new(network_thread);
-    let (block_data_tx, block_data_rx) = crossbeam_channel::unbounded();
+    let (block_data_tx, block_data_rx) = crossbeam_channel::bounded(64);
     let compress_block_data_pool = ThreadPool::new(8);
-    let (block_compressed_tx, block_compressed_rx) = crossbeam_channel::unbounded();
+    let (block_compressed_tx, block_compressed_rx) = crossbeam_channel::bounded(32);
     let first_inscription_block_height = 767430;
 
     for block_cursor in start_block..=end_block {
