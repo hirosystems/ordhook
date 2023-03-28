@@ -224,17 +224,14 @@ impl CompactedBlock {
     }
 
     pub fn from_hex_bytes(bytes: &str) -> CompactedBlock {
-        let bytes = hex::decode(&bytes).unwrap();
-        let value = ciborium::de::from_reader(&bytes[..]).unwrap();
+        let bytes = hex_simd::decode_to_vec(&bytes).unwrap();
+        let value = serde_cbor::from_slice(&bytes[..]).unwrap();
         value
     }
 
     pub fn to_hex_bytes(&self) -> String {
-        use ciborium::cbor;
-        let value = cbor!(self).unwrap();
-        let mut bytes = vec![];
-        let _ = ciborium::ser::into_writer(&value, &mut bytes);
-        let hex_bytes = hex::encode(bytes);
+        let bytes = serde_cbor::to_vec(self).unwrap();
+        let hex_bytes = hex_simd::encode_to_string(bytes, hex_simd::AsciiCase::Lower);
         hex_bytes
     }
 }
@@ -630,8 +627,7 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
         .expect("unable to spawn thread");
 
     let mut blocks_stored = 0;
-    let mut cursor = 1 + find_latest_inscription_block_height(&rw_hord_db_conn, &ctx)?
-        .unwrap_or(first_inscription_block_height) as usize;
+    let mut cursor = 1 + find_latest_compacted_block_known(&rw_hord_db_conn) as usize;
     let mut inbox = HashMap::new();
 
     while let Ok(Some((block_height, compacted_block, raw_block))) = block_compressed_rx.recv() {

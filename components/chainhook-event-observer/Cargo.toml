@@ -46,9 +46,10 @@ futures = "0.3.21"
 hyper = { version = "0.14.24", features = ["http1", "client"] }
 hex = "0.4.3"
 rusqlite = { version = "0.27.0", features = ["bundled"] }
-ciborium = "0.2.0"
 threadpool = "1.8.1"
 rand = "0.8.5"
+hex-simd = "0.8.0"
+serde_cbor = "0.11.2"
 
 [replace]
 "jsonrpc:0.13.0" = { git = 'https://github.com/apoelstra/rust-jsonrpc', rev = "1063671f122a8985c1b7c29030071253da515839" }
