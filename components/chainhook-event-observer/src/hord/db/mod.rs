@@ -350,22 +350,22 @@ pub fn find_inscription_with_ordinal_number(
     return None;
 }
 
-pub fn find_all_inscriptions(hord_db_conn: &Connection) -> BTreeMap<String, (u64, u64, u64)> {
+pub fn find_all_inscriptions(hord_db_conn: &Connection) -> BTreeMap<u64, Vec<(String, u64, u64)>> {
     let args: &[&dyn ToSql] = &[];
     let mut stmt = hord_db_conn
-        .prepare("SELECT inscription_id, inscription_number, ordinal_number, block_number FROM inscriptions ORDER BY inscription_number ASC")
+        .prepare("SELECT inscription_id, inscription_number, ordinal_number, block_height FROM inscriptions ORDER BY inscription_number ASC")
         .unwrap();
-    let mut results = BTreeMap::new();
+    let mut results: BTreeMap<u64, Vec<(String, u64, u64)>> = BTreeMap::new();
     let mut rows = stmt.query(args).unwrap();
     while let Ok(Some(row)) = rows.next() {
         let inscription_id: String = row.get(0).unwrap();
         let inscription_number: u64 = row.get(1).unwrap();
         let ordinal_number: u64 = row.get(2).unwrap();
-        let block_number: u64 = row.get(3).unwrap();
-        results.insert(
-            inscription_id,
-            (inscription_number, ordinal_number, block_number),
-        );
+        let block_height: u64 = row.get(3).unwrap();
+        results
+            .entry(block_height)
+            .and_modify(|v| v.push((inscription_id.clone(), inscription_number, ordinal_number)))
+            .or_insert(vec![(inscription_id, inscription_number, ordinal_number)]);
     }
     return results;
 }
@@ -565,7 +565,6 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
     let (block_data_tx, block_data_rx) = crossbeam_channel::bounded(64);
     let compress_block_data_pool = ThreadPool::new(16);
     let (block_compressed_tx, block_compressed_rx) = crossbeam_channel::bounded(32);
-    let first_inscription_block_height = 767430;
 
     for block_cursor in start_block..=end_block {
         let block_height = block_cursor.clone();

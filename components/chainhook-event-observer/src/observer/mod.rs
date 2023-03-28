@@ -11,7 +11,6 @@ use crate::chainhooks::types::{
 };
 
 use crate::hord::db::open_readwrite_hord_db_conn;
-use crate::hord::ord::{indexing::updater::OrdinalIndexUpdater, initialize_ordinal_index};
 use crate::hord::{
     revert_hord_db_with_augmented_bitcoin_block, update_hord_db_and_augment_bitcoin_block,
 };
@@ -258,13 +257,7 @@ pub async fn start_event_observer(
     // let ordinal_index = if cfg!(feature = "ordinals") {
     // Start indexer with a receiver in background thread
 
-    ctx.try_log(|logger| {
-        slog::info!(
-            logger,
-            "Initializing ordinals index in dir `{}`",
-            config.cache_path
-        )
-    });
+    ctx.try_log(|logger| slog::info!(logger, "Local cache path `{}`", config.cache_path));
 
     let indexer_config = IndexerConfig {
         stacks_node_rpc_url: config.stacks_node_rpc_url.clone(),
