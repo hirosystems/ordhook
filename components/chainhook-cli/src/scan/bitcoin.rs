@@ -20,6 +20,7 @@ use chainhook_event_observer::indexer;
 use chainhook_event_observer::indexer::bitcoin::{
     retrieve_block_hash_with_retry, retrieve_full_block_breakdown_with_retry,
 };
+use chainhook_event_observer::observer::{gather_proofs, EventObserverConfig};
 use chainhook_event_observer::utils::{file_append, send_request, Context};
 use chainhook_types::{BitcoinChainEvent, BitcoinChainUpdatedWithBlocksData};
 use std::collections::{BTreeMap, HashMap};
@@ -189,7 +190,8 @@ pub async fn scan_bitcoin_chain_with_predicate(
                 ctx,
             );
 
-            actions_triggered += execute_predicates_action(hits, &ctx).await;
+            actions_triggered +=
+                execute_predicates_action(hits, &event_observer_config, &ctx).await;
         }
     } else {
         let use_scan_to_seed_hord_db = true;
@@ -209,15 +211,6 @@ pub async fn scan_bitcoin_chain_with_predicate(
                 ctx,
             )?;
 
-            if use_scan_to_seed_hord_db {
-                // Inject new block in ingestion pipeline
-                //
-                // let _ = cache_block_tx.send(Some((
-                //     block_breakdown.height as u32,
-                //     CompactedBlock::from_full_block(&block_breakdown),
-                // )));
-            }
-
             let chain_event =
                 BitcoinChainEvent::ChainUpdatedWithBlocks(BitcoinChainUpdatedWithBlocksData {
                     new_blocks: vec![block],
@@ -230,7 +223,8 @@ pub async fn scan_bitcoin_chain_with_predicate(
                 ctx,
             );
 
-            actions_triggered += execute_predicates_action(hits, &ctx).await;
+            actions_triggered +=
+                execute_predicates_action(hits, &event_observer_config, &ctx).await;
         }
     }
     info!(
@@ -243,12 +237,12 @@ pub async fn scan_bitcoin_chain_with_predicate(
 
 pub async fn execute_predicates_action<'a>(
     hits: Vec<BitcoinTriggerChainhook<'a>>,
+    config: &EventObserverConfig,
     ctx: &Context,
 ) -> u32 {
     let mut actions_triggered = 0;
-
+    let proofs = gather_proofs(&hits, &config, &ctx);
     for hit in hits.into_iter() {
-        let proofs = HashMap::new();
         match handle_bitcoin_hook_action(hit, &proofs) {
             Err(e) => {
                 error!(ctx.expect_logger(), "unable to handle action {}", e);
