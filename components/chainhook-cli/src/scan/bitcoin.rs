@@ -114,8 +114,9 @@ pub async fn scan_bitcoin_chain_with_predicate(
                     &rw_hord_db_conn,
                     start_block,
                     end_block,
-                    &ctx,
                     8,
+                    &config.expected_cache_path(),
+                    &ctx,
                 )
                 .await?;
 

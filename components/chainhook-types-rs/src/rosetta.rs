@@ -303,6 +303,7 @@ pub struct OrdinalInscriptionRevealData {
     pub ordinal_number: u64,
     pub ordinal_block_height: u64,
     pub ordinal_offset: u64,
+    pub transfers_pre_inscription: u32,
     pub satpoint_post_inscription: String,
 }
 

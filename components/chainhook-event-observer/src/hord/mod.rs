@@ -4,10 +4,15 @@ pub mod ord;
 
 use bitcoincore_rpc::bitcoin::hashes::hex::FromHex;
 use bitcoincore_rpc::bitcoin::{Address, Network, Script};
-use chainhook_types::{BitcoinBlockData, OrdinalInscriptionTransferData, OrdinalOperation};
+use chainhook_types::{
+    BitcoinBlockData, OrdinalInscriptionTransferData, OrdinalOperation, TransactionIdentifier,
+};
 use hiro_system_kit::slog;
 use rusqlite::Connection;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
+use std::path::PathBuf;
+use std::sync::mpsc::channel;
+use threadpool::ThreadPool;
 
 use crate::{
     hord::{
@@ -22,7 +27,10 @@ use crate::{
     utils::Context,
 };
 
-use self::db::{remove_entry_from_blocks, remove_entry_from_inscriptions};
+use self::db::{
+    open_readonly_hord_db_conn, remove_entry_from_blocks, remove_entry_from_inscriptions,
+    TraversalResult,
+};
 
 pub fn revert_hord_db_with_augmented_bitcoin_block(
     block: &BitcoinBlockData,
@@ -64,8 +72,9 @@ pub fn revert_hord_db_with_augmented_bitcoin_block(
 pub fn update_hord_db_and_augment_bitcoin_block(
     new_block: &mut BitcoinBlockData,
     rw_hord_db_conn: &Connection,
-    ctx: &Context,
     write_block: bool,
+    hord_db_path: &PathBuf,
+    ctx: &Context,
 ) -> Result<(), String> {
     if write_block {
         ctx.try_log(|logger| {
@@ -92,6 +101,50 @@ pub fn update_hord_db_and_augment_bitcoin_block(
         .clone();
     let first_sat_post_subsidy = Height(new_block.block_identifier.index).starting_sat().0;
 
+    let mut transactions_ids = vec![];
+    for new_tx in new_block.transactions.iter_mut().skip(1) {
+        // Have a new inscription been revealed, if so, are looking at a re-inscription
+        for ordinal_event in new_tx.metadata.ordinal_operations.iter_mut() {
+            if let OrdinalOperation::InscriptionRevealed(_) = ordinal_event {
+                transactions_ids.push(new_tx.transaction_identifier.clone());
+            }
+        }
+    }
+
+    let mut traversals = HashMap::new();
+    if !transactions_ids.is_empty() {
+        let expected_traversals = transactions_ids.len();
+        let (traversal_tx, traversal_rx) = channel::<(TransactionIdentifier, TraversalResult)>();
+        let traversal_data_pool = ThreadPool::new(10);
+
+        for transaction_id in transactions_ids.into_iter() {
+            let moved_traversal_tx = traversal_tx.clone();
+            let moved_ctx = ctx.clone();
+            let block_identifier = new_block.block_identifier.clone();
+            let hord_db_path = hord_db_path.clone();
+            traversal_data_pool.execute(move || {
+                let hord_db_conn = open_readonly_hord_db_conn(&hord_db_path, &moved_ctx).unwrap();
+                let traversal = retrieve_satoshi_point_using_local_storage(
+                    &hord_db_conn,
+                    &block_identifier,
+                    &transaction_id,
+                    &moved_ctx,
+                )
+                .unwrap();
+                let _ = moved_traversal_tx.send((transaction_id, traversal));
+            });
+        }
+
+        let mut traversals_received = 0;
+        while let Ok((transaction_identifier, traversal_result)) = traversal_rx.recv() {
+            traversals_received += 1;
+            traversals.insert(transaction_identifier, traversal_result);
+            if traversals_received == expected_traversals {
+                break;
+            }
+        }
+    }
+
     for new_tx in new_block.transactions.iter_mut().skip(1) {
         let mut ordinals_events_indexes_to_discard = VecDeque::new();
         // Have a new inscription been revealed, if so, are looking at a re-inscription
@@ -99,47 +152,36 @@ pub fn update_hord_db_and_augment_bitcoin_block(
             new_tx.metadata.ordinal_operations.iter_mut().enumerate()
         {
             if let OrdinalOperation::InscriptionRevealed(inscription) = ordinal_event {
-                let (ordinal_block_height, ordinal_offset, ordinal_number, _) = {
-                    // Are we looking at a re-inscription?
-                    let res = retrieve_satoshi_point_using_local_storage(
-                        &rw_hord_db_conn,
-                        &new_block.block_identifier,
-                        &new_tx.transaction_identifier,
-                        &ctx,
-                    );
-
-                    match res {
-                        Ok(res) => res,
-                        Err(e) => {
-                            ctx.try_log(|logger| {
-                                slog::error!(
-                                    logger,
-                                    "unable to retrieve satoshi point: {}",
-                                    e.to_string()
-                                );
-                            });
-                            continue;
-                        }
+                let traversal = match traversals.get(&new_tx.transaction_identifier) {
+                    Some(traversal) => traversal,
+                    None => {
+                        ctx.try_log(|logger| {
+                            slog::error!(logger, "unable to retrieve satoshi point",);
+                        });
+                        continue;
                     }
                 };
 
-                if let Some(_entry) =
-                    find_inscription_with_ordinal_number(&ordinal_number, &rw_hord_db_conn, &ctx)
-                {
+                if let Some(_entry) = find_inscription_with_ordinal_number(
+                    &traversal.ordinal_number,
+                    &rw_hord_db_conn,
+                    &ctx,
+                ) {
                     ctx.try_log(|logger| {
                         slog::warn!(
                             logger,
                             "Transaction {} in block {} is overriding an existing inscription {}",
                             new_tx.transaction_identifier.hash,
                             new_block.block_identifier.index,
-                            ordinal_number
+                            traversal.ordinal_number
                         );
                     });
                     ordinals_events_indexes_to_discard.push_front(ordinal_event_index);
                 } else {
-                    inscription.ordinal_offset = ordinal_offset;
-                    inscription.ordinal_block_height = ordinal_block_height;
-                    inscription.ordinal_number = ordinal_number;
+                    inscription.ordinal_offset = traversal.ordinal_offset;
+                    inscription.ordinal_block_height = traversal.ordinal_block_number;
+                    inscription.ordinal_number = traversal.ordinal_number;
+                    inscription.transfers_pre_inscription = traversal.transfers;
                     inscription.inscription_number =
                         match find_latest_inscription_number(&rw_hord_db_conn, &ctx) {
                             Ok(inscription_number) => inscription_number,
@@ -161,7 +203,7 @@ pub fn update_hord_db_and_augment_bitcoin_block(
                             new_tx.transaction_identifier.hash,
                             new_block.block_identifier.index,
                             inscription.content_type,
-                            ordinal_number
+                            traversal.ordinal_number
                         );
                     });
 

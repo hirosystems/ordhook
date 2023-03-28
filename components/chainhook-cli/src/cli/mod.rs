@@ -486,16 +486,16 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     hash: "".into(),
                 };
 
-                let (block_height, offset, ordinal_number, hops) =
-                    retrieve_satoshi_point_using_local_storage(
-                        &hord_db_conn,
-                        &block_identifier,
-                        &transaction_identifier,
-                        &ctx,
-                    )?;
+                let traversal = retrieve_satoshi_point_using_local_storage(
+                    &hord_db_conn,
+                    &block_identifier,
+                    &transaction_identifier,
+                    &ctx,
+                )?;
                 info!(
                     ctx.expect_logger(),
-                    "Satoshi #{ordinal_number} was minted in block #{block_height} at offset {offset} and was transferred {hops} times.",
+                    "Satoshi #{} was minted in block #{} at offset {} and was transferred {} times.",
+                    traversal.ordinal_number, traversal.ordinal_block_number, traversal.ordinal_offset, traversal.transfers
                 );
             }
             FindCommand::Inscription(cmd) => {
@@ -588,8 +588,9 @@ pub async fn perform_hord_db_update(
         &rw_hord_db_conn,
         start_block,
         end_block,
-        &ctx,
         network_threads,
+        &config.expected_cache_path(),
+        &ctx,
     )
     .await?;
 

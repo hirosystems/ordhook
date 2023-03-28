@@ -224,17 +224,14 @@ impl CompactedBlock {
     }
 
     pub fn from_hex_bytes(bytes: &str) -> CompactedBlock {
-        let bytes = hex::decode(&bytes).unwrap();
-        let value = ciborium::de::from_reader(&bytes[..]).unwrap();
+        let bytes = hex_simd::decode_to_vec(&bytes).unwrap();
+        let value = serde_cbor::from_slice(&bytes[..]).unwrap();
         value
     }
 
     pub fn to_hex_bytes(&self) -> String {
-        use ciborium::cbor;
-        let value = cbor!(self).unwrap();
-        let mut bytes = vec![];
-        let _ = ciborium::ser::into_writer(&value, &mut bytes);
-        let hex_bytes = hex::encode(bytes);
+        let bytes = serde_cbor::to_vec(self).unwrap();
+        let hex_bytes = hex_simd::encode_to_string(bytes, hex_simd::AsciiCase::Lower);
         hex_bytes
     }
 }
@@ -557,16 +554,17 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
     rw_hord_db_conn: &Connection,
     start_block: u64,
     end_block: u64,
-    ctx: &Context,
     network_thread: usize,
+    hord_db_path: &PathBuf,
+    ctx: &Context,
 ) -> Result<(), String> {
     let number_of_blocks_to_process = end_block - start_block + 1;
     let retrieve_block_hash_pool = ThreadPool::new(network_thread);
-    let (block_hash_tx, block_hash_rx) = crossbeam_channel::unbounded();
+    let (block_hash_tx, block_hash_rx) = crossbeam_channel::bounded(128);
     let retrieve_block_data_pool = ThreadPool::new(network_thread);
-    let (block_data_tx, block_data_rx) = crossbeam_channel::unbounded();
-    let compress_block_data_pool = ThreadPool::new(8);
-    let (block_compressed_tx, block_compressed_rx) = crossbeam_channel::unbounded();
+    let (block_data_tx, block_data_rx) = crossbeam_channel::bounded(64);
+    let compress_block_data_pool = ThreadPool::new(16);
+    let (block_compressed_tx, block_compressed_rx) = crossbeam_channel::bounded(32);
     let first_inscription_block_height = 767430;
 
     for block_cursor in start_block..=end_block {
@@ -629,13 +627,10 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
         .expect("unable to spawn thread");
 
     let mut blocks_stored = 0;
-    let mut cursor = 1 + find_latest_inscription_block_height(&rw_hord_db_conn, &ctx)?
-        .unwrap_or(first_inscription_block_height) as usize;
+    let mut cursor = 1 + find_latest_compacted_block_known(&rw_hord_db_conn) as usize;
     let mut inbox = HashMap::new();
 
     while let Ok(Some((block_height, compacted_block, raw_block))) = block_compressed_rx.recv() {
-        ctx.try_log(|logger| slog::info!(logger, "Storing compacted block #{block_height}"));
-
         insert_entry_in_blocks(block_height, &compacted_block, &rw_hord_db_conn, &ctx);
         blocks_stored += 1;
 
@@ -659,6 +654,7 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
         // Is the action of processing a block allows us
         // to process more blocks present in the inbox?
         while let Some(next_block) = inbox.remove(&cursor) {
+            ctx.try_log(|logger| slog::info!(logger, "Processing block #{cursor}"));
             let mut new_block = match standardize_bitcoin_block(next_block, &bitcoin_network, &ctx)
             {
                 Ok(block) => block,
@@ -673,8 +669,9 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
             if let Err(e) = update_hord_db_and_augment_bitcoin_block(
                 &mut new_block,
                 &rw_hord_db_conn,
-                &ctx,
                 false,
+                &hord_db_path,
+                &ctx,
             ) {
                 ctx.try_log(|logger| {
                     slog::error!(logger, "Unable to augment bitcoin block with hord_db: {e}",)
@@ -702,12 +699,19 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
     Ok(())
 }
 
+pub struct TraversalResult {
+    pub ordinal_block_number: u64,
+    pub ordinal_offset: u64,
+    pub ordinal_number: u64,
+    pub transfers: u32,
+}
+
 pub fn retrieve_satoshi_point_using_local_storage(
     hord_db_conn: &Connection,
     block_identifier: &BlockIdentifier,
     transaction_identifier: &TransactionIdentifier,
     ctx: &Context,
-) -> Result<(u64, u64, u64, u32), String> {
+) -> Result<TraversalResult, String> {
     ctx.try_log(|logger| {
         slog::info!(
             logger,
@@ -781,7 +785,6 @@ pub fn retrieve_satoshi_point_using_local_storage(
                         if sats_in >= total_out {
                             ordinal_offset = total_out - (sats_in - txin_value);
                             ordinal_block_number = block_height;
-                            // println!("{h}: {blockhash} -> {} [in:{} , out: {}] {}/{vout} (input #{in_index}) {compounded_offset}", transaction.txid, transaction.vin.len(), transaction.vout.len(), txid);
                             tx_cursor = (txin, vout as usize);
                             break;
                         }
@@ -848,10 +851,10 @@ pub fn retrieve_satoshi_point_using_local_storage(
     let height = Height(ordinal_block_number.into());
     let ordinal_number = height.starting_sat().0 + ordinal_offset;
 
-    Ok((
-        ordinal_block_number.into(),
+    Ok(TraversalResult {
+        ordinal_block_number: ordinal_block_number.into(),
         ordinal_offset,
         ordinal_number,
-        hops,
-    ))
+        transfers: hops,
+    })
 }

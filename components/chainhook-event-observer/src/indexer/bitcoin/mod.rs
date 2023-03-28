@@ -429,6 +429,7 @@ fn try_parse_ordinal_operation(
                         ordinal_number: 0,
                         ordinal_block_height: 0,
                         ordinal_offset: 0,
+                        transfers_pre_inscription: 0,
                         satpoint_post_inscription: format!("{}:0:0", tx.txid.clone()),
                     },
                 ));
