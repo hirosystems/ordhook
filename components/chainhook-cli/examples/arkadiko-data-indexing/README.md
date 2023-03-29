@@ -23,39 +23,8 @@ $ rails server
 
 `vault-monitor` exposes an admin readonly user interface at this address `http://localhost:3000/admin`.
 
-In another console, launch `chainhook-cli`, using the command:
+In another console, start replaying events using the command:
 
 ```bash
-$ chainhook-cli replay --testnet
+$ chainhook predicates scan ./arkadiko.json --mainnet
 ```
-
-Finally, make `vault-monitor` register a chainhook, using the following command:
-
-```bash
-curl -X "POST" "http://0.0.0.0:20446/v1/chainhooks/" \
-     -H 'Content-Type: application/json' \
-     -d $'{
-  "stacks": {
-    "predicate": {
-      "type": "print_event",
-      "rule": {
-        "contains": "vault",
-        "contract_identifier": "SP2C2YFP12AJZB4MABJBAJ55XECVS7E4PMMZ89YZR.arkadiko-freddie-v1-1"
-      }
-    },
-    "action": {
-      "http": {
-        "url": "http://localhost:3000/chainhooks/v1/vaults",
-        "method": "POST",
-        "authorization_header": "Bearer cn389ncoiwuencr"
-      }
-    },
-    "uuid": "1",
-    "decode_clarity_values": true,
-    "version": 1,
-    "name": "Vault events observer",
-    "network": "mainnet"
-  }
-}'
-```
-

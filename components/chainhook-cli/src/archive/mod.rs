@@ -12,6 +12,10 @@ pub fn default_tsv_file_path(network: &StacksNetwork) -> String {
 
 pub async fn download_tsv_file(config: &Config) -> Result<(), String> {
     let mut destination_path = config.expected_cache_path();
+    std::fs::create_dir_all(&destination_path).unwrap_or_else(|e| {
+        println!("{}", e.to_string());
+    });
+
     let url = config.expected_remote_tsv_url();
     let res = reqwest::get(url)
         .await
@@ -27,7 +31,10 @@ pub async fn download_tsv_file(config: &Config) -> Result<(), String> {
         let mut content = Vec::new();
         let _ = decoder.read_to_end(&mut content);
         let mut file = fs::File::create(&destination_path).unwrap();
-        file.write_all(&content[..]).unwrap();
+        if let Err(e) = file.write_all(&content[..]) {
+            println!("unable to write file: {}", e.to_string());
+            std::process::exit(1);
+        }
     });
 
     if res.status() == reqwest::StatusCode::OK {

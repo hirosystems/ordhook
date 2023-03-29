@@ -1,0 +1,24 @@
+{
+    "chain": "stacks",
+    "uuid": "1",
+    "name": "Scan Arkadiko",
+    "version": 1,
+    "networks": {
+      "mainnet": {
+        "if_this": {
+          "scope": "print_event",
+          "contains": "vault",
+          "contract_identifier": "SP2C2YFP12AJZB4MABJBAJ55XECVS7E4PMMZ89YZR.arkadiko-freddie-v1-1"
+        },
+        "then_that": {
+          "http_post": {
+            "url": "http://localhost:3000/chainhooks/v1/vaults",
+            "authorization_header": "Bearer cn389ncoiwuencr"
+          }
+        },
+        "decode_clarity_values": true,
+        "start_block": 40000,
+        "end_block": 80000
+      }
+    }
+  }
