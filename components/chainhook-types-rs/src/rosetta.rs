@@ -308,6 +308,7 @@ pub struct OrdinalInscriptionRevealData {
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum StacksBaseChainOperation {
     BlockCommitted(StacksBlockCommitmentData),
     LeaderRegistered(KeyRegistrationData),
@@ -316,15 +317,23 @@ pub enum StacksBaseChainOperation {
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub struct StacksBlockCommitmentData {
-    pub signers: Vec<String>,
-    pub stacks_block_hash: String,
-    pub rewards: Vec<PoxReward>,
+    pub block_hash: String,
+    pub pox_cycle_id: u64,
+    pub pox_cycle_len: u64,
+    pub pox_cycle_pos: u64,
+    pub pox_sats_burnt: u64,
+    pub pox_sats_transferred: Vec<PoxReward>,
+    // pub mining_address_pre_commit: Option<String>,
+    pub mining_address_post_commit: Option<String>,
+    pub mining_sats_left: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub struct PoxReward {
-    pub recipient: String,
+    pub recipient_address: String,
     pub amount: u64,
 }
 
