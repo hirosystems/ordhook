@@ -536,33 +536,48 @@ pub struct PoxConfig {
 
 impl PoxConfig {
     pub fn is_consensus_rewarding_participants_at_block_height(&self, block_height: u64) -> bool {
-        (block_height.saturating_div(self.genesis_block_height) % self.get_pox_cycle_len())
-            >= self.prepare_phase_len
+        self.get_pos_in_pox_cycle(block_height) < self.reward_phase_len
     }
 
     pub fn get_pox_cycle_len(&self) -> u64 {
         self.prepare_phase_len + self.reward_phase_len
     }
+
+    pub fn get_pox_cycle_id(&self, block_height: u64) -> u64 {
+        (block_height.saturating_sub(self.genesis_block_height)) / self.get_pox_cycle_len()
+    }
+
+    pub fn get_pos_in_pox_cycle(&self, block_height: u64) -> u64 {
+        (block_height.saturating_sub(self.genesis_block_height)) % self.get_pox_cycle_len()
+    }
+
+    pub fn get_burn_address(&self) -> &str {
+        match self.genesis_block_height {
+            666050 => "1111111111111111111114oLvT2",
+            2000000 => "burn-address-regtest",
+            _ => "burn-address",
+        }
+    }
 }
 
 const POX_CONFIG_MAINNET: PoxConfig = PoxConfig {
     genesis_block_height: 666050,
-    prepare_phase_len: 2100,
-    reward_phase_len: 100,
+    prepare_phase_len: 100,
+    reward_phase_len: 2100,
     rewarded_addresses_per_block: 2,
 };
 
 const POX_CONFIG_TESTNET: PoxConfig = PoxConfig {
     genesis_block_height: 2000000,
-    prepare_phase_len: 1050,
-    reward_phase_len: 50,
+    prepare_phase_len: 50,
+    reward_phase_len: 1050,
     rewarded_addresses_per_block: 2,
 };
 
 const POX_CONFIG_DEVNET: PoxConfig = PoxConfig {
     genesis_block_height: 100,
-    prepare_phase_len: 10,
-    reward_phase_len: 4,
+    prepare_phase_len: 4,
+    reward_phase_len: 10,
     rewarded_addresses_per_block: 2,
 };
 
