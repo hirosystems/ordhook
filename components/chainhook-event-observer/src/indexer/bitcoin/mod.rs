@@ -589,7 +589,7 @@ fn try_parse_stacks_operation(
                 pox_cycle_pos,
                 pox_sats_burnt,
                 pox_sats_transferred,
-                mining_address_pre_commit: None,
+                // mining_address_pre_commit: None,
                 mining_address_post_commit,
                 mining_sats_left,
             })
