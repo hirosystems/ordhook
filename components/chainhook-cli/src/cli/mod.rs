@@ -14,7 +14,7 @@ use chainhook_event_observer::chainhooks::types::{
 };
 use chainhook_event_observer::hord::db::{
     delete_data_in_hord_db, fetch_and_cache_blocks_in_hord_db,
-    find_inscriptions_at_wached_outpoint, find_latest_compacted_block_known,
+    find_inscriptions_at_wached_outpoint, find_latest_compacted_block_known, initialize_hord_db,
     open_readonly_hord_db_conn, open_readwrite_hord_db_conn,
     retrieve_satoshi_point_using_local_storage,
 };
@@ -533,6 +533,8 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                         ));
                     }
                 };
+
+                let _ = initialize_hord_db(&config.expected_cache_path(), &ctx);
 
                 perform_hord_db_update(0, end_block, cmd.network_threads, &config, &ctx).await?;
             }

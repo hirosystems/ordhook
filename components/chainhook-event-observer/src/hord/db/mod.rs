@@ -247,10 +247,14 @@ impl CompactedBlock {
 
 pub fn find_latest_compacted_block_known(hord_db_conn: &Connection) -> u32 {
     let args: &[&dyn ToSql] = &[];
-    let mut stmt = hord_db_conn
-        .prepare("SELECT id FROM blocks ORDER BY id DESC LIMIT 1")
-        .unwrap();
-    let mut rows = stmt.query(args).unwrap();
+    let mut stmt = match hord_db_conn.prepare("SELECT id FROM blocks ORDER BY id DESC LIMIT 1") {
+        Ok(stmt) => stmt,
+        Err(_) => return 0,
+    };
+    let mut rows = match stmt.query(args) {
+        Ok(rows) => rows,
+        Err(_) => return 0,
+    };
     while let Ok(Some(row)) = rows.next() {
         let id: u32 = row.get(0).unwrap();
         return id;
