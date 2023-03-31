@@ -125,19 +125,12 @@ The current `bitcoin` predicates supports the following `if_this` constructs:
     }
 }
 
-// Get any transaction including a Stacks Proof of Burn commitment
+// Get any Bitcoin transaction including a Block commitment.
+// Broadcasted payloads include Proof of Transfer reward informations.
 {
     "if_this": {
         "protocol": "stacks",
-        "operation": "pob_committed"
-    }
-}
-
-// Get any transaction including a Stacks Proof of Transfer commitment
-{
-    "if_this": {
-        "protocol": "stacks",
-        "operation": "pox_committed"
+        "operation": "block_committed"
     }
 }
 
@@ -150,6 +143,7 @@ The current `bitcoin` predicates supports the following `if_this` constructs:
 }
 
 // Get any transaction including a STX transfer operation 
+// Coming soon
 {
     "if_this": {
         "protocol": "stacks",
@@ -158,6 +152,7 @@ The current `bitcoin` predicates supports the following `if_this` constructs:
 }
 
 // Get any transaction including a STX lock operation
+// Coming soon
 {
     "if_this": {
         "protocol": "stacks",
