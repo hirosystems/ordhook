@@ -409,6 +409,15 @@ pub async fn start_event_observer(
         let _ = hiro_system_kit::nestable_block_on(ignite.launch());
     });
 
+    if let BitcoinBlockSignaling::ZeroMQ(ref bitcoind_zmq_url) = config.bitcoin_block_signaling {
+        let bitcoind_zmq_endpoint = bitcoind_zmq_url.parse::<zeromq::Endpoint>()?;
+        hiro_system_kit::thread_named("Bitcoind zmq listener")
+            .spawn(move || {
+                // bitcoind_zmq_endpoint
+            })
+            .expect("unable to spawn thread");
+    }
+
     // This loop is used for handling background jobs, emitted by HTTP calls.
     start_observer_commands_handler(
         config,
@@ -1187,6 +1196,16 @@ pub async fn handle_new_bitcoin_block(
     background_job_tx: &State<Arc<Mutex<Sender<ObserverCommand>>>>,
     ctx: &State<Context>,
 ) -> Json<JsonValue> {
+    if bitcoin_config
+        .bitcoin_block_signaling
+        .should_ignore_bitcoin_block_signaling_through_stacks()
+    {
+        return Json(json!({
+            "status": 200,
+            "result": "Ok",
+        }));
+    }
+
     ctx.try_log(|logger| slog::info!(logger, "POST /new_burn_block"));
     // Standardize the structure of the block, and identify the
     // kind of update that this new block would imply, taking
