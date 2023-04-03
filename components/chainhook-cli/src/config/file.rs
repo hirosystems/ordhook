@@ -32,8 +32,9 @@ pub struct ChainhooksConfigFile {
 #[derive(Deserialize, Debug, Clone)]
 pub struct NetworkConfigFile {
     pub mode: String,
-    pub bitcoin_node_rpc_url: String,
-    pub bitcoin_node_rpc_username: String,
-    pub bitcoin_node_rpc_password: String,
+    pub bitcoind_rpc_url: String,
+    pub bitcoind_rpc_username: String,
+    pub bitcoind_rpc_password: String,
+    pub bitcoind_zmq_url: Option<String>,
     pub stacks_node_rpc_url: String,
 }

@@ -50,7 +50,6 @@ pub struct TikvConfig {
 
 #[derive(Clone, Debug)]
 pub enum EventSourceConfig {
-    StacksNode(StacksNodeConfig),
     TsvPath(TsvPathConfig),
     TsvUrl(TsvUrlConfig),
 }
@@ -103,10 +102,11 @@ impl Config {
             chainhook_config: None,
             ingestion_port: DEFAULT_INGESTION_PORT,
             control_port: DEFAULT_CONTROL_PORT,
-            bitcoin_node_username: self.network.bitcoin_node_rpc_username.clone(),
-            bitcoin_node_password: self.network.bitcoin_node_rpc_password.clone(),
-            bitcoin_node_rpc_url: self.network.bitcoin_node_rpc_url.clone(),
+            bitcoind_rpc_username: self.network.bitcoind_rpc_username.clone(),
+            bitcoind_rpc_password: self.network.bitcoind_rpc_password.clone(),
+            bitcoind_rpc_url: self.network.bitcoind_rpc_url.clone(),
             stacks_node_rpc_url: self.network.stacks_node_rpc_url.clone(),
+            bitcoin_block_signaling: self.network.bitcoin_block_signaling.clone(),
             operators: HashSet::new(),
             display_logs: false,
             cache_path: self.storage.cache_path.clone(),
@@ -157,15 +157,15 @@ impl Config {
             },
             network: IndexerConfig {
                 stacks_node_rpc_url: config_file.network.stacks_node_rpc_url.to_string(),
-                bitcoin_node_rpc_url: config_file.network.bitcoin_node_rpc_url.to_string(),
-                bitcoin_node_rpc_username: config_file
-                    .network
-                    .bitcoin_node_rpc_username
-                    .to_string(),
-                bitcoin_node_rpc_password: config_file
-                    .network
-                    .bitcoin_node_rpc_password
-                    .to_string(),
+                bitcoind_rpc_url: config_file.network.bitcoind_rpc_url.to_string(),
+                bitcoind_rpc_username: config_file.network.bitcoind_rpc_username.to_string(),
+                bitcoind_rpc_password: config_file.network.bitcoind_rpc_password.to_string(),
+                bitcoin_block_signaling: match config_file.network.bitcoind_zmq_url {
+                    Some(ref zmq_url) => BitcoinBlockSignaling::ZeroMQ(zmq_url.clone()),
+                    None => BitcoinBlockSignaling::Stacks(
+                        config_file.network.stacks_node_rpc_url.clone(),
+                    ),
+                },
                 stacks_network,
                 bitcoin_network,
             },
@@ -177,7 +177,6 @@ impl Config {
         for source in self.event_sources.iter() {
             match source {
                 EventSourceConfig::TsvUrl(_) | EventSourceConfig::TsvPath(_) => return true,
-                EventSourceConfig::StacksNode(_) => {}
             }
         }
         return false;
@@ -217,15 +216,6 @@ impl Config {
         let mut destination_path = PathBuf::new();
         destination_path.push(&self.storage.cache_path);
         destination_path
-    }
-
-    pub fn expected_stacks_node_event_source(&self) -> &String {
-        for source in self.event_sources.iter() {
-            if let EventSourceConfig::StacksNode(config) = source {
-                return &config.host;
-            }
-        }
-        panic!("expected remote-tsv source")
     }
 
     pub fn expected_remote_tsv_url(&self) -> &String {
@@ -284,18 +274,19 @@ impl Config {
                 }),
                 cache_path: default_cache_path(),
             },
-            event_sources: vec![EventSourceConfig::StacksNode(StacksNodeConfig {
-                host: "http://0.0.0.0:20443".into(),
-            })],
+            event_sources: vec![],
             chainhooks: ChainhooksConfig {
                 max_stacks_registrations: 50,
                 max_bitcoin_registrations: 50,
             },
             network: IndexerConfig {
                 stacks_node_rpc_url: "http://0.0.0.0:20443".into(),
-                bitcoin_node_rpc_url: "http://0.0.0.0:18443".into(),
-                bitcoin_node_rpc_username: "devnet".into(),
-                bitcoin_node_rpc_password: "devnet".into(),
+                bitcoind_rpc_url: "http://0.0.0.0:18443".into(),
+                bitcoind_rpc_username: "devnet".into(),
+                bitcoind_rpc_password: "devnet".into(),
+                bitcoin_block_signaling: BitcoinBlockSignaling::Stacks(
+                    "http://0.0.0.0:20443".into(),
+                ),
                 stacks_network: StacksNetwork::Devnet,
                 bitcoin_network: BitcoinNetwork::Regtest,
             },
@@ -319,9 +310,12 @@ impl Config {
             },
             network: IndexerConfig {
                 stacks_node_rpc_url: "http://0.0.0.0:20443".into(),
-                bitcoin_node_rpc_url: "http://0.0.0.0:18332".into(),
-                bitcoin_node_rpc_username: "devnet".into(),
-                bitcoin_node_rpc_password: "devnet".into(),
+                bitcoind_rpc_url: "http://0.0.0.0:18332".into(),
+                bitcoind_rpc_username: "devnet".into(),
+                bitcoind_rpc_password: "devnet".into(),
+                bitcoin_block_signaling: BitcoinBlockSignaling::Stacks(
+                    "http://0.0.0.0:20443".into(),
+                ),
                 stacks_network: StacksNetwork::Testnet,
                 bitcoin_network: BitcoinNetwork::Testnet,
             },
@@ -345,9 +339,12 @@ impl Config {
             },
             network: IndexerConfig {
                 stacks_node_rpc_url: "http://0.0.0.0:20443".into(),
-                bitcoin_node_rpc_url: "http://0.0.0.0:8332".into(),
-                bitcoin_node_rpc_username: "devnet".into(),
-                bitcoin_node_rpc_password: "devnet".into(),
+                bitcoind_rpc_url: "http://0.0.0.0:8332".into(),
+                bitcoind_rpc_username: "devnet".into(),
+                bitcoind_rpc_password: "devnet".into(),
+                bitcoin_block_signaling: BitcoinBlockSignaling::Stacks(
+                    "http://0.0.0.0:20443".into(),
+                ),
                 stacks_network: StacksNetwork::Mainnet,
                 bitcoin_network: BitcoinNetwork::Mainnet,
             },

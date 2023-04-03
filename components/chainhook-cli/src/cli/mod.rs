@@ -513,11 +513,11 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
             DbCommand::Init(cmd) => {
                 let config = Config::default(false, false, false, &cmd.config_path)?;
                 let auth = Auth::UserPass(
-                    config.network.bitcoin_node_rpc_username.clone(),
-                    config.network.bitcoin_node_rpc_password.clone(),
+                    config.network.bitcoind_rpc_username.clone(),
+                    config.network.bitcoind_rpc_password.clone(),
                 );
 
-                let bitcoin_rpc = match Client::new(&config.network.bitcoin_node_rpc_url, auth) {
+                let bitcoin_rpc = match Client::new(&config.network.bitcoind_rpc_url, auth) {
                     Ok(con) => con,
                     Err(message) => {
                         return Err(format!("Bitcoin RPC error: {}", message.to_string()));
@@ -578,10 +578,11 @@ pub async fn perform_hord_db_update(
     );
 
     let bitcoin_config = BitcoinConfig {
-        username: config.network.bitcoin_node_rpc_username.clone(),
-        password: config.network.bitcoin_node_rpc_password.clone(),
-        rpc_url: config.network.bitcoin_node_rpc_url.clone(),
+        username: config.network.bitcoind_rpc_username.clone(),
+        password: config.network.bitcoind_rpc_password.clone(),
+        rpc_url: config.network.bitcoind_rpc_url.clone(),
         network: config.network.bitcoin_network.clone(),
+        bitcoin_block_signaling: config.network.bitcoin_block_signaling.clone(),
     };
 
     let rw_hord_db_conn = open_readwrite_hord_db_conn(&config.expected_cache_path(), &ctx)?;

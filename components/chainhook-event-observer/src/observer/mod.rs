@@ -452,10 +452,10 @@ pub fn gather_proofs<'a>(
     ctx: &Context,
 ) -> HashMap<&'a TransactionIdentifier, String> {
     let bitcoin_client_rpc = Client::new(
-        &config.bitcoin_node_rpc_url,
+        &config.bitcoind_rpc_url,
         Auth::UserPass(
-            config.bitcoin_node_username.to_string(),
-            config.bitcoin_node_password.to_string(),
+            config.bitcoind_rpc_username.to_string(),
+            config.bitcoind_rpc_password.to_string(),
         ),
     )
     .expect("unable to build http client");

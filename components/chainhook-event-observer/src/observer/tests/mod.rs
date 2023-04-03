@@ -14,8 +14,8 @@ use crate::observer::{
 };
 use crate::utils::{AbstractBlock, Context};
 use chainhook_types::{
-    BitcoinNetwork, BlockchainEvent, BlockchainUpdatedWithHeaders, StacksBlockUpdate,
-    StacksChainEvent, StacksChainUpdatedWithBlocksData, StacksNetwork,
+    BitcoinBlockSignaling, BitcoinNetwork, BlockchainEvent, BlockchainUpdatedWithHeaders,
+    StacksBlockUpdate, StacksChainEvent, StacksChainUpdatedWithBlocksData, StacksNetwork,
 };
 use hiro_system_kit;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -33,12 +33,13 @@ fn generate_test_config() -> (EventObserverConfig, ChainhookStore) {
         event_handlers: vec![],
         ingestion_port: 0,
         control_port: 0,
-        bitcoin_node_username: "user".into(),
-        bitcoin_node_password: "user".into(),
-        bitcoin_node_rpc_url: "http://localhost:20443".into(),
-        stacks_node_rpc_url: "http://localhost:18443".into(),
+        bitcoind_rpc_username: "user".into(),
+        bitcoind_rpc_password: "user".into(),
+        bitcoind_rpc_url: "http://localhost:18443".into(),
+        stacks_node_rpc_url: "http://localhost:20443".into(),
         operators,
         display_logs: false,
+        bitcoin_block_signaling: BitcoinBlockSignaling::Stacks("http://localhost:20443".into()),
         cache_path: "cache".into(),
         bitcoin_network: BitcoinNetwork::Regtest,
         stacks_network: StacksNetwork::Devnet,

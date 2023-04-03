@@ -222,8 +222,7 @@ async fn download_dataset_if_required(config: &mut Config, ctx: &Context) -> boo
     } else {
         info!(
             ctx.expect_logger(),
-            "Streaming blocks from stacks-node {}",
-            config.expected_stacks_node_event_source()
+            "Streaming blocks from stacks-node {}", config.network.stacks_node_rpc_url
         );
         false
     }

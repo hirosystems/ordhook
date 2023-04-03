@@ -5,7 +5,8 @@ pub mod stacks;
 use crate::utils::{AbstractBlock, Context};
 
 use chainhook_types::{
-    BitcoinNetwork, BlockHeader, BlockIdentifier, BlockchainEvent, StacksChainEvent, StacksNetwork,
+    BitcoinBlockSignaling, BitcoinNetwork, BlockHeader, BlockIdentifier, BlockchainEvent,
+    StacksChainEvent, StacksNetwork,
 };
 use hiro_system_kit::slog;
 use rocket::serde::json::Value as JsonValue;
@@ -49,9 +50,10 @@ pub struct IndexerConfig {
     pub bitcoin_network: BitcoinNetwork,
     pub stacks_network: StacksNetwork,
     pub stacks_node_rpc_url: String,
-    pub bitcoin_node_rpc_url: String,
-    pub bitcoin_node_rpc_username: String,
-    pub bitcoin_node_rpc_password: String,
+    pub bitcoind_rpc_url: String,
+    pub bitcoind_rpc_username: String,
+    pub bitcoind_rpc_password: String,
+    pub bitcoin_block_signaling: BitcoinBlockSignaling,
 }
 
 pub struct Indexer {

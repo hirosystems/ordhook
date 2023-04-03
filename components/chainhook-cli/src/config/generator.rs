@@ -11,9 +11,9 @@ max_bitcoin_registrations = 500
 
 [network]
 mode = "mainnet"
-bitcoin_node_rpc_url = "http://localhost:8332"
-bitcoin_node_rpc_username = "devnet"
-bitcoin_node_rpc_password = "devnet"
+bitcoind_rpc_url = "http://localhost:8332"
+bitcoind_rpc_username = "devnet"
+bitcoind_rpc_password = "devnet"
 stacks_node_rpc_url = "http://localhost:20443"
 
 [[event_source]]

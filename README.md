@@ -311,9 +311,9 @@ max_bitcoin_registrations = 500
 
 [network]
 mode = "testnet"
-bitcoin_node_rpc_url = "http://0.0.0.0:18332"
-bitcoin_node_rpc_username = "testnet"
-bitcoin_node_rpc_password = "testnet"
+bitcoind_rpc_url = "http://0.0.0.0:18332"
+bitcoind_rpc_username = "testnet"
+bitcoind_rpc_password = "testnet"
 stacks_node_rpc_url = "http://0.0.0.0:20443"
 ```
 
@@ -328,9 +328,9 @@ max_bitcoin_registrations = 500
 
 [network]
 mode = "mainnet"
-bitcoin_node_rpc_url = "http://0.0.0.0:8332"
-bitcoin_node_rpc_username = "mainnet"
-bitcoin_node_rpc_password = "mainnet"
+bitcoind_rpc_url = "http://0.0.0.0:8332"
+bitcoind_rpc_username = "mainnet"
+bitcoind_rpc_password = "mainnet"
 stacks_node_rpc_url = "http://0.0.0.0:20443"
 
 ```
