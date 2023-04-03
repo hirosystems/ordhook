@@ -446,7 +446,7 @@ fn try_parse_ordinal_operation(
 
 fn try_parse_stacks_operation(
     block_height: u64,
-    inputs: &Vec<BitcoinTransactionInputFullBreakdown>,
+    _inputs: &Vec<BitcoinTransactionInputFullBreakdown>,
     outputs: &Vec<BitcoinTransactionOutputFullBreakdown>,
     pox_config: &PoxConfig,
     expected_magic_bytes: &[u8; 2],
