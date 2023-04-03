@@ -143,6 +143,7 @@ pub struct StacksTransactionData {
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(tag = "type", content = "data")]
 pub enum StacksTransactionKind {
     ContractCall(StacksContractCallData),
     ContractDeployment(StacksContractDeploymentData),
