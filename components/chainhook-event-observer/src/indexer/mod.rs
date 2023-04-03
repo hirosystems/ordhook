@@ -29,10 +29,14 @@ pub struct StacksChainContext {
 }
 
 impl StacksChainContext {
-    pub fn new() -> StacksChainContext {
+    pub fn new(network: &StacksNetwork) -> StacksChainContext {
         StacksChainContext {
             asset_class_map: HashMap::new(),
-            pox_info: PoxInfo::default(),
+            pox_info: match network {
+                StacksNetwork::Mainnet => PoxInfo::mainnet_default(),
+                StacksNetwork::Testnet => PoxInfo::testnet_default(),
+                _ => PoxInfo::devnet_default(),
+            },
         }
     }
 }
@@ -68,7 +72,7 @@ impl Indexer {
     pub fn new(config: IndexerConfig) -> Indexer {
         let stacks_blocks_pool = StacksBlockPool::new();
         let bitcoin_blocks_pool = ForkScratchPad::new();
-        let stacks_context = StacksChainContext::new();
+        let stacks_context = StacksChainContext::new(&config.stacks_network);
         let bitcoin_context = BitcoinChainContext::new();
 
         Indexer {
