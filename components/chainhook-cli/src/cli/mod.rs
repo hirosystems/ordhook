@@ -183,9 +183,12 @@ enum DbCommand {
     /// Init hord db
     #[clap(name = "init", bin_name = "init")]
     Init(InitHordDbCommand),
-    /// Update hord db
-    #[clap(name = "update", bin_name = "update")]
-    Update(UpdateHordDbCommand),
+    /// Rewrite hord db
+    #[clap(name = "rewrite", bin_name = "rewrite")]
+    Rewrite(UpdateHordDbCommand),
+    /// Catch-up hord db
+    #[clap(name = "sync", bin_name = "sync")]
+    Sync(SyncHordDbCommand),
     /// Rebuild inscriptions entries for a given block
     #[clap(name = "drop", bin_name = "drop")]
     Drop(DropHordDbCommand),
@@ -262,6 +265,15 @@ struct UpdateHordDbCommand {
     pub start_block: u64,
     /// Starting block
     pub end_block: u64,
+    /// # of Networking thread
+    pub network_threads: usize,
+    /// Load config file path
+    #[clap(long = "config-path")]
+    pub config_path: Option<String>,
+}
+
+#[derive(Parser, PartialEq, Clone, Debug)]
+struct SyncHordDbCommand {
     /// # of Networking thread
     pub network_threads: usize,
     /// Load config file path
@@ -538,7 +550,38 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
 
                 perform_hord_db_update(0, end_block, cmd.network_threads, &config, &ctx).await?;
             }
-            DbCommand::Update(cmd) => {
+            DbCommand::Sync(cmd) => {
+                let config = Config::default(false, false, false, &cmd.config_path)?;
+                let auth = Auth::UserPass(
+                    config.network.bitcoind_rpc_username.clone(),
+                    config.network.bitcoind_rpc_password.clone(),
+                );
+
+                let bitcoin_rpc = match Client::new(&config.network.bitcoind_rpc_url, auth) {
+                    Ok(con) => con,
+                    Err(message) => {
+                        return Err(format!("Bitcoin RPC error: {}", message.to_string()));
+                    }
+                };
+
+                let hord_db_conn = open_readonly_hord_db_conn(&config.expected_cache_path(), &ctx)?;
+
+                let start_block = find_latest_compacted_block_known(&hord_db_conn) as u64;
+
+                let end_block = match bitcoin_rpc.get_blockchain_info() {
+                    Ok(result) => result.blocks,
+                    Err(e) => {
+                        return Err(format!(
+                            "unable to retrieve Bitcoin chain tip ({})",
+                            e.to_string()
+                        ));
+                    }
+                };
+
+                perform_hord_db_update(start_block, end_block, cmd.network_threads, &config, &ctx)
+                    .await?;
+            }
+            DbCommand::Rewrite(cmd) => {
                 let config = Config::default(false, false, false, &cmd.config_path)?;
                 perform_hord_db_update(
                     cmd.start_block,
