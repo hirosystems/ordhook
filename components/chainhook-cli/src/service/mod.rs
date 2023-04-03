@@ -28,12 +28,12 @@ use std::time::Duration;
 pub const DEFAULT_INGESTION_PORT: u16 = 20455;
 pub const DEFAULT_CONTROL_PORT: u16 = 20456;
 
-pub struct Node {
+pub struct Service {
     config: Config,
     ctx: Context,
 }
 
-impl Node {
+impl Service {
     pub fn new(config: Config, ctx: Context) -> Self {
         Self { config, ctx }
     }
@@ -47,8 +47,13 @@ impl Node {
             let mut redis_con = match client.get_connection() {
                 Ok(con) => con,
                 Err(message) => {
-                    error!(self.ctx.expect_logger(), "Redis: {}", message.to_string());
-                    panic!();
+                    error!(
+                        self.ctx.expect_logger(),
+                        "Unable to connect to redis server: {}",
+                        message.to_string()
+                    );
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                    std::process::exit(1);
                 }
             };
 
@@ -374,16 +379,13 @@ impl Node {
                                         .build()
                                         .expect("Unable to build http client");
                                     http_client
-                                        .post(&self.config.network.bitcoin_node_rpc_url)
+                                        .post(&self.config.network.bitcoind_rpc_url)
                                         .basic_auth(
-                                            &self.config.network.bitcoin_node_rpc_username,
-                                            Some(&self.config.network.bitcoin_node_rpc_password),
+                                            &self.config.network.bitcoind_rpc_username,
+                                            Some(&self.config.network.bitcoind_rpc_password),
                                         )
                                         .header("Content-Type", "application/json")
-                                        .header(
-                                            "Host",
-                                            &self.config.network.bitcoin_node_rpc_url[7..],
-                                        )
+                                        .header("Host", &self.config.network.bitcoind_rpc_url[7..])
                                         .json(&body)
                                         .send()
                                         .await
@@ -415,16 +417,13 @@ impl Node {
                                         .build()
                                         .expect("Unable to build http client");
                                     http_client
-                                        .post(&self.config.network.bitcoin_node_rpc_url)
+                                        .post(&self.config.network.bitcoind_rpc_url)
                                         .basic_auth(
-                                            &self.config.network.bitcoin_node_rpc_username,
-                                            Some(&self.config.network.bitcoin_node_rpc_password),
+                                            &self.config.network.bitcoind_rpc_username,
+                                            Some(&self.config.network.bitcoind_rpc_password),
                                         )
                                         .header("Content-Type", "application/json")
-                                        .header(
-                                            "Host",
-                                            &self.config.network.bitcoin_node_rpc_url[7..],
-                                        )
+                                        .header("Host", &self.config.network.bitcoind_rpc_url[7..])
                                         .json(&body)
                                         .send()
                                         .await
@@ -447,13 +446,13 @@ impl Node {
                                     .build()
                                     .expect("Unable to build http client");
                                 let raw_block = http_client
-                                    .post(&self.config.network.bitcoin_node_rpc_url)
+                                    .post(&self.config.network.bitcoind_rpc_url)
                                     .basic_auth(
-                                        &self.config.network.bitcoin_node_rpc_username,
-                                        Some(&self.config.network.bitcoin_node_rpc_password),
+                                        &self.config.network.bitcoind_rpc_username,
+                                        Some(&self.config.network.bitcoind_rpc_password),
                                     )
                                     .header("Content-Type", "application/json")
-                                    .header("Host", &self.config.network.bitcoin_node_rpc_url[7..])
+                                    .header("Host", &self.config.network.bitcoind_rpc_url[7..])
                                     .json(&body)
                                     .send()
                                     .await

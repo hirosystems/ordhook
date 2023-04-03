@@ -24,7 +24,7 @@ use crate::utils::{send_request, Context};
 use bitcoincore_rpc::bitcoin::{BlockHash, Txid};
 use bitcoincore_rpc::{Auth, Client, RpcApi};
 use chainhook_types::{
-    BitcoinBlockData, BitcoinChainEvent, BitcoinChainUpdatedWithBlocksData,
+    BitcoinBlockData, BitcoinBlockSignaling, BitcoinChainEvent, BitcoinChainUpdatedWithBlocksData,
     BitcoinChainUpdatedWithReorgData, BitcoinNetwork, BlockIdentifier, BlockchainEvent,
     StacksChainEvent, StacksNetwork, TransactionIdentifier,
 };
@@ -129,9 +129,10 @@ pub struct EventObserverConfig {
     pub event_handlers: Vec<EventHandler>,
     pub ingestion_port: u16,
     pub control_port: u16,
-    pub bitcoin_node_username: String,
-    pub bitcoin_node_password: String,
-    pub bitcoin_node_rpc_url: String,
+    pub bitcoind_rpc_username: String,
+    pub bitcoind_rpc_password: String,
+    pub bitcoind_rpc_url: String,
+    pub bitcoin_block_signaling: BitcoinBlockSignaling,
     pub stacks_node_rpc_url: String,
     pub operators: HashSet<String>,
     pub display_logs: bool,
@@ -149,10 +150,11 @@ impl EventObserverConfig {
 
     pub fn get_bitcoin_config(&self) -> BitcoinConfig {
         let bitcoin_config = BitcoinConfig {
-            username: self.bitcoin_node_username.clone(),
-            password: self.bitcoin_node_password.clone(),
-            rpc_url: self.bitcoin_node_rpc_url.clone(),
+            username: self.bitcoind_rpc_username.clone(),
+            password: self.bitcoind_rpc_password.clone(),
+            rpc_url: self.bitcoind_rpc_url.clone(),
             network: self.bitcoin_network.clone(),
+            bitcoin_block_signaling: self.bitcoin_block_signaling.clone(),
         };
         bitcoin_config
     }
@@ -226,6 +228,7 @@ pub struct BitcoinConfig {
     pub password: String,
     pub rpc_url: String,
     pub network: BitcoinNetwork,
+    pub bitcoin_block_signaling: BitcoinBlockSignaling,
 }
 
 #[derive(Debug, Clone)]
@@ -257,15 +260,14 @@ pub async fn start_event_observer(
     // let ordinal_index = if cfg!(feature = "ordinals") {
     // Start indexer with a receiver in background thread
 
-    ctx.try_log(|logger| slog::info!(logger, "Local cache path `{}`", config.cache_path));
-
     let indexer_config = IndexerConfig {
         stacks_node_rpc_url: config.stacks_node_rpc_url.clone(),
-        bitcoin_node_rpc_url: config.bitcoin_node_rpc_url.clone(),
-        bitcoin_node_rpc_username: config.bitcoin_node_username.clone(),
-        bitcoin_node_rpc_password: config.bitcoin_node_password.clone(),
+        bitcoind_rpc_url: config.bitcoind_rpc_url.clone(),
+        bitcoind_rpc_username: config.bitcoind_rpc_username.clone(),
+        bitcoind_rpc_password: config.bitcoind_rpc_password.clone(),
         stacks_network: StacksNetwork::Devnet,
         bitcoin_network: BitcoinNetwork::Regtest,
+        bitcoin_block_signaling: config.bitcoin_block_signaling.clone(),
     };
 
     let indexer = Indexer::new(indexer_config.clone());
@@ -286,7 +288,7 @@ pub async fn start_event_observer(
     let bitcoin_config = config.get_bitcoin_config();
 
     let services_config = ServicesConfig {
-        stacks_node_url: config.bitcoin_node_rpc_url.clone(),
+        stacks_node_url: config.bitcoind_rpc_url.clone(),
         bitcoin_node_url: config.stacks_node_rpc_url.clone(),
     };
 

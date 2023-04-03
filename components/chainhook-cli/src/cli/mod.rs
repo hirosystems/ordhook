@@ -1,9 +1,9 @@
 use crate::block::DigestingCommand;
 use crate::config::generator::generate_config;
 use crate::config::Config;
-use crate::node::Node;
 use crate::scan::bitcoin::scan_bitcoin_chain_with_predicate;
 use crate::scan::stacks::scan_stacks_chain_with_predicate;
+use crate::service::Service;
 
 use chainhook_event_observer::bitcoincore_rpc::{Auth, Client, RpcApi};
 use chainhook_event_observer::chainhooks::types::{
@@ -47,7 +47,7 @@ enum Command {
     Config(ConfigCommand),
     /// Start chainhook-cli
     #[clap(subcommand)]
-    Node(NodeCommand),
+    Service(ServiceCommand),
     /// Protocols specific commands
     #[clap(subcommand)]
     Hord(HordCommand),
@@ -129,7 +129,7 @@ struct ScanPredicate {
 }
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
-enum NodeCommand {
+enum ServiceCommand {
     /// Start chainhook-cli
     #[clap(name = "start", bin_name = "start")]
     Start(StartCommand),
@@ -307,12 +307,12 @@ pub fn main() {
 
 async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
     match opts.command {
-        Command::Node(subcmd) => match subcmd {
-            NodeCommand::Start(cmd) => {
+        Command::Service(subcmd) => match subcmd {
+            ServiceCommand::Start(cmd) => {
                 let config =
                     Config::default(cmd.devnet, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
-                let mut node = Node::new(config, ctx);
-                return node.run().await;
+                let mut service = Service::new(config, ctx);
+                return service.run().await;
             }
         },
         Command::Config(subcmd) => match subcmd {

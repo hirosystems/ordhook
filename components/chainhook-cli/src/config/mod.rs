@@ -5,7 +5,7 @@ pub use chainhook_event_observer::indexer::IndexerConfig;
 use chainhook_event_observer::observer::{
     EventObserverConfig, DEFAULT_CONTROL_PORT, DEFAULT_INGESTION_PORT,
 };
-use chainhook_types::{BitcoinNetwork, StacksNetwork};
+use chainhook_types::{BitcoinBlockSignaling, BitcoinNetwork, StacksNetwork};
 pub use file::ConfigFile;
 use std::collections::HashSet;
 use std::fs::File;
@@ -62,11 +62,6 @@ pub struct TsvPathConfig {
 #[derive(Clone, Debug)]
 pub struct TsvUrlConfig {
     pub file_url: String,
-}
-
-#[derive(Clone, Debug)]
-pub struct StacksNodeConfig {
-    pub host: String,
 }
 
 #[derive(Clone, Debug)]

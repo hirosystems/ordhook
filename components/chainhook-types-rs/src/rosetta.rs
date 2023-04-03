@@ -772,3 +772,25 @@ pub enum BitcoinNetwork {
     Testnet,
     Mainnet,
 }
+
+#[derive(Debug, Clone)]
+pub enum BitcoinBlockSignaling {
+    Stacks(String),
+    ZeroMQ(String),
+}
+
+impl BitcoinBlockSignaling {
+    pub fn should_ignore_bitcoin_block_signaling_through_stacks(&self) -> bool {
+        match &self {
+            BitcoinBlockSignaling::Stacks(_) => false,
+            _ => true,
+        }
+    }
+
+    pub fn is_bitcoind_zmq_block_signaling_expected(&self) -> bool {
+        match &self {
+            BitcoinBlockSignaling::ZeroMQ(_) => false,
+            _ => true,
+        }
+    }
+}
