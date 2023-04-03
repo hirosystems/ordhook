@@ -2,9 +2,7 @@ pub mod file;
 pub mod generator;
 
 pub use chainhook_event_observer::indexer::IndexerConfig;
-use chainhook_event_observer::observer::{
-    EventObserverConfig,
-};
+use chainhook_event_observer::observer::EventObserverConfig;
 use chainhook_types::{BitcoinBlockSignaling, BitcoinNetwork, StacksNetwork};
 pub use file::ConfigFile;
 use std::collections::HashSet;
@@ -12,7 +10,7 @@ use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::PathBuf;
 
-use crate::service::{DEFAULT_INGESTION_PORT, DEFAULT_CONTROL_PORT};
+use crate::service::{DEFAULT_CONTROL_PORT, DEFAULT_INGESTION_PORT};
 
 const DEFAULT_MAINNET_TSV_ARCHIVE: &str =
     "https://archive.hiro.so/mainnet/stacks-blockchain-api/mainnet-stacks-blockchain-api-latest.gz";

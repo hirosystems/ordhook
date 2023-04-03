@@ -115,11 +115,12 @@ impl Service {
 
         info!(
             self.ctx.expect_logger(),
-            "Listening for new blockchain events on port {}", DEFAULT_INGESTION_PORT
+            "Listening for new blockchain events on port {}", event_observer_config.ingestion_port
         );
         info!(
             self.ctx.expect_logger(),
-            "Listening for chainhook predicate registrations on port {}", DEFAULT_CONTROL_PORT
+            "Listening for chainhook predicate registrations on port {}",
+            event_observer_config.control_port
         );
 
         // let ordinal_index = match initialize_ordinal_index(&event_observer_config, None, &self.ctx)

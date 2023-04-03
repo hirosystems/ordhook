@@ -321,9 +321,9 @@ pub enum StacksBaseChainOperation {
 #[serde(rename_all = "snake_case")]
 pub struct StacksBlockCommitmentData {
     pub block_hash: String,
-    pub pox_cycle_id: u64,
-    pub pox_cycle_len: u64,
-    pub pox_cycle_pos: u64,
+    pub pox_cycle_index: u64,
+    pub pox_cycle_length: u64,
+    pub pox_cycle_position: u64,
     pub pox_sats_burnt: u64,
     pub pox_sats_transferred: Vec<PoxReward>,
     // pub mining_address_pre_commit: Option<String>,

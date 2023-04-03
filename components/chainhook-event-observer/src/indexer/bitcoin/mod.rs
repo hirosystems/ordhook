@@ -296,34 +296,39 @@ pub fn standardize_bitcoin_block(
 
         let mut inputs = vec![];
         let mut sats_in = 0;
-        for input in tx.vin.drain(..) {
+        for (index, input) in tx.vin.drain(..).enumerate() {
             if input.is_coinbase() {
                 continue;
             }
-            let value = input
-                .prevout
-                .as_ref()
-                .expect("not provided for coinbase txs")
-                .value
-                .to_sat();
-            sats_in += value;
+            let prevout = input.prevout.as_ref().ok_or(format!(
+                "error retrieving prevout for transaction {}, input #{} (block #{})",
+                tx.txid, index, block.height
+            ))?;
+
+            let txid = input.txid.as_ref().ok_or(format!(
+                "error retrieving txid for transaction {}, input #{} (block #{})",
+                tx.txid, index, block.height
+            ))?;
+
+            let vout = input.vout.ok_or(format!(
+                "error retrieving vout for transaction {}, input #{} (block #{})",
+                tx.txid, index, block.height
+            ))?;
+
+            let script_sig = input.script_sig.ok_or(format!(
+                "error retrieving script_sig for transaction {}, input #{} (block #{})",
+                tx.txid, index, block.height
+            ))?;
+
+            sats_in += prevout.value.to_sat();
             inputs.push(TxIn {
                 previous_output: OutPoint {
-                    txid: format!(
-                        "0x{}",
-                        input
-                            .txid
-                            .expect("not provided for coinbase txs")
-                            .to_string()
-                    ),
-                    vout: input.vout.expect("not provided for coinbase txs"),
-                    block_height: input.prevout.expect("not provided for coinbase txs").height,
-                    value,
+                    txid: format!("0x{}", txid.to_string()),
+                    vout,
+                    block_height: prevout.height,
+                    value: prevout.value.to_sat(),
                 },
-                script_sig: format!(
-                    "0x{}",
-                    hex::encode(&input.script_sig.expect("not provided for coinbase txs").hex)
-                ),
+                script_sig: format!("0x{}", hex::encode(&script_sig.hex)),
                 sequence: input.sequence,
                 witness: input
                     .txinwitness
@@ -578,15 +583,15 @@ fn try_parse_stacks_operation(
             //     }
             // }
 
-            let pox_cycle_id = pox_config.get_pox_cycle_id(block_height);
-            let pox_cycle_len = pox_config.get_pox_cycle_len();
-            let pox_cycle_pos = pox_config.get_pos_in_pox_cycle(block_height);
+            let pox_cycle_index = pox_config.get_pox_cycle_id(block_height);
+            let pox_cycle_length = pox_config.get_pox_cycle_len();
+            let pox_cycle_position = pox_config.get_pos_in_pox_cycle(block_height);
 
             StacksBaseChainOperation::BlockCommitted(StacksBlockCommitmentData {
                 block_hash: res.stacks_block_hash,
-                pox_cycle_id,
-                pox_cycle_len,
-                pox_cycle_pos,
+                pox_cycle_index,
+                pox_cycle_length,
+                pox_cycle_position,
                 pox_sats_burnt,
                 pox_sats_transferred,
                 // mining_address_pre_commit: None,

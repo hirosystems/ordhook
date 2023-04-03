@@ -544,7 +544,15 @@ pub async fn start_observer_commands_handler(
             }
             ObserverCommand::ProcessBitcoinBlock(block_data) => {
                 let new_block =
-                    standardize_bitcoin_block(block_data, &config.bitcoin_network, &ctx)?;
+                    match standardize_bitcoin_block(block_data, &config.bitcoin_network, &ctx) {
+                        Ok(block) => block,
+                        Err(e) => {
+                            ctx.try_log(|logger| {
+                                slog::error!(logger, "Error standardizing block: {}", e)
+                            });
+                            continue;
+                        }
+                    };
                 bitcoin_block_store.insert(new_block.block_identifier.clone(), new_block);
             }
             ObserverCommand::CacheBitcoinBlock(block) => {
