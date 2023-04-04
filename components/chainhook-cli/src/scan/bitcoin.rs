@@ -173,7 +173,7 @@ pub async fn scan_bitcoin_chain_with_predicate(
                 &ctx,
             );
 
-            update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
+            let _ = update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
                 &mut block,
                 &mut storage,
                 &ctx,

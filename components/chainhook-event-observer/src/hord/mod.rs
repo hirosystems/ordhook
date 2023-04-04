@@ -153,7 +153,7 @@ pub fn update_hord_db_and_augment_bitcoin_block(
         new_block,
         &mut Storage::Sqlite(rw_hord_db_conn),
         &ctx,
-    );
+    )?;
     Ok(())
 }
 
@@ -269,7 +269,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
     block: &mut BitcoinBlockData,
     storage: &mut Storage,
     ctx: &Context,
-) {
+) -> Result<(), String> {
     let mut cumulated_fees = 0;
     let first_sat_post_subsidy = Height(block.block_identifier.index).starting_sat().0;
     let coinbase_txid = &block.transactions[0].transaction_identifier.hash.clone();
@@ -291,7 +291,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
 
             let entries = match storage {
                 Storage::Sqlite(rw_hord_db_conn) => {
-                    find_inscriptions_at_wached_outpoint(&outpoint_pre_transfer, &rw_hord_db_conn)
+                    find_inscriptions_at_wached_outpoint(&outpoint_pre_transfer, &rw_hord_db_conn)?
                 }
                 Storage::Memory(ref mut map) => match map.remove(&outpoint_pre_transfer) {
                     Some(entries) => entries,
@@ -424,4 +424,5 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
         }
         cumulated_fees += new_tx.metadata.fee;
     }
+    Ok(())
 }

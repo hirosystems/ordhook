@@ -406,13 +406,14 @@ pub struct WatchedSatpoint {
 pub fn find_inscriptions_at_wached_outpoint(
     outpoint: &str,
     hord_db_conn: &Connection,
-) -> Vec<WatchedSatpoint> {
+) -> Result<Vec<WatchedSatpoint>, String> {
     let args: &[&dyn ToSql] = &[&outpoint.to_sql().unwrap()];
     let mut stmt = hord_db_conn
         .prepare("SELECT inscription_id, inscription_number, ordinal_number, offset FROM inscriptions WHERE outpoint_to_watch = ? ORDER BY offset ASC")
-        .unwrap();
+        .map_err(|e| format!("unable to query inscriptions table: {}", e.to_string()))?;
     let mut results = vec![];
-    let mut rows = stmt.query(args).unwrap();
+    let mut rows = stmt.query(args)
+        .map_err(|e| format!("unable to query inscriptions table: {}", e.to_string()))?;
     while let Ok(Some(row)) = rows.next() {
         let inscription_id: String = row.get(0).unwrap();
         let inscription_number: u64 = row.get(1).unwrap();
@@ -425,7 +426,7 @@ pub fn find_inscriptions_at_wached_outpoint(
             offset,
         });
     }
-    return results;
+    return Ok(results);
 }
 
 pub fn insert_entry_in_blocks(
