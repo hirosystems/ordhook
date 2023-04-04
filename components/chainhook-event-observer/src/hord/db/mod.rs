@@ -160,7 +160,7 @@ fn open_existing_readonly_db(path: &PathBuf, ctx: &Context) -> Connection {
 #[derive(Debug, Serialize, Deserialize)]
 // pub struct CompactedBlock(Vec<(Vec<(u32, u16, u64)>, Vec<u64>)>);
 pub struct CompactedBlock(
-    (
+    pub (
         ([u8; 4], u64),
         Vec<([u8; 4], Vec<([u8; 4], u32, u16, u64)>, Vec<u64>)>,
     ),
@@ -312,6 +312,20 @@ pub fn update_transfered_inscription(
     }
 }
 
+pub fn patch_inscription_number(
+    inscription_id: &str,
+    inscription_number: u64,
+    hord_db_conn: &Connection,
+    ctx: &Context,
+) {
+    if let Err(e) = hord_db_conn.execute(
+        "UPDATE inscriptions SET inscription_number = ? WHERE inscription_id = ?",
+        rusqlite::params![&inscription_number, &inscription_id],
+    ) {
+        ctx.try_log(|logger| slog::error!(logger, "{}", e.to_string()));
+    }
+}
+
 pub fn find_latest_inscription_block_height(
     hord_db_conn: &Connection,
     _ctx: &Context,
@@ -412,8 +426,7 @@ pub fn find_inscriptions_at_wached_outpoint(
         .prepare("SELECT inscription_id, inscription_number, ordinal_number, offset FROM inscriptions WHERE outpoint_to_watch = ? ORDER BY offset ASC")
         .map_err(|e| format!("unable to query inscriptions table: {}", e.to_string()))?;
     let mut results = vec![];
-    let mut rows = stmt
-        .query(args)
+    let mut rows = stmt.query(args)
         .map_err(|e| format!("unable to query inscriptions table: {}", e.to_string()))?;
     while let Ok(Some(row)) = rows.next() {
         let inscription_id: String = row.get(0).unwrap();
