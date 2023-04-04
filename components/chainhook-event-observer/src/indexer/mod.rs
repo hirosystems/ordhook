@@ -5,7 +5,8 @@ pub mod stacks;
 use crate::utils::{AbstractBlock, Context};
 
 use chainhook_types::{
-    BitcoinNetwork, BlockHeader, BlockIdentifier, BlockchainEvent, StacksChainEvent, StacksNetwork,
+    BitcoinBlockSignaling, BitcoinNetwork, BlockHeader, BlockIdentifier, BlockchainEvent,
+    StacksChainEvent, StacksNetwork,
 };
 use hiro_system_kit::slog;
 use rocket::serde::json::Value as JsonValue;
@@ -28,10 +29,14 @@ pub struct StacksChainContext {
 }
 
 impl StacksChainContext {
-    pub fn new() -> StacksChainContext {
+    pub fn new(network: &StacksNetwork) -> StacksChainContext {
         StacksChainContext {
             asset_class_map: HashMap::new(),
-            pox_info: PoxInfo::default(),
+            pox_info: match network {
+                StacksNetwork::Mainnet => PoxInfo::mainnet_default(),
+                StacksNetwork::Testnet => PoxInfo::testnet_default(),
+                _ => PoxInfo::devnet_default(),
+            },
         }
     }
 }
@@ -49,9 +54,10 @@ pub struct IndexerConfig {
     pub bitcoin_network: BitcoinNetwork,
     pub stacks_network: StacksNetwork,
     pub stacks_node_rpc_url: String,
-    pub bitcoin_node_rpc_url: String,
-    pub bitcoin_node_rpc_username: String,
-    pub bitcoin_node_rpc_password: String,
+    pub bitcoind_rpc_url: String,
+    pub bitcoind_rpc_username: String,
+    pub bitcoind_rpc_password: String,
+    pub bitcoin_block_signaling: BitcoinBlockSignaling,
 }
 
 pub struct Indexer {
@@ -66,7 +72,7 @@ impl Indexer {
     pub fn new(config: IndexerConfig) -> Indexer {
         let stacks_blocks_pool = StacksBlockPool::new();
         let bitcoin_blocks_pool = ForkScratchPad::new();
-        let stacks_context = StacksChainContext::new();
+        let stacks_context = StacksChainContext::new(&config.stacks_network);
         let bitcoin_context = BitcoinChainContext::new();
 
         Indexer {

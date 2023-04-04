@@ -107,7 +107,7 @@ pub fn update_hord_db_and_augment_bitcoin_block(
     let mut traversals = HashMap::new();
     if !transactions_ids.is_empty() {
         let expected_traversals = transactions_ids.len();
-        let (traversal_tx, traversal_rx) = channel::<(TransactionIdentifier, TraversalResult)>();
+        let (traversal_tx, traversal_rx) = channel::<(TransactionIdentifier, _)>();
         let traversal_data_pool = ThreadPool::new(10);
 
         for transaction_id in transactions_ids.into_iter() {
@@ -123,8 +123,7 @@ pub fn update_hord_db_and_augment_bitcoin_block(
                     &transaction_id,
                     0,
                     &moved_ctx,
-                )
-                .unwrap();
+                );
                 let _ = moved_traversal_tx.send((transaction_id, traversal));
             });
         }
@@ -132,7 +131,8 @@ pub fn update_hord_db_and_augment_bitcoin_block(
         let mut traversals_received = 0;
         while let Ok((transaction_identifier, traversal_result)) = traversal_rx.recv() {
             traversals_received += 1;
-            traversals.insert(transaction_identifier, traversal_result);
+            let traversal = traversal_result?;
+            traversals.insert(transaction_identifier, traversal);
             if traversals_received == expected_traversals {
                 break;
             }

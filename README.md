@@ -311,9 +311,9 @@ max_bitcoin_registrations = 500
 
 [network]
 mode = "testnet"
-bitcoin_node_rpc_url = "http://0.0.0.0:18332"
-bitcoin_node_rpc_username = "testnet"
-bitcoin_node_rpc_password = "testnet"
+bitcoind_rpc_url = "http://0.0.0.0:18332"
+bitcoind_rpc_username = "testnet"
+bitcoind_rpc_password = "testnet"
 stacks_node_rpc_url = "http://0.0.0.0:20443"
 ```
 
@@ -328,9 +328,9 @@ max_bitcoin_registrations = 500
 
 [network]
 mode = "mainnet"
-bitcoin_node_rpc_url = "http://0.0.0.0:8332"
-bitcoin_node_rpc_username = "mainnet"
-bitcoin_node_rpc_password = "mainnet"
+bitcoind_rpc_url = "http://0.0.0.0:8332"
+bitcoind_rpc_username = "mainnet"
+bitcoind_rpc_password = "mainnet"
 stacks_node_rpc_url = "http://0.0.0.0:20443"
 
 ```
@@ -604,7 +604,24 @@ Tbe first time this command run, a chainstate archive will be downloaded, uncomp
 The subsequent scans will use the cached chainstate if already present, speeding up iterations and the overall feedback loop. 
 
 ---
-## Running `chainhook` in production mode
+## Run `chainhook` as a service for streaming new blocks
 
-To be documented.
+`chainhook` can be ran as a background service for streaming and processing new canonical blocks appended to the Bitcoin and Stacks blockchains.
 
+When running chainhook as a service, `if_this` / `then_that` predicates can be registered by passing the path of the `json` file in the command line: 
+
+```bash
+$ chainhook service start --predicate-path=./path/to/predicate-1.json --predicate-path=./path/to/predicate-2.json --config-path=./path/to/config.toml
+```
+
+Predicates can also be added dynamically. When the `--predicate-path` option is not passed or when the `--start-http-api` option is passed, `chainhook` will instantiate a REST API allowing developers to list, add and removes preducates at runtime:
+
+```bash
+$ chainhook service start --config-path=./path/to/config.toml
+```
+
+```bash
+$ chainhook service start --predicate-path=./path/to/predicate-1.json --start-http-api --config-path=./path/to/config.toml
+```
+
+A comprehensive OpenAPI spcification explaining how to interact with the Chainhook REST API can be found [here](./docs/chainhook-openapi.json).

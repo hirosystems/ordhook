@@ -18,13 +18,14 @@ use crate::indexer::bitcoin::{
     retrieve_full_block_breakdown_with_retry, standardize_bitcoin_block, BitcoinBlockFullBreakdown,
     NewBitcoinBlock,
 };
+use crate::indexer::fork_scratch_pad::ForkScratchPad;
 use crate::indexer::{self, Indexer, IndexerConfig};
 use crate::utils::{send_request, Context};
 
 use bitcoincore_rpc::bitcoin::{BlockHash, Txid};
 use bitcoincore_rpc::{Auth, Client, RpcApi};
 use chainhook_types::{
-    BitcoinBlockData, BitcoinChainEvent, BitcoinChainUpdatedWithBlocksData,
+    BitcoinBlockData, BitcoinBlockSignaling, BitcoinChainEvent, BitcoinChainUpdatedWithBlocksData,
     BitcoinChainUpdatedWithReorgData, BitcoinNetwork, BlockIdentifier, BlockchainEvent,
     StacksChainEvent, StacksNetwork, TransactionIdentifier,
 };
@@ -50,6 +51,7 @@ use std::str::FromStr;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
+use zeromq::{Socket, SocketRecv};
 
 pub const DEFAULT_INGESTION_PORT: u16 = 20445;
 pub const DEFAULT_CONTROL_PORT: u16 = 20446;
@@ -129,9 +131,11 @@ pub struct EventObserverConfig {
     pub event_handlers: Vec<EventHandler>,
     pub ingestion_port: u16,
     pub control_port: u16,
-    pub bitcoin_node_username: String,
-    pub bitcoin_node_password: String,
-    pub bitcoin_node_rpc_url: String,
+    pub control_api_enabled: bool,
+    pub bitcoind_rpc_username: String,
+    pub bitcoind_rpc_password: String,
+    pub bitcoind_rpc_url: String,
+    pub bitcoin_block_signaling: BitcoinBlockSignaling,
     pub stacks_node_rpc_url: String,
     pub operators: HashSet<String>,
     pub display_logs: bool,
@@ -149,10 +153,11 @@ impl EventObserverConfig {
 
     pub fn get_bitcoin_config(&self) -> BitcoinConfig {
         let bitcoin_config = BitcoinConfig {
-            username: self.bitcoin_node_username.clone(),
-            password: self.bitcoin_node_password.clone(),
-            rpc_url: self.bitcoin_node_rpc_url.clone(),
+            username: self.bitcoind_rpc_username.clone(),
+            password: self.bitcoind_rpc_password.clone(),
+            rpc_url: self.bitcoind_rpc_url.clone(),
             network: self.bitcoin_network.clone(),
+            bitcoin_block_signaling: self.bitcoin_block_signaling.clone(),
         };
         bitcoin_config
     }
@@ -226,6 +231,7 @@ pub struct BitcoinConfig {
     pub password: String,
     pub rpc_url: String,
     pub network: BitcoinNetwork,
+    pub bitcoin_block_signaling: BitcoinBlockSignaling,
 }
 
 #[derive(Debug, Clone)]
@@ -252,20 +258,14 @@ pub async fn start_event_observer(
     observer_events_tx: Option<crossbeam_channel::Sender<ObserverEvent>>,
     ctx: Context,
 ) -> Result<(), Box<dyn Error>> {
-    ctx.try_log(|logger| slog::info!(logger, "Event observer starting with config {:?}", config));
-
-    // let ordinal_index = if cfg!(feature = "ordinals") {
-    // Start indexer with a receiver in background thread
-
-    ctx.try_log(|logger| slog::info!(logger, "Local cache path `{}`", config.cache_path));
-
     let indexer_config = IndexerConfig {
         stacks_node_rpc_url: config.stacks_node_rpc_url.clone(),
-        bitcoin_node_rpc_url: config.bitcoin_node_rpc_url.clone(),
-        bitcoin_node_rpc_username: config.bitcoin_node_username.clone(),
-        bitcoin_node_rpc_password: config.bitcoin_node_password.clone(),
+        bitcoind_rpc_url: config.bitcoind_rpc_url.clone(),
+        bitcoind_rpc_username: config.bitcoind_rpc_username.clone(),
+        bitcoind_rpc_password: config.bitcoind_rpc_password.clone(),
         stacks_network: StacksNetwork::Devnet,
         bitcoin_network: BitcoinNetwork::Regtest,
+        bitcoin_block_signaling: config.bitcoin_block_signaling.clone(),
     };
 
     let indexer = Indexer::new(indexer_config.clone());
@@ -286,7 +286,7 @@ pub async fn start_event_observer(
     let bitcoin_config = config.get_bitcoin_config();
 
     let services_config = ServicesConfig {
-        stacks_node_url: config.bitcoin_node_rpc_url.clone(),
+        stacks_node_url: config.bitcoind_rpc_url.clone(),
         bitcoin_node_url: config.stacks_node_rpc_url.clone(),
     };
 
@@ -407,6 +407,95 @@ pub async fn start_event_observer(
         let _ = hiro_system_kit::nestable_block_on(ignite.launch());
     });
 
+    if let BitcoinBlockSignaling::ZeroMQ(ref bitcoind_zmq_url) = config.bitcoin_block_signaling {
+        let bitcoind_zmq_url = bitcoind_zmq_url.clone();
+        let ctx_moved = ctx.clone();
+        let bitcoin_config = config.get_bitcoin_config();
+        hiro_system_kit::thread_named("Bitcoind zmq listener")
+            .spawn(move || {
+                ctx_moved.try_log(|logger| {
+                    slog::info!(
+                        logger,
+                        "Waiting for ZMQ connection acknowledgment from bitcoind"
+                    )
+                });
+
+                let _: Result<(), Box<dyn Error>> =
+                    hiro_system_kit::nestable_block_on(async move {
+                        let mut socket = zeromq::SubSocket::new();
+
+                        socket
+                            .connect(&bitcoind_zmq_url)
+                            .await
+                            .expect("Failed to connect");
+
+                        socket.subscribe("").await?;
+                        ctx_moved.try_log(|logger| {
+                            slog::info!(logger, "Waiting for ZMQ messages from bitcoind")
+                        });
+
+                        let mut bitcoin_blocks_pool = ForkScratchPad::new();
+
+                        loop {
+                            let message = match socket.recv().await {
+                                Ok(message) => message,
+                                Err(e) => {
+                                    ctx_moved.try_log(|logger| {
+                                        slog::error!(
+                                            logger,
+                                            "Unable to receive ZMQ message: {}",
+                                            e.to_string()
+                                        )
+                                    });
+                                    continue;
+                                }
+                            };
+                            let block_hash = hex::encode(message.get(1).unwrap().to_vec());
+
+                            let block = match retrieve_full_block_breakdown_with_retry(
+                                &block_hash,
+                                &bitcoin_config,
+                                &ctx_moved,
+                            )
+                            .await
+                            {
+                                Ok(block) => block,
+                                Err(e) => {
+                                    ctx_moved.try_log(|logger| {
+                                        slog::warn!(
+                                            logger,
+                                            "unable to retrieve_full_block_breakdown: {}",
+                                            e.to_string()
+                                        )
+                                    });
+                                    continue;
+                                }
+                            };
+
+                            ctx_moved.try_log(|logger| {
+                                slog::info!(
+                                    logger,
+                                    "Bitcoin block #{} dispatched for processing",
+                                    block.height
+                                )
+                            });
+
+                            let header = block.get_block_header();
+                            let _ = observer_commands_tx
+                                .send(ObserverCommand::ProcessBitcoinBlock(block));
+
+                            if let Ok(Some(event)) =
+                                bitcoin_blocks_pool.process_header(header, &ctx_moved)
+                            {
+                                let _ = observer_commands_tx
+                                    .send(ObserverCommand::PropagateBitcoinChainEvent(event));
+                            }
+                        }
+                    });
+            })
+            .expect("unable to spawn thread");
+    }
+
     // This loop is used for handling background jobs, emitted by HTTP calls.
     start_observer_commands_handler(
         config,
@@ -452,10 +541,10 @@ pub fn gather_proofs<'a>(
     ctx: &Context,
 ) -> HashMap<&'a TransactionIdentifier, String> {
     let bitcoin_client_rpc = Client::new(
-        &config.bitcoin_node_rpc_url,
+        &config.bitcoind_rpc_url,
         Auth::UserPass(
-            config.bitcoin_node_username.to_string(),
-            config.bitcoin_node_password.to_string(),
+            config.bitcoind_rpc_username.to_string(),
+            config.bitcoind_rpc_password.to_string(),
         ),
     )
     .expect("unable to build http client");
@@ -533,7 +622,15 @@ pub async fn start_observer_commands_handler(
             }
             ObserverCommand::ProcessBitcoinBlock(block_data) => {
                 let new_block =
-                    standardize_bitcoin_block(block_data, &config.bitcoin_network, &ctx)?;
+                    match standardize_bitcoin_block(block_data, &config.bitcoin_network, &ctx) {
+                        Ok(block) => block,
+                        Err(e) => {
+                            ctx.try_log(|logger| {
+                                slog::error!(logger, "Error standardizing block: {}", e)
+                            });
+                            continue;
+                        }
+                    };
                 bitcoin_block_store.insert(new_block.block_identifier.clone(), new_block);
             }
             ObserverCommand::CacheBitcoinBlock(block) => {
@@ -1185,6 +1282,16 @@ pub async fn handle_new_bitcoin_block(
     background_job_tx: &State<Arc<Mutex<Sender<ObserverCommand>>>>,
     ctx: &State<Context>,
 ) -> Json<JsonValue> {
+    if bitcoin_config
+        .bitcoin_block_signaling
+        .should_ignore_bitcoin_block_signaling_through_stacks()
+    {
+        return Json(json!({
+            "status": 200,
+            "result": "Ok",
+        }));
+    }
+
     ctx.try_log(|logger| slog::info!(logger, "POST /new_burn_block"));
     // Standardize the structure of the block, and identify the
     // kind of update that this new block would imply, taking

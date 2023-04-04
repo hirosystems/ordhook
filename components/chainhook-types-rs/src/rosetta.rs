@@ -143,12 +143,37 @@ pub struct StacksTransactionData {
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(tag = "type", content = "data")]
 pub enum StacksTransactionKind {
     ContractCall(StacksContractCallData),
     ContractDeployment(StacksContractDeploymentData),
     NativeTokenTransfer,
     Coinbase,
-    Other,
+    BitcoinOp(BitcoinOpData),
+    Unsupported,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(tag = "type", content = "data")]
+pub enum BitcoinOpData {
+    StackSTX(StackSTXData),
+    DelegateStackSTX(DelegateStackSTXData),
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct StackSTXData {
+    pub locked_amount: String,
+    pub unlock_height: String,
+    pub stacking_address: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct DelegateStackSTXData {
+    pub stacking_address: String,
+    pub amount: String,
+    pub delegate: String,
+    pub pox_address: Option<String>,
+    pub unlock_height: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
@@ -320,9 +345,9 @@ pub enum StacksBaseChainOperation {
 #[serde(rename_all = "snake_case")]
 pub struct StacksBlockCommitmentData {
     pub block_hash: String,
-    pub pox_cycle_id: u64,
-    pub pox_cycle_len: u64,
-    pub pox_cycle_pos: u64,
+    pub pox_cycle_index: u64,
+    pub pox_cycle_length: u64,
+    pub pox_cycle_position: u64,
     pub pox_sats_burnt: u64,
     pub pox_sats_transferred: Vec<PoxReward>,
     // pub mining_address_pre_commit: Option<String>,
@@ -771,4 +796,26 @@ pub enum BitcoinNetwork {
     Regtest,
     Testnet,
     Mainnet,
+}
+
+#[derive(Debug, Clone)]
+pub enum BitcoinBlockSignaling {
+    Stacks(String),
+    ZeroMQ(String),
+}
+
+impl BitcoinBlockSignaling {
+    pub fn should_ignore_bitcoin_block_signaling_through_stacks(&self) -> bool {
+        match &self {
+            BitcoinBlockSignaling::Stacks(_) => false,
+            _ => true,
+        }
+    }
+
+    pub fn is_bitcoind_zmq_block_signaling_expected(&self) -> bool {
+        match &self {
+            BitcoinBlockSignaling::ZeroMQ(_) => false,
+            _ => true,
+        }
+    }
 }

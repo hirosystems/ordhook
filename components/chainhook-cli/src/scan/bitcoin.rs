@@ -31,11 +31,11 @@ pub async fn scan_bitcoin_chain_with_predicate(
     ctx: &Context,
 ) -> Result<(), String> {
     let auth = Auth::UserPass(
-        config.network.bitcoin_node_rpc_username.clone(),
-        config.network.bitcoin_node_rpc_password.clone(),
+        config.network.bitcoind_rpc_username.clone(),
+        config.network.bitcoind_rpc_password.clone(),
     );
 
-    let bitcoin_rpc = match Client::new(&config.network.bitcoin_node_rpc_url, auth) {
+    let bitcoin_rpc = match Client::new(&config.network.bitcoind_rpc_url, auth) {
         Ok(con) => con,
         Err(message) => {
             return Err(format!("Bitcoin RPC error: {}", message.to_string()));

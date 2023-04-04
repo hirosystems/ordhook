@@ -1,9 +1,9 @@
 use crate::block::DigestingCommand;
 use crate::config::generator::generate_config;
 use crate::config::Config;
-use crate::node::Node;
 use crate::scan::bitcoin::scan_bitcoin_chain_with_predicate;
 use crate::scan::stacks::scan_stacks_chain_with_predicate;
+use crate::service::Service;
 
 use chainhook_event_observer::bitcoincore_rpc::{Auth, Client, RpcApi};
 use chainhook_event_observer::chainhooks::types::{
@@ -47,7 +47,7 @@ enum Command {
     Config(ConfigCommand),
     /// Start chainhook-cli
     #[clap(subcommand)]
-    Node(NodeCommand),
+    Service(ServiceCommand),
     /// Protocols specific commands
     #[clap(subcommand)]
     Hord(HordCommand),
@@ -129,7 +129,7 @@ struct ScanPredicate {
 }
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
-enum NodeCommand {
+enum ServiceCommand {
     /// Start chainhook-cli
     #[clap(name = "start", bin_name = "start")]
     Start(StartCommand),
@@ -166,6 +166,12 @@ struct StartCommand {
         conflicts_with = "devnet"
     )]
     pub config_path: Option<String>,
+    /// Specify relative path of the chainhooks (yaml format) to evaluate
+    #[clap(long = "predicate-path")]
+    pub predicates_paths: Vec<String>,
+    /// Start REST API for managing predicates
+    #[clap(long = "start-http-api")]
+    pub start_http_api: bool,
 }
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
@@ -183,9 +189,12 @@ enum DbCommand {
     /// Init hord db
     #[clap(name = "init", bin_name = "init")]
     Init(InitHordDbCommand),
-    /// Update hord db
-    #[clap(name = "update", bin_name = "update")]
-    Update(UpdateHordDbCommand),
+    /// Rewrite hord db
+    #[clap(name = "rewrite", bin_name = "rewrite")]
+    Rewrite(UpdateHordDbCommand),
+    /// Catch-up hord db
+    #[clap(name = "sync", bin_name = "sync")]
+    Sync(SyncHordDbCommand),
     /// Rebuild inscriptions entries for a given block
     #[clap(name = "drop", bin_name = "drop")]
     Drop(DropHordDbCommand),
@@ -270,6 +279,15 @@ struct UpdateHordDbCommand {
 }
 
 #[derive(Parser, PartialEq, Clone, Debug)]
+struct SyncHordDbCommand {
+    /// # of Networking thread
+    pub network_threads: usize,
+    /// Load config file path
+    #[clap(long = "config-path")]
+    pub config_path: Option<String>,
+}
+
+#[derive(Parser, PartialEq, Clone, Debug)]
 struct DropHordDbCommand {
     /// Starting block
     pub start_block: u64,
@@ -307,12 +325,21 @@ pub fn main() {
 
 async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
     match opts.command {
-        Command::Node(subcmd) => match subcmd {
-            NodeCommand::Start(cmd) => {
-                let config =
+        Command::Service(subcmd) => match subcmd {
+            ServiceCommand::Start(cmd) => {
+                let mut config =
                     Config::default(cmd.devnet, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
-                let mut node = Node::new(config, ctx);
-                return node.run().await;
+                // We disable the API if a predicate was passed, and the --enable-
+                if cmd.predicates_paths.len() > 0 && !cmd.start_http_api {
+                    config.chainhooks.enable_http_api = false;
+                }
+                let mut service = Service::new(config, ctx);
+                let predicates = cmd
+                    .predicates_paths
+                    .iter()
+                    .map(|p| load_predicate_from_path(p))
+                    .collect::<Result<Vec<ChainhookFullSpecification>, _>>()?;
+                return service.run(predicates).await;
             }
         },
         Command::Config(subcmd) => match subcmd {
@@ -443,17 +470,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
             PredicatesCommand::Scan(cmd) => {
                 let mut config =
                     Config::default(false, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
-                let file = std::fs::File::open(&cmd.predicate_path)
-                    .map_err(|e| format!("unable to read file {}\n{:?}", cmd.predicate_path, e))?;
-                let mut file_reader = BufReader::new(file);
-                let mut file_buffer = vec![];
-                file_reader
-                    .read_to_end(&mut file_buffer)
-                    .map_err(|e| format!("unable to read file {}\n{:?}", cmd.predicate_path, e))?;
-                let predicate: ChainhookFullSpecification = serde_json::from_slice(&file_buffer)
-                    .map_err(|e| {
-                        format!("unable to parse json file {}\n{:?}", cmd.predicate_path, e)
-                    })?;
+                let predicate = load_predicate_from_path(&cmd.predicate_path)?;
                 match predicate {
                     ChainhookFullSpecification::Bitcoin(predicate) => {
                         scan_bitcoin_chain_with_predicate(predicate, &config, &ctx).await?;
@@ -513,11 +530,11 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
             DbCommand::Init(cmd) => {
                 let config = Config::default(false, false, false, &cmd.config_path)?;
                 let auth = Auth::UserPass(
-                    config.network.bitcoin_node_rpc_username.clone(),
-                    config.network.bitcoin_node_rpc_password.clone(),
+                    config.network.bitcoind_rpc_username.clone(),
+                    config.network.bitcoind_rpc_password.clone(),
                 );
 
-                let bitcoin_rpc = match Client::new(&config.network.bitcoin_node_rpc_url, auth) {
+                let bitcoin_rpc = match Client::new(&config.network.bitcoind_rpc_url, auth) {
                     Ok(con) => con,
                     Err(message) => {
                         return Err(format!("Bitcoin RPC error: {}", message.to_string()));
@@ -538,7 +555,38 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
 
                 perform_hord_db_update(0, end_block, cmd.network_threads, &config, &ctx).await?;
             }
-            DbCommand::Update(cmd) => {
+            DbCommand::Sync(cmd) => {
+                let config = Config::default(false, false, false, &cmd.config_path)?;
+                let auth = Auth::UserPass(
+                    config.network.bitcoind_rpc_username.clone(),
+                    config.network.bitcoind_rpc_password.clone(),
+                );
+
+                let bitcoin_rpc = match Client::new(&config.network.bitcoind_rpc_url, auth) {
+                    Ok(con) => con,
+                    Err(message) => {
+                        return Err(format!("Bitcoin RPC error: {}", message.to_string()));
+                    }
+                };
+
+                let hord_db_conn = open_readonly_hord_db_conn(&config.expected_cache_path(), &ctx)?;
+
+                let start_block = find_latest_compacted_block_known(&hord_db_conn) as u64;
+
+                let end_block = match bitcoin_rpc.get_blockchain_info() {
+                    Ok(result) => result.blocks,
+                    Err(e) => {
+                        return Err(format!(
+                            "unable to retrieve Bitcoin chain tip ({})",
+                            e.to_string()
+                        ));
+                    }
+                };
+
+                perform_hord_db_update(start_block, end_block, cmd.network_threads, &config, &ctx)
+                    .await?;
+            }
+            DbCommand::Rewrite(cmd) => {
                 let config = Config::default(false, false, false, &cmd.config_path)?;
                 perform_hord_db_update(
                     cmd.start_block,
@@ -578,10 +626,11 @@ pub async fn perform_hord_db_update(
     );
 
     let bitcoin_config = BitcoinConfig {
-        username: config.network.bitcoin_node_rpc_username.clone(),
-        password: config.network.bitcoin_node_rpc_password.clone(),
-        rpc_url: config.network.bitcoin_node_rpc_url.clone(),
+        username: config.network.bitcoind_rpc_username.clone(),
+        password: config.network.bitcoind_rpc_password.clone(),
+        rpc_url: config.network.bitcoind_rpc_url.clone(),
         network: config.network.bitcoin_network.clone(),
+        bitcoin_block_signaling: config.network.bitcoin_block_signaling.clone(),
     };
 
     let rw_hord_db_conn = open_readwrite_hord_db_conn(&config.expected_cache_path(), &ctx)?;
@@ -609,4 +658,19 @@ pub fn install_ctrlc_handler(terminate_tx: Sender<DigestingCommand>, ctx: Contex
             .expect("Unable to terminate service");
     })
     .expect("Error setting Ctrl-C handler");
+}
+
+pub fn load_predicate_from_path(
+    predicate_path: &str,
+) -> Result<ChainhookFullSpecification, String> {
+    let file = std::fs::File::open(&predicate_path)
+        .map_err(|e| format!("unable to read file {}\n{:?}", predicate_path, e))?;
+    let mut file_reader = BufReader::new(file);
+    let mut file_buffer = vec![];
+    file_reader
+        .read_to_end(&mut file_buffer)
+        .map_err(|e| format!("unable to read file {}\n{:?}", predicate_path, e))?;
+    let predicate: ChainhookFullSpecification = serde_json::from_slice(&file_buffer)
+        .map_err(|e| format!("unable to parse json file {}\n{:?}", predicate_path, e))?;
+    Ok(predicate)
 }
