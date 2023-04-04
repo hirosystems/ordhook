@@ -149,7 +149,31 @@ pub enum StacksTransactionKind {
     ContractDeployment(StacksContractDeploymentData),
     NativeTokenTransfer,
     Coinbase,
-    Other,
+    BitcoinOp(BitcoinOpData),
+    Unsupported,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(tag = "type", content = "data")]
+pub enum BitcoinOpData {
+    StackSTX(StackSTXData),
+    DelegateStackSTX(DelegateStackSTXData),
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct StackSTXData {
+    pub locked_amount: String,
+    pub unlock_height: String,
+    pub stacking_address: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct DelegateStackSTXData {
+    pub stacking_address: String,
+    pub amount: String,
+    pub delegate: String,
+    pub pox_address: Option<String>,
+    pub unlock_height: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
