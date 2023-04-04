@@ -412,7 +412,8 @@ pub fn find_inscriptions_at_wached_outpoint(
         .prepare("SELECT inscription_id, inscription_number, ordinal_number, offset FROM inscriptions WHERE outpoint_to_watch = ? ORDER BY offset ASC")
         .map_err(|e| format!("unable to query inscriptions table: {}", e.to_string()))?;
     let mut results = vec![];
-    let mut rows = stmt.query(args)
+    let mut rows = stmt
+        .query(args)
         .map_err(|e| format!("unable to query inscriptions table: {}", e.to_string()))?;
     while let Ok(Some(row)) = rows.next() {
         let inscription_id: String = row.get(0).unwrap();

@@ -551,9 +551,19 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     }
                 };
 
-                let _ = initialize_hord_db(&config.expected_cache_path(), &ctx);
+                let hord_db_conn = open_readonly_hord_db_conn(&config.expected_cache_path(), &ctx)?;
+                let start_block = find_latest_compacted_block_known(&hord_db_conn) as u64;
+                if start_block == 0 {
+                    let _ = initialize_hord_db(&config.expected_cache_path(), &ctx);
+                } else {
+                    info!(
+                        ctx.expect_logger(),
+                        "Resuming hord indexing from block #{}", start_block
+                    );
+                }
 
-                perform_hord_db_update(0, end_block, cmd.network_threads, &config, &ctx).await?;
+                perform_hord_db_update(start_block, end_block, cmd.network_threads, &config, &ctx)
+                    .await?;
             }
             DbCommand::Sync(cmd) => {
                 let config = Config::default(false, false, false, &cmd.config_path)?;

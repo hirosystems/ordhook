@@ -211,7 +211,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
                         } else {
                             inscription.inscription_number =
                                 match find_latest_inscription_number(&hord_db_conn, &ctx) {
-                                    Ok(inscription_number) => inscription_number,
+                                    Ok(inscription_number) => inscription_number + 1,
                                     Err(e) => {
                                         ctx.try_log(|logger| {
                                             slog::error!(
