@@ -17,7 +17,8 @@ use chainhook_event_observer::{
     chainhooks::types::ChainhookSpecification,
 };
 use chainhook_types::{
-    BlockIdentifier, StacksBlockData, StacksBlockMetadata, StacksChainEvent, StacksTransactionData,
+    BitcoinBlockSignaling, BlockIdentifier, StacksBlockData, StacksBlockMetadata, StacksChainEvent,
+    StacksTransactionData,
 };
 use redis::{Commands, Connection};
 use reqwest::Client as HttpClient;
@@ -115,8 +116,23 @@ impl Service {
 
         info!(
             self.ctx.expect_logger(),
-            "Listening for new blockchain events on port {}", event_observer_config.ingestion_port
+            "Listening on port {} for Stacks chain events", event_observer_config.ingestion_port
         );
+        match event_observer_config.bitcoin_block_signaling {
+            BitcoinBlockSignaling::ZeroMQ(ref url) => {
+                info!(
+                    self.ctx.expect_logger(),
+                    "Observing Bitcoin chain events via ZeroMQ: {}", url
+                );
+            }
+            BitcoinBlockSignaling::Stacks(ref _url) => {
+                info!(
+                    self.ctx.expect_logger(),
+                    "Observing Bitcoin chain events via Stacks node"
+                );
+            }
+        }
+
         info!(
             self.ctx.expect_logger(),
             "Listening for chainhook predicate registrations on port {}",
