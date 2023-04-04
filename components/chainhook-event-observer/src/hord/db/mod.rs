@@ -702,7 +702,7 @@ pub fn retrieve_satoshi_point_using_local_storage(
         let res = match find_compacted_block_at_block_height(ordinal_block_number, &hord_db_conn) {
             Some(res) => res,
             None => {
-                return Err(format!("unable to retrieve block #{ordinal_block_number}"));
+                return Err(format!("block #{ordinal_block_number} not in database"));
             }
         };
 

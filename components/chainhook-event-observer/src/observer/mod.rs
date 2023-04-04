@@ -18,6 +18,7 @@ use crate::indexer::bitcoin::{
     retrieve_full_block_breakdown_with_retry, standardize_bitcoin_block, BitcoinBlockFullBreakdown,
     NewBitcoinBlock,
 };
+use crate::indexer::fork_scratch_pad::ForkScratchPad;
 use crate::indexer::{self, Indexer, IndexerConfig};
 use crate::utils::{send_request, Context};
 
@@ -408,6 +409,7 @@ pub async fn start_event_observer(
     if let BitcoinBlockSignaling::ZeroMQ(ref bitcoind_zmq_url) = config.bitcoin_block_signaling {
         let bitcoind_zmq_url = bitcoind_zmq_url.clone();
         let ctx_moved = ctx.clone();
+        let bitcoin_config = config.get_bitcoin_config();
         hiro_system_kit::thread_named("Bitcoind zmq listener")
             .spawn(move || {
                 ctx_moved.try_log(|logger| {
@@ -417,38 +419,78 @@ pub async fn start_event_observer(
                     )
                 });
 
-                let _ = hiro_system_kit::nestable_block_on(async move {
-                    let mut socket = zeromq::SubSocket::new();
-                    socket
-                        .connect(&bitcoind_zmq_url)
-                        .await
-                        .expect("Failed to connect");
+                let _: Result<(), Box<dyn Error>> =
+                    hiro_system_kit::nestable_block_on(async move {
+                        let mut socket = zeromq::SubSocket::new();
 
-                    socket.subscribe("hashblock").await?;
-                    ctx_moved.try_log(|logger| {
-                        slog::info!(logger, "Waiting for ZMQ messages from bitcoind")
-                    });
+                        socket
+                            .connect(&bitcoind_zmq_url)
+                            .await
+                            .expect("Failed to connect");
 
-                    loop {
-                        let message = match socket.recv().await {
-                            Ok(message) => message,
-                            Err(e) => {
-                                ctx_moved.try_log(|logger| {
-                                    slog::info!(
-                                        logger,
-                                        "Unable to receive ZMQ message: {}",
-                                        e.to_string()
-                                    )
-                                });
-                                continue;
+                        socket.subscribe("").await?;
+                        ctx_moved.try_log(|logger| {
+                            slog::info!(logger, "Waiting for ZMQ messages from bitcoind")
+                        });
+
+                        let mut bitcoin_blocks_pool = ForkScratchPad::new();
+
+                        loop {
+                            let message = match socket.recv().await {
+                                Ok(message) => message,
+                                Err(e) => {
+                                    ctx_moved.try_log(|logger| {
+                                        slog::error!(
+                                            logger,
+                                            "Unable to receive ZMQ message: {}",
+                                            e.to_string()
+                                        )
+                                    });
+                                    continue;
+                                }
+                            };
+                            let block_hash = hex::encode(message.get(1).unwrap().to_vec());
+
+                            let block = match retrieve_full_block_breakdown_with_retry(
+                                &block_hash,
+                                &bitcoin_config,
+                                &ctx_moved,
+                            )
+                            .await
+                            {
+                                Ok(block) => block,
+                                Err(e) => {
+                                    ctx_moved.try_log(|logger| {
+                                        slog::warn!(
+                                            logger,
+                                            "unable to retrieve_full_block_breakdown: {}",
+                                            e.to_string()
+                                        )
+                                    });
+                                    continue;
+                                }
+                            };
+
+                            ctx_moved.try_log(|logger| {
+                                slog::info!(
+                                    logger,
+                                    "Bitcoin block #{} dispatched for processing",
+                                    block.height
+                                )
+                            });
+
+                            let header = block.get_block_header();
+                            let _ = observer_commands_tx
+                                .send(ObserverCommand::ProcessBitcoinBlock(block));
+
+                            if let Ok(Some(event)) =
+                                bitcoin_blocks_pool.process_header(header, &ctx_moved)
+                            {
+                                let _ = observer_commands_tx
+                                    .send(ObserverCommand::PropagateBitcoinChainEvent(event));
                             }
-                        };
-                        let block_hash: String =
-                            String::from_utf8(message.get(0).unwrap().to_vec())?;
-                        println!("Received {}", block_hash);
-                    }
-                    Ok::<(), Box<dyn Error>>(())
-                });
+                        }
+                    });
             })
             .expect("unable to spawn thread");
     }
