@@ -68,6 +68,7 @@ pub struct TsvUrlConfig {
 pub struct ChainhooksConfig {
     pub max_stacks_registrations: u16,
     pub max_bitcoin_registrations: u16,
+    pub enable_http_api: bool,
 }
 
 impl Config {
@@ -97,6 +98,7 @@ impl Config {
             chainhook_config: None,
             ingestion_port: DEFAULT_INGESTION_PORT,
             control_port: DEFAULT_CONTROL_PORT,
+            control_api_enabled: self.chainhooks.enable_http_api,
             bitcoind_rpc_username: self.network.bitcoind_rpc_username.clone(),
             bitcoind_rpc_password: self.network.bitcoind_rpc_password.clone(),
             bitcoind_rpc_url: self.network.bitcoind_rpc_url.clone(),
@@ -149,6 +151,7 @@ impl Config {
                     .chainhooks
                     .max_bitcoin_registrations
                     .unwrap_or(100),
+                enable_http_api: true,
             },
             network: IndexerConfig {
                 stacks_node_rpc_url: config_file.network.stacks_node_rpc_url.to_string(),
@@ -273,6 +276,7 @@ impl Config {
             chainhooks: ChainhooksConfig {
                 max_stacks_registrations: 50,
                 max_bitcoin_registrations: 50,
+                enable_http_api: true,
             },
             network: IndexerConfig {
                 stacks_node_rpc_url: "http://0.0.0.0:20443".into(),
@@ -302,6 +306,7 @@ impl Config {
             chainhooks: ChainhooksConfig {
                 max_stacks_registrations: 10,
                 max_bitcoin_registrations: 10,
+                enable_http_api: true,
             },
             network: IndexerConfig {
                 stacks_node_rpc_url: "http://0.0.0.0:20443".into(),
@@ -331,6 +336,7 @@ impl Config {
             chainhooks: ChainhooksConfig {
                 max_stacks_registrations: 10,
                 max_bitcoin_registrations: 10,
+                enable_http_api: true,
             },
             network: IndexerConfig {
                 stacks_node_rpc_url: "http://0.0.0.0:20443".into(),

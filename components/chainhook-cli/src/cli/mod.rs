@@ -166,6 +166,12 @@ struct StartCommand {
         conflicts_with = "devnet"
     )]
     pub config_path: Option<String>,
+    /// Specify relative path of the chainhooks (yaml format) to evaluate
+    #[clap(long = "predicate-path")]
+    pub predicates_paths: Vec<String>,
+    /// Start REST API for managing predicates
+    #[clap(long = "start-http-api")]
+    pub start_http_api: bool,
 }
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
@@ -321,10 +327,19 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
     match opts.command {
         Command::Service(subcmd) => match subcmd {
             ServiceCommand::Start(cmd) => {
-                let config =
+                let mut config =
                     Config::default(cmd.devnet, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
+                // We disable the API if a predicate was passed, and the --enable-
+                if cmd.predicates_paths.len() > 0 && !cmd.start_http_api {
+                    config.chainhooks.enable_http_api = false;
+                }
                 let mut service = Service::new(config, ctx);
-                return service.run().await;
+                let predicates = cmd
+                    .predicates_paths
+                    .iter()
+                    .map(|p| load_predicate_from_path(p))
+                    .collect::<Result<Vec<ChainhookFullSpecification>, _>>()?;
+                return service.run(predicates).await;
             }
         },
         Command::Config(subcmd) => match subcmd {
@@ -455,17 +470,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
             PredicatesCommand::Scan(cmd) => {
                 let mut config =
                     Config::default(false, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
-                let file = std::fs::File::open(&cmd.predicate_path)
-                    .map_err(|e| format!("unable to read file {}\n{:?}", cmd.predicate_path, e))?;
-                let mut file_reader = BufReader::new(file);
-                let mut file_buffer = vec![];
-                file_reader
-                    .read_to_end(&mut file_buffer)
-                    .map_err(|e| format!("unable to read file {}\n{:?}", cmd.predicate_path, e))?;
-                let predicate: ChainhookFullSpecification = serde_json::from_slice(&file_buffer)
-                    .map_err(|e| {
-                        format!("unable to parse json file {}\n{:?}", cmd.predicate_path, e)
-                    })?;
+                let predicate = load_predicate_from_path(&cmd.predicate_path)?;
                 match predicate {
                     ChainhookFullSpecification::Bitcoin(predicate) => {
                         scan_bitcoin_chain_with_predicate(predicate, &config, &ctx).await?;
@@ -653,4 +658,19 @@ pub fn install_ctrlc_handler(terminate_tx: Sender<DigestingCommand>, ctx: Contex
             .expect("Unable to terminate service");
     })
     .expect("Error setting Ctrl-C handler");
+}
+
+pub fn load_predicate_from_path(
+    predicate_path: &str,
+) -> Result<ChainhookFullSpecification, String> {
+    let file = std::fs::File::open(&predicate_path)
+        .map_err(|e| format!("unable to read file {}\n{:?}", predicate_path, e))?;
+    let mut file_reader = BufReader::new(file);
+    let mut file_buffer = vec![];
+    file_reader
+        .read_to_end(&mut file_buffer)
+        .map_err(|e| format!("unable to read file {}\n{:?}", predicate_path, e))?;
+    let predicate: ChainhookFullSpecification = serde_json::from_slice(&file_buffer)
+        .map_err(|e| format!("unable to parse json file {}\n{:?}", predicate_path, e))?;
+    Ok(predicate)
 }

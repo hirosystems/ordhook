@@ -33,6 +33,7 @@ fn generate_test_config() -> (EventObserverConfig, ChainhookStore) {
         event_handlers: vec![],
         ingestion_port: 0,
         control_port: 0,
+        control_api_enabled: false,
         bitcoind_rpc_username: "user".into(),
         bitcoind_rpc_password: "user".into(),
         bitcoind_rpc_url: "http://localhost:18443".into(),

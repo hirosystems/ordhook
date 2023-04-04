@@ -131,6 +131,7 @@ pub struct EventObserverConfig {
     pub event_handlers: Vec<EventHandler>,
     pub ingestion_port: u16,
     pub control_port: u16,
+    pub control_api_enabled: bool,
     pub bitcoind_rpc_username: String,
     pub bitcoind_rpc_password: String,
     pub bitcoind_rpc_url: String,

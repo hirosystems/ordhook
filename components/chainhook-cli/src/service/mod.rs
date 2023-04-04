@@ -39,70 +39,39 @@ impl Service {
         Self { config, ctx }
     }
 
-    pub async fn run(&mut self) -> Result<(), String> {
+    pub async fn run(
+        &mut self,
+        mut predicates: Vec<ChainhookFullSpecification>,
+    ) -> Result<(), String> {
         let mut chainhook_config = ChainhookConfig::new();
 
-        {
-            let redis_config = self.config.expected_redis_config();
-            let client = redis::Client::open(redis_config.uri.clone()).unwrap();
-            let mut redis_con = match client.get_connection() {
-                Ok(con) => con,
-                Err(message) => {
+        if predicates.is_empty() {
+            let mut registered_predicates = load_predicates_from_redis(&self.config, &self.ctx)?;
+            predicates.append(&mut registered_predicates);
+        }
+
+        for predicate in predicates.into_iter() {
+            match chainhook_config.register_hook(
+                (
+                    &self.config.network.bitcoin_network,
+                    &self.config.network.stacks_network,
+                ),
+                predicate,
+                &ApiKey(None),
+            ) {
+                Ok(spec) => {
+                    info!(
+                        self.ctx.expect_logger(),
+                        "Predicate {} retrieved from storage and loaded",
+                        spec.uuid(),
+                    );
+                }
+                Err(e) => {
                     error!(
                         self.ctx.expect_logger(),
-                        "Unable to connect to redis server: {}",
-                        message.to_string()
+                        "Failed loading predicate from storage: {}",
+                        e.to_string()
                     );
-                    std::thread::sleep(std::time::Duration::from_secs(1));
-                    std::process::exit(1);
-                }
-            };
-
-            let chainhooks_to_load: Vec<String> = redis_con
-                .scan_match("chainhook:*:*:*")
-                .expect("unable to retrieve prunable entries")
-                .into_iter()
-                .collect();
-
-            for key in chainhooks_to_load.iter() {
-                let chainhook = match redis_con.hget::<_, _, String>(key, "specification") {
-                    Ok(spec) => {
-                        ChainhookFullSpecification::deserialize_specification(&spec, key).unwrap()
-                        // todo
-                    }
-                    Err(e) => {
-                        error!(
-                            self.ctx.expect_logger(),
-                            "unable to load chainhook associated with key {}: {}",
-                            key,
-                            e.to_string()
-                        );
-                        continue;
-                    }
-                };
-
-                match chainhook_config.register_hook(
-                    (
-                        &self.config.network.bitcoin_network,
-                        &self.config.network.stacks_network,
-                    ),
-                    chainhook,
-                    &ApiKey(None),
-                ) {
-                    Ok(spec) => {
-                        info!(
-                            self.ctx.expect_logger(),
-                            "Predicate {} retrieved from storage and loaded",
-                            spec.uuid(),
-                        );
-                    }
-                    Err(e) => {
-                        error!(
-                            self.ctx.expect_logger(),
-                            "Failed loading predicate from storage: {}",
-                            e.to_string()
-                        );
-                    }
                 }
             }
         }
@@ -133,11 +102,13 @@ impl Service {
             }
         }
 
-        info!(
-            self.ctx.expect_logger(),
-            "Listening for chainhook predicate registrations on port {}",
-            event_observer_config.control_port
-        );
+        if self.config.chainhooks.enable_http_api {
+            info!(
+                self.ctx.expect_logger(),
+                "Listening for chainhook predicate registrations on port {}",
+                event_observer_config.control_port
+            );
+        }
 
         // let ordinal_index = match initialize_ordinal_index(&event_observer_config, None, &self.ctx)
         // {
@@ -617,4 +588,51 @@ fn update_storage_with_confirmed_stacks_blocks(
         let _: Result<(), redis::RedisError> =
             redis_con.set(&format!("stx:tip"), block.block_identifier.index);
     }
+}
+
+fn load_predicates_from_redis(
+    config: &Config,
+    ctx: &Context,
+) -> Result<Vec<ChainhookFullSpecification>, String> {
+    let redis_config = config.expected_redis_config();
+    let client = redis::Client::open(redis_config.uri.clone()).unwrap();
+    let mut redis_con = match client.get_connection() {
+        Ok(con) => con,
+        Err(message) => {
+            error!(
+                ctx.expect_logger(),
+                "Unable to connect to redis server: {}",
+                message.to_string()
+            );
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            std::process::exit(1);
+        }
+    };
+
+    let chainhooks_to_load: Vec<String> = redis_con
+        .scan_match("chainhook:*:*:*")
+        .expect("unable to retrieve prunable entries")
+        .into_iter()
+        .collect();
+
+    let mut predicates = vec![];
+    for key in chainhooks_to_load.iter() {
+        let chainhook = match redis_con.hget::<_, _, String>(key, "specification") {
+            Ok(spec) => {
+                ChainhookFullSpecification::deserialize_specification(&spec, key).unwrap()
+                // todo
+            }
+            Err(e) => {
+                error!(
+                    ctx.expect_logger(),
+                    "unable to load chainhook associated with key {}: {}",
+                    key,
+                    e.to_string()
+                );
+                continue;
+            }
+        };
+        predicates.push(chainhook);
+    }
+    Ok(predicates)
 }
