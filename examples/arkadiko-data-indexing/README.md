@@ -1,7 +1,7 @@
 
 ## How to run
 
-In a console, we will launch `vault-monitor`. `vault-monitor` is a program that will be processing the events triggered by `chainhook-db`. Ruby on Rails (ruby 2.7+, rails 7+) was used to demonstrate that Chainhooks is a language agnostic layer. 
+In a console, we will launch `vault-monitor`. `vault-monitor` is a program that will be processing the events triggered by `chainhook`. Ruby on Rails (ruby 2.7+, rails 7+) was used to demonstrate that Chainhooks is a language agnostic layer. 
 
 ```bash
 # Navigate to vault monitor directory
