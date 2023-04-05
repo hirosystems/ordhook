@@ -13,10 +13,11 @@ use chainhook_event_observer::chainhooks::types::{
     StacksPrintEventBasedPredicate,
 };
 use chainhook_event_observer::hord::db::{
-    delete_data_in_hord_db, fetch_and_cache_blocks_in_hord_db,
-    find_inscriptions_at_wached_outpoint, find_latest_compacted_block_known, initialize_hord_db,
-    open_readonly_hord_db_conn, open_readwrite_hord_db_conn,
-    retrieve_satoshi_point_using_local_storage, find_all_inscriptions, find_compacted_block_at_block_height, patch_inscription_number,
+    delete_data_in_hord_db, fetch_and_cache_blocks_in_hord_db, find_all_inscriptions,
+    find_compacted_block_at_block_height, find_inscriptions_at_wached_outpoint,
+    find_latest_compacted_block_known, initialize_hord_db, open_readonly_hord_db_conn,
+    open_readwrite_hord_db_conn, patch_inscription_number,
+    retrieve_satoshi_point_using_local_storage,
 };
 use chainhook_event_observer::observer::BitcoinConfig;
 use chainhook_event_observer::utils::Context;
@@ -608,6 +609,11 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
             }
             DbCommand::Rewrite(cmd) => {
                 let config = Config::default(false, false, false, &cmd.config_path)?;
+                // Delete data, if any
+                let rw_hord_db_conn =
+                    open_readwrite_hord_db_conn(&config.expected_cache_path(), &ctx)?;
+                delete_data_in_hord_db(cmd.start_block, cmd.end_block, &rw_hord_db_conn, &ctx)?;
+                // Update data
                 perform_hord_db_update(
                     cmd.start_block,
                     cmd.end_block,
@@ -636,20 +642,30 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                 let inscriptions_per_blocks = find_all_inscriptions(&rw_hord_db_conn);
                 let mut inscription_number = 0;
                 for (block_height, inscriptions) in inscriptions_per_blocks.iter() {
-                    let block = match find_compacted_block_at_block_height(*block_height as u32, &rw_hord_db_conn) {
+                    let block = match find_compacted_block_at_block_height(
+                        *block_height as u32,
+                        &rw_hord_db_conn,
+                    ) {
                         Some(block) => block,
                         None => continue,
                     };
 
                     for (txid, _) in inscriptions.iter() {
-                        for (txid_n, _, _) in block.0.1.iter() {
+                        for (txid_n, _, _) in block.0 .1.iter() {
                             if txid.hash[2..10].eq(&hex::encode(txid_n)) {
                                 let inscription_id = format!("{}i0", &txid.hash[2..]);
-                                patch_inscription_number(&inscription_id, inscription_number, &rw_hord_db_conn, &ctx);
+                                patch_inscription_number(
+                                    &inscription_id,
+                                    inscription_number,
+                                    &rw_hord_db_conn,
+                                    &ctx,
+                                );
                                 info!(
                                     ctx.expect_logger(),
-                                    "Patch inscription_number: {} {}",
-                                    inscription_id, inscription_number
+                                    "Patch inscription_number: {}\t{}\t({})",
+                                    inscription_id,
+                                    inscription_number,
+                                    block_height
                                 );
                             }
                         }
