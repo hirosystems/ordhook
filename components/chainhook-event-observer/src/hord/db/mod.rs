@@ -426,7 +426,8 @@ pub fn find_inscriptions_at_wached_outpoint(
         .prepare("SELECT inscription_id, inscription_number, ordinal_number, offset FROM inscriptions WHERE outpoint_to_watch = ? ORDER BY offset ASC")
         .map_err(|e| format!("unable to query inscriptions table: {}", e.to_string()))?;
     let mut results = vec![];
-    let mut rows = stmt.query(args)
+    let mut rows = stmt
+        .query(args)
         .map_err(|e| format!("unable to query inscriptions table: {}", e.to_string()))?;
     while let Ok(Some(row)) = rows.next() {
         let inscription_id: String = row.get(0).unwrap();
@@ -537,6 +538,7 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
     let compress_block_data_pool = ThreadPool::new(16);
     let (block_compressed_tx, block_compressed_rx) = crossbeam_channel::bounded(32);
 
+    // Thread pool #1: given a block height, retrieve the block hash
     for block_cursor in start_block..=end_block {
         let block_height = block_cursor.clone();
         let block_hash_tx = block_hash_tx.clone();
@@ -549,6 +551,7 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
         })
     }
 
+    // Thread pool #2: given a block hash, retrieve the full block (verbosity max, including prevout)
     let bitcoin_network = bitcoin_config.network.clone();
     let bitcoin_config = bitcoin_config.clone();
     let moved_ctx = ctx.clone();
@@ -597,7 +600,7 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
         .expect("unable to spawn thread");
 
     let mut blocks_stored = 0;
-    let mut cursor = 1 + find_latest_compacted_block_known(&rw_hord_db_conn) as usize;
+    let mut cursor = 1 + start_block as usize;
     let mut inbox = HashMap::new();
 
     while let Ok(Some((block_height, compacted_block, raw_block))) = block_compressed_rx.recv() {
@@ -816,7 +819,7 @@ pub fn retrieve_satoshi_point_using_local_storage(
                     //     )
                     // });
 
-                    if sats_in >= sats_out {
+                    if sats_out < sats_in {
                         ordinal_offset = sats_out - (sats_in - txin_value);
                         ordinal_block_number = block_height;
 
