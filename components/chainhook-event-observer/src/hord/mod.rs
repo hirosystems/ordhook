@@ -189,6 +189,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
                 inscription.ordinal_offset = traversal.get_ordinal_coinbase_offset();
                 inscription.ordinal_block_height = traversal.get_ordinal_coinbase_height();
                 inscription.ordinal_number = traversal.ordinal_number;
+                inscription.inscription_number = traversal.inscription_number;
                 inscription.transfers_pre_inscription = traversal.transfers;
 
                 match storage {

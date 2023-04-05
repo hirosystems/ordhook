@@ -672,7 +672,7 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
     Ok(())
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct TraversalResult {
     pub inscription_number: u64,
     pub ordinal_number: u64,
