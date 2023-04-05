@@ -3,6 +3,16 @@ import { BlockIdentifier, Nullable, TransactionIdentifier } from '.';
 
 const Principal = Type.String();
 
+const NftTransferEvent = Type.Object({
+  type: Type.Literal('NFTTransferEvent'),
+  data: Type.Object({
+    raw_value: Type.String(),
+    asset_identifier: Type.String(),
+    recipient: Principal,
+    sender: Principal
+  }),
+});
+
 const FtTransferEvent = Type.Object({
   type: Type.Literal('FTTransferEvent'),
   data: Type.Object({
@@ -19,6 +29,15 @@ const FtMintEvent = Type.Object({
     amount: Type.String(),
     asset_identifier: Type.String(),
     recipient: Principal,
+  }),
+});
+
+const FtBurnEvent = Type.Object({
+  type: Type.Literal('FTBurnEvent'),
+  data: Type.Object({
+    amount: Type.String(),
+    asset_identifier: Type.String(),
+    sender: Principal,
   }),
 });
 
@@ -40,12 +59,17 @@ const StxTransferEvent = Type.Object({
   })
 });
 
-const ContractCall = Type.Object({
-  ContractCall: Type.Object({
+const ContractCallKind = Type.Object({
+  type: Type.Literal('ContractCall'),
+  data: Type.Object({
     args: Type.Array(Type.String()),
     contract_identifier: Principal,
     method: Type.String(),
   }),
+});
+
+const Coinbase = Type.Object({
+  type: Type.Literal('Coinbase')
 });
 
 const OperationIdentifier = Type.Object({
@@ -62,11 +86,16 @@ const StacksTransaction = Type.Object({
       currency: Type.Object({
         decimals: Type.Integer(),
         symbol: Type.String(),
+        metadata: Type.Object({
+          asset_class_identifier: Type.String(),
+          asset_identifier: Nullable(Type.String()),
+          standard: Type.String(),
+        }),
       }),
       value: Type.Integer(),
     }),
     operation_identifier: OperationIdentifier,
-    related_operations: Type.Array(OperationIdentifier),
+    related_operations: Type.Optional(Type.Array(OperationIdentifier)),
     status: Type.String(),
     type: Type.Union([Type.Literal('CREDIT'), Type.Literal('DEBIT')]),
   })),
@@ -81,7 +110,7 @@ const StacksTransaction = Type.Object({
     }),
     fee: Type.Integer(),
     kind: Type.Union([
-      ContractCall
+      Coinbase, ContractCallKind
     ]),
     nonce: Type.Integer(),
     position: Type.Object({
@@ -93,7 +122,7 @@ const StacksTransaction = Type.Object({
     receipt: Type.Object({
       contract_calls_stack: Type.Array(Type.Any()),
       events: Type.Array(Type.Union([
-        FtTransferEvent, FtMintEvent, SmartContractEvent, StxTransferEvent
+        FtTransferEvent, FtMintEvent, FtBurnEvent, NftTransferEvent, SmartContractEvent, StxTransferEvent
       ])),
       mutated_assets_radius: Type.Array(Type.String()),
       mutated_contracts_radius: Type.Array(Type.String()),
@@ -115,5 +144,6 @@ const StacksEvent = Type.Object({
     pox_cycle_index: Type.Integer(),
     pox_cycle_length: Type.Integer(),
     pox_cycle_position: Type.Integer(),
+    stacks_block_hash: Type.String(),
   }),
 });
