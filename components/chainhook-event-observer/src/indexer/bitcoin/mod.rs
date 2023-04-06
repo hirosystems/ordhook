@@ -1,44 +1,34 @@
 mod blocks_pool;
 
-use std::thread::JoinHandle;
 use std::time::Duration;
 
 use crate::chainhooks::types::{
     get_canonical_pox_config, get_stacks_canonical_magic_bytes, PoxConfig, StacksOpcodes,
 };
-use crate::indexer::IndexerConfig;
-use crate::observer::{BitcoinConfig, EventObserverConfig};
+
+use crate::observer::BitcoinConfig;
 use crate::utils::Context;
 use bitcoincore_rpc::bitcoin::hashes::hex::FromHex;
 use bitcoincore_rpc::bitcoin::hashes::Hash;
-use bitcoincore_rpc::bitcoin::{
-    self, Address, Amount, BlockHash, OutPoint as OutPointS, PackedLockTime, Script, Transaction,
-    Txid, Witness,
-};
+use bitcoincore_rpc::bitcoin::{self, Address, Amount, BlockHash, Script};
 use bitcoincore_rpc_json::{
-    GetRawTransactionResult, GetRawTransactionResultVinScriptSig, GetRawTransactionResultVout,
-    GetRawTransactionResultVoutScriptPubKey,
+    GetRawTransactionResultVinScriptSig, GetRawTransactionResultVoutScriptPubKey,
 };
 pub use blocks_pool::BitcoinBlockPool;
 use chainhook_types::bitcoin::{OutPoint, TxIn, TxOut};
 use chainhook_types::{
-    BitcoinBlockData, BitcoinBlockMetadata, BitcoinTransactionData, BitcoinTransactionMetadata,
-    BlockCommitmentData, BlockHeader, BlockIdentifier, KeyRegistrationData, LockSTXData,
-    OrdinalInscriptionRevealData, OrdinalOperation, PobBlockCommitmentData, PoxReward,
+    BitcoinBlockData, BitcoinBlockMetadata, BitcoinNetwork, BitcoinTransactionData,
+    BitcoinTransactionMetadata, BlockCommitmentData, BlockHeader, BlockIdentifier,
+    KeyRegistrationData, LockSTXData, OrdinalInscriptionRevealData, OrdinalOperation, PoxReward,
     StacksBaseChainOperation, StacksBlockCommitmentData, TransactionIdentifier, TransferSTXData,
 };
 use hiro_system_kit::slog;
-use rocket::serde::json::Value as JsonValue;
+
 use serde::Deserialize;
 
-use super::ordinals::inscription::InscriptionParser;
-use super::ordinals::ord::chain::Chain;
-use super::ordinals::ord::indexing::entry::InscriptionEntry;
-use super::ordinals::ord::indexing::updater::{BlockData, OrdinalIndexUpdater};
-use super::ordinals::ord::indexing::OrdinalIndex;
-use super::ordinals::ord::inscription_id::InscriptionId;
-use super::ordinals::ord::sat::Sat;
-use super::BitcoinChainContext;
+use crate::hord::inscription::InscriptionParser;
+
+use crate::hord::ord::inscription_id::InscriptionId;
 
 #[derive(Clone, PartialEq, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -159,13 +149,13 @@ pub struct RewardParticipant {
 }
 
 pub async fn retrieve_full_block_breakdown_with_retry(
-    bitcoin_config: &BitcoinConfig,
     block_hash: &str,
+    bitcoin_config: &BitcoinConfig,
     ctx: &Context,
 ) -> Result<BitcoinBlockFullBreakdown, String> {
     let mut errors_count = 0;
     let block = loop {
-        match retrieve_full_block_breakdown(bitcoin_config, block_hash, ctx).await {
+        match retrieve_full_block_breakdown(block_hash, bitcoin_config, ctx).await {
             Ok(result) => break result,
             Err(e) => {
                 errors_count += 1;
@@ -180,9 +170,31 @@ pub async fn retrieve_full_block_breakdown_with_retry(
     Ok(block)
 }
 
-pub async fn retrieve_full_block_breakdown(
+pub async fn retrieve_block_hash_with_retry(
+    block_height: &u64,
     bitcoin_config: &BitcoinConfig,
+    ctx: &Context,
+) -> Result<String, String> {
+    let mut errors_count = 0;
+    let block_hash = loop {
+        match retrieve_block_hash(block_height, bitcoin_config, ctx).await {
+            Ok(result) => break result,
+            Err(e) => {
+                errors_count += 1;
+                error!(
+                    "unable to retrieve block #{block_height} (attempt #{errors_count}): {}",
+                    e.to_string()
+                );
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
+    };
+    Ok(block_hash)
+}
+
+pub async fn retrieve_full_block_breakdown(
     block_hash: &str,
+    bitcoin_config: &BitcoinConfig,
     _ctx: &Context,
 ) -> Result<BitcoinBlockFullBreakdown, String> {
     use reqwest::Client as HttpClient;
@@ -215,8 +227,9 @@ pub async fn retrieve_full_block_breakdown(
 }
 
 pub async fn retrieve_block_hash(
-    bitcoin_config: &BitcoinConfig,
     block_height: &u64,
+    bitcoin_config: &BitcoinConfig,
+    _ctx: &Context,
 ) -> Result<String, String> {
     use reqwest::Client as HttpClient;
     let body = json!({
@@ -248,14 +261,14 @@ pub async fn retrieve_block_hash(
 }
 
 pub fn standardize_bitcoin_block(
-    config: &EventObserverConfig,
     block: BitcoinBlockFullBreakdown,
+    network: &BitcoinNetwork,
     ctx: &Context,
 ) -> Result<BitcoinBlockData, String> {
     let mut transactions = vec![];
     let block_height = block.height as u64;
-    let expected_magic_bytes = get_stacks_canonical_magic_bytes(&config.bitcoin_network);
-    let pox_config = get_canonical_pox_config(&config.bitcoin_network);
+    let expected_magic_bytes = get_stacks_canonical_magic_bytes(&network);
+    let pox_config = get_canonical_pox_config(&network);
 
     ctx.try_log(|logger| slog::debug!(logger, "Standardizing Bitcoin block {}", block.hash,));
 
@@ -266,10 +279,11 @@ pub fn standardize_bitcoin_block(
 
         let mut stacks_operations = vec![];
         if let Some(op) = try_parse_stacks_operation(
+            block_height,
+            &tx.vin,
             &tx.vout,
             &pox_config,
             &expected_magic_bytes,
-            block_height,
             ctx,
         ) {
             stacks_operations.push(op);
@@ -282,34 +296,39 @@ pub fn standardize_bitcoin_block(
 
         let mut inputs = vec![];
         let mut sats_in = 0;
-        for input in tx.vin.drain(..) {
+        for (index, input) in tx.vin.drain(..).enumerate() {
             if input.is_coinbase() {
                 continue;
             }
-            let value = input
-                .prevout
-                .as_ref()
-                .expect("not provided for coinbase txs")
-                .value
-                .to_sat();
-            sats_in += value;
+            let prevout = input.prevout.as_ref().ok_or(format!(
+                "error retrieving prevout for transaction {}, input #{} (block #{})",
+                tx.txid, index, block.height
+            ))?;
+
+            let txid = input.txid.as_ref().ok_or(format!(
+                "error retrieving txid for transaction {}, input #{} (block #{})",
+                tx.txid, index, block.height
+            ))?;
+
+            let vout = input.vout.ok_or(format!(
+                "error retrieving vout for transaction {}, input #{} (block #{})",
+                tx.txid, index, block.height
+            ))?;
+
+            let script_sig = input.script_sig.ok_or(format!(
+                "error retrieving script_sig for transaction {}, input #{} (block #{})",
+                tx.txid, index, block.height
+            ))?;
+
+            sats_in += prevout.value.to_sat();
             inputs.push(TxIn {
                 previous_output: OutPoint {
-                    txid: format!(
-                        "0x{}",
-                        input
-                            .txid
-                            .expect("not provided for coinbase txs")
-                            .to_string()
-                    ),
-                    vout: input.vout.expect("not provided for coinbase txs"),
-                    block_height: input.prevout.expect("not provided for coinbase txs").height,
-                    value,
+                    txid: format!("0x{}", txid.to_string()),
+                    vout,
+                    block_height: prevout.height,
+                    value: prevout.value.to_sat(),
                 },
-                script_sig: format!(
-                    "0x{}",
-                    hex::encode(&input.script_sig.expect("not provided for coinbase txs").hex)
-                ),
+                script_sig: format!("0x{}", hex::encode(&script_sig.hex)),
                 sequence: input.sequence,
                 witness: input
                     .txinwitness
@@ -370,7 +389,7 @@ pub fn standardize_bitcoin_block(
 fn try_parse_ordinal_operation(
     tx: &BitcoinTransactionFullBreakdown,
     _block_height: u64,
-    ctx: &Context,
+    _ctx: &Context,
 ) -> Option<OrdinalOperation> {
     for input in tx.vin.iter() {
         if let Some(ref witnesses) = input.txinwitness {
@@ -420,6 +439,7 @@ fn try_parse_ordinal_operation(
                         ordinal_number: 0,
                         ordinal_block_height: 0,
                         ordinal_offset: 0,
+                        transfers_pre_inscription: 0,
                         satpoint_post_inscription: format!("{}:0:0", tx.txid.clone()),
                     },
                 ));
@@ -430,10 +450,11 @@ fn try_parse_ordinal_operation(
 }
 
 fn try_parse_stacks_operation(
+    block_height: u64,
+    _inputs: &Vec<BitcoinTransactionInputFullBreakdown>,
     outputs: &Vec<BitcoinTransactionOutputFullBreakdown>,
     pox_config: &PoxConfig,
     expected_magic_bytes: &[u8; 2],
-    block_height: u64,
     ctx: &Context,
 ) -> Option<StacksBaseChainOperation> {
     if outputs.is_empty() {
@@ -483,34 +504,100 @@ fn try_parse_stacks_operation(
         }
         StacksOpcodes::BlockCommit => {
             let res = try_parse_block_commit_op(&op_return_output[5..])?;
+            let mut pox_sats_burnt = 0;
+            let mut pox_sats_transferred = vec![];
+
             // We need to determine wether the transaction was a PoB or a Pox commitment
-            // if pox_config.is_consensus_rewarding_participants_at_block_height(block_height) {
-            if outputs.len() < 1 + pox_config.rewarded_addresses_per_block {
-                return None;
+            let mining_output_index = if pox_config
+                .is_consensus_rewarding_participants_at_block_height(block_height)
+            {
+                // Output 0 is OP_RETURN
+                // Output 1 is rewarding Address 1
+                let pox_output_1 = outputs
+                    .get(1)
+                    .ok_or(format!("expected pox output 1 not found"))
+                    .ok()?;
+                let pox_script_1 = pox_output_1
+                    .script_pub_key
+                    .script()
+                    .map_err(|_e| format!("expected pox output 1 corrupted"))
+                    .ok()?;
+                let pox_address_1 = Address::from_script(&pox_script_1, bitcoin::Network::Bitcoin)
+                    .map_err(|_e| format!("expected pox output 1 corrupted"))
+                    .ok()?;
+                if pox_address_1.to_string().eq(&pox_config.get_burn_address()) {
+                    pox_sats_burnt += pox_output_1.value.to_sat();
+                } else {
+                    pox_sats_transferred.push(PoxReward {
+                        recipient_address: pox_address_1.to_string(),
+                        amount: pox_output_1.value.to_sat(),
+                    });
+                }
+                // Output 2 is rewarding Address 2
+                let pox_output_2 = outputs
+                    .get(2)
+                    .ok_or(format!("expected pox output 2 not found"))
+                    .ok()?;
+                let pox_script_2 = pox_output_2
+                    .script_pub_key
+                    .script()
+                    .map_err(|_e| format!("expected pox output 2 corrupted"))
+                    .ok()?;
+                let pox_address_2 = Address::from_script(&pox_script_2, bitcoin::Network::Bitcoin)
+                    .map_err(|_e| format!("expected pox output 2 corrupted"))
+                    .ok()?;
+                if pox_address_2.to_string().eq(&pox_config.get_burn_address()) {
+                    pox_sats_burnt += pox_output_2.value.to_sat();
+                } else {
+                    pox_sats_transferred.push(PoxReward {
+                        recipient_address: pox_address_2.to_string(),
+                        amount: pox_output_2.value.to_sat(),
+                    });
+                }
+                // Output 3 is used for miner chained commitments
+                3
+            } else {
+                // Output 0 is OP_RETURN
+                // Output 1 should be a Burn Address
+                let burn_output = outputs
+                    .get(1)
+                    .ok_or(format!("expected burn address not found"))
+                    .ok()?;
+                // Todo: Ensure that we're looking at a burn address
+                pox_sats_burnt += burn_output.value.to_sat();
+                // Output 2 is used for miner chained commitments
+                2
+            };
+
+            let mut mining_sats_left = 0;
+            let mut mining_address_post_commit = None;
+            if let Some(mining_post_commit) = outputs.get(mining_output_index) {
+                mining_sats_left = mining_post_commit.value.to_sat();
+                mining_address_post_commit = match mining_post_commit.script_pub_key.script() {
+                    Ok(script) => Address::from_script(&script, bitcoin::Network::Bitcoin)
+                        .and_then(|a| Ok(a.to_string()))
+                        .ok(),
+                    Err(_) => None,
+                };
             }
-            let mut rewards = vec![];
-            for output in outputs[1..pox_config.rewarded_addresses_per_block].into_iter() {
-                rewards.push(PoxReward {
-                    recipient: format!("0x{}", hex::encode(&output.script_pub_key.hex)),
-                    amount: output.value.to_sat(),
-                });
-            }
-            StacksBaseChainOperation::BlockCommitted(StacksBlockCommitmentData {
-                signers: vec![], // todo(lgalabru)
-                stacks_block_hash: res.stacks_block_hash.clone(),
-                rewards,
-            })
-            // } else {
-            //     if outputs.len() < 2 {
-            //         return None;
             //     }
-            //     let amount = outputs[1].value;
-            //     StacksBaseChainOperation::BlockCommitted(StacksBlockCommitmentData {
-            //         signers: vec![], // todo(lgalabru)
-            //         stacks_block_hash: res.stacks_block_hash.clone(),
-            //         amount: amount.to_sat(),
-            //     })
             // }
+
+            let pox_cycle_index = pox_config.get_pox_cycle_id(block_height);
+            let pox_cycle_length = pox_config.get_pox_cycle_len();
+            let pox_cycle_position = pox_config.get_pos_in_pox_cycle(block_height);
+
+            StacksBaseChainOperation::BlockCommitted(StacksBlockCommitmentData {
+                block_hash: res.stacks_block_hash,
+                pox_cycle_index,
+                pox_cycle_length,
+                pox_cycle_position,
+                pox_sats_burnt,
+                pox_sats_transferred,
+                // mining_address_pre_commit: None,
+                mining_address_post_commit,
+                mining_sats_left,
+            })
         }
     };
 

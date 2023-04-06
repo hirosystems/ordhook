@@ -30,55 +30,8 @@ impl Inscription {
         InscriptionParser::parse(&tx.input.get(0)?.witness).ok()
     }
 
-    fn append_reveal_script_to_builder(&self, mut builder: script::Builder) -> script::Builder {
-        builder = builder
-            .push_opcode(opcodes::OP_FALSE)
-            .push_opcode(opcodes::all::OP_IF)
-            .push_slice(PROTOCOL_ID);
-
-        if let Some(content_type) = &self.content_type {
-            builder = builder
-                .push_slice(CONTENT_TYPE_TAG)
-                .push_slice(content_type);
-        }
-
-        if let Some(body) = &self.body {
-            builder = builder.push_slice(BODY_TAG);
-            for chunk in body.chunks(520) {
-                builder = builder.push_slice(chunk);
-            }
-        }
-
-        builder.push_opcode(opcodes::all::OP_ENDIF)
-    }
-
-    pub(crate) fn append_reveal_script(&self, builder: script::Builder) -> Script {
-        self.append_reveal_script_to_builder(builder).into_script()
-    }
-
-    pub(crate) fn media(&self) -> Media {
-        if self.body.is_none() {
-            return Media::Unknown;
-        }
-
-        let content_type = match self.content_type() {
-            Some(content_type) => content_type,
-            None => return Media::Unknown,
-        };
-
-        content_type.parse().unwrap_or(Media::Unknown)
-    }
-
     pub(crate) fn body(&self) -> Option<&[u8]> {
         Some(self.body.as_ref()?)
-    }
-
-    pub(crate) fn into_body(self) -> Option<Vec<u8>> {
-        self.body
-    }
-
-    pub(crate) fn content_length(&self) -> Option<usize> {
-        Some(self.body()?.len())
     }
 
     pub(crate) fn content_type(&self) -> Option<&str> {

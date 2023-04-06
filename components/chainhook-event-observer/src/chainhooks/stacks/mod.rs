@@ -548,13 +548,14 @@ pub fn serialized_event_with_decoded_clarity_value(
 }
 
 pub fn expect_decoded_clarity_value(hex_value: &str) -> ClarityValue {
-    let hex_value = hex_value
-        .strip_prefix("0x")
-        .expect("unable to decode clarity value emitted by stacks-node");
-    let value_bytes =
-        hex_bytes(&hex_value).expect("unable to decode clarity value emitted by stacks-node");
-    ClarityValue::consensus_deserialize(&mut Cursor::new(&value_bytes))
+    try_decode_clarity_value(hex_value)
         .expect("unable to decode clarity value emitted by stacks-node")
+}
+
+pub fn try_decode_clarity_value(hex_value: &str) -> Option<ClarityValue> {
+    let hex_value = hex_value.strip_prefix("0x")?;
+    let value_bytes = hex_bytes(&hex_value).ok()?;
+    ClarityValue::consensus_deserialize(&mut Cursor::new(&value_bytes)).ok()
 }
 
 pub fn serialized_decoded_clarity_value(hex_value: &str, ctx: &Context) -> serde_json::Value {

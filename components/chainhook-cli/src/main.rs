@@ -13,8 +13,8 @@ pub mod archive;
 pub mod block;
 pub mod cli;
 pub mod config;
-pub mod node;
 pub mod scan;
+pub mod service;
 
 fn main() {
     cli::main();

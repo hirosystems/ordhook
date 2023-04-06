@@ -2,16 +2,20 @@ pub mod file;
 pub mod generator;
 
 pub use chainhook_event_observer::indexer::IndexerConfig;
-use chainhook_types::{BitcoinNetwork, StacksNetwork};
+use chainhook_event_observer::observer::EventObserverConfig;
+use chainhook_types::{BitcoinBlockSignaling, BitcoinNetwork, StacksNetwork};
 pub use file::ConfigFile;
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::PathBuf;
 
-const DEFAULT_MAINNET_TSV_ARCHIVE: &str = "https://storage.googleapis.com/hirosystems-archive/mainnet/api/mainnet-blockchain-api-latest.tar.gz";
-const DEFAULT_TESTNET_TSV_ARCHIVE: &str = "https://storage.googleapis.com/hirosystems-archive/testnet/api/testnet-blockchain-api-latest.tar.gz";
-// const DEFAULT_MAINNET_TSV_ARCHIVE: &str = "https://archive.hiro.so/mainnet/stacks-blockchain-api/mainnet-stacks-blockchain-api-latest.gz";
-// const DEFAULT_TESTNET_TSV_ARCHIVE: &str = "https://archive.hiro.so/testnet/stacks-blockchain-api/testnet-stacks-blockchain-api-latest.gz";
+use crate::service::{DEFAULT_CONTROL_PORT, DEFAULT_INGESTION_PORT};
+
+const DEFAULT_MAINNET_TSV_ARCHIVE: &str =
+    "https://archive.hiro.so/mainnet/stacks-blockchain-api/mainnet-stacks-blockchain-api-latest.gz";
+const DEFAULT_TESTNET_TSV_ARCHIVE: &str =
+    "https://archive.hiro.so/testnet/stacks-blockchain-api/testnet-stacks-blockchain-api-latest.gz";
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -46,7 +50,6 @@ pub struct TikvConfig {
 
 #[derive(Clone, Debug)]
 pub enum EventSourceConfig {
-    StacksNode(StacksNodeConfig),
     TsvPath(TsvPathConfig),
     TsvUrl(TsvUrlConfig),
 }
@@ -62,14 +65,10 @@ pub struct TsvUrlConfig {
 }
 
 #[derive(Clone, Debug)]
-pub struct StacksNodeConfig {
-    pub host: String,
-}
-
-#[derive(Clone, Debug)]
 pub struct ChainhooksConfig {
     pub max_stacks_registrations: u16,
     pub max_bitcoin_registrations: u16,
+    pub enable_http_api: bool,
 }
 
 impl Config {
@@ -91,6 +90,28 @@ impl Config {
         Config::from_config_file(config_file)
     }
 
+    pub fn get_event_observer_config(&self) -> EventObserverConfig {
+        EventObserverConfig {
+            hooks_enabled: true,
+            bitcoin_rpc_proxy_enabled: true,
+            event_handlers: vec![],
+            chainhook_config: None,
+            ingestion_port: DEFAULT_INGESTION_PORT,
+            control_port: DEFAULT_CONTROL_PORT,
+            control_api_enabled: self.chainhooks.enable_http_api,
+            bitcoind_rpc_username: self.network.bitcoind_rpc_username.clone(),
+            bitcoind_rpc_password: self.network.bitcoind_rpc_password.clone(),
+            bitcoind_rpc_url: self.network.bitcoind_rpc_url.clone(),
+            stacks_node_rpc_url: self.network.stacks_node_rpc_url.clone(),
+            bitcoin_block_signaling: self.network.bitcoin_block_signaling.clone(),
+            operators: HashSet::new(),
+            display_logs: false,
+            cache_path: self.storage.cache_path.clone(),
+            bitcoin_network: self.network.bitcoin_network.clone(),
+            stacks_network: self.network.stacks_network.clone(),
+        }
+    }
+
     pub fn from_config_file(config_file: ConfigFile) -> Result<Config, String> {
         let (stacks_network, bitcoin_network) = match config_file.network.mode.as_str() {
             "devnet" => (StacksNetwork::Devnet, BitcoinNetwork::Regtest),
@@ -99,6 +120,20 @@ impl Config {
             _ => return Err("network.mode not supported".to_string()),
         };
 
+        let mut event_sources = vec![];
+        for source in config_file.event_source.unwrap_or(vec![]).iter_mut() {
+            if let Some(dst) = source.tsv_file_path.take() {
+                let mut file_path = PathBuf::new();
+                file_path.push(dst);
+                event_sources.push(EventSourceConfig::TsvPath(TsvPathConfig { file_path }));
+                continue;
+            }
+            if let Some(file_url) = source.tsv_file_url.take() {
+                event_sources.push(EventSourceConfig::TsvUrl(TsvUrlConfig { file_url }));
+                continue;
+            }
+        }
+
         let config = Config {
             storage: StorageConfig {
                 driver: StorageDriver::Redis(RedisConfig {
@@ -106,9 +141,7 @@ impl Config {
                 }),
                 cache_path: config_file.storage.cache_path.unwrap_or("cache".into()),
             },
-            event_sources: vec![EventSourceConfig::StacksNode(StacksNodeConfig {
-                host: config_file.network.stacks_node_rpc_url.to_string(),
-            })],
+            event_sources,
             chainhooks: ChainhooksConfig {
                 max_stacks_registrations: config_file
                     .chainhooks
@@ -118,18 +151,19 @@ impl Config {
                     .chainhooks
                     .max_bitcoin_registrations
                     .unwrap_or(100),
+                enable_http_api: true,
             },
             network: IndexerConfig {
                 stacks_node_rpc_url: config_file.network.stacks_node_rpc_url.to_string(),
-                bitcoin_node_rpc_url: config_file.network.bitcoin_node_rpc_url.to_string(),
-                bitcoin_node_rpc_username: config_file
-                    .network
-                    .bitcoin_node_rpc_username
-                    .to_string(),
-                bitcoin_node_rpc_password: config_file
-                    .network
-                    .bitcoin_node_rpc_password
-                    .to_string(),
+                bitcoind_rpc_url: config_file.network.bitcoind_rpc_url.to_string(),
+                bitcoind_rpc_username: config_file.network.bitcoind_rpc_username.to_string(),
+                bitcoind_rpc_password: config_file.network.bitcoind_rpc_password.to_string(),
+                bitcoin_block_signaling: match config_file.network.bitcoind_zmq_url {
+                    Some(ref zmq_url) => BitcoinBlockSignaling::ZeroMQ(zmq_url.clone()),
+                    None => BitcoinBlockSignaling::Stacks(
+                        config_file.network.stacks_node_rpc_url.clone(),
+                    ),
+                },
                 stacks_network,
                 bitcoin_network,
             },
@@ -141,7 +175,6 @@ impl Config {
         for source in self.event_sources.iter() {
             match source {
                 EventSourceConfig::TsvUrl(_) | EventSourceConfig::TsvPath(_) => return true,
-                EventSourceConfig::StacksNode(_) => {}
             }
         }
         return false;
@@ -181,15 +214,6 @@ impl Config {
         let mut destination_path = PathBuf::new();
         destination_path.push(&self.storage.cache_path);
         destination_path
-    }
-
-    pub fn expected_stacks_node_event_source(&self) -> &String {
-        for source in self.event_sources.iter() {
-            if let EventSourceConfig::StacksNode(config) = source {
-                return &config.host;
-            }
-        }
-        panic!("expected remote-tsv source")
     }
 
     pub fn expected_remote_tsv_url(&self) -> &String {
@@ -248,18 +272,20 @@ impl Config {
                 }),
                 cache_path: default_cache_path(),
             },
-            event_sources: vec![EventSourceConfig::StacksNode(StacksNodeConfig {
-                host: "http://0.0.0.0:20443".into(),
-            })],
+            event_sources: vec![],
             chainhooks: ChainhooksConfig {
                 max_stacks_registrations: 50,
                 max_bitcoin_registrations: 50,
+                enable_http_api: true,
             },
             network: IndexerConfig {
                 stacks_node_rpc_url: "http://0.0.0.0:20443".into(),
-                bitcoin_node_rpc_url: "http://0.0.0.0:18443".into(),
-                bitcoin_node_rpc_username: "devnet".into(),
-                bitcoin_node_rpc_password: "devnet".into(),
+                bitcoind_rpc_url: "http://0.0.0.0:18443".into(),
+                bitcoind_rpc_username: "devnet".into(),
+                bitcoind_rpc_password: "devnet".into(),
+                bitcoin_block_signaling: BitcoinBlockSignaling::Stacks(
+                    "http://0.0.0.0:20443".into(),
+                ),
                 stacks_network: StacksNetwork::Devnet,
                 bitcoin_network: BitcoinNetwork::Regtest,
             },
@@ -280,12 +306,16 @@ impl Config {
             chainhooks: ChainhooksConfig {
                 max_stacks_registrations: 10,
                 max_bitcoin_registrations: 10,
+                enable_http_api: true,
             },
             network: IndexerConfig {
                 stacks_node_rpc_url: "http://0.0.0.0:20443".into(),
-                bitcoin_node_rpc_url: "http://0.0.0.0:18332".into(),
-                bitcoin_node_rpc_username: "devnet".into(),
-                bitcoin_node_rpc_password: "devnet".into(),
+                bitcoind_rpc_url: "http://0.0.0.0:18332".into(),
+                bitcoind_rpc_username: "devnet".into(),
+                bitcoind_rpc_password: "devnet".into(),
+                bitcoin_block_signaling: BitcoinBlockSignaling::Stacks(
+                    "http://0.0.0.0:20443".into(),
+                ),
                 stacks_network: StacksNetwork::Testnet,
                 bitcoin_network: BitcoinNetwork::Testnet,
             },
@@ -306,12 +336,16 @@ impl Config {
             chainhooks: ChainhooksConfig {
                 max_stacks_registrations: 10,
                 max_bitcoin_registrations: 10,
+                enable_http_api: true,
             },
             network: IndexerConfig {
                 stacks_node_rpc_url: "http://0.0.0.0:20443".into(),
-                bitcoin_node_rpc_url: "http://0.0.0.0:8332".into(),
-                bitcoin_node_rpc_username: "devnet".into(),
-                bitcoin_node_rpc_password: "devnet".into(),
+                bitcoind_rpc_url: "http://0.0.0.0:8332".into(),
+                bitcoind_rpc_username: "devnet".into(),
+                bitcoind_rpc_password: "devnet".into(),
+                bitcoin_block_signaling: BitcoinBlockSignaling::Stacks(
+                    "http://0.0.0.0:20443".into(),
+                ),
                 stacks_network: StacksNetwork::Mainnet,
                 bitcoin_network: BitcoinNetwork::Mainnet,
             },

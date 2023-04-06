@@ -1,6 +1,6 @@
 use crate::chainhooks::bitcoin::{
     evaluate_bitcoin_chainhooks_on_chain_event, handle_bitcoin_hook_action,
-    BitcoinChainhookOccurrence, BitcoinChainhookOccurrencePayload,
+    BitcoinChainhookOccurrence, BitcoinChainhookOccurrencePayload, BitcoinTriggerChainhook,
 };
 use crate::chainhooks::stacks::{
     evaluate_stacks_chainhooks_on_chain_event, handle_stacks_hook_action,
@@ -9,31 +9,25 @@ use crate::chainhooks::stacks::{
 use crate::chainhooks::types::{
     ChainhookConfig, ChainhookFullSpecification, ChainhookSpecification,
 };
+
+use crate::hord::db::open_readwrite_hord_db_conn;
+use crate::hord::{
+    revert_hord_db_with_augmented_bitcoin_block, update_hord_db_and_augment_bitcoin_block,
+};
 use crate::indexer::bitcoin::{
     retrieve_full_block_breakdown_with_retry, standardize_bitcoin_block, BitcoinBlockFullBreakdown,
     NewBitcoinBlock,
 };
-use crate::indexer::ordinals::db::{
-    find_inscription_with_ordinal_number, find_inscriptions_at_wached_outpoint,
-    find_last_inscription_number, initialize_ordinal_state_storage, open_readonly_ordinals_db_conn,
-    open_readwrite_ordinals_db_conn, retrieve_satoshi_point_using_local_storage,
-    store_new_inscription, update_transfered_inscription, write_compacted_block_to_index,
-    CompactedBlock,
-};
-use crate::indexer::ordinals::ord::height::Height;
-use crate::indexer::ordinals::ord::{
-    indexing::updater::OrdinalIndexUpdater, initialize_ordinal_index,
-};
+use crate::indexer::fork_scratch_pad::ForkScratchPad;
 use crate::indexer::{self, Indexer, IndexerConfig};
 use crate::utils::{send_request, Context};
-use bitcoincore_rpc::bitcoin::hashes::hex::FromHex;
-use bitcoincore_rpc::bitcoin::{Address, BlockHash, Network, Script, Txid};
+
+use bitcoincore_rpc::bitcoin::{BlockHash, Txid};
 use bitcoincore_rpc::{Auth, Client, RpcApi};
 use chainhook_types::{
-    bitcoin, BitcoinBlockData, BitcoinBlockMetadata, BitcoinChainEvent,
-    BitcoinChainUpdatedWithBlocksData, BitcoinChainUpdatedWithReorgData, BitcoinNetwork,
-    BlockHeader, BlockIdentifier, BlockchainEvent, OrdinalInscriptionTransferData,
-    OrdinalOperation, StacksChainEvent, StacksNetwork, TransactionIdentifier,
+    BitcoinBlockData, BitcoinBlockSignaling, BitcoinChainEvent, BitcoinChainUpdatedWithBlocksData,
+    BitcoinChainUpdatedWithReorgData, BitcoinNetwork, BlockIdentifier, BlockchainEvent,
+    StacksChainEvent, StacksNetwork, TransactionIdentifier,
 };
 use clarity_repl::clarity::util::hash::bytes_to_hex;
 use hiro_system_kit;
@@ -48,7 +42,7 @@ use rocket::serde::Deserialize;
 use rocket::Shutdown;
 use rocket::State;
 use rocket_okapi::{openapi, openapi_get_routes, request::OpenApiFromRequest};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
@@ -57,6 +51,7 @@ use std::str::FromStr;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
+use zeromq::{Socket, SocketRecv};
 
 pub const DEFAULT_INGESTION_PORT: u16 = 20445;
 pub const DEFAULT_CONTROL_PORT: u16 = 20446;
@@ -130,17 +125,17 @@ impl EventHandler {
 
 #[derive(Clone, Debug)]
 pub struct EventObserverConfig {
-    pub normalization_enabled: bool,
-    pub grpc_server_enabled: bool,
     pub hooks_enabled: bool,
     pub chainhook_config: Option<ChainhookConfig>,
     pub bitcoin_rpc_proxy_enabled: bool,
     pub event_handlers: Vec<EventHandler>,
     pub ingestion_port: u16,
     pub control_port: u16,
-    pub bitcoin_node_username: String,
-    pub bitcoin_node_password: String,
-    pub bitcoin_node_rpc_url: String,
+    pub control_api_enabled: bool,
+    pub bitcoind_rpc_username: String,
+    pub bitcoind_rpc_password: String,
+    pub bitcoind_rpc_url: String,
+    pub bitcoin_block_signaling: BitcoinBlockSignaling,
     pub stacks_node_rpc_url: String,
     pub operators: HashSet<String>,
     pub display_logs: bool,
@@ -158,9 +153,11 @@ impl EventObserverConfig {
 
     pub fn get_bitcoin_config(&self) -> BitcoinConfig {
         let bitcoin_config = BitcoinConfig {
-            username: self.bitcoin_node_username.clone(),
-            password: self.bitcoin_node_password.clone(),
-            rpc_url: self.bitcoin_node_rpc_url.clone(),
+            username: self.bitcoind_rpc_username.clone(),
+            password: self.bitcoind_rpc_password.clone(),
+            rpc_url: self.bitcoind_rpc_url.clone(),
+            network: self.bitcoin_network.clone(),
+            bitcoin_block_signaling: self.bitcoin_block_signaling.clone(),
         };
         bitcoin_config
     }
@@ -175,6 +172,7 @@ pub struct ContractReadonlyCall {
 #[derive(Clone, Debug, PartialEq)]
 pub enum ObserverCommand {
     ProcessBitcoinBlock(BitcoinBlockFullBreakdown),
+    CacheBitcoinBlock(BitcoinBlockData),
     PropagateBitcoinChainEvent(BlockchainEvent),
     PropagateStacksChainEvent(StacksChainEvent),
     PropagateStacksMempoolEvent(StacksChainMempoolEvent),
@@ -232,6 +230,8 @@ pub struct BitcoinConfig {
     pub username: String,
     pub password: String,
     pub rpc_url: String,
+    pub network: BitcoinNetwork,
+    pub bitcoin_block_signaling: BitcoinBlockSignaling,
 }
 
 #[derive(Debug, Clone)]
@@ -258,42 +258,14 @@ pub async fn start_event_observer(
     observer_events_tx: Option<crossbeam_channel::Sender<ObserverEvent>>,
     ctx: Context,
 ) -> Result<(), Box<dyn Error>> {
-    ctx.try_log(|logger| slog::info!(logger, "Event observer starting with config {:?}", config));
-
-    // let ordinal_index = if cfg!(feature = "ordinals") {
-    // Start indexer with a receiver in background thread
-
-    ctx.try_log(|logger| {
-        slog::info!(
-            logger,
-            "Initializing ordinals index in dir `{}`",
-            config.cache_path
-        )
-    });
-
-    let ordinal_index = initialize_ordinal_index(&config, None, &ctx)?;
-    match OrdinalIndexUpdater::update(&ordinal_index, None, &ctx).await {
-        Ok(_r) => {}
-        Err(e) => {
-            ctx.try_log(|logger| slog::error!(logger, "{}", e.to_string()));
-        }
-    }
-
-    ctx.try_log(|logger| {
-        slog::info!(
-            logger,
-            "Genesis ordinal indexing successful {:?}",
-            ordinal_index.info()
-        )
-    });
-
     let indexer_config = IndexerConfig {
         stacks_node_rpc_url: config.stacks_node_rpc_url.clone(),
-        bitcoin_node_rpc_url: config.bitcoin_node_rpc_url.clone(),
-        bitcoin_node_rpc_username: config.bitcoin_node_username.clone(),
-        bitcoin_node_rpc_password: config.bitcoin_node_password.clone(),
+        bitcoind_rpc_url: config.bitcoind_rpc_url.clone(),
+        bitcoind_rpc_username: config.bitcoind_rpc_username.clone(),
+        bitcoind_rpc_password: config.bitcoind_rpc_password.clone(),
         stacks_network: StacksNetwork::Devnet,
         bitcoin_network: BitcoinNetwork::Regtest,
+        bitcoin_block_signaling: config.bitcoin_block_signaling.clone(),
     };
 
     let indexer = Indexer::new(indexer_config.clone());
@@ -314,7 +286,7 @@ pub async fn start_event_observer(
     let bitcoin_config = config.get_bitcoin_config();
 
     let services_config = ServicesConfig {
-        stacks_node_url: config.bitcoin_node_rpc_url.clone(),
+        stacks_node_url: config.bitcoind_rpc_url.clone(),
         bitcoin_node_url: config.stacks_node_rpc_url.clone(),
     };
 
@@ -435,6 +407,95 @@ pub async fn start_event_observer(
         let _ = hiro_system_kit::nestable_block_on(ignite.launch());
     });
 
+    if let BitcoinBlockSignaling::ZeroMQ(ref bitcoind_zmq_url) = config.bitcoin_block_signaling {
+        let bitcoind_zmq_url = bitcoind_zmq_url.clone();
+        let ctx_moved = ctx.clone();
+        let bitcoin_config = config.get_bitcoin_config();
+        hiro_system_kit::thread_named("Bitcoind zmq listener")
+            .spawn(move || {
+                ctx_moved.try_log(|logger| {
+                    slog::info!(
+                        logger,
+                        "Waiting for ZMQ connection acknowledgment from bitcoind"
+                    )
+                });
+
+                let _: Result<(), Box<dyn Error>> =
+                    hiro_system_kit::nestable_block_on(async move {
+                        let mut socket = zeromq::SubSocket::new();
+
+                        socket
+                            .connect(&bitcoind_zmq_url)
+                            .await
+                            .expect("Failed to connect");
+
+                        socket.subscribe("").await?;
+                        ctx_moved.try_log(|logger| {
+                            slog::info!(logger, "Waiting for ZMQ messages from bitcoind")
+                        });
+
+                        let mut bitcoin_blocks_pool = ForkScratchPad::new();
+
+                        loop {
+                            let message = match socket.recv().await {
+                                Ok(message) => message,
+                                Err(e) => {
+                                    ctx_moved.try_log(|logger| {
+                                        slog::error!(
+                                            logger,
+                                            "Unable to receive ZMQ message: {}",
+                                            e.to_string()
+                                        )
+                                    });
+                                    continue;
+                                }
+                            };
+                            let block_hash = hex::encode(message.get(1).unwrap().to_vec());
+
+                            let block = match retrieve_full_block_breakdown_with_retry(
+                                &block_hash,
+                                &bitcoin_config,
+                                &ctx_moved,
+                            )
+                            .await
+                            {
+                                Ok(block) => block,
+                                Err(e) => {
+                                    ctx_moved.try_log(|logger| {
+                                        slog::warn!(
+                                            logger,
+                                            "unable to retrieve_full_block_breakdown: {}",
+                                            e.to_string()
+                                        )
+                                    });
+                                    continue;
+                                }
+                            };
+
+                            ctx_moved.try_log(|logger| {
+                                slog::info!(
+                                    logger,
+                                    "Bitcoin block #{} dispatched for processing",
+                                    block.height
+                                )
+                            });
+
+                            let header = block.get_block_header();
+                            let _ = observer_commands_tx
+                                .send(ObserverCommand::ProcessBitcoinBlock(block));
+
+                            if let Ok(Some(event)) =
+                                bitcoin_blocks_pool.process_header(header, &ctx_moved)
+                            {
+                                let _ = observer_commands_tx
+                                    .send(ObserverCommand::PropagateBitcoinChainEvent(event));
+                            }
+                        }
+                    });
+            })
+            .expect("unable to spawn thread");
+    }
+
     // This loop is used for handling background jobs, emitted by HTTP calls.
     start_observer_commands_handler(
         config,
@@ -474,6 +535,51 @@ pub fn apply_bitcoin_block() {}
 
 pub fn rollback_bitcoin_block() {}
 
+pub fn gather_proofs<'a>(
+    chainhooks_to_trigger: &Vec<BitcoinTriggerChainhook<'a>>,
+    config: &EventObserverConfig,
+    ctx: &Context,
+) -> HashMap<&'a TransactionIdentifier, String> {
+    let bitcoin_client_rpc = Client::new(
+        &config.bitcoind_rpc_url,
+        Auth::UserPass(
+            config.bitcoind_rpc_username.to_string(),
+            config.bitcoind_rpc_password.to_string(),
+        ),
+    )
+    .expect("unable to build http client");
+
+    let mut proofs = HashMap::new();
+    for hook_to_trigger in chainhooks_to_trigger.iter() {
+        for (transactions, block) in hook_to_trigger.apply.iter() {
+            for transaction in transactions.iter() {
+                if !proofs.contains_key(&transaction.transaction_identifier) {
+                    ctx.try_log(|logger| {
+                        slog::info!(
+                            logger,
+                            "collecting proof for transaction {}",
+                            transaction.transaction_identifier.hash
+                        )
+                    });
+                    match get_bitcoin_proof(
+                        &bitcoin_client_rpc,
+                        &transaction.transaction_identifier,
+                        &block.block_identifier,
+                    ) {
+                        Ok(proof) => {
+                            proofs.insert(&transaction.transaction_identifier, proof);
+                        }
+                        Err(e) => {
+                            ctx.try_log(|logger| slog::error!(logger, "{e}"));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    proofs
+}
+
 pub async fn start_observer_commands_handler(
     config: EventObserverConfig,
     chainhook_store: Arc<RwLock<ChainhookStore>>,
@@ -488,9 +594,7 @@ pub async fn start_observer_commands_handler(
     let mut chainhooks_lookup: HashMap<String, ApiKey> = HashMap::new();
     let networks = (&config.bitcoin_network, &config.stacks_network);
     let mut bitcoin_block_store: HashMap<BlockIdentifier, BitcoinBlockData> = HashMap::new();
-    // {
-    //     let _ = initialize_ordinal_state_storage(&config.get_cache_path_buf(), &ctx);
-    // }
+
     loop {
         let command = match observer_commands_rx.recv() {
             Ok(cmd) => cmd,
@@ -517,281 +621,22 @@ pub async fn start_observer_commands_handler(
                 break;
             }
             ObserverCommand::ProcessBitcoinBlock(block_data) => {
-                let mut new_block = standardize_bitcoin_block(&config, block_data, &ctx)?;
-
-                {
-                    ctx.try_log(|logger| {
-                        slog::info!(
-                            logger,
-                            "Persisting in local storage Bitcoin block #{} for further traversals",
-                            new_block.block_identifier.index,
-                        )
-                    });
-
-                    let compacted_block = CompactedBlock::from_standardized_block(&new_block);
-                    let storage_rw_conn =
-                        open_readwrite_ordinals_db_conn(&config.get_cache_path_buf(), &ctx)
-                            .unwrap(); // TODO(lgalabru)
-                    write_compacted_block_to_index(
-                        new_block.block_identifier.index as u32,
-                        &compacted_block,
-                        &storage_rw_conn,
-                        &ctx,
-                    );
-                }
-
-                let mut cumulated_fees = 0;
-                let coinbase_txid = &new_block.transactions[0]
-                    .transaction_identifier
-                    .hash
-                    .clone();
-                let first_sat_post_subsidy =
-                    Height(new_block.block_identifier.index).starting_sat().0;
-
-                for new_tx in new_block.transactions.iter_mut().skip(1) {
-                    let mut ordinals_events_indexes_to_discard = VecDeque::new();
-                    // Have a new inscription been revealed, if so, are looking at a re-inscription
-                    for (ordinal_event_index, ordinal_event) in
-                        new_tx.metadata.ordinal_operations.iter_mut().enumerate()
-                    {
-                        if let OrdinalOperation::InscriptionRevealed(inscription) = ordinal_event {
-                            let storage_conn =
-                                open_readonly_ordinals_db_conn(&config.get_cache_path_buf(), &ctx)
-                                    .unwrap(); // TODO(lgalabru)
-
-                            let (ordinal_block_height, ordinal_offset, ordinal_number) = {
-                                // Are we looking at a re-inscription?
-                                let res = retrieve_satoshi_point_using_local_storage(
-                                    &storage_conn,
-                                    &new_block.block_identifier,
-                                    &new_tx.transaction_identifier,
-                                    &ctx,
-                                );
-
-                                match res {
-                                    Ok(res) => res,
-                                    Err(e) => {
-                                        ctx.try_log(|logger| {
-                                            slog::error!(
-                                                logger,
-                                                "unable to retrieve satoshi point: {}",
-                                                e.to_string()
-                                            );
-                                        });
-                                        continue;
-                                    }
-                                }
-                            };
-
-                            if let Some(_entry) = find_inscription_with_ordinal_number(
-                                &ordinal_number,
-                                &storage_conn,
-                                &ctx,
-                            ) {
-                                ctx.try_log(|logger| {
-                                    slog::warn!(logger, "Transaction {} in block {} is overriding an existing inscription {}", new_tx.transaction_identifier.hash, new_block.block_identifier.index, ordinal_number);
-                                });
-                                ordinals_events_indexes_to_discard.push_front(ordinal_event_index);
-                            } else {
-                                inscription.ordinal_offset = ordinal_offset;
-                                inscription.ordinal_block_height = ordinal_block_height;
-                                inscription.ordinal_number = ordinal_number;
-                                inscription.inscription_number =
-                                    match find_last_inscription_number(&storage_conn, &ctx) {
-                                        Ok(inscription_number) => inscription_number,
-                                        Err(e) => {
-                                            ctx.try_log(|logger| {
-                                                slog::error!(
-                                                    logger,
-                                                    "unable to retrieve satoshi number: {}",
-                                                    e.to_string()
-                                                );
-                                            });
-                                            continue;
-                                        }
-                                    };
-                                ctx.try_log(|logger| {
-                                    slog::info!(
-                                        logger,
-                                        "Transaction {} in block {} includes a new inscription {}",
-                                        new_tx.transaction_identifier.hash,
-                                        new_block.block_identifier.index,
-                                        ordinal_number
-                                    );
-                                });
-
-                                {
-                                    let storage_rw_conn = open_readwrite_ordinals_db_conn(
-                                        &config.get_cache_path_buf(),
-                                        &ctx,
-                                    )
-                                    .unwrap(); // TODO(lgalabru)
-                                    store_new_inscription(&inscription, &storage_rw_conn, &ctx)
-                                }
-                            }
-                        }
-                    }
-
-                    // Have inscriptions been transfered?
-                    let mut sats_in_offset = 0;
-                    let mut sats_out_offset = 0;
-                    let storage_conn =
-                        open_readonly_ordinals_db_conn(&config.get_cache_path_buf(), &ctx).unwrap(); // TODO(lgalabru)
-
-                    for input in new_tx.metadata.inputs.iter() {
-                        // input.previous_output.txid
-                        let outpoint_pre_transfer = format!(
-                            "{}:{}",
-                            &input.previous_output.txid[2..],
-                            input.previous_output.vout
-                        );
-
-                        let mut post_transfer_output_index = 0;
-
-                        let entries = find_inscriptions_at_wached_outpoint(
-                            &outpoint_pre_transfer,
-                            &storage_conn,
-                        );
-
-                        ctx.try_log(|logger| {
-                            slog::info!(
-                                logger,
-                                "Checking if {} is part of our watch outpoints set: {}",
-                                outpoint_pre_transfer,
-                                entries.len(),
-                            )
-                        });
-
-                        for (inscription_id, inscription_number, ordinal_number, offset) in
-                            entries.into_iter()
-                        {
-                            let satpoint_pre_transfer =
-                                format!("{}:{}", outpoint_pre_transfer, offset);
-                            // At this point we know that inscriptions are being moved.
+                let new_block =
+                    match standardize_bitcoin_block(block_data, &config.bitcoin_network, &ctx) {
+                        Ok(block) => block,
+                        Err(e) => {
                             ctx.try_log(|logger| {
-                                slog::info!(
-                                    logger,
-                                    "Detected transaction {} involving txin {} that includes watched ordinals",
-                                    new_tx.transaction_identifier.hash,
-                                    satpoint_pre_transfer,
-                                )
+                                slog::error!(logger, "Error standardizing block: {}", e)
                             });
-
-                            // Question is: are inscriptions moving to a new output,
-                            // burnt or lost in fees and transfered to the miner?
-                            let post_transfer_output = loop {
-                                if sats_out_offset >= sats_in_offset + offset {
-                                    break Some(post_transfer_output_index);
-                                }
-                                if post_transfer_output_index >= new_tx.metadata.outputs.len() {
-                                    break None;
-                                }
-                                sats_out_offset +=
-                                    new_tx.metadata.outputs[post_transfer_output_index].value;
-                                post_transfer_output_index += 1;
-                            };
-
-                            let (outpoint_post_transfer, offset_post_transfer, updated_address) =
-                                match post_transfer_output {
-                                    Some(index) => {
-                                        let outpoint = format!(
-                                            "{}:{}",
-                                            &new_tx.transaction_identifier.hash[2..],
-                                            index
-                                        );
-                                        let offset = 0;
-                                        let script_pub_key_hex =
-                                            new_tx.metadata.outputs[index].get_script_pubkey_hex();
-                                        let updated_address =
-                                            match Script::from_hex(&script_pub_key_hex) {
-                                                Ok(script) => match Address::from_script(
-                                                    &script,
-                                                    Network::Bitcoin,
-                                                ) {
-                                                    Ok(address) => Some(address.to_string()),
-                                                    Err(e) => {
-                                                        // todo(lgalabru log error)
-                                                        None
-                                                    }
-                                                },
-                                                Err(e) => {
-                                                    // todo(lgalabru log error)
-                                                    None
-                                                }
-                                            };
-
-                                        // let vout = new_tx.metadata.outputs[index];
-                                        (outpoint, offset, updated_address)
-                                    }
-                                    None => {
-                                        // Get Coinbase TX
-                                        let offset = first_sat_post_subsidy + cumulated_fees;
-                                        let outpoint = coinbase_txid.clone();
-                                        (outpoint, offset, None)
-                                    }
-                                };
-
-                            ctx.try_log(|logger| {
-                                slog::info!(
-                                    logger,
-                                    "Updating watched outpoint {} to outpoint {}",
-                                    outpoint_post_transfer,
-                                    outpoint_pre_transfer,
-                                )
-                            });
-
-                            // Update watched outpoint
-                            {
-                                let storage_rw_conn = open_readwrite_ordinals_db_conn(
-                                    &config.get_cache_path_buf(),
-                                    &ctx,
-                                )
-                                .unwrap(); // TODO(lgalabru)
-                                update_transfered_inscription(
-                                    &inscription_id,
-                                    &outpoint_post_transfer,
-                                    offset_post_transfer,
-                                    &storage_rw_conn,
-                                    &ctx,
-                                );
-                            }
-
-                            let satpoint_post_transfer =
-                                format!("{}:{}", outpoint_post_transfer, offset_post_transfer);
-
-                            let event_data = OrdinalInscriptionTransferData {
-                                inscription_id,
-                                inscription_number,
-                                ordinal_number,
-                                updated_address,
-                                satpoint_pre_transfer,
-                                satpoint_post_transfer,
-                            };
-
-                            // Attach transfer event
-                            new_tx
-                                .metadata
-                                .ordinal_operations
-                                .push(OrdinalOperation::InscriptionTransferred(event_data));
+                            continue;
                         }
-
-                        sats_in_offset += input.previous_output.value;
-                    }
-
-                    // - clean new_tx.metadata.ordinal_operations with ordinals_events_indexes_to_ignore
-                    for index in ordinals_events_indexes_to_discard.into_iter() {
-                        new_tx.metadata.ordinal_operations.remove(index);
-                    }
-
-                    cumulated_fees += new_tx.metadata.fee;
-                }
-
+                    };
                 bitcoin_block_store.insert(new_block.block_identifier.clone(), new_block);
             }
+            ObserverCommand::CacheBitcoinBlock(block) => {
+                bitcoin_block_store.insert(block.block_identifier.clone(), block);
+            }
             ObserverCommand::PropagateBitcoinChainEvent(blockchain_event) => {
-                let ordinals_db_conn =
-                    open_readonly_ordinals_db_conn(&config.get_cache_path_buf(), &ctx)?;
-
                 ctx.try_log(|logger| {
                     slog::info!(logger, "Handling PropagateBitcoinChainEvent command")
                 });
@@ -801,10 +646,43 @@ pub async fn start_observer_commands_handler(
                     BlockchainEvent::BlockchainUpdatedWithHeaders(data) => {
                         let mut new_blocks = vec![];
                         let mut confirmed_blocks = vec![];
-
+                        let rw_hord_db_conn =
+                            match open_readwrite_hord_db_conn(&config.get_cache_path_buf(), &ctx) {
+                                Ok(conn) => conn,
+                                Err(e) => {
+                                    if let Some(ref tx) = observer_events_tx {
+                                        let _ = tx.send(ObserverEvent::Error(format!(
+                                            "Channel error: {:?}",
+                                            e
+                                        )));
+                                    } else {
+                                        ctx.try_log(|logger| {
+                                            slog::error!(
+                                                logger,
+                                                "Unable to open readwtite connection",
+                                            )
+                                        });
+                                    }
+                                    continue;
+                                }
+                            };
                         for header in data.new_headers.iter() {
-                            match bitcoin_block_store.get(&header.block_identifier) {
+                            match bitcoin_block_store.get_mut(&header.block_identifier) {
                                 Some(block) => {
+                                    if let Err(e) = update_hord_db_and_augment_bitcoin_block(
+                                        block,
+                                        &rw_hord_db_conn,
+                                        true,
+                                        &config.get_cache_path_buf(),
+                                        &ctx,
+                                    ) {
+                                        ctx.try_log(|logger| {
+                                            slog::error!(
+                                                logger,
+                                                "Unable to augment bitcoin block with hord_db: {e}",
+                                            )
+                                        });
+                                    }
                                     new_blocks.push(block.clone());
                                 }
                                 None => {
@@ -848,10 +726,44 @@ pub async fn start_observer_commands_handler(
                         let mut blocks_to_rollback = vec![];
                         let mut confirmed_blocks = vec![];
 
-                        for header in data.headers_to_apply.iter() {
+                        let rw_hord_db_conn =
+                            match open_readwrite_hord_db_conn(&config.get_cache_path_buf(), &ctx) {
+                                Ok(conn) => conn,
+                                Err(e) => {
+                                    if let Some(ref tx) = observer_events_tx {
+                                        let _ = tx.send(ObserverEvent::Error(format!(
+                                            "Channel error: {:?}",
+                                            e
+                                        )));
+                                    } else {
+                                        ctx.try_log(|logger| {
+                                            slog::error!(
+                                                logger,
+                                                "Unable to open readwtite connection",
+                                            )
+                                        });
+                                    }
+                                    continue;
+                                }
+                            };
+
+                        for header in data.headers_to_rollback.iter() {
                             match bitcoin_block_store.get(&header.block_identifier) {
                                 Some(block) => {
-                                    blocks_to_apply.push(block.clone());
+                                    if let Err(e) = revert_hord_db_with_augmented_bitcoin_block(
+                                        block,
+                                        &rw_hord_db_conn,
+                                        &ctx,
+                                    ) {
+                                        ctx.try_log(|logger| {
+                                            slog::error!(
+                                                logger,
+                                                "Unable to rollback bitcoin block {}: {e}",
+                                                header.block_identifier
+                                            )
+                                        });
+                                    }
+                                    blocks_to_rollback.push(block.clone());
                                 }
                                 None => {
                                     ctx.try_log(|logger| {
@@ -865,10 +777,24 @@ pub async fn start_observer_commands_handler(
                             }
                         }
 
-                        for header in data.headers_to_rollback.iter() {
-                            match bitcoin_block_store.get(&header.block_identifier) {
+                        for header in data.headers_to_apply.iter() {
+                            match bitcoin_block_store.get_mut(&header.block_identifier) {
                                 Some(block) => {
-                                    blocks_to_rollback.push(block.clone());
+                                    if let Err(e) = update_hord_db_and_augment_bitcoin_block(
+                                        block,
+                                        &rw_hord_db_conn,
+                                        true,
+                                        &config.get_cache_path_buf(),
+                                        &ctx,
+                                    ) {
+                                        ctx.try_log(|logger| {
+                                            slog::error!(
+                                                logger,
+                                                "Unable to augment bitcoin block with hord_db: {e}",
+                                            )
+                                        });
+                                    }
+                                    blocks_to_apply.push(block.clone());
                                 }
                                 None => {
                                     ctx.try_log(|logger| {
@@ -969,49 +895,7 @@ pub async fn start_observer_commands_handler(
                                 }
                             }
 
-                            let bitcoin_client_rpc = Client::new(
-                                &config.bitcoin_node_rpc_url,
-                                Auth::UserPass(
-                                    config.bitcoin_node_username.to_string(),
-                                    config.bitcoin_node_password.to_string(),
-                                ),
-                            )
-                            .expect("unable to build http client");
-
-                            let mut proofs = HashMap::new();
-                            for hook_to_trigger in chainhooks_to_trigger.iter() {
-                                for (transactions, block) in hook_to_trigger.apply.iter() {
-                                    for transaction in transactions.iter() {
-                                        if !proofs.contains_key(&transaction.transaction_identifier)
-                                        {
-                                            ctx.try_log(|logger| {
-                                                slog::info!(
-                                                    logger,
-                                                    "collecting proof for transaction {}",
-                                                    transaction.transaction_identifier.hash
-                                                )
-                                            });
-                                            match get_bitcoin_proof(
-                                                &bitcoin_client_rpc,
-                                                &transaction.transaction_identifier,
-                                                &block.block_identifier,
-                                            ) {
-                                                Ok(proof) => {
-                                                    proofs.insert(
-                                                        &transaction.transaction_identifier,
-                                                        proof,
-                                                    );
-                                                }
-                                                Err(e) => {
-                                                    ctx.try_log(|logger| {
-                                                        slog::error!(logger, "{e}")
-                                                    });
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+                            let proofs = gather_proofs(&chainhooks_to_trigger, &config, &ctx);
                             ctx.try_log(|logger| {
                                 slog::info!(
                                     logger,
@@ -1398,6 +1282,16 @@ pub async fn handle_new_bitcoin_block(
     background_job_tx: &State<Arc<Mutex<Sender<ObserverCommand>>>>,
     ctx: &State<Context>,
 ) -> Json<JsonValue> {
+    if bitcoin_config
+        .bitcoin_block_signaling
+        .should_ignore_bitcoin_block_signaling_through_stacks()
+    {
+        return Json(json!({
+            "status": 200,
+            "result": "Ok",
+        }));
+    }
+
     ctx.try_log(|logger| slog::info!(logger, "POST /new_burn_block"));
     // Standardize the structure of the block, and identify the
     // kind of update that this new block would imply, taking
@@ -1405,7 +1299,7 @@ pub async fn handle_new_bitcoin_block(
 
     let block_hash = bitcoin_block.burn_block_hash.strip_prefix("0x").unwrap();
     let block =
-        match retrieve_full_block_breakdown_with_retry(bitcoin_config, block_hash, ctx).await {
+        match retrieve_full_block_breakdown_with_retry(block_hash, bitcoin_config, ctx).await {
             Ok(block) => block,
             Err(e) => {
                 ctx.try_log(|logger| {

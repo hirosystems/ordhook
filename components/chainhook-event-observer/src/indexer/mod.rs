@@ -1,26 +1,21 @@
 pub mod bitcoin;
 pub mod fork_scratch_pad;
-pub mod ordinals;
 pub mod stacks;
 
 use crate::utils::{AbstractBlock, Context};
-use bitcoin::BitcoinBlockFullBreakdown;
+
 use chainhook_types::{
-    BitcoinChainEvent, BitcoinNetwork, BlockHeader, BlockIdentifier, BlockchainEvent,
+    BitcoinBlockSignaling, BitcoinNetwork, BlockHeader, BlockIdentifier, BlockchainEvent,
     StacksChainEvent, StacksNetwork,
 };
 use hiro_system_kit::slog;
 use rocket::serde::json::Value as JsonValue;
-use rusqlite::Connection;
+
 use stacks::StacksBlockPool;
 use stacks_rpc_client::PoxInfo;
-use std::{
-    collections::{HashMap, VecDeque},
-    path::PathBuf,
-};
+use std::collections::{HashMap, VecDeque};
 
 use self::fork_scratch_pad::ForkScratchPad;
-use self::ordinals::ord::indexing::OrdinalIndex;
 
 #[derive(Deserialize, Debug, Clone, Default)]
 pub struct AssetClassCache {
@@ -34,10 +29,14 @@ pub struct StacksChainContext {
 }
 
 impl StacksChainContext {
-    pub fn new() -> StacksChainContext {
+    pub fn new(network: &StacksNetwork) -> StacksChainContext {
         StacksChainContext {
             asset_class_map: HashMap::new(),
-            pox_info: PoxInfo::default(),
+            pox_info: match network {
+                StacksNetwork::Mainnet => PoxInfo::mainnet_default(),
+                StacksNetwork::Testnet => PoxInfo::testnet_default(),
+                _ => PoxInfo::devnet_default(),
+            },
         }
     }
 }
@@ -55,9 +54,10 @@ pub struct IndexerConfig {
     pub bitcoin_network: BitcoinNetwork,
     pub stacks_network: StacksNetwork,
     pub stacks_node_rpc_url: String,
-    pub bitcoin_node_rpc_url: String,
-    pub bitcoin_node_rpc_username: String,
-    pub bitcoin_node_rpc_password: String,
+    pub bitcoind_rpc_url: String,
+    pub bitcoind_rpc_username: String,
+    pub bitcoind_rpc_password: String,
+    pub bitcoin_block_signaling: BitcoinBlockSignaling,
 }
 
 pub struct Indexer {
@@ -72,7 +72,7 @@ impl Indexer {
     pub fn new(config: IndexerConfig) -> Indexer {
         let stacks_blocks_pool = StacksBlockPool::new();
         let bitcoin_blocks_pool = ForkScratchPad::new();
-        let stacks_context = StacksChainContext::new();
+        let stacks_context = StacksChainContext::new(&config.stacks_network);
         let bitcoin_context = BitcoinChainContext::new();
 
         Indexer {
@@ -319,7 +319,6 @@ impl ChainSegment {
             slog::debug!(logger, "Blocks to rollback: {:?}", block_ids_to_rollback)
         });
         ctx.try_log(|logger| slog::debug!(logger, "Blocks to apply: {:?}", block_ids_to_apply));
-        block_ids_to_rollback.reverse();
         block_ids_to_apply.reverse();
         match common_root.take() {
             Some(_common_root) => Ok(ChainSegmentDivergence {

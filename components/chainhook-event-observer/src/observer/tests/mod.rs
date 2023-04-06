@@ -12,10 +12,10 @@ use crate::indexer::tests::helpers::{
 use crate::observer::{
     start_observer_commands_handler, ApiKey, ChainhookStore, EventObserverConfig, ObserverCommand,
 };
-use crate::utils::Context;
+use crate::utils::{AbstractBlock, Context};
 use chainhook_types::{
-    BitcoinChainEvent, BitcoinChainUpdatedWithBlocksData, BitcoinNetwork, StacksBlockUpdate,
-    StacksChainEvent, StacksChainUpdatedWithBlocksData, StacksNetwork,
+    BitcoinBlockSignaling, BitcoinNetwork, BlockchainEvent, BlockchainUpdatedWithHeaders,
+    StacksBlockUpdate, StacksChainEvent, StacksChainUpdatedWithBlocksData, StacksNetwork,
 };
 use hiro_system_kit;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -27,20 +27,20 @@ use super::ObserverEvent;
 fn generate_test_config() -> (EventObserverConfig, ChainhookStore) {
     let operators = HashSet::new();
     let config = EventObserverConfig {
-        normalization_enabled: true,
-        grpc_server_enabled: false,
         hooks_enabled: true,
         chainhook_config: Some(ChainhookConfig::new()),
         bitcoin_rpc_proxy_enabled: false,
         event_handlers: vec![],
         ingestion_port: 0,
         control_port: 0,
-        bitcoin_node_username: "user".into(),
-        bitcoin_node_password: "user".into(),
-        bitcoin_node_rpc_url: "http://localhost:20443".into(),
-        stacks_node_rpc_url: "http://localhost:18443".into(),
+        control_api_enabled: false,
+        bitcoind_rpc_username: "user".into(),
+        bitcoind_rpc_password: "user".into(),
+        bitcoind_rpc_url: "http://localhost:18443".into(),
+        stacks_node_rpc_url: "http://localhost:20443".into(),
         operators,
         display_logs: false,
+        bitcoin_block_signaling: BitcoinBlockSignaling::Stacks("http://localhost:20443".into()),
         cache_path: "cache".into(),
         bitcoin_network: BitcoinNetwork::Regtest,
         stacks_network: StacksNetwork::Devnet,
@@ -428,8 +428,7 @@ fn test_stacks_chainhook_auto_deregister() {
 
     // Create and register a new chainhook
     let contract_identifier = format!("{}.{}", accounts::deployer_stx_address(), "counter");
-    let mut chainhook =
-        stacks_chainhook_contract_call(0, &contract_identifier, Some(1), "increment");
+    let chainhook = stacks_chainhook_contract_call(0, &contract_identifier, Some(1), "increment");
 
     let _ = observer_commands_tx.send(ObserverCommand::RegisterHook(
         ChainhookFullSpecification::Stacks(chainhook.clone()),
@@ -604,16 +603,12 @@ fn test_bitcoin_chainhook_register_deregister() {
         &accounts::wallet_3_btc_address(),
         3,
     )];
-    let chain_event =
-        BitcoinChainEvent::ChainUpdatedWithBlocks(BitcoinChainUpdatedWithBlocksData {
-            new_blocks: vec![bitcoin_blocks::generate_test_bitcoin_block(
-                0,
-                1,
-                transactions,
-                None,
-            )],
-            confirmed_blocks: vec![],
-        });
+    let block = bitcoin_blocks::generate_test_bitcoin_block(0, 1, transactions, None);
+    let _ = observer_commands_tx.send(ObserverCommand::CacheBitcoinBlock(block.clone()));
+    let chain_event = BlockchainEvent::BlockchainUpdatedWithHeaders(BlockchainUpdatedWithHeaders {
+        new_headers: vec![block.get_header()],
+        confirmed_headers: vec![],
+    });
     let _ = observer_commands_tx.send(ObserverCommand::PropagateBitcoinChainEvent(chain_event));
     // Should signal that no hook were triggered
     assert!(match observer_events_rx.recv() {
@@ -646,16 +641,13 @@ fn test_bitcoin_chainhook_register_deregister() {
         &accounts::wallet_2_btc_address(),
         3,
     )];
-    let chain_event =
-        BitcoinChainEvent::ChainUpdatedWithBlocks(BitcoinChainUpdatedWithBlocksData {
-            new_blocks: vec![bitcoin_blocks::generate_test_bitcoin_block(
-                0,
-                2,
-                transactions,
-                None,
-            )],
-            confirmed_blocks: vec![],
-        });
+    let block = bitcoin_blocks::generate_test_bitcoin_block(0, 2, transactions, None);
+    let _ = observer_commands_tx.send(ObserverCommand::CacheBitcoinBlock(block.clone()));
+    let chain_event = BlockchainEvent::BlockchainUpdatedWithHeaders(BlockchainUpdatedWithHeaders {
+        new_headers: vec![block.get_header()],
+        confirmed_headers: vec![],
+    });
+
     let _ = observer_commands_tx.send(ObserverCommand::PropagateBitcoinChainEvent(chain_event));
     // Should signal that no hook were triggered
     assert!(match observer_events_rx.recv() {
@@ -704,16 +696,13 @@ fn test_bitcoin_chainhook_register_deregister() {
             5,
         ),
     ];
-    let chain_event =
-        BitcoinChainEvent::ChainUpdatedWithBlocks(BitcoinChainUpdatedWithBlocksData {
-            new_blocks: vec![bitcoin_blocks::generate_test_bitcoin_block(
-                0,
-                2,
-                transactions,
-                None,
-            )],
-            confirmed_blocks: vec![],
-        });
+    let block = bitcoin_blocks::generate_test_bitcoin_block(0, 2, transactions, None);
+    let _ = observer_commands_tx.send(ObserverCommand::CacheBitcoinBlock(block.clone()));
+    let chain_event = BlockchainEvent::BlockchainUpdatedWithHeaders(BlockchainUpdatedWithHeaders {
+        new_headers: vec![block.get_header()],
+        confirmed_headers: vec![],
+    });
+
     let _ = observer_commands_tx.send(ObserverCommand::PropagateBitcoinChainEvent(chain_event));
     // Should signal that no hook were triggered
     assert!(match observer_events_rx.recv() {
@@ -764,17 +753,14 @@ fn test_bitcoin_chainhook_register_deregister() {
         &accounts::wallet_3_btc_address(),
         1,
     )];
-    let chain_event =
-        BitcoinChainEvent::ChainUpdatedWithBlocks(BitcoinChainUpdatedWithBlocksData {
-            new_blocks: vec![bitcoin_blocks::generate_test_bitcoin_block(
-                0,
-                2,
-                transactions,
-                None,
-            )],
-            confirmed_blocks: vec![],
-        });
+    let block = bitcoin_blocks::generate_test_bitcoin_block(0, 2, transactions, None);
+    let _ = observer_commands_tx.send(ObserverCommand::CacheBitcoinBlock(block.clone()));
+    let chain_event = BlockchainEvent::BlockchainUpdatedWithHeaders(BlockchainUpdatedWithHeaders {
+        new_headers: vec![block.get_header()],
+        confirmed_headers: vec![],
+    });
     let _ = observer_commands_tx.send(ObserverCommand::PropagateBitcoinChainEvent(chain_event));
+
     // Should signal that no hook were triggered
     assert!(match observer_events_rx.recv() {
         Ok(ObserverEvent::HooksTriggered(len)) => {
@@ -798,16 +784,12 @@ fn test_bitcoin_chainhook_register_deregister() {
         &accounts::wallet_2_btc_address(),
         1,
     )];
-    let chain_event =
-        BitcoinChainEvent::ChainUpdatedWithBlocks(BitcoinChainUpdatedWithBlocksData {
-            new_blocks: vec![bitcoin_blocks::generate_test_bitcoin_block(
-                0,
-                3,
-                transactions,
-                None,
-            )],
-            confirmed_blocks: vec![],
-        });
+    let block = bitcoin_blocks::generate_test_bitcoin_block(0, 3, transactions, None);
+    let _ = observer_commands_tx.send(ObserverCommand::CacheBitcoinBlock(block.clone()));
+    let chain_event = BlockchainEvent::BlockchainUpdatedWithHeaders(BlockchainUpdatedWithHeaders {
+        new_headers: vec![block.get_header()],
+        confirmed_headers: vec![],
+    });
     let _ = observer_commands_tx.send(ObserverCommand::PropagateBitcoinChainEvent(chain_event));
     // Should signal that no hook were triggered
     assert!(match observer_events_rx.recv() {
@@ -863,17 +845,14 @@ fn test_bitcoin_chainhook_auto_deregister() {
         &accounts::wallet_3_btc_address(),
         3,
     )];
-    let chain_event =
-        BitcoinChainEvent::ChainUpdatedWithBlocks(BitcoinChainUpdatedWithBlocksData {
-            new_blocks: vec![bitcoin_blocks::generate_test_bitcoin_block(
-                0,
-                1,
-                transactions,
-                None,
-            )],
-            confirmed_blocks: vec![],
-        });
+    let block = bitcoin_blocks::generate_test_bitcoin_block(0, 1, transactions, None);
+    let _ = observer_commands_tx.send(ObserverCommand::CacheBitcoinBlock(block.clone()));
+    let chain_event = BlockchainEvent::BlockchainUpdatedWithHeaders(BlockchainUpdatedWithHeaders {
+        new_headers: vec![block.get_header()],
+        confirmed_headers: vec![],
+    });
     let _ = observer_commands_tx.send(ObserverCommand::PropagateBitcoinChainEvent(chain_event));
+
     // Should signal that no hook were triggered
     assert!(match observer_events_rx.recv() {
         Ok(ObserverEvent::HooksTriggered(len)) => {
@@ -897,17 +876,15 @@ fn test_bitcoin_chainhook_auto_deregister() {
         &accounts::wallet_2_btc_address(),
         3,
     )];
-    let chain_event =
-        BitcoinChainEvent::ChainUpdatedWithBlocks(BitcoinChainUpdatedWithBlocksData {
-            new_blocks: vec![bitcoin_blocks::generate_test_bitcoin_block(
-                0,
-                2,
-                transactions,
-                None,
-            )],
-            confirmed_blocks: vec![],
-        });
+
+    let block = bitcoin_blocks::generate_test_bitcoin_block(0, 2, transactions, None);
+    let _ = observer_commands_tx.send(ObserverCommand::CacheBitcoinBlock(block.clone()));
+    let chain_event = BlockchainEvent::BlockchainUpdatedWithHeaders(BlockchainUpdatedWithHeaders {
+        new_headers: vec![block.get_header()],
+        confirmed_headers: vec![],
+    });
     let _ = observer_commands_tx.send(ObserverCommand::PropagateBitcoinChainEvent(chain_event));
+
     // Should signal that no hook were triggered
     assert!(match observer_events_rx.recv() {
         Ok(ObserverEvent::HooksTriggered(len)) => {
@@ -939,17 +916,15 @@ fn test_bitcoin_chainhook_auto_deregister() {
         &accounts::wallet_3_btc_address(),
         1,
     )];
-    let chain_event =
-        BitcoinChainEvent::ChainUpdatedWithBlocks(BitcoinChainUpdatedWithBlocksData {
-            new_blocks: vec![bitcoin_blocks::generate_test_bitcoin_block(
-                0,
-                2,
-                transactions,
-                None,
-            )],
-            confirmed_blocks: vec![],
-        });
+
+    let block = bitcoin_blocks::generate_test_bitcoin_block(0, 2, transactions, None);
+    let _ = observer_commands_tx.send(ObserverCommand::CacheBitcoinBlock(block.clone()));
+    let chain_event = BlockchainEvent::BlockchainUpdatedWithHeaders(BlockchainUpdatedWithHeaders {
+        new_headers: vec![block.get_header()],
+        confirmed_headers: vec![],
+    });
     let _ = observer_commands_tx.send(ObserverCommand::PropagateBitcoinChainEvent(chain_event));
+
     // Should signal that no hook were triggered
     assert!(match observer_events_rx.recv() {
         Ok(ObserverEvent::HooksTriggered(len)) => {
@@ -973,17 +948,15 @@ fn test_bitcoin_chainhook_auto_deregister() {
         &accounts::wallet_2_btc_address(),
         1,
     )];
-    let chain_event =
-        BitcoinChainEvent::ChainUpdatedWithBlocks(BitcoinChainUpdatedWithBlocksData {
-            new_blocks: vec![bitcoin_blocks::generate_test_bitcoin_block(
-                0,
-                3,
-                transactions,
-                None,
-            )],
-            confirmed_blocks: vec![],
-        });
+
+    let block = bitcoin_blocks::generate_test_bitcoin_block(0, 3, transactions, None);
+    let _ = observer_commands_tx.send(ObserverCommand::CacheBitcoinBlock(block.clone()));
+    let chain_event = BlockchainEvent::BlockchainUpdatedWithHeaders(BlockchainUpdatedWithHeaders {
+        new_headers: vec![block.get_header()],
+        confirmed_headers: vec![],
+    });
     let _ = observer_commands_tx.send(ObserverCommand::PropagateBitcoinChainEvent(chain_event));
+
     // Should signal that no hook were triggered
     assert!(match observer_events_rx.recv() {
         Ok(ObserverEvent::HooksTriggered(len)) => {

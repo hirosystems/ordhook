@@ -12,7 +12,7 @@ serde = "1"
 serde_json = { version = "1", features = ["arbitrary_precision"] }
 serde-hex = "0.1.0"
 serde_derive = "1"
-stacks-rpc-client = "1"
+stacks-rpc-client = "=1.0.1"
 clarinet-utils = "1"
 clarity-repl = "=1.5.0"
 hiro-system-kit = "0.1.0"
@@ -46,9 +46,11 @@ futures = "0.3.21"
 hyper = { version = "0.14.24", features = ["http1", "client"] }
 hex = "0.4.3"
 rusqlite = { version = "0.27.0", features = ["bundled"] }
-ciborium = "0.2.0"
 threadpool = "1.8.1"
 rand = "0.8.5"
+hex-simd = "0.8.0"
+serde_cbor = "0.11.2"
+zeromq = { version = "*", default-features = false, features = ["tokio-runtime", "tcp-transport"] }
 
 [replace]
 "jsonrpc:0.13.0" = { git = 'https://github.com/apoelstra/rust-jsonrpc', rev = "1063671f122a8985c1b7c29030071253da515839" }

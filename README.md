@@ -1,4 +1,4 @@
-# chainhook-cli
+# ⛓️🪝 Chainhook
 
 ## Introduction
 
@@ -27,7 +27,7 @@ $ cargo chainhook-install
 To get started with bitcoin predicates, we can use the `chainhook` to generate a template: 
 
 ```bash
-$ chainhook predicates new --bitcoin
+$ chainhook predicates new hello-ordinals.json --bitcoin
 ```
 
 We will focus on the `if_this` and `then_that` parts of the specifications.
@@ -125,19 +125,12 @@ The current `bitcoin` predicates supports the following `if_this` constructs:
     }
 }
 
-// Get any transaction including a Stacks Proof of Burn commitment
+// Get any Bitcoin transaction including a Block commitment.
+// Broadcasted payloads include Proof of Transfer reward informations.
 {
     "if_this": {
         "protocol": "stacks",
-        "operation": "pob_committed"
-    }
-}
-
-// Get any transaction including a Stacks Proof of Transfer commitment
-{
-    "if_this": {
-        "protocol": "stacks",
-        "operation": "pox_committed"
+        "operation": "block_committed"
     }
 }
 
@@ -150,6 +143,7 @@ The current `bitcoin` predicates supports the following `if_this` constructs:
 }
 
 // Get any transaction including a STX transfer operation 
+// Coming soon
 {
     "if_this": {
         "protocol": "stacks",
@@ -158,6 +152,7 @@ The current `bitcoin` predicates supports the following `if_this` constructs:
 }
 
 // Get any transaction including a STX lock operation
+// Coming soon
 {
     "if_this": {
         "protocol": "stacks",
@@ -316,9 +311,9 @@ max_bitcoin_registrations = 500
 
 [network]
 mode = "testnet"
-bitcoin_node_rpc_url = "http://0.0.0.0:18332"
-bitcoin_node_rpc_username = "testnet"
-bitcoin_node_rpc_password = "testnet"
+bitcoind_rpc_url = "http://0.0.0.0:18332"
+bitcoind_rpc_username = "testnet"
+bitcoind_rpc_password = "testnet"
 stacks_node_rpc_url = "http://0.0.0.0:20443"
 ```
 
@@ -333,9 +328,9 @@ max_bitcoin_registrations = 500
 
 [network]
 mode = "mainnet"
-bitcoin_node_rpc_url = "http://0.0.0.0:8332"
-bitcoin_node_rpc_username = "mainnet"
-bitcoin_node_rpc_password = "mainnet"
+bitcoind_rpc_url = "http://0.0.0.0:8332"
+bitcoind_rpc_username = "mainnet"
+bitcoind_rpc_password = "mainnet"
 stacks_node_rpc_url = "http://0.0.0.0:20443"
 
 ```
@@ -363,7 +358,7 @@ To optimize their experience with scanning, developers have a few knobs they can
 To get started with stacks predicates, we can use the `chainhook` to generate a template: 
 
 ```bash
-$ chainhook predicates new --stacks
+$ chainhook predicates new hello-arkadiko.json --stacks
 ```
 
 We will focus on the `if_this` and `then_that` parts of the specifications.
@@ -438,6 +433,20 @@ The current `stacks` predicates supports the following `if_this` constructs:
         "scope": "print_event",
         "contract_identifier": "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.monkey-sip09",
         "contains": "vault"
+    },
+}
+
+// Get any transaction calling a specific method for a given contract **directly**.
+// Warning: if the watched method is being called by another contract, this predicate won't detect it.
+// `contract-identifier` mandatory argument admits:
+//  - string type, fully qualifying the contract to observe. example: `SP000000000000000000002Q6VF78.pox`
+// `method` mandatory argument admits:
+//  - string type, used for specifying the method to observe. example: `stack-stx`
+{
+    "if_this": {
+        "scope": "contract_call",
+        "contract_identifier": "SP000000000000000000002Q6VF78.pox",
+        "method": "stack-stx"
     },
 }
 
@@ -595,7 +604,24 @@ Tbe first time this command run, a chainstate archive will be downloaded, uncomp
 The subsequent scans will use the cached chainstate if already present, speeding up iterations and the overall feedback loop. 
 
 ---
-## Running `chainhook` in production mode
+## Run `chainhook` as a service for streaming new blocks
 
-To be documented.
+`chainhook` can be ran as a background service for streaming and processing new canonical blocks appended to the Bitcoin and Stacks blockchains.
 
+When running chainhook as a service, `if_this` / `then_that` predicates can be registered by passing the path of the `json` file in the command line: 
+
+```bash
+$ chainhook service start --predicate-path=./path/to/predicate-1.json --predicate-path=./path/to/predicate-2.json --config-path=./path/to/config.toml
+```
+
+Predicates can also be added dynamically. When the `--predicate-path` option is not passed or when the `--start-http-api` option is passed, `chainhook` will instantiate a REST API allowing developers to list, add and removes preducates at runtime:
+
+```bash
+$ chainhook service start --config-path=./path/to/config.toml
+```
+
+```bash
+$ chainhook service start --predicate-path=./path/to/predicate-1.json --start-http-api --config-path=./path/to/config.toml
+```
+
+A comprehensive OpenAPI spcification explaining how to interact with the Chainhook REST API can be found [here](./docs/chainhook-openapi.json).

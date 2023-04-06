@@ -6,11 +6,8 @@ use chainhook_event_observer::chainhooks::bitcoin::{
 use chainhook_event_observer::chainhooks::types::{
     BitcoinPredicateType, ChainhookConfig, ChainhookFullSpecification, OrdinalOperations, Protocols,
 };
-use chainhook_event_observer::indexer::ordinals::{self, ord::initialize_ordinal_index};
-use chainhook_event_observer::indexer::{self, BitcoinChainContext};
-use chainhook_event_observer::observer::{
-    start_event_observer, ApiKey, EventObserverConfig, ObserverEvent,
-};
+use chainhook_event_observer::indexer;
+use chainhook_event_observer::observer::{start_event_observer, ApiKey, ObserverEvent};
 use chainhook_event_observer::utils::{file_append, send_request, Context};
 use chainhook_event_observer::{
     chainhooks::stacks::{
@@ -20,86 +17,61 @@ use chainhook_event_observer::{
     chainhooks::types::ChainhookSpecification,
 };
 use chainhook_types::{
-    BlockIdentifier, StacksBlockData, StacksBlockMetadata, StacksChainEvent, StacksTransactionData,
+    BitcoinBlockSignaling, BlockIdentifier, StacksBlockData, StacksBlockMetadata, StacksChainEvent,
+    StacksTransactionData,
 };
 use redis::{Commands, Connection};
 use reqwest::Client as HttpClient;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 use std::sync::mpsc::channel;
 use std::time::Duration;
 
 pub const DEFAULT_INGESTION_PORT: u16 = 20455;
 pub const DEFAULT_CONTROL_PORT: u16 = 20456;
 
-pub struct Node {
+pub struct Service {
     config: Config,
     ctx: Context,
 }
 
-impl Node {
+impl Service {
     pub fn new(config: Config, ctx: Context) -> Self {
         Self { config, ctx }
     }
 
-    pub async fn run(&mut self) -> Result<(), String> {
+    pub async fn run(
+        &mut self,
+        mut predicates: Vec<ChainhookFullSpecification>,
+    ) -> Result<(), String> {
         let mut chainhook_config = ChainhookConfig::new();
 
-        {
-            let redis_config = self.config.expected_redis_config();
-            let client = redis::Client::open(redis_config.uri.clone()).unwrap();
-            let mut redis_con = match client.get_connection() {
-                Ok(con) => con,
-                Err(message) => {
-                    error!(self.ctx.expect_logger(), "Redis: {}", message.to_string());
-                    panic!();
+        if predicates.is_empty() {
+            let mut registered_predicates = load_predicates_from_redis(&self.config, &self.ctx)?;
+            predicates.append(&mut registered_predicates);
+        }
+
+        for predicate in predicates.into_iter() {
+            match chainhook_config.register_hook(
+                (
+                    &self.config.network.bitcoin_network,
+                    &self.config.network.stacks_network,
+                ),
+                predicate,
+                &ApiKey(None),
+            ) {
+                Ok(spec) => {
+                    info!(
+                        self.ctx.expect_logger(),
+                        "Predicate {} retrieved from storage and loaded",
+                        spec.uuid(),
+                    );
                 }
-            };
-
-            let chainhooks_to_load: Vec<String> = redis_con
-                .scan_match("chainhook:*:*:*")
-                .expect("unable to retrieve prunable entries")
-                .into_iter()
-                .collect();
-
-            for key in chainhooks_to_load.iter() {
-                let chainhook = match redis_con.hget::<_, _, String>(key, "specification") {
-                    Ok(spec) => {
-                        ChainhookFullSpecification::deserialize_specification(&spec, key).unwrap()
-                        // todo
-                    }
-                    Err(e) => {
-                        error!(
-                            self.ctx.expect_logger(),
-                            "unable to load chainhook associated with key {}: {}",
-                            key,
-                            e.to_string()
-                        );
-                        continue;
-                    }
-                };
-
-                match chainhook_config.register_hook(
-                    (
-                        &self.config.network.bitcoin_network,
-                        &self.config.network.stacks_network,
-                    ),
-                    chainhook,
-                    &ApiKey(None),
-                ) {
-                    Ok(spec) => {
-                        info!(
-                            self.ctx.expect_logger(),
-                            "Predicate {} retrieved from storage and loaded",
-                            spec.uuid(),
-                        );
-                    }
-                    Err(e) => {
-                        error!(
-                            self.ctx.expect_logger(),
-                            "Failed loading predicate from storage: {}",
-                            e.to_string()
-                        );
-                    }
+                Err(e) => {
+                    error!(
+                        self.ctx.expect_logger(),
+                        "Failed loading predicate from storage: {}",
+                        e.to_string()
+                    );
                 }
             }
         }
@@ -108,41 +80,43 @@ impl Node {
         let (observer_event_tx, observer_event_rx) = crossbeam_channel::unbounded();
         // let (ordinal_indexer_command_tx, ordinal_indexer_command_rx) = channel();
 
-        let event_observer_config = EventObserverConfig {
-            normalization_enabled: true,
-            grpc_server_enabled: false,
-            hooks_enabled: true,
-            bitcoin_rpc_proxy_enabled: true,
-            event_handlers: vec![],
-            chainhook_config: Some(chainhook_config),
-            ingestion_port: DEFAULT_INGESTION_PORT,
-            control_port: DEFAULT_CONTROL_PORT,
-            bitcoin_node_username: self.config.network.bitcoin_node_rpc_username.clone(),
-            bitcoin_node_password: self.config.network.bitcoin_node_rpc_password.clone(),
-            bitcoin_node_rpc_url: self.config.network.bitcoin_node_rpc_url.clone(),
-            stacks_node_rpc_url: self.config.network.stacks_node_rpc_url.clone(),
-            operators: HashSet::new(),
-            display_logs: false,
-            cache_path: self.config.storage.cache_path.clone(),
-            bitcoin_network: self.config.network.bitcoin_network.clone(),
-            stacks_network: self.config.network.stacks_network.clone(),
-        };
-        info!(
-            self.ctx.expect_logger(),
-            "Listening for new blockchain events on port {}", DEFAULT_INGESTION_PORT
-        );
-        info!(
-            self.ctx.expect_logger(),
-            "Listening for chainhook predicate registrations on port {}", DEFAULT_CONTROL_PORT
-        );
+        let mut event_observer_config = self.config.get_event_observer_config();
+        event_observer_config.chainhook_config = Some(chainhook_config);
 
-        let ordinal_index = match initialize_ordinal_index(&event_observer_config, None, &self.ctx)
-        {
-            Ok(index) => index,
-            Err(e) => {
-                panic!()
+        info!(
+            self.ctx.expect_logger(),
+            "Listening on port {} for Stacks chain events", event_observer_config.ingestion_port
+        );
+        match event_observer_config.bitcoin_block_signaling {
+            BitcoinBlockSignaling::ZeroMQ(ref url) => {
+                info!(
+                    self.ctx.expect_logger(),
+                    "Observing Bitcoin chain events via ZeroMQ: {}", url
+                );
             }
-        };
+            BitcoinBlockSignaling::Stacks(ref _url) => {
+                info!(
+                    self.ctx.expect_logger(),
+                    "Observing Bitcoin chain events via Stacks node"
+                );
+            }
+        }
+
+        if self.config.chainhooks.enable_http_api {
+            info!(
+                self.ctx.expect_logger(),
+                "Listening for chainhook predicate registrations on port {}",
+                event_observer_config.control_port
+            );
+        }
+
+        // let ordinal_index = match initialize_ordinal_index(&event_observer_config, None, &self.ctx)
+        // {
+        //     Ok(index) => index,
+        //     Err(e) => {
+        //         panic!()
+        //     }
+        // };
 
         let context_cloned = self.ctx.clone();
         let event_observer_config_moved = event_observer_config.clone();
@@ -332,6 +306,7 @@ impl Node {
                             )) = &predicate_spec.predicate
                             {
                                 inscriptions_hints.insert(1, 1);
+
                                 // if let Some(ref ordinal_index) = bitcoin_context.ordinal_index {
                                 //     for (inscription_number, inscription_id) in ordinal_index
                                 //         .database
@@ -392,16 +367,13 @@ impl Node {
                                         .build()
                                         .expect("Unable to build http client");
                                     http_client
-                                        .post(&self.config.network.bitcoin_node_rpc_url)
+                                        .post(&self.config.network.bitcoind_rpc_url)
                                         .basic_auth(
-                                            &self.config.network.bitcoin_node_rpc_username,
-                                            Some(&self.config.network.bitcoin_node_rpc_password),
+                                            &self.config.network.bitcoind_rpc_username,
+                                            Some(&self.config.network.bitcoind_rpc_password),
                                         )
                                         .header("Content-Type", "application/json")
-                                        .header(
-                                            "Host",
-                                            &self.config.network.bitcoin_node_rpc_url[7..],
-                                        )
+                                        .header("Host", &self.config.network.bitcoind_rpc_url[7..])
                                         .json(&body)
                                         .send()
                                         .await
@@ -433,16 +405,13 @@ impl Node {
                                         .build()
                                         .expect("Unable to build http client");
                                     http_client
-                                        .post(&self.config.network.bitcoin_node_rpc_url)
+                                        .post(&self.config.network.bitcoind_rpc_url)
                                         .basic_auth(
-                                            &self.config.network.bitcoin_node_rpc_username,
-                                            Some(&self.config.network.bitcoin_node_rpc_password),
+                                            &self.config.network.bitcoind_rpc_username,
+                                            Some(&self.config.network.bitcoind_rpc_password),
                                         )
                                         .header("Content-Type", "application/json")
-                                        .header(
-                                            "Host",
-                                            &self.config.network.bitcoin_node_rpc_url[7..],
-                                        )
+                                        .header("Host", &self.config.network.bitcoind_rpc_url[7..])
                                         .json(&body)
                                         .send()
                                         .await
@@ -465,13 +434,13 @@ impl Node {
                                     .build()
                                     .expect("Unable to build http client");
                                 let raw_block = http_client
-                                    .post(&self.config.network.bitcoin_node_rpc_url)
+                                    .post(&self.config.network.bitcoind_rpc_url)
                                     .basic_auth(
-                                        &self.config.network.bitcoin_node_rpc_username,
-                                        Some(&self.config.network.bitcoin_node_rpc_password),
+                                        &self.config.network.bitcoind_rpc_username,
+                                        Some(&self.config.network.bitcoind_rpc_password),
                                     )
                                     .header("Content-Type", "application/json")
-                                    .header("Host", &self.config.network.bitcoin_node_rpc_url[7..])
+                                    .header("Host", &self.config.network.bitcoind_rpc_url[7..])
                                     .json(&body)
                                     .send()
                                     .await
@@ -483,8 +452,8 @@ impl Node {
                                     .map_err(|e| format!("unable to parse response ({})", e))?;
 
                                 let block = indexer::bitcoin::standardize_bitcoin_block(
-                                    &event_observer_config,
                                     raw_block,
+                                    &event_observer_config.bitcoin_network,
                                     &self.ctx,
                                 )?;
 
@@ -619,4 +588,51 @@ fn update_storage_with_confirmed_stacks_blocks(
         let _: Result<(), redis::RedisError> =
             redis_con.set(&format!("stx:tip"), block.block_identifier.index);
     }
+}
+
+fn load_predicates_from_redis(
+    config: &Config,
+    ctx: &Context,
+) -> Result<Vec<ChainhookFullSpecification>, String> {
+    let redis_config = config.expected_redis_config();
+    let client = redis::Client::open(redis_config.uri.clone()).unwrap();
+    let mut redis_con = match client.get_connection() {
+        Ok(con) => con,
+        Err(message) => {
+            error!(
+                ctx.expect_logger(),
+                "Unable to connect to redis server: {}",
+                message.to_string()
+            );
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            std::process::exit(1);
+        }
+    };
+
+    let chainhooks_to_load: Vec<String> = redis_con
+        .scan_match("chainhook:*:*:*")
+        .expect("unable to retrieve prunable entries")
+        .into_iter()
+        .collect();
+
+    let mut predicates = vec![];
+    for key in chainhooks_to_load.iter() {
+        let chainhook = match redis_con.hget::<_, _, String>(key, "specification") {
+            Ok(spec) => {
+                ChainhookFullSpecification::deserialize_specification(&spec, key).unwrap()
+                // todo
+            }
+            Err(e) => {
+                error!(
+                    ctx.expect_logger(),
+                    "unable to load chainhook associated with key {}: {}",
+                    key,
+                    e.to_string()
+                );
+                continue;
+            }
+        };
+        predicates.push(chainhook);
+    }
+    Ok(predicates)
 }

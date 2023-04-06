@@ -2,13 +2,14 @@ mod blocks_pool;
 
 pub use blocks_pool::StacksBlockPool;
 
+use crate::chainhooks::stacks::try_decode_clarity_value;
 use crate::indexer::AssetClassCache;
 use crate::indexer::{IndexerConfig, StacksChainContext};
 use crate::utils::Context;
 use chainhook_types::*;
 use clarity_repl::clarity::codec::StacksMessageCodec;
 use clarity_repl::clarity::util::hash::hex_bytes;
-use clarity_repl::clarity::vm::types::Value as ClarityValue;
+use clarity_repl::clarity::vm::types::{SequenceData, Value as ClarityValue};
 use clarity_repl::codec::{StacksTransaction, TransactionAuth, TransactionPayload};
 use hiro_system_kit::slog;
 use rocket::serde::json::Value as JsonValue;
@@ -340,6 +341,7 @@ pub fn standardize_stacks_block(
             pox_cycle_position: (current_len % pox_cycle_length) as u32,
             pox_cycle_length: pox_cycle_length.try_into().unwrap(),
             confirm_microblock_identifier,
+            stacks_block_hash: block.block_hash.clone(),
         },
         transactions,
     };
@@ -538,8 +540,108 @@ pub fn get_tx_description(
                     "stacked: {} µSTX by {} through Bitcoin transaction",
                     data.locked_amount, data.locked_address,
                 );
-                let tx_type = StacksTransactionKind::Other;
+                let tx_type =
+                    StacksTransactionKind::BitcoinOp(BitcoinOpData::StackSTX(StackSTXData {
+                        locked_amount: data.locked_amount,
+                        unlock_height: data.unlock_height,
+                        stacking_address: data.locked_address.clone(),
+                    }));
                 return Ok((description, tx_type, 0, 0, data.locked_address, None));
+            } else if let Some(ref event_data) = event.contract_event {
+                let data: SmartContractEventData = serde_json::from_value(event_data.clone())
+                    .map_err(|e| format!("unable to decode event_data {}", e.to_string()))?;
+                if let Some(ClarityValue::Response(data)) =
+                    try_decode_clarity_value(&data.hex_value)
+                {
+                    if data.committed {
+                        if let ClarityValue::Tuple(outter) = *data.data {
+                            if let Some(ClarityValue::Tuple(inner)) = outter.data_map.get("data") {
+                                match (
+                                    &outter.data_map.get("stacker"),
+                                    &inner.data_map.get("amount-ustx"),
+                                    &inner.data_map.get("delegate-to"),
+                                    &inner.data_map.get("pox-addr"),
+                                    &inner.data_map.get("unlock-burn-height"),
+                                ) {
+                                    (
+                                        Some(ClarityValue::Principal(stacking_address)),
+                                        Some(ClarityValue::UInt(amount_ustx)),
+                                        Some(ClarityValue::Principal(delegate)),
+                                        Some(ClarityValue::Optional(pox_addr)),
+                                        Some(ClarityValue::Optional(unlock_burn_height)),
+                                    ) => {
+                                        let description = format!(
+                                        "stacked: {} µSTX delegated to {} through Bitcoin transaction",
+                                        amount_ustx, delegate.to_string(),
+                                    );
+                                        let tx_type = StacksTransactionKind::BitcoinOp(
+                                            BitcoinOpData::DelegateStackSTX(DelegateStackSTXData {
+                                                stacking_address: stacking_address.to_string(),
+                                                amount: amount_ustx.to_string(),
+                                                delegate: delegate.to_string(),
+                                                pox_address: match &pox_addr.data {
+                                                    Some(value) => match &**value {
+                                                        ClarityValue::Tuple(address_comps) => {
+                                                            match (
+                                                                &address_comps
+                                                                    .data_map
+                                                                    .get("version"),
+                                                                &address_comps
+                                                                    .data_map
+                                                                    .get("hashbytes"),
+                                                            ) {
+                                                                (
+                                                                    Some(ClarityValue::UInt(
+                                                                        _version,
+                                                                    )),
+                                                                    Some(ClarityValue::Sequence(
+                                                                        SequenceData::Buffer(
+                                                                            _hashbytes,
+                                                                        ),
+                                                                    )),
+                                                                ) => None,
+                                                                _ => None,
+                                                            }
+                                                        }
+                                                        _ => None,
+                                                    },
+                                                    _ => None,
+                                                },
+                                                unlock_height: match &*(&unlock_burn_height.data) {
+                                                    Some(value) => match &**value {
+                                                        ClarityValue::UInt(value) => {
+                                                            Some(value.to_string())
+                                                        }
+                                                        _ => None,
+                                                    },
+                                                    _ => None,
+                                                },
+                                            }),
+                                        );
+                                        return Ok((
+                                            description,
+                                            tx_type,
+                                            0,
+                                            0,
+                                            "".to_string(),
+                                            None,
+                                        ));
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                return Ok((
+                    "unsupported transaction".into(),
+                    StacksTransactionKind::Unsupported,
+                    0,
+                    0,
+                    "".to_string(),
+                    None,
+                ));
             }
         }
         return Err(format!(
@@ -626,7 +728,7 @@ pub fn get_tx_description(
         TransactionPayload::Coinbase(_, _) => {
             (format!("coinbase"), StacksTransactionKind::Coinbase)
         }
-        _ => (format!("other"), StacksTransactionKind::Other),
+        _ => (format!("other"), StacksTransactionKind::Unsupported),
     };
     Ok((description, tx_type, fee, nonce, sender, sponsor))
 }

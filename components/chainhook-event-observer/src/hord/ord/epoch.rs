@@ -152,9 +152,7 @@ impl From<Height> for Epoch {
 #[cfg(test)]
 mod tests {
 
-    use crate::indexer::ordinals::ord::{
-        epoch::Epoch, height::Height, sat::Sat, SUBSIDY_HALVING_INTERVAL,
-    };
+    use crate::hord::ord::{epoch::Epoch, height::Height, sat::Sat, SUBSIDY_HALVING_INTERVAL};
 
     #[test]
     fn starting_sat() {

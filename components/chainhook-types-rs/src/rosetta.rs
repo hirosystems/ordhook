@@ -101,6 +101,7 @@ pub struct StacksBlockMetadata {
     pub pox_cycle_position: u32,
     pub pox_cycle_length: u32,
     pub confirm_microblock_identifier: Option<BlockIdentifier>,
+    pub stacks_block_hash: String,
 }
 
 /// BitcoinBlock contain an array of Transactions that occurred at a particular
@@ -142,12 +143,37 @@ pub struct StacksTransactionData {
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(tag = "type", content = "data")]
 pub enum StacksTransactionKind {
     ContractCall(StacksContractCallData),
     ContractDeployment(StacksContractDeploymentData),
     NativeTokenTransfer,
     Coinbase,
-    Other,
+    BitcoinOp(BitcoinOpData),
+    Unsupported,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(tag = "type", content = "data")]
+pub enum BitcoinOpData {
+    StackSTX(StackSTXData),
+    DelegateStackSTX(DelegateStackSTXData),
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct StackSTXData {
+    pub locked_amount: String,
+    pub unlock_height: String,
+    pub stacking_address: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct DelegateStackSTXData {
+    pub stacking_address: String,
+    pub amount: String,
+    pub delegate: String,
+    pub pox_address: Option<String>,
+    pub unlock_height: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
@@ -302,10 +328,12 @@ pub struct OrdinalInscriptionRevealData {
     pub ordinal_number: u64,
     pub ordinal_block_height: u64,
     pub ordinal_offset: u64,
+    pub transfers_pre_inscription: u32,
     pub satpoint_post_inscription: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum StacksBaseChainOperation {
     BlockCommitted(StacksBlockCommitmentData),
     LeaderRegistered(KeyRegistrationData),
@@ -314,15 +342,23 @@ pub enum StacksBaseChainOperation {
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub struct StacksBlockCommitmentData {
-    pub signers: Vec<String>,
-    pub stacks_block_hash: String,
-    pub rewards: Vec<PoxReward>,
+    pub block_hash: String,
+    pub pox_cycle_index: u64,
+    pub pox_cycle_length: u64,
+    pub pox_cycle_position: u64,
+    pub pox_sats_burnt: u64,
+    pub pox_sats_transferred: Vec<PoxReward>,
+    // pub mining_address_pre_commit: Option<String>,
+    pub mining_address_post_commit: Option<String>,
+    pub mining_sats_left: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub struct PoxReward {
-    pub recipient: String,
+    pub recipient_address: String,
     pub amount: u64,
 }
 
@@ -760,4 +796,26 @@ pub enum BitcoinNetwork {
     Regtest,
     Testnet,
     Mainnet,
+}
+
+#[derive(Debug, Clone)]
+pub enum BitcoinBlockSignaling {
+    Stacks(String),
+    ZeroMQ(String),
+}
+
+impl BitcoinBlockSignaling {
+    pub fn should_ignore_bitcoin_block_signaling_through_stacks(&self) -> bool {
+        match &self {
+            BitcoinBlockSignaling::Stacks(_) => false,
+            _ => true,
+        }
+    }
+
+    pub fn is_bitcoind_zmq_block_signaling_expected(&self) -> bool {
+        match &self {
+            BitcoinBlockSignaling::ZeroMQ(_) => false,
+            _ => true,
+        }
+    }
 }

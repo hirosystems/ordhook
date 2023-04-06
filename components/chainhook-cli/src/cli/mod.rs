@@ -1,23 +1,31 @@
 use crate::block::DigestingCommand;
+use crate::config::generator::generate_config;
 use crate::config::Config;
-use crate::node::Node;
 use crate::scan::bitcoin::scan_bitcoin_chain_with_predicate;
 use crate::scan::stacks::scan_stacks_chain_with_predicate;
+use crate::service::Service;
 
-use chainhook_event_observer::chainhooks::types::ChainhookFullSpecification;
-use chainhook_event_observer::indexer::ordinals::db::{
-    build_bitcoin_traversal_local_storage, find_inscription_with_ordinal_number,
-    find_inscriptions_at_wached_outpoint, initialize_ordinal_state_storage,
-    open_readonly_ordinals_db_conn, open_readwrite_ordinals_db_conn,
+use chainhook_event_observer::bitcoincore_rpc::{Auth, Client, RpcApi};
+use chainhook_event_observer::chainhooks::types::{
+    BitcoinChainhookFullSpecification, BitcoinChainhookNetworkSpecification, BitcoinPredicateType,
+    ChainhookFullSpecification, FileHook, HookAction, OrdinalOperations, Protocols,
+    StacksChainhookFullSpecification, StacksChainhookNetworkSpecification, StacksPredicate,
+    StacksPrintEventBasedPredicate,
+};
+use chainhook_event_observer::hord::db::{
+    delete_data_in_hord_db, fetch_and_cache_blocks_in_hord_db, find_all_inscriptions,
+    find_compacted_block_at_block_height, find_inscriptions_at_wached_outpoint,
+    find_latest_compacted_block_known, initialize_hord_db, open_readonly_hord_db_conn,
+    open_readwrite_hord_db_conn, patch_inscription_number,
     retrieve_satoshi_point_using_local_storage,
 };
-use chainhook_event_observer::indexer::ordinals::ord::height::Height;
 use chainhook_event_observer::observer::BitcoinConfig;
 use chainhook_event_observer::utils::Context;
-use chainhook_types::{BlockIdentifier, TransactionIdentifier};
+use chainhook_types::{BitcoinNetwork, BlockIdentifier, StacksNetwork, TransactionIdentifier};
 use clap::{Parser, Subcommand};
 use ctrlc;
 use hiro_system_kit;
+use std::collections::BTreeMap;
 use std::io::{BufReader, Read};
 use std::path::PathBuf;
 use std::process;
@@ -35,12 +43,15 @@ enum Command {
     /// Manage predicates
     #[clap(subcommand)]
     Predicates(PredicatesCommand),
+    /// Manage config
+    #[clap(subcommand)]
+    Config(ConfigCommand),
     /// Start chainhook-cli
     #[clap(subcommand)]
-    Node(NodeCommand),
+    Service(ServiceCommand),
     /// Protocols specific commands
     #[clap(subcommand)]
-    Protocols(ProtocolsCommand),
+    Hord(HordCommand),
 }
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
@@ -54,13 +65,43 @@ enum PredicatesCommand {
     Scan(ScanPredicate),
 }
 
+#[derive(Subcommand, PartialEq, Clone, Debug)]
+#[clap(bin_name = "config", aliases = &["config"])]
+enum ConfigCommand {
+    /// Generate new predicate
+    #[clap(name = "new", bin_name = "new", aliases = &["generate"])]
+    New(NewConfig),
+}
+
+#[derive(Parser, PartialEq, Clone, Debug)]
+struct NewConfig {
+    /// Target Devnet network
+    #[clap(
+        long = "devnet",
+        conflicts_with = "testnet",
+        conflicts_with = "mainnet"
+    )]
+    pub devnet: bool,
+    /// Target Testnet network
+    #[clap(
+        long = "testnet",
+        conflicts_with = "devnet",
+        conflicts_with = "mainnet"
+    )]
+    pub testnet: bool,
+    /// Target Mainnet network
+    #[clap(
+        long = "mainnet",
+        conflicts_with = "testnet",
+        conflicts_with = "devnet"
+    )]
+    pub mainnet: bool,
+}
+
 #[derive(Parser, PartialEq, Clone, Debug)]
 struct NewPredicate {
     /// Predicate's name
     pub name: String,
-    /// Path to Clarinet.toml
-    #[clap(long = "manifest-path")]
-    pub manifest_path: Option<String>,
     /// Generate a Bitcoin chainhook
     #[clap(long = "bitcoin", conflicts_with = "stacks")]
     pub bitcoin: bool,
@@ -89,7 +130,7 @@ struct ScanPredicate {
 }
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
-enum NodeCommand {
+enum ServiceCommand {
     /// Start chainhook-cli
     #[clap(name = "start", bin_name = "start")]
     Start(StartCommand),
@@ -126,35 +167,59 @@ struct StartCommand {
         conflicts_with = "devnet"
     )]
     pub config_path: Option<String>,
+    /// Specify relative path of the chainhooks (yaml format) to evaluate
+    #[clap(long = "predicate-path")]
+    pub predicates_paths: Vec<String>,
+    /// Start REST API for managing predicates
+    #[clap(long = "start-http-api")]
+    pub start_http_api: bool,
 }
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
-enum ProtocolsCommand {
-    /// Ordinals related commands
+enum HordCommand {
+    /// Db maintenance related commands
     #[clap(subcommand)]
-    Ordinals(OrdinalsCommand),
+    Db(DbCommand),
+    /// Db maintenance related commands
+    #[clap(subcommand)]
+    Find(FindCommand),
 }
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
-enum OrdinalsCommand {
-    /// Retrieve Satoshi
-    #[clap(name = "sat", bin_name = "sat")]
-    Satoshi(GetSatoshiCommand),
-    /// Retrieve Satoshi
-    #[clap(name = "inscriptions", bin_name = "inscriptions")]
-    WatchedOutpoints(GetWatchedOutpointsCommand),
-    /// Retrieve Satoshi
-    Traversals(BuildOrdinalsTraversalsCommand),
+enum DbCommand {
+    /// Init hord db
+    #[clap(name = "init", bin_name = "init")]
+    Init(InitHordDbCommand),
+    /// Rewrite hord db
+    #[clap(name = "rewrite", bin_name = "rewrite")]
+    Rewrite(UpdateHordDbCommand),
+    /// Catch-up hord db
+    #[clap(name = "sync", bin_name = "sync")]
+    Sync(SyncHordDbCommand),
+    /// Rebuild inscriptions entries for a given block
+    #[clap(name = "drop", bin_name = "drop")]
+    Drop(DropHordDbCommand),
+    /// Patch DB
+    #[clap(name = "patch", bin_name = "patch")]
+    Patch(PatchHordDbCommand),
+}
+
+#[derive(Subcommand, PartialEq, Clone, Debug)]
+enum FindCommand {
+    /// Init hord db
+    #[clap(name = "sat_point", bin_name = "sat_point")]
+    SatPoint(FindSatPointCommand),
+    /// Update hord db
+    #[clap(name = "inscription", bin_name = "inscription")]
+    Inscription(FindInscriptionCommand),
 }
 
 #[derive(Parser, PartialEq, Clone, Debug)]
-struct BuildOrdinalsTraversalsCommand {
-    /// Starting block
-    pub start_block: u64,
-    /// Starting block
-    pub end_block: u64,
-    /// # of Networking thread
-    pub network_threads: usize,
+struct FindSatPointCommand {
+    /// Block height
+    pub block_height: u64,
+    /// Txid
+    pub txid: String,
     /// Target Devnet network
     #[clap(
         long = "devnet",
@@ -187,7 +252,7 @@ struct BuildOrdinalsTraversalsCommand {
 }
 
 #[derive(Parser, PartialEq, Clone, Debug)]
-struct GetWatchedOutpointsCommand {
+struct FindInscriptionCommand {
     /// Outpoint
     pub outpoint: String,
     /// Load config file path
@@ -196,41 +261,51 @@ struct GetWatchedOutpointsCommand {
 }
 
 #[derive(Parser, PartialEq, Clone, Debug)]
-struct GetSatoshiCommand {
-    /// Block height
-    pub block_height: u64,
-    /// Txid
-    pub txid: String,
-    /// Output index
-    pub output_index: usize,
-    /// Target Devnet network
-    #[clap(
-        long = "devnet",
-        conflicts_with = "testnet",
-        conflicts_with = "mainnet"
-    )]
-    pub devnet: bool,
-    /// Target Testnet network
-    #[clap(
-        long = "testnet",
-        conflicts_with = "devnet",
-        conflicts_with = "mainnet"
-    )]
-    pub testnet: bool,
-    /// Target Mainnet network
-    #[clap(
-        long = "mainnet",
-        conflicts_with = "testnet",
-        conflicts_with = "devnet"
-    )]
-    pub mainnet: bool,
+struct InitHordDbCommand {
+    /// # of Networking thread
+    pub network_threads: usize,
     /// Load config file path
-    #[clap(
-        long = "config-path",
-        conflicts_with = "mainnet",
-        conflicts_with = "testnet",
-        conflicts_with = "devnet"
-    )]
+    #[clap(long = "config-path")]
+    pub config_path: Option<String>,
+}
+
+#[derive(Parser, PartialEq, Clone, Debug)]
+struct UpdateHordDbCommand {
+    /// Starting block
+    pub start_block: u64,
+    /// Starting block
+    pub end_block: u64,
+    /// # of Networking thread
+    pub network_threads: usize,
+    /// Load config file path
+    #[clap(long = "config-path")]
+    pub config_path: Option<String>,
+}
+
+#[derive(Parser, PartialEq, Clone, Debug)]
+struct SyncHordDbCommand {
+    /// # of Networking thread
+    pub network_threads: usize,
+    /// Load config file path
+    #[clap(long = "config-path")]
+    pub config_path: Option<String>,
+}
+
+#[derive(Parser, PartialEq, Clone, Debug)]
+struct DropHordDbCommand {
+    /// Starting block
+    pub start_block: u64,
+    /// Starting block
+    pub end_block: u64,
+    /// Load config file path
+    #[clap(long = "config-path")]
+    pub config_path: Option<String>,
+}
+
+#[derive(Parser, PartialEq, Clone, Debug)]
+struct PatchHordDbCommand {
+    /// Load config file path
+    #[clap(long = "config-path")]
     pub config_path: Option<String>,
 }
 
@@ -261,47 +336,176 @@ pub fn main() {
 
 async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
     match opts.command {
-        Command::Node(subcmd) => match subcmd {
-            NodeCommand::Start(cmd) => {
-                let config =
+        Command::Service(subcmd) => match subcmd {
+            ServiceCommand::Start(cmd) => {
+                let mut config =
                     Config::default(cmd.devnet, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
-                let mut node = Node::new(config, ctx);
-                return node.run().await;
+                // We disable the API if a predicate was passed, and the --enable-
+                if cmd.predicates_paths.len() > 0 && !cmd.start_http_api {
+                    config.chainhooks.enable_http_api = false;
+                }
+                let mut service = Service::new(config, ctx);
+                let predicates = cmd
+                    .predicates_paths
+                    .iter()
+                    .map(|p| load_predicate_from_path(p))
+                    .collect::<Result<Vec<ChainhookFullSpecification>, _>>()?;
+                return service.run(predicates).await;
+            }
+        },
+        Command::Config(subcmd) => match subcmd {
+            ConfigCommand::New(cmd) => {
+                use std::fs::File;
+                use std::io::Write;
+                let _config = Config::default(cmd.devnet, cmd.testnet, cmd.mainnet, &None)?;
+                let config_content = generate_config();
+                let mut file_path = PathBuf::new();
+                file_path.push("Chainhook.toml");
+                let mut file = File::create(&file_path)
+                    .map_err(|e| format!("unable to open file {}\n{}", file_path.display(), e))?;
+                file.write_all(config_content.as_bytes())
+                    .map_err(|e| format!("unable to write file {}\n{}", file_path.display(), e))?;
+                println!("Created file Chainhook.toml");
             }
         },
         Command::Predicates(subcmd) => match subcmd {
-            PredicatesCommand::New(_cmd) => {
-                // let manifest = clarinet_files::get_manifest_location(None);
+            PredicatesCommand::New(cmd) => {
+                use uuid::Uuid;
+
+                let id = Uuid::new_v4();
+
+                let predicate = match (cmd.stacks, cmd.bitcoin) {
+                    (true, false) => {
+                        let mut networks = BTreeMap::new();
+
+                        networks.insert(StacksNetwork::Simnet, StacksChainhookNetworkSpecification {
+                            start_block: Some(0),
+                            end_block: Some(100),
+                            predicate: StacksPredicate::PrintEvent(StacksPrintEventBasedPredicate {
+                                contract_identifier: "ST1SVA0SST0EDT4MFYGWGP6GNSXMMQJDVP1G8QTTC.arkadiko-freddie-v1-1".into(),
+                                contains: "vault".into(),
+                            }),
+                            expire_after_occurrence: None,
+                            capture_all_events: None,
+                            decode_clarity_values: None,
+                            action:  HookAction::FileAppend(FileHook {
+                                path: "arkadiko.txt".into()
+                            })
+                        });
+
+                        networks.insert(StacksNetwork::Mainnet, StacksChainhookNetworkSpecification {
+                            start_block: Some(0),
+                            end_block: Some(100),
+                            predicate: StacksPredicate::PrintEvent(StacksPrintEventBasedPredicate {
+                                contract_identifier: "SP2C2YFP12AJZB4MABJBAJ55XECVS7E4PMMZ89YZR.arkadiko-freddie-v1-1".into(),
+                                contains: "vault".into(),
+                            }),
+                            expire_after_occurrence: None,
+                            capture_all_events: None,
+                            decode_clarity_values: None,
+                            action:  HookAction::FileAppend(FileHook {
+                                path: "arkadiko.txt".into()
+                            })
+                        });
+
+                        ChainhookFullSpecification::Stacks(StacksChainhookFullSpecification {
+                            uuid: id.to_string(),
+                            owner_uuid: None,
+                            name: "Hello world".into(),
+                            version: 1,
+                            networks,
+                        })
+                    }
+                    (false, true) => {
+                        let mut networks = BTreeMap::new();
+
+                        networks.insert(
+                            BitcoinNetwork::Mainnet,
+                            BitcoinChainhookNetworkSpecification {
+                                start_block: Some(0),
+                                end_block: Some(100),
+                                predicate: BitcoinPredicateType::Protocol(Protocols::Ordinal(
+                                    OrdinalOperations::InscriptionRevealed,
+                                )),
+                                expire_after_occurrence: None,
+                                action: HookAction::FileAppend(FileHook {
+                                    path: "ordinals.txt".into(),
+                                }),
+                            },
+                        );
+
+                        ChainhookFullSpecification::Bitcoin(BitcoinChainhookFullSpecification {
+                            uuid: id.to_string(),
+                            owner_uuid: None,
+                            name: "Hello world".into(),
+                            version: 1,
+                            networks,
+                        })
+                    }
+                    _ => {
+                        return Err("command `predicates new` should either provide the flag --stacks or --bitcoin".into());
+                    }
+                };
+
+                let content = serde_json::to_string_pretty(&predicate).unwrap();
+                let mut path = PathBuf::new();
+                path.push(cmd.name);
+
+                match std::fs::metadata(&path) {
+                    Err(e) => {
+                        if e.kind() == std::io::ErrorKind::NotFound {
+                            // need to create
+                            if let Some(dirp) = PathBuf::from(&path).parent() {
+                                std::fs::create_dir_all(dirp).unwrap_or_else(|e| {
+                                    println!("{}", e.to_string());
+                                });
+                            }
+                            let mut f = std::fs::OpenOptions::new()
+                                .write(true)
+                                .create(true)
+                                .truncate(true)
+                                .open(&path)
+                                .map_err(|e| format!("{}", e.to_string()))?;
+                            use std::io::Write;
+                            let _ = f.write_all(content.as_bytes());
+                        } else {
+                            panic!("FATAL: could not stat {}", path.display());
+                        }
+                    }
+                    Ok(_m) => {
+                        let err = format!("File {} already exists", path.display());
+                        return Err(err);
+                    }
+                };
             }
             PredicatesCommand::Scan(cmd) => {
                 let mut config =
                     Config::default(false, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
-                let file = std::fs::File::open(&cmd.predicate_path)
-                    .map_err(|e| format!("unable to read file {}\n{:?}", cmd.predicate_path, e))?;
-                let mut file_reader = BufReader::new(file);
-                let mut file_buffer = vec![];
-                file_reader
-                    .read_to_end(&mut file_buffer)
-                    .map_err(|e| format!("unable to read file {}\n{:?}", cmd.predicate_path, e))?;
-                let predicate: ChainhookFullSpecification = serde_json::from_slice(&file_buffer)
-                    .map_err(|e| {
-                        format!("unable to parse json file {}\n{:?}", cmd.predicate_path, e)
-                    })?;
+                let predicate = load_predicate_from_path(&cmd.predicate_path)?;
                 match predicate {
                     ChainhookFullSpecification::Bitcoin(predicate) => {
-                        scan_bitcoin_chain_with_predicate(predicate, true, &config, &ctx).await?;
+                        scan_bitcoin_chain_with_predicate(predicate, &config, &ctx).await?;
                     }
                     ChainhookFullSpecification::Stacks(predicate) => {
-                        scan_stacks_chain_with_predicate(predicate, true, &mut config, &ctx)
-                            .await?;
+                        scan_stacks_chain_with_predicate(predicate, &mut config, &ctx).await?;
                     }
                 }
             }
         },
-        Command::Protocols(ProtocolsCommand::Ordinals(subcmd)) => match subcmd {
-            OrdinalsCommand::Satoshi(cmd) => {
+        Command::Hord(HordCommand::Find(subcmd)) => match subcmd {
+            FindCommand::SatPoint(cmd) => {
                 let config =
                     Config::default(cmd.devnet, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
+
+                let hord_db_conn =
+                    open_readonly_hord_db_conn(&config.expected_cache_path(), &ctx).unwrap();
+
+                let tip_height = find_latest_compacted_block_known(&hord_db_conn) as u64;
+
+                if cmd.block_height > tip_height {
+                    perform_hord_db_update(tip_height, cmd.block_height, 8, &config, &ctx).await?;
+                }
+
                 let transaction_identifier = TransactionIdentifier {
                     hash: cmd.txid.clone(),
                 };
@@ -310,55 +514,203 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     hash: "".into(),
                 };
 
-                let storage_conn =
-                    open_readonly_ordinals_db_conn(&config.expected_cache_path(), &ctx).unwrap();
-
-                let (block_height, offset, ordinal_number) =
-                    retrieve_satoshi_point_using_local_storage(
-                        &storage_conn,
-                        &block_identifier,
-                        &transaction_identifier,
-                        &ctx,
-                    )?;
+                let traversal = retrieve_satoshi_point_using_local_storage(
+                    &hord_db_conn,
+                    &block_identifier,
+                    &transaction_identifier,
+                    0,
+                    &ctx,
+                )?;
                 info!(
                     ctx.expect_logger(),
-                    "Block: {block_height}, Offset {offset}:, Ordinal number: {ordinal_number}",
+                    "Satoshi #{} was minted in block #{} at offset {} and was transferred {} times.",
+                    traversal.ordinal_number, traversal.get_ordinal_coinbase_height(), traversal.get_ordinal_coinbase_offset(), traversal.transfers
                 );
             }
-            OrdinalsCommand::Traversals(cmd) => {
-                let config =
-                    Config::default(cmd.devnet, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
-
-                let bitcoin_config = BitcoinConfig {
-                    username: config.network.bitcoin_node_rpc_username.clone(),
-                    password: config.network.bitcoin_node_rpc_password.clone(),
-                    rpc_url: config.network.bitcoin_node_rpc_url.clone(),
-                };
-
-                let storage_conn =
-                    initialize_ordinal_state_storage(&config.expected_cache_path(), &ctx);
-
-                let _ = build_bitcoin_traversal_local_storage(
-                    &bitcoin_config,
-                    &storage_conn,
-                    cmd.start_block,
-                    cmd.end_block,
-                    &ctx,
-                    cmd.network_threads,
-                )
-                .await;
-            }
-            OrdinalsCommand::WatchedOutpoints(cmd) => {
+            FindCommand::Inscription(cmd) => {
                 let mut db_path = PathBuf::new();
                 db_path.push(&cmd.db_path.unwrap());
 
-                let storage_conn = open_readonly_ordinals_db_conn(&db_path, &ctx).unwrap();
+                let hord_db_conn = open_readonly_hord_db_conn(&db_path, &ctx).unwrap();
 
-                let results = find_inscriptions_at_wached_outpoint(&cmd.outpoint, &storage_conn);
+                let results = find_inscriptions_at_wached_outpoint(&cmd.outpoint, &hord_db_conn);
                 println!("{:?}", results);
             }
         },
+        Command::Hord(HordCommand::Db(subcmd)) => match subcmd {
+            DbCommand::Init(cmd) => {
+                let config = Config::default(false, false, false, &cmd.config_path)?;
+                let auth = Auth::UserPass(
+                    config.network.bitcoind_rpc_username.clone(),
+                    config.network.bitcoind_rpc_password.clone(),
+                );
+
+                let bitcoin_rpc = match Client::new(&config.network.bitcoind_rpc_url, auth) {
+                    Ok(con) => con,
+                    Err(message) => {
+                        return Err(format!("Bitcoin RPC error: {}", message.to_string()));
+                    }
+                };
+
+                let end_block = match bitcoin_rpc.get_blockchain_info() {
+                    Ok(result) => result.blocks,
+                    Err(e) => {
+                        return Err(format!(
+                            "unable to retrieve Bitcoin chain tip ({})",
+                            e.to_string()
+                        ));
+                    }
+                };
+
+                let hord_db_conn = open_readonly_hord_db_conn(&config.expected_cache_path(), &ctx)?;
+                let start_block = find_latest_compacted_block_known(&hord_db_conn) as u64;
+                if start_block == 0 {
+                    let _ = initialize_hord_db(&config.expected_cache_path(), &ctx);
+                } else {
+                    info!(
+                        ctx.expect_logger(),
+                        "Resuming hord indexing from block #{}", start_block
+                    );
+                }
+
+                perform_hord_db_update(start_block, end_block, cmd.network_threads, &config, &ctx)
+                    .await?;
+            }
+            DbCommand::Sync(cmd) => {
+                let config = Config::default(false, false, false, &cmd.config_path)?;
+                let auth = Auth::UserPass(
+                    config.network.bitcoind_rpc_username.clone(),
+                    config.network.bitcoind_rpc_password.clone(),
+                );
+
+                let bitcoin_rpc = match Client::new(&config.network.bitcoind_rpc_url, auth) {
+                    Ok(con) => con,
+                    Err(message) => {
+                        return Err(format!("Bitcoin RPC error: {}", message.to_string()));
+                    }
+                };
+
+                let hord_db_conn = open_readonly_hord_db_conn(&config.expected_cache_path(), &ctx)?;
+
+                let start_block = find_latest_compacted_block_known(&hord_db_conn) as u64;
+
+                let end_block = match bitcoin_rpc.get_blockchain_info() {
+                    Ok(result) => result.blocks,
+                    Err(e) => {
+                        return Err(format!(
+                            "unable to retrieve Bitcoin chain tip ({})",
+                            e.to_string()
+                        ));
+                    }
+                };
+
+                perform_hord_db_update(start_block, end_block, cmd.network_threads, &config, &ctx)
+                    .await?;
+            }
+            DbCommand::Rewrite(cmd) => {
+                let config = Config::default(false, false, false, &cmd.config_path)?;
+                // Delete data, if any
+                let rw_hord_db_conn =
+                    open_readwrite_hord_db_conn(&config.expected_cache_path(), &ctx)?;
+                delete_data_in_hord_db(cmd.start_block, cmd.end_block, &rw_hord_db_conn, &ctx)?;
+                // Update data
+                perform_hord_db_update(
+                    cmd.start_block,
+                    cmd.end_block,
+                    cmd.network_threads,
+                    &config,
+                    &ctx,
+                )
+                .await?;
+            }
+            DbCommand::Drop(cmd) => {
+                let config = Config::default(false, false, false, &cmd.config_path)?;
+                let rw_hord_db_conn =
+                    open_readwrite_hord_db_conn(&config.expected_cache_path(), &ctx)?;
+                delete_data_in_hord_db(cmd.start_block, cmd.end_block, &rw_hord_db_conn, &ctx)?;
+                info!(
+                    ctx.expect_logger(),
+                    "Cleaning hord_db: {} blocks dropped",
+                    cmd.end_block - cmd.start_block + 1
+                );
+            }
+            DbCommand::Patch(cmd) => {
+                let config = Config::default(false, false, false, &cmd.config_path)?;
+                let rw_hord_db_conn =
+                    open_readwrite_hord_db_conn(&config.expected_cache_path(), &ctx)?;
+
+                let inscriptions_per_blocks = find_all_inscriptions(&rw_hord_db_conn);
+                let mut inscription_number = 0;
+                for (block_height, inscriptions) in inscriptions_per_blocks.iter() {
+                    let block = match find_compacted_block_at_block_height(
+                        *block_height as u32,
+                        &rw_hord_db_conn,
+                    ) {
+                        Some(block) => block,
+                        None => continue,
+                    };
+
+                    for (txid, _) in inscriptions.iter() {
+                        for (txid_n, _, _) in block.0 .1.iter() {
+                            if txid.hash[2..10].eq(&hex::encode(txid_n)) {
+                                let inscription_id = format!("{}i0", &txid.hash[2..]);
+                                patch_inscription_number(
+                                    &inscription_id,
+                                    inscription_number,
+                                    &rw_hord_db_conn,
+                                    &ctx,
+                                );
+                                info!(
+                                    ctx.expect_logger(),
+                                    "Patch inscription_number: {}\t{}\t({})",
+                                    inscription_id,
+                                    inscription_number,
+                                    block_height
+                                );
+                            }
+                        }
+                        inscription_number += 1;
+                    }
+                }
+            }
+        },
     }
+    Ok(())
+}
+
+pub async fn perform_hord_db_update(
+    start_block: u64,
+    end_block: u64,
+    network_threads: usize,
+    config: &Config,
+    ctx: &Context,
+) -> Result<(), String> {
+    info!(
+        ctx.expect_logger(),
+        "Syncing hord_db: {} blocks to download ({start_block}: {end_block}), using {network_threads} network threads", end_block - start_block + 1
+    );
+
+    let bitcoin_config = BitcoinConfig {
+        username: config.network.bitcoind_rpc_username.clone(),
+        password: config.network.bitcoind_rpc_password.clone(),
+        rpc_url: config.network.bitcoind_rpc_url.clone(),
+        network: config.network.bitcoin_network.clone(),
+        bitcoin_block_signaling: config.network.bitcoin_block_signaling.clone(),
+    };
+
+    let rw_hord_db_conn = open_readwrite_hord_db_conn(&config.expected_cache_path(), &ctx)?;
+
+    let _ = fetch_and_cache_blocks_in_hord_db(
+        &bitcoin_config,
+        &rw_hord_db_conn,
+        start_block,
+        end_block,
+        network_threads,
+        &config.expected_cache_path(),
+        &ctx,
+    )
+    .await?;
+
     Ok(())
 }
 
@@ -371,4 +723,19 @@ pub fn install_ctrlc_handler(terminate_tx: Sender<DigestingCommand>, ctx: Contex
             .expect("Unable to terminate service");
     })
     .expect("Error setting Ctrl-C handler");
+}
+
+pub fn load_predicate_from_path(
+    predicate_path: &str,
+) -> Result<ChainhookFullSpecification, String> {
+    let file = std::fs::File::open(&predicate_path)
+        .map_err(|e| format!("unable to read file {}\n{:?}", predicate_path, e))?;
+    let mut file_reader = BufReader::new(file);
+    let mut file_buffer = vec![];
+    file_reader
+        .read_to_end(&mut file_buffer)
+        .map_err(|e| format!("unable to read file {}\n{:?}", predicate_path, e))?;
+    let predicate: ChainhookFullSpecification = serde_json::from_slice(&file_buffer)
+        .map_err(|e| format!("unable to parse json file {}\n{:?}", predicate_path, e))?;
+    Ok(predicate)
 }

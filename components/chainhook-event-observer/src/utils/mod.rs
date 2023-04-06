@@ -91,6 +91,12 @@ impl AbstractStacksBlock for StacksMicroblockData {
 pub trait AbstractBlock {
     fn get_identifier(&self) -> &BlockIdentifier;
     fn get_parent_identifier(&self) -> &BlockIdentifier;
+    fn get_header(&self) -> BlockHeader {
+        BlockHeader {
+            block_identifier: self.get_identifier().clone(),
+            parent_block_identifier: self.get_parent_identifier().clone(),
+        }
+    }
 }
 
 impl AbstractBlock for BlockHeader {
