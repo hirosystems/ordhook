@@ -8,6 +8,7 @@ use chainhook_types::{
     BitcoinBlockData, OrdinalInscriptionTransferData, OrdinalOperation, TransactionIdentifier,
 };
 use hiro_system_kit::slog;
+use rocksdb::DB;
 use rusqlite::Connection;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::path::PathBuf;
@@ -28,17 +29,18 @@ use crate::{
 };
 
 use self::db::{
-    open_readonly_hord_db_conn, remove_entry_from_blocks, remove_entry_from_inscriptions,
+    open_readonly_hord_db_conn_rocks_db, remove_entry_from_blocks, remove_entry_from_inscriptions,
     TraversalResult, WatchedSatpoint,
 };
 
 pub fn revert_hord_db_with_augmented_bitcoin_block(
     block: &BitcoinBlockData,
-    rw_hord_db_conn: &Connection,
+    blocks_db_rw: &DB,
+    inscriptions_db_conn_rw: &Connection,
     ctx: &Context,
 ) -> Result<(), String> {
     // Remove block from
-    remove_entry_from_blocks(block.block_identifier.index as u32, &rw_hord_db_conn, ctx);
+    remove_entry_from_blocks(block.block_identifier.index as u32, &blocks_db_rw, ctx);
     for tx_index in 1..=block.transactions.len() {
         // Undo the changes in reverse order
         let tx = &block.transactions[block.transactions.len() - tx_index];
@@ -46,7 +48,11 @@ pub fn revert_hord_db_with_augmented_bitcoin_block(
             match ordinal_event {
                 OrdinalOperation::InscriptionRevealed(data) => {
                     // We remove any new inscription created
-                    remove_entry_from_inscriptions(&data.inscription_id, &rw_hord_db_conn, ctx);
+                    remove_entry_from_inscriptions(
+                        &data.inscription_id,
+                        &inscriptions_db_conn_rw,
+                        ctx,
+                    );
                 }
                 OrdinalOperation::InscriptionTransferred(data) => {
                     // We revert the outpoint to the pre-transfer value
@@ -59,7 +65,7 @@ pub fn revert_hord_db_with_augmented_bitcoin_block(
                         &&data.inscription_id,
                         &outpoint_pre_transfer,
                         offset_pre_transfer,
-                        &rw_hord_db_conn,
+                        &inscriptions_db_conn_rw,
                         &ctx,
                     );
                 }
@@ -71,7 +77,8 @@ pub fn revert_hord_db_with_augmented_bitcoin_block(
 
 pub fn update_hord_db_and_augment_bitcoin_block(
     new_block: &mut BitcoinBlockData,
-    rw_hord_db_conn: &Connection,
+    blocks_db_rw: &DB,
+    inscriptions_db_conn_rw: &Connection,
     write_block: bool,
     hord_db_path: &PathBuf,
     ctx: &Context,
@@ -89,7 +96,7 @@ pub fn update_hord_db_and_augment_bitcoin_block(
         insert_entry_in_blocks(
             new_block.block_identifier.index as u32,
             &compacted_block,
-            &rw_hord_db_conn,
+            &blocks_db_rw,
             &ctx,
         );
     }
@@ -114,11 +121,10 @@ pub fn update_hord_db_and_augment_bitcoin_block(
             let moved_traversal_tx = traversal_tx.clone();
             let moved_ctx = ctx.clone();
             let block_identifier = new_block.block_identifier.clone();
-            let hord_db_path = hord_db_path.clone();
+            let blocks_db = open_readonly_hord_db_conn_rocks_db(hord_db_path, &ctx)?;
             traversal_data_pool.execute(move || {
-                let hord_db_conn = open_readonly_hord_db_conn(&hord_db_path, &moved_ctx).unwrap();
                 let traversal = retrieve_satoshi_point_using_local_storage(
-                    &hord_db_conn,
+                    &blocks_db,
                     &block_identifier,
                     &transaction_id,
                     0,
@@ -139,19 +145,19 @@ pub fn update_hord_db_and_augment_bitcoin_block(
         }
     }
 
-    let mut storage = Storage::Sqlite(rw_hord_db_conn);
+    let mut storage = Storage::Sqlite(inscriptions_db_conn_rw);
     update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
         new_block,
         &mut storage,
         &traversals,
-        rw_hord_db_conn,
+        &inscriptions_db_conn_rw,
         &ctx,
     );
 
     // Have inscriptions been transfered?
     update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
         new_block,
-        &mut Storage::Sqlite(rw_hord_db_conn),
+        &mut storage,
         &ctx,
     )?;
     Ok(())
@@ -167,7 +173,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
     block: &mut BitcoinBlockData,
     storage: &mut Storage,
     traversals: &HashMap<TransactionIdentifier, TraversalResult>,
-    hord_db_conn: &Connection,
+    inscription_db_conn: &Connection,
     ctx: &Context,
 ) {
     for new_tx in block.transactions.iter_mut().skip(1) {
@@ -196,7 +202,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
                     Storage::Sqlite(rw_hord_db_conn) => {
                         if let Some(_entry) = find_inscription_with_ordinal_number(
                             &traversal.ordinal_number,
-                            &hord_db_conn,
+                            &inscription_db_conn,
                             &ctx,
                         ) {
                             ctx.try_log(|logger| {
@@ -211,7 +217,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
                             ordinals_events_indexes_to_discard.push_front(ordinal_event_index);
                         } else {
                             inscription.inscription_number =
-                                match find_latest_inscription_number(&hord_db_conn, &ctx) {
+                                match find_latest_inscription_number(&inscription_db_conn, &ctx) {
                                     Ok(inscription_number) => inscription_number + 1,
                                     Err(e) => {
                                         ctx.try_log(|logger| {

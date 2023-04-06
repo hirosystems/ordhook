@@ -8,12 +8,13 @@ use chainhook_types::{
 };
 use hiro_system_kit::slog;
 
+use rocksdb::DB;
 use rusqlite::{Connection, OpenFlags, ToSql};
 use threadpool::ThreadPool;
 
 use crate::{
     indexer::bitcoin::{
-        retrieve_block_hash_with_retry, retrieve_full_block_breakdown_with_retry,
+        download_block_with_retry, parse_downloaded_block, retrieve_block_hash_with_retry,
         standardize_bitcoin_block, BitcoinBlockFullBreakdown,
     },
     observer::BitcoinConfig,
@@ -47,15 +48,6 @@ pub fn open_readwrite_hord_db_conn(
 
 pub fn initialize_hord_db(path: &PathBuf, ctx: &Context) -> Connection {
     let conn = create_or_open_readwrite_db(path, ctx);
-    if let Err(e) = conn.execute(
-        "CREATE TABLE IF NOT EXISTS blocks (
-            id INTEGER NOT NULL PRIMARY KEY,
-            compacted_bytes TEXT NOT NULL
-        )",
-        [],
-    ) {
-        ctx.try_log(|logger| slog::error!(logger, "{}", e.to_string()));
-    }
     if let Err(e) = conn.execute(
         "CREATE TABLE IF NOT EXISTS inscriptions (
             inscription_id TEXT NOT NULL PRIMARY KEY,
@@ -121,7 +113,7 @@ fn create_or_open_readwrite_db(cache_path: &PathBuf, ctx: &Context) -> Connectio
     // db.busy_handler(Some(tx_busy_handler))?;
 
     let mmap_size: i64 = 256 * 1024 * 1024;
-    let page_size: i64 = 32768;
+    let page_size: i64 = 16384;
     conn.pragma_update(None, "mmap_size", mmap_size).unwrap();
     conn.pragma_update(None, "page_size", page_size).unwrap();
     conn.pragma_update(None, "journal_mode", &"WAL").unwrap();
@@ -157,14 +149,47 @@ fn open_existing_readonly_db(path: &PathBuf, ctx: &Context) -> Connection {
     return conn;
 }
 
+// #[derive(zerocopy::FromBytes, zerocopy::AsBytes)]
+// #[repr(C)]
+// pub struct T {
+//     ci: [u8; 4],
+//     cv: u64,
+//     t: Vec<Tx>,
+// }
+
+// #[derive(zerocopy::FromBytes, zerocopy::AsBytes)]
+// #[repr(C, packed)]
+// pub struct Tx {
+//     t: [u8; 4],
+//     i: TxIn,
+//     o: TxOut,
+// }
+
+// #[derive(zerocopy::FromBytes, zerocopy::AsBytes)]
+// #[repr(C, packed)]
+// pub struct TxIn {
+//     i: [u8; 4],
+//     b: u32,
+//     o: u16,
+//     v: u64
+// }
+
+// #[derive(zerocopy::FromBytes, zerocopy::AsBytes)]
+// #[repr(C, packed)]
+// pub struct TxOut {
+//     v: u64,
+// }
+
 #[derive(Debug, Serialize, Deserialize)]
-// pub struct CompactedBlock(Vec<(Vec<(u32, u16, u64)>, Vec<u64>)>);
+#[repr(C)]
 pub struct CompactedBlock(
-    pub (
+    pub  (
         ([u8; 4], u64),
         Vec<([u8; 4], Vec<([u8; 4], u32, u16, u64)>, Vec<u64>)>,
     ),
 );
+
+use std::io::{Read, Write};
 
 impl CompactedBlock {
     pub fn from_full_block(block: &BitcoinBlockFullBreakdown) -> CompactedBlock {
@@ -238,31 +263,108 @@ impl CompactedBlock {
         value
     }
 
-    pub fn to_hex_bytes(&self) -> String {
-        let bytes = serde_cbor::to_vec(self).unwrap();
-        let hex_bytes = hex_simd::encode_to_string(bytes, hex_simd::AsciiCase::Lower);
-        hex_bytes
+    pub fn from_cbor_bytes(bytes: &[u8]) -> CompactedBlock {
+        serde_cbor::from_slice(&bytes[..]).unwrap()
+    }
+
+    fn serialize<W: Write>(&self, fd: &mut W) -> std::io::Result<()> {
+        fd.write_all(&self.0 .0 .0)?;
+        fd.write(&self.0 .0 .1.to_be_bytes())?;
+        fd.write(&self.0 .1.len().to_be_bytes())?;
+        for (id, inputs, outputs) in self.0 .1.iter() {
+            fd.write_all(id)?;
+            fd.write(&inputs.len().to_be_bytes())?;
+            for (txid, block, vout, value) in inputs.iter() {
+                fd.write_all(txid)?;
+                fd.write(&block.to_be_bytes())?;
+                fd.write(&vout.to_be_bytes())?;
+                fd.write(&value.to_be_bytes())?;
+            }
+            fd.write(&outputs.len().to_be_bytes())?;
+            for value in outputs.iter() {
+                fd.write(&value.to_be_bytes())?;
+            }
+        }
+        Ok(())
+    }
+
+    fn deserialize<R: Read>(fd: &mut R) -> std::io::Result<CompactedBlock> {
+        let mut ci = [0u8; 4];
+        fd.read_exact(&mut ci)?;
+        let mut cv = [0u8; 8];
+        fd.read_exact(&mut cv)?;
+        let mut tx_len = [0u8; 8];
+        fd.read_exact(&mut tx_len)?;
+        let mut txs = vec![];
+        for _ in 0..usize::from_be_bytes(tx_len) {
+            let mut txid = [0u8; 4];
+            fd.read_exact(&mut txid)?;
+            let mut inputs_len = [0u8; 8];
+            fd.read_exact(&mut inputs_len)?;
+            let mut inputs = vec![];
+            for _ in 0..usize::from_be_bytes(inputs_len) {
+                let mut txin = [0u8; 4];
+                fd.read_exact(&mut txin)?;
+                let mut block = [0u8; 4];
+                fd.read_exact(&mut block)?;
+                let mut vout = [0u8; 2];
+                fd.read_exact(&mut vout)?;
+                let mut value = [0u8; 8];
+                fd.read_exact(&mut value)?;
+                inputs.push((
+                    txin,
+                    u32::from_be_bytes(block),
+                    u16::from_be_bytes(vout),
+                    u64::from_be_bytes(value),
+                ))
+            }
+            let mut outputs_len = [0u8; 8];
+            fd.read_exact(&mut outputs_len)?;
+            let mut outputs = vec![];
+            for _ in 0..usize::from_be_bytes(outputs_len) {
+                let mut v = [0u8; 8];
+                fd.read_exact(&mut v)?;
+                outputs.push(u64::from_be_bytes(v))
+            }
+            txs.push((txid, inputs, outputs));
+        }
+        Ok(CompactedBlock(((ci, u64::from_be_bytes(cv)), txs)))
     }
 }
 
-pub fn find_latest_compacted_block_known(hord_db_conn: &Connection) -> u32 {
-    let args: &[&dyn ToSql] = &[];
-    let mut stmt = match hord_db_conn.prepare("SELECT id FROM blocks ORDER BY id DESC LIMIT 1") {
-        Ok(stmt) => stmt,
-        Err(_) => return 0,
-    };
-    let mut rows = match stmt.query(args) {
-        Ok(rows) => rows,
-        Err(_) => return 0,
-    };
-    while let Ok(Some(row)) = rows.next() {
-        let id: u32 = row.get(0).unwrap();
-        return id;
-    }
-    0
+fn get_default_hord_db_file_path_rocks_db(base_dir: &PathBuf) -> PathBuf {
+    let mut destination_path = base_dir.clone();
+    destination_path.push("hord.rocksdb");
+    destination_path
 }
 
-pub fn find_compacted_block_at_block_height(
+pub fn open_readonly_hord_db_conn_rocks_db(
+    base_dir: &PathBuf,
+    _ctx: &Context,
+) -> Result<DB, String> {
+    let path = get_default_hord_db_file_path_rocks_db(&base_dir);
+    let mut opts = rocksdb::Options::default();
+    opts.set_compression_type(rocksdb::DBCompressionType::Lz4);
+    opts.set_max_open_files(1000);
+    let db = DB::open_for_read_only(&opts, path, false).unwrap();
+    Ok(db)
+}
+
+pub fn open_readwrite_hord_db_conn_rocks_db(
+    base_dir: &PathBuf,
+    _ctx: &Context,
+) -> Result<DB, String> {
+    let path = get_default_hord_db_file_path_rocks_db(&base_dir);
+    let mut opts = rocksdb::Options::default();
+    opts.create_if_missing(true);
+    opts.set_compression_type(rocksdb::DBCompressionType::Lz4);
+    opts.set_max_open_files(1000);
+    let db = DB::open(&opts, path).unwrap();
+    Ok(db)
+}
+
+// Legacy - to remove after migrations
+pub fn find_block_at_block_height_sqlite(
     block_height: u32,
     hord_db_conn: &Connection,
 ) -> Option<CompactedBlock> {
@@ -283,6 +385,57 @@ pub fn find_compacted_block_at_block_height(
     return None;
 }
 
+pub fn insert_entry_in_blocks(
+    block_height: u32,
+    compacted_block: &CompactedBlock,
+    blocks_db_rw: &DB,
+    _ctx: &Context,
+) {
+    let mut bytes = vec![];
+    let _ = compacted_block.serialize(&mut bytes);
+    let block_height_bytes = block_height.to_be_bytes();
+    blocks_db_rw
+        .put(&block_height_bytes, bytes)
+        .expect("unable to insert blocks");
+    blocks_db_rw
+        .put(b"metadata::last_insert", block_height_bytes)
+        .expect("unable to insert metadata");
+}
+
+pub fn find_last_block_inserted(blocks_db: &DB) -> u32 {
+    match blocks_db.get(b"metadata::last_insert") {
+        Ok(Some(bytes)) => u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]),
+        _ => 0,
+    }
+}
+
+pub fn find_block_at_block_height(block_height: u32, blocks_db: &DB) -> Option<CompactedBlock> {
+    match blocks_db.get(block_height.to_be_bytes()) {
+        Ok(Some(ref res)) => {
+            let res = CompactedBlock::deserialize(&mut std::io::Cursor::new(&res)).unwrap();
+            Some(res)
+        }
+        _ => None,
+    }
+}
+
+pub fn remove_entry_from_blocks(block_height: u32, blocks_db_rw: &DB, ctx: &Context) {
+    if let Err(e) = blocks_db_rw.delete(block_height.to_be_bytes()) {
+        ctx.try_log(|logger| slog::error!(logger, "{}", e.to_string()));
+    }
+}
+
+pub fn delete_blocks_in_block_range(
+    start_block: u32,
+    end_block: u32,
+    blocks_db_rw: &DB,
+    ctx: &Context,
+) {
+    for block_height in start_block..=end_block {
+        remove_entry_from_blocks(block_height, blocks_db_rw, ctx);
+    }
+}
+
 pub fn store_new_inscription(
     inscription_data: &OrdinalInscriptionRevealData,
     block_identifier: &BlockIdentifier,
@@ -301,10 +454,10 @@ pub fn update_transfered_inscription(
     inscription_id: &str,
     outpoint_post_transfer: &str,
     offset: u64,
-    hord_db_conn: &Connection,
+    inscriptions_db_conn_rw: &Connection,
     ctx: &Context,
 ) {
-    if let Err(e) = hord_db_conn.execute(
+    if let Err(e) = inscriptions_db_conn_rw.execute(
         "UPDATE inscriptions SET outpoint_to_watch = ?, offset = ? WHERE inscription_id = ?",
         rusqlite::params![&outpoint_post_transfer, &offset, &inscription_id],
     ) {
@@ -315,10 +468,10 @@ pub fn update_transfered_inscription(
 pub fn patch_inscription_number(
     inscription_id: &str,
     inscription_number: u64,
-    hord_db_conn: &Connection,
+    inscriptions_db_conn_rw: &Connection,
     ctx: &Context,
 ) {
-    if let Err(e) = hord_db_conn.execute(
+    if let Err(e) = inscriptions_db_conn_rw.execute(
         "UPDATE inscriptions SET inscription_number = ? WHERE inscription_id = ?",
         rusqlite::params![&inscription_number, &inscription_id],
     ) {
@@ -327,11 +480,11 @@ pub fn patch_inscription_number(
 }
 
 pub fn find_latest_inscription_block_height(
-    hord_db_conn: &Connection,
+    inscriptions_db_conn: &Connection,
     _ctx: &Context,
 ) -> Result<Option<u64>, String> {
     let args: &[&dyn ToSql] = &[];
-    let mut stmt = hord_db_conn
+    let mut stmt = inscriptions_db_conn
         .prepare("SELECT block_height FROM inscriptions ORDER BY block_height DESC LIMIT 1")
         .unwrap();
     let mut rows = stmt.query(args).unwrap();
@@ -343,11 +496,11 @@ pub fn find_latest_inscription_block_height(
 }
 
 pub fn find_latest_inscription_number(
-    hord_db_conn: &Connection,
+    inscriptions_db_conn: &Connection,
     _ctx: &Context,
 ) -> Result<u64, String> {
     let args: &[&dyn ToSql] = &[];
-    let mut stmt = hord_db_conn
+    let mut stmt = inscriptions_db_conn
         .prepare(
             "SELECT inscription_number FROM inscriptions ORDER BY inscription_number DESC LIMIT 1",
         )
@@ -362,11 +515,11 @@ pub fn find_latest_inscription_number(
 
 pub fn find_inscription_with_ordinal_number(
     ordinal_number: &u64,
-    hord_db_conn: &Connection,
+    inscriptions_db_conn: &Connection,
     _ctx: &Context,
 ) -> Option<String> {
     let args: &[&dyn ToSql] = &[&ordinal_number.to_sql().unwrap()];
-    let mut stmt = hord_db_conn
+    let mut stmt = inscriptions_db_conn
         .prepare("SELECT inscription_id FROM inscriptions WHERE ordinal_number = ?")
         .unwrap();
     let mut rows = stmt.query(args).unwrap();
@@ -378,10 +531,10 @@ pub fn find_inscription_with_ordinal_number(
 }
 
 pub fn find_all_inscriptions(
-    hord_db_conn: &Connection,
+    inscriptions_db_conn: &Connection,
 ) -> BTreeMap<u64, Vec<(TransactionIdentifier, TraversalResult)>> {
     let args: &[&dyn ToSql] = &[];
-    let mut stmt = hord_db_conn
+    let mut stmt = inscriptions_db_conn
         .prepare("SELECT inscription_number, ordinal_number, block_height, inscription_id FROM inscriptions ORDER BY inscription_number ASC")
         .unwrap();
     let mut results: BTreeMap<u64, Vec<(TransactionIdentifier, TraversalResult)>> = BTreeMap::new();
@@ -444,52 +597,13 @@ pub fn find_inscriptions_at_wached_outpoint(
     return Ok(results);
 }
 
-pub fn insert_entry_in_blocks(
-    block_id: u32,
-    compacted_block: &CompactedBlock,
-    hord_db_conn: &Connection,
-    ctx: &Context,
-) {
-    let serialized_compacted_block = compacted_block.to_hex_bytes();
-
-    if let Err(e) = hord_db_conn.execute(
-        "INSERT INTO blocks (id, compacted_bytes) VALUES (?1, ?2)",
-        rusqlite::params![&block_id, &serialized_compacted_block],
-    ) {
-        ctx.try_log(|logger| slog::error!(logger, "{}", e.to_string()));
-    }
-}
-
-pub fn remove_entry_from_blocks(block_id: u32, hord_db_conn: &Connection, ctx: &Context) {
-    if let Err(e) = hord_db_conn.execute(
-        "DELETE FROM blocks WHERE id = ?1",
-        rusqlite::params![&block_id],
-    ) {
-        ctx.try_log(|logger| slog::error!(logger, "{}", e.to_string()));
-    }
-}
-
-pub fn delete_blocks_in_block_range(
-    start_block: u32,
-    end_block: u32,
-    rw_hord_db_conn: &Connection,
-    ctx: &Context,
-) {
-    if let Err(e) = rw_hord_db_conn.execute(
-        "DELETE FROM blocks WHERE id >= ?1 AND id <= ?2",
-        rusqlite::params![&start_block, &end_block],
-    ) {
-        ctx.try_log(|logger| slog::error!(logger, "{}", e.to_string()));
-    }
-}
-
 pub fn delete_inscriptions_in_block_range(
     start_block: u32,
     end_block: u32,
-    rw_hord_db_conn: &Connection,
+    inscriptions_db_conn_rw: &Connection,
     ctx: &Context,
 ) {
-    if let Err(e) = rw_hord_db_conn.execute(
+    if let Err(e) = inscriptions_db_conn_rw.execute(
         "DELETE FROM inscriptions WHERE block_height >= ?1 AND block_height <= ?2",
         rusqlite::params![&start_block, &end_block],
     ) {
@@ -499,10 +613,10 @@ pub fn delete_inscriptions_in_block_range(
 
 pub fn remove_entry_from_inscriptions(
     inscription_id: &str,
-    hord_db_conn: &Connection,
+    inscriptions_db_rw_conn: &Connection,
     ctx: &Context,
 ) {
-    if let Err(e) = hord_db_conn.execute(
+    if let Err(e) = inscriptions_db_rw_conn.execute(
         "DELETE FROM inscriptions WHERE inscription_id = ?1",
         rusqlite::params![&inscription_id],
     ) {
@@ -513,17 +627,24 @@ pub fn remove_entry_from_inscriptions(
 pub fn delete_data_in_hord_db(
     start_block: u64,
     end_block: u64,
-    rw_hord_db_conn: &Connection,
+    blocks_db_rw: &DB,
+    inscriptions_db_conn_rw: &Connection,
     ctx: &Context,
 ) -> Result<(), String> {
-    delete_blocks_in_block_range(start_block as u32, end_block as u32, rw_hord_db_conn, &ctx);
-    delete_inscriptions_in_block_range(start_block as u32, end_block as u32, rw_hord_db_conn, &ctx);
+    delete_blocks_in_block_range(start_block as u32, end_block as u32, blocks_db_rw, &ctx);
+    delete_inscriptions_in_block_range(
+        start_block as u32,
+        end_block as u32,
+        inscriptions_db_conn_rw,
+        &ctx,
+    );
     Ok(())
 }
 
 pub async fn fetch_and_cache_blocks_in_hord_db(
     bitcoin_config: &BitcoinConfig,
-    rw_hord_db_conn: &Connection,
+    blocks_db_rw: &DB,
+    inscriptions_db_conn_rw: &Connection,
     start_block: u64,
     end_block: u64,
     network_thread: usize,
@@ -532,11 +653,11 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
 ) -> Result<(), String> {
     let number_of_blocks_to_process = end_block - start_block + 1;
     let retrieve_block_hash_pool = ThreadPool::new(network_thread);
-    let (block_hash_tx, block_hash_rx) = crossbeam_channel::bounded(128);
+    let (block_hash_tx, block_hash_rx) = crossbeam_channel::bounded(256);
     let retrieve_block_data_pool = ThreadPool::new(network_thread);
-    let (block_data_tx, block_data_rx) = crossbeam_channel::bounded(64);
+    let (block_data_tx, block_data_rx) = crossbeam_channel::bounded(256);
     let compress_block_data_pool = ThreadPool::new(16);
-    let (block_compressed_tx, block_compressed_rx) = crossbeam_channel::bounded(32);
+    let (block_compressed_tx, block_compressed_rx) = crossbeam_channel::bounded(512);
 
     // Thread pool #1: given a block height, retrieve the block hash
     for block_cursor in start_block..=end_block {
@@ -565,11 +686,8 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
                 retrieve_block_data_pool.execute(move || {
                     moved_ctx
                         .try_log(|logger| slog::debug!(logger, "Fetching block #{block_height}"));
-                    let future = retrieve_full_block_breakdown_with_retry(
-                        &block_hash,
-                        &moved_bitcoin_config,
-                        &moved_ctx,
-                    );
+                    let future =
+                        download_block_with_retry(&block_hash, &moved_bitcoin_config, &moved_ctx);
                     let block_data = hiro_system_kit::nestable_block_on(future).unwrap();
                     let _ = block_data_tx.send(Some(block_data));
                 });
@@ -581,9 +699,10 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
 
     let _ = hiro_system_kit::thread_named("Block data compression")
         .spawn(move || {
-            while let Ok(Some(block_data)) = block_data_rx.recv() {
+            while let Ok(Some(downloaded_block)) = block_data_rx.recv() {
                 let block_compressed_tx_moved = block_compressed_tx.clone();
                 compress_block_data_pool.execute(move || {
+                    let block_data = parse_downloaded_block(downloaded_block).unwrap();
                     let compressed_block = CompactedBlock::from_full_block(&block_data);
                     let block_index = block_data.height as u32;
                     let _ = block_compressed_tx_moved.send(Some((
@@ -604,25 +723,15 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
     let mut inbox = HashMap::new();
 
     while let Ok(Some((block_height, compacted_block, raw_block))) = block_compressed_rx.recv() {
-        insert_entry_in_blocks(block_height, &compacted_block, &rw_hord_db_conn, &ctx);
+        insert_entry_in_blocks(block_height, &compacted_block, &blocks_db_rw, &ctx);
         blocks_stored += 1;
 
-        // println!("{} < {}", raw_block.height, cursor);
-        // Early return, only considering blocks after 1st inscription
-        // if raw_block.height < cursor {
-        //     continue;
-        // }
-
-        // let block_height = raw_block.height;
         inbox.insert(raw_block.height, raw_block);
 
         // In the context of ordinals, we're constrained to process blocks sequentially
         // Blocks are processed by a threadpool and could be coming out of order.
         // Inbox block for later if the current block is not the one we should be
         // processing.
-        // if block_height != cursor {
-        //     continue;
-        // }
 
         // Is the action of processing a block allows us
         // to process more blocks present in the inbox?
@@ -641,7 +750,8 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
 
             if let Err(e) = update_hord_db_and_augment_bitcoin_block(
                 &mut new_block,
-                &rw_hord_db_conn,
+                blocks_db_rw,
+                &inscriptions_db_conn_rw,
                 false,
                 &hord_db_path,
                 &ctx,
@@ -692,7 +802,7 @@ impl TraversalResult {
 }
 
 pub fn retrieve_satoshi_point_using_local_storage(
-    hord_db_conn: &Connection,
+    blocks_db: &DB,
     block_identifier: &BlockIdentifier,
     transaction_identifier: &TransactionIdentifier,
     inscription_number: u64,
@@ -717,18 +827,17 @@ pub fn retrieve_satoshi_point_using_local_storage(
     let mut hops: u32 = 0;
     loop {
         hops += 1;
-        let res = match find_compacted_block_at_block_height(ordinal_block_number, &hord_db_conn) {
+        let res = match find_block_at_block_height(ordinal_block_number, &blocks_db) {
             Some(res) => res,
             None => {
                 return Err(format!("block #{ordinal_block_number} not in database"));
             }
         };
-
         let coinbase_txid = &res.0 .0 .0;
         let txid = tx_cursor.0;
 
         // ctx.try_log(|logger| {
-        //     slog::debug!(
+        //     slog::info!(
         //         logger,
         //         "{ordinal_block_number}:{:?}:{:?}",
         //         hex::encode(&coinbase_txid),
@@ -737,7 +846,6 @@ pub fn retrieve_satoshi_point_using_local_storage(
         // });
 
         // to remove
-        //std::thread::sleep(std::time::Duration::from_millis(300));
 
         // evaluate exit condition: did we reach the **final** coinbase transaction
         if coinbase_txid.eq(&txid) {

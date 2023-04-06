@@ -9,8 +9,9 @@ use chainhook_event_observer::chainhooks::types::{
     BitcoinChainhookFullSpecification, BitcoinPredicateType, Protocols,
 };
 use chainhook_event_observer::hord::db::{
-    fetch_and_cache_blocks_in_hord_db, find_all_inscriptions, find_compacted_block_at_block_height,
-    find_latest_compacted_block_known, open_readonly_hord_db_conn, open_readwrite_hord_db_conn,
+    fetch_and_cache_blocks_in_hord_db, find_all_inscriptions, find_block_at_block_height,
+    find_last_block_inserted, open_readonly_hord_db_conn, open_readonly_hord_db_conn_rocks_db,
+    open_readwrite_hord_db_conn, open_readwrite_hord_db_conn_rocks_db,
 };
 use chainhook_event_observer::hord::{
     update_storage_and_augment_bitcoin_block_with_inscription_reveal_data,
@@ -18,7 +19,7 @@ use chainhook_event_observer::hord::{
 };
 use chainhook_event_observer::indexer;
 use chainhook_event_observer::indexer::bitcoin::{
-    retrieve_block_hash_with_retry, retrieve_full_block_breakdown_with_retry,
+    download_and_parse_block_with_retry, retrieve_block_hash_with_retry,
 };
 use chainhook_event_observer::observer::{gather_proofs, EventObserverConfig};
 use chainhook_event_observer::utils::{file_append, send_request, Context};
@@ -83,11 +84,17 @@ pub async fn scan_bitcoin_chain_with_predicate(
 
     if let BitcoinPredicateType::Protocol(Protocols::Ordinal(_)) = &predicate_spec.predicate {
         is_predicate_evaluating_ordinals = true;
-        if let Ok(hord_db_conn) = open_readonly_hord_db_conn(&config.expected_cache_path(), &ctx) {
-            inscriptions_cache = find_all_inscriptions(&hord_db_conn);
+        if let Ok(inscriptions_db_conn) =
+            open_readonly_hord_db_conn(&config.expected_cache_path(), &ctx)
+        {
+            inscriptions_cache = find_all_inscriptions(&inscriptions_db_conn);
             // Will we have to update the blocks table?
-            if find_compacted_block_at_block_height(end_block as u32, &hord_db_conn).is_none() {
-                hord_blocks_requires_update = true;
+            if let Ok(blocks_db) =
+                open_readonly_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx)
+            {
+                if find_block_at_block_height(end_block as u32, &blocks_db).is_none() {
+                    hord_blocks_requires_update = true;
+                }
             }
         }
     }
@@ -103,20 +110,23 @@ pub async fn scan_bitcoin_chain_with_predicate(
             // TODO: make sure that we have a contiguous chain
             // check_compacted_blocks_chain_integrity(&hord_db_conn);
 
-            let hord_db_conn = open_readonly_hord_db_conn(&config.expected_cache_path(), ctx)?;
+            let blocks_db_rw =
+                open_readwrite_hord_db_conn_rocks_db(&config.expected_cache_path(), ctx)?;
 
-            let start_block = find_latest_compacted_block_known(&hord_db_conn) as u64;
+            let start_block = find_last_block_inserted(&blocks_db_rw) as u64;
             if start_block < end_block {
                 warn!(
                     ctx.expect_logger(),
                     "Database hord.sqlite appears to be outdated regarding the window of blocks provided. Syncing {} missing blocks",
                     (end_block - start_block)
                 );
-                let rw_hord_db_conn =
+
+                let inscriptions_db_conn_rw =
                     open_readwrite_hord_db_conn(&config.expected_cache_path(), ctx)?;
                 fetch_and_cache_blocks_in_hord_db(
                     &config.get_event_observer_config().get_bitcoin_config(),
-                    &rw_hord_db_conn,
+                    &blocks_db_rw,
+                    &inscriptions_db_conn_rw,
                     start_block,
                     end_block,
                     8,
@@ -125,7 +135,7 @@ pub async fn scan_bitcoin_chain_with_predicate(
                 )
                 .await?;
 
-                inscriptions_cache = find_all_inscriptions(&hord_db_conn);
+                inscriptions_cache = find_all_inscriptions(&inscriptions_db_conn_rw);
             }
         }
     }
@@ -158,7 +168,7 @@ pub async fn scan_bitcoin_chain_with_predicate(
 
             let block_hash = retrieve_block_hash_with_retry(&cursor, &bitcoin_config, ctx).await?;
             let block_breakdown =
-                retrieve_full_block_breakdown_with_retry(&block_hash, &bitcoin_config, ctx).await?;
+                download_and_parse_block_with_retry(&block_hash, &bitcoin_config, ctx).await?;
             let mut block = indexer::bitcoin::standardize_bitcoin_block(
                 block_breakdown,
                 &event_observer_config.bitcoin_network,
@@ -204,7 +214,7 @@ pub async fn scan_bitcoin_chain_with_predicate(
             blocks_scanned += 1;
             let block_hash = retrieve_block_hash_with_retry(&cursor, &bitcoin_config, ctx).await?;
             let block_breakdown =
-                retrieve_full_block_breakdown_with_retry(&block_hash, &bitcoin_config, ctx).await?;
+                download_and_parse_block_with_retry(&block_hash, &bitcoin_config, ctx).await?;
             let block = indexer::bitcoin::standardize_bitcoin_block(
                 block_breakdown,
                 &event_observer_config.bitcoin_network,

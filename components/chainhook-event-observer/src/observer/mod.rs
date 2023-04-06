@@ -10,12 +10,12 @@ use crate::chainhooks::types::{
     ChainhookConfig, ChainhookFullSpecification, ChainhookSpecification,
 };
 
-use crate::hord::db::open_readwrite_hord_db_conn;
+use crate::hord::db::{open_readwrite_hord_db_conn, open_readwrite_hord_db_conn_rocks_db};
 use crate::hord::{
     revert_hord_db_with_augmented_bitcoin_block, update_hord_db_and_augment_bitcoin_block,
 };
 use crate::indexer::bitcoin::{
-    retrieve_full_block_breakdown_with_retry, standardize_bitcoin_block, BitcoinBlockFullBreakdown,
+    download_and_parse_block_with_retry, standardize_bitcoin_block, BitcoinBlockFullBreakdown,
     NewBitcoinBlock,
 };
 use crate::indexer::fork_scratch_pad::ForkScratchPad;
@@ -452,7 +452,7 @@ pub async fn start_event_observer(
                             };
                             let block_hash = hex::encode(message.get(1).unwrap().to_vec());
 
-                            let block = match retrieve_full_block_breakdown_with_retry(
+                            let block = match download_and_parse_block_with_retry(
                                 &block_hash,
                                 &bitcoin_config,
                                 &ctx_moved,
@@ -464,7 +464,7 @@ pub async fn start_event_observer(
                                     ctx_moved.try_log(|logger| {
                                         slog::warn!(
                                             logger,
-                                            "unable to retrieve_full_block_breakdown: {}",
+                                            "unable to download_and_parse_block: {}",
                                             e.to_string()
                                         )
                                     });
@@ -557,7 +557,7 @@ pub fn gather_proofs<'a>(
                     ctx.try_log(|logger| {
                         slog::info!(
                             logger,
-                            "collecting proof for transaction {}",
+                            "Collecting proof for transaction {}",
                             transaction.transaction_identifier.hash
                         )
                     });
@@ -646,7 +646,27 @@ pub async fn start_observer_commands_handler(
                     BlockchainEvent::BlockchainUpdatedWithHeaders(data) => {
                         let mut new_blocks = vec![];
                         let mut confirmed_blocks = vec![];
-                        let rw_hord_db_conn =
+                        let blocks_db = match open_readwrite_hord_db_conn_rocks_db(
+                            &config.get_cache_path_buf(),
+                            &ctx,
+                        ) {
+                            Ok(conn) => conn,
+                            Err(e) => {
+                                if let Some(ref tx) = observer_events_tx {
+                                    let _ = tx.send(ObserverEvent::Error(format!(
+                                        "Channel error: {:?}",
+                                        e
+                                    )));
+                                } else {
+                                    ctx.try_log(|logger| {
+                                        slog::error!(logger, "Unable to open readwtite connection",)
+                                    });
+                                }
+                                continue;
+                            }
+                        };
+
+                        let inscriptions_db_conn_rw =
                             match open_readwrite_hord_db_conn(&config.get_cache_path_buf(), &ctx) {
                                 Ok(conn) => conn,
                                 Err(e) => {
@@ -666,12 +686,14 @@ pub async fn start_observer_commands_handler(
                                     continue;
                                 }
                             };
+
                         for header in data.new_headers.iter() {
                             match bitcoin_block_store.get_mut(&header.block_identifier) {
                                 Some(block) => {
                                     if let Err(e) = update_hord_db_and_augment_bitcoin_block(
                                         block,
-                                        &rw_hord_db_conn,
+                                        &blocks_db,
+                                        &inscriptions_db_conn_rw,
                                         true,
                                         &config.get_cache_path_buf(),
                                         &ctx,
@@ -726,7 +748,27 @@ pub async fn start_observer_commands_handler(
                         let mut blocks_to_rollback = vec![];
                         let mut confirmed_blocks = vec![];
 
-                        let rw_hord_db_conn =
+                        let blocks_db = match open_readwrite_hord_db_conn_rocks_db(
+                            &config.get_cache_path_buf(),
+                            &ctx,
+                        ) {
+                            Ok(conn) => conn,
+                            Err(e) => {
+                                if let Some(ref tx) = observer_events_tx {
+                                    let _ = tx.send(ObserverEvent::Error(format!(
+                                        "Channel error: {:?}",
+                                        e
+                                    )));
+                                } else {
+                                    ctx.try_log(|logger| {
+                                        slog::error!(logger, "Unable to open readwtite connection",)
+                                    });
+                                }
+                                continue;
+                            }
+                        };
+
+                        let inscriptions_db_conn_rw =
                             match open_readwrite_hord_db_conn(&config.get_cache_path_buf(), &ctx) {
                                 Ok(conn) => conn,
                                 Err(e) => {
@@ -752,7 +794,8 @@ pub async fn start_observer_commands_handler(
                                 Some(block) => {
                                     if let Err(e) = revert_hord_db_with_augmented_bitcoin_block(
                                         block,
-                                        &rw_hord_db_conn,
+                                        &blocks_db,
+                                        &inscriptions_db_conn_rw,
                                         &ctx,
                                     ) {
                                         ctx.try_log(|logger| {
@@ -782,7 +825,8 @@ pub async fn start_observer_commands_handler(
                                 Some(block) => {
                                     if let Err(e) = update_hord_db_and_augment_bitcoin_block(
                                         block,
-                                        &rw_hord_db_conn,
+                                        &blocks_db,
+                                        &inscriptions_db_conn_rw,
                                         true,
                                         &config.get_cache_path_buf(),
                                         &ctx,
@@ -1298,23 +1342,22 @@ pub async fn handle_new_bitcoin_block(
     // into account the last 7 blocks.
 
     let block_hash = bitcoin_block.burn_block_hash.strip_prefix("0x").unwrap();
-    let block =
-        match retrieve_full_block_breakdown_with_retry(block_hash, bitcoin_config, ctx).await {
-            Ok(block) => block,
-            Err(e) => {
-                ctx.try_log(|logger| {
-                    slog::warn!(
-                        logger,
-                        "unable to retrieve_full_block_breakdown: {}",
-                        e.to_string()
-                    )
-                });
-                return Json(json!({
-                    "status": 500,
-                    "result": "unable to retrieve_full_block",
-                }));
-            }
-        };
+    let block = match download_and_parse_block_with_retry(block_hash, bitcoin_config, ctx).await {
+        Ok(block) => block,
+        Err(e) => {
+            ctx.try_log(|logger| {
+                slog::warn!(
+                    logger,
+                    "unable to download_and_parse_block: {}",
+                    e.to_string()
+                )
+            });
+            return Json(json!({
+                "status": 500,
+                "result": "unable to retrieve_full_block",
+            }));
+        }
+    };
 
     let header = block.get_block_header();
     match background_job_tx.lock() {
