@@ -344,9 +344,10 @@ pub fn open_readonly_hord_db_conn_rocks_db(
 ) -> Result<DB, String> {
     let path = get_default_hord_db_file_path_rocks_db(&base_dir);
     let mut opts = rocksdb::Options::default();
+    opts.create_if_missing(true);
     opts.set_compression_type(rocksdb::DBCompressionType::Lz4);
     opts.set_max_open_files(1000);
-    let db = DB::open_for_read_only(&opts, path, false).unwrap();
+    let db = DB::open_for_read_only(&opts, path, false).map_err(|e| format!("unable to open blocks_db: {}", e.to_string()))?;
     Ok(db)
 }
 
@@ -359,7 +360,7 @@ pub fn open_readwrite_hord_db_conn_rocks_db(
     opts.create_if_missing(true);
     opts.set_compression_type(rocksdb::DBCompressionType::Lz4);
     opts.set_max_open_files(1000);
-    let db = DB::open(&opts, path).unwrap();
+    let db = DB::open(&opts, path).map_err(|e| format!("unable to open blocks_db: {}", e.to_string()))?;
     Ok(db)
 }
 

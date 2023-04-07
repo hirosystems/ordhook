@@ -664,9 +664,15 @@ pub fn should_sync_hord_db(config: &Config, ctx: &Context) -> Result<Option<(u64
         }
     };
 
-    let start_block = {
-        let blocks_db = open_readonly_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
-        find_last_block_inserted(&blocks_db) as u64
+    let start_block = match open_readonly_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx) {
+        Ok(blocks_db) => find_last_block_inserted(&blocks_db) as u64,
+        Err(err) => {
+            warn!(
+                ctx.expect_logger(),
+                "{}", err
+            );
+            0
+        }
     };
 
     if start_block == 0 {

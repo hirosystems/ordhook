@@ -2,7 +2,7 @@ FROM rust:bullseye as build
 
 WORKDIR /src
 
-RUN apt update && apt install -y ca-certificates pkg-config libssl-dev
+RUN apt update && apt install -y ca-certificates pkg-config libssl-dev libclang-11-dev
 
 RUN rustup update 1.67.0 && rustup default 1.67.0
 
