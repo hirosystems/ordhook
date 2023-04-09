@@ -588,7 +588,21 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     let blocks_db =
                         open_readwrite_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
 
-                    for i in 0..783986 {
+                    for i in 0..=300000 {
+                        match find_block_at_block_height_sqlite(i, &sqlite_db_conn_rw) {
+                            Some(block) => {
+                                insert_entry_in_blocks(i, &block, &blocks_db, &ctx);
+                                info!(ctx.expect_logger(), "Block #{} inserted", i);
+                            }
+                            None => {
+                                error!(ctx.expect_logger(), "Block #{} missing", i);
+                            }
+                        }
+                    }
+                    let _ = blocks_db.flush();
+                    delete_blocks_in_block_range_sqlite(0, 300000, &sqlite_db_conn_rw, &ctx);
+
+                    for i in 300001..=500000 {
                         match find_block_at_block_height_sqlite(i, &sqlite_db_conn_rw) {
                             Some(block) => {
                                 insert_entry_in_blocks(i, &block, &blocks_db, &ctx);
@@ -599,10 +613,23 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                             }
                         }
                     }
-
                     let _ = blocks_db.flush();
+                    delete_blocks_in_block_range_sqlite(300001, 500000, &sqlite_db_conn_rw, &ctx);
 
-                    delete_blocks_in_block_range_sqlite(0, 783986, &sqlite_db_conn_rw, &ctx);
+
+                    for i in 500001..=783986 {
+                        match find_block_at_block_height_sqlite(i, &sqlite_db_conn_rw) {
+                            Some(block) => {
+                                insert_entry_in_blocks(i, &block, &blocks_db, &ctx);
+                                info!(ctx.expect_logger(), "Block #{} inserted", i);
+                            }
+                            None => {
+                                info!(ctx.expect_logger(), "Block #{} missing", i);
+                            }
+                        }
+                    }
+                    let _ = blocks_db.flush();
+                    delete_blocks_in_block_range_sqlite(500001, 783986, &sqlite_db_conn_rw, &ctx);
                 }
 
                 // Sync
