@@ -13,7 +13,8 @@ use chainhook_event_observer::chainhooks::types::{
     StacksPrintEventBasedPredicate,
 };
 use chainhook_event_observer::hord::db::{
-    delete_data_in_hord_db, fetch_and_cache_blocks_in_hord_db, find_block_at_block_height_sqlite,
+    delete_blocks_in_block_range_sqlite, delete_data_in_hord_db, fetch_and_cache_blocks_in_hord_db,
+    find_block_at_block_height, find_block_at_block_height_sqlite,
     find_inscriptions_at_wached_outpoint, find_last_block_inserted, initialize_hord_db,
     insert_entry_in_blocks, open_readonly_hord_db_conn, open_readonly_hord_db_conn_rocks_db,
     open_readwrite_hord_db_conn, open_readwrite_hord_db_conn_rocks_db,
@@ -202,6 +203,12 @@ enum DbCommand {
     /// Patch DB
     #[clap(name = "patch", bin_name = "patch")]
     Patch(PatchHordDbCommand),
+    /// Check integrity
+    #[clap(name = "check", bin_name = "check")]
+    Check(CheckHordDbCommand),
+    /// Legacy command
+    #[clap(name = "init", bin_name = "init")]
+    Init(InitHordDbCommand),
 }
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
@@ -298,6 +305,22 @@ struct PatchHordDbCommand {
     /// Load config file path
     #[clap(long = "config-path")]
     pub config_path: Option<String>,
+}
+
+#[derive(Parser, PartialEq, Clone, Debug)]
+struct CheckHordDbCommand {
+    /// Load config file path
+    #[clap(long = "config-path")]
+    pub config_path: Option<String>,
+}
+
+#[derive(Parser, PartialEq, Clone, Debug)]
+struct InitHordDbCommand {
+    /// Load config file path
+    #[clap(long = "config-path")]
+pub config_path: Option<String>,
+    /// # of Networking thread
+    pub network_threads: usize,
 }
 
 pub fn main() {
@@ -554,6 +577,65 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
             }
         },
         Command::Hord(HordCommand::Db(subcmd)) => match subcmd {
+            DbCommand::Init(cmd) => {
+                let config = Config::default(false, false, false, &cmd.config_path)?;
+
+                let sqlite_db_conn_rw =
+                    open_readwrite_hord_db_conn(&config.expected_cache_path(), &ctx)?;
+
+                // Migrate if required
+                if find_block_at_block_height_sqlite(1, &sqlite_db_conn_rw).is_some() {
+                    let blocks_db =
+                        open_readwrite_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
+
+                    for i in 0..783986 {
+                        match find_block_at_block_height_sqlite(i, &sqlite_db_conn_rw) {
+                            Some(block) => {
+                                insert_entry_in_blocks(i, &block, &blocks_db, &ctx);
+                                info!(ctx.expect_logger(), "Block #{} inserted", i);
+                            }
+                            None => {
+                                info!(ctx.expect_logger(), "Block #{} missing", i);
+                            }
+                        }
+                    }
+
+                    let _ = blocks_db.flush();
+
+                    delete_blocks_in_block_range_sqlite(0, 783986, &sqlite_db_conn_rw, &ctx);
+                }
+
+                // Sync
+                for _ in 0..5 {
+                    if let Some((start_block, end_block)) = should_sync_hord_db(&config, &ctx)? {
+                        if start_block == 0 {
+                            info!(
+                                ctx.expect_logger(),
+                                "Initializing hord indexing from block #{}", start_block
+                            );
+                        } else {
+                            info!(
+                                ctx.expect_logger(),
+                                "Resuming hord indexing from block #{}", start_block
+                            );
+                        }
+                        perform_hord_db_update(
+                            start_block,
+                            end_block,
+                            10,
+                            &config,
+                            &ctx,
+                        )
+                        .await?;
+                    } else {
+                        info!(ctx.expect_logger(), "Database hord up to date");
+                    }
+                }
+
+                // Start node
+                let mut service = Service::new(config, ctx);
+                return service.run(vec![]).await;
+            }
             DbCommand::Sync(cmd) => {
                 let config = Config::default(false, false, false, &cmd.config_path)?;
                 if let Some((start_block, end_block)) = should_sync_hord_db(&config, &ctx)? {
@@ -583,19 +665,20 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
             DbCommand::Rewrite(cmd) => {
                 let config = Config::default(false, false, false, &cmd.config_path)?;
                 // Delete data, if any
-                let blocks_db_rw =
-                    open_readwrite_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
-                let inscriptions_db_conn_rw =
-                    open_readwrite_hord_db_conn(&config.expected_cache_path(), &ctx)?;
+                {
+                    let blocks_db_rw =
+                        open_readwrite_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
+                    let inscriptions_db_conn_rw =
+                        open_readwrite_hord_db_conn(&config.expected_cache_path(), &ctx)?;
 
-                delete_data_in_hord_db(
-                    cmd.start_block,
-                    cmd.end_block,
-                    &blocks_db_rw,
-                    &inscriptions_db_conn_rw,
-                    &ctx,
-                )?;
-
+                    delete_data_in_hord_db(
+                        cmd.start_block,
+                        cmd.end_block,
+                        &blocks_db_rw,
+                        &inscriptions_db_conn_rw,
+                        &ctx,
+                    )?;
+                }
                 // Update data
                 perform_hord_db_update(
                     cmd.start_block,
@@ -605,6 +688,23 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     &ctx,
                 )
                 .await?;
+            }
+            DbCommand::Check(cmd) => {
+                let config = Config::default(false, false, false, &cmd.config_path)?;
+                // Delete data, if any
+                {
+                    let blocks_db_rw =
+                        open_readwrite_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
+
+                    let mut missing_blocks = vec![];
+                    for i in 1..=780000 {
+                        if find_block_at_block_height(i, &blocks_db_rw).is_none() {
+                            println!("Missing block {i}");
+                            missing_blocks.push(i);
+                        }
+                    }
+                    println!("{:?}", missing_blocks);
+                }
             }
             DbCommand::Drop(cmd) => {
                 let config = Config::default(false, false, false, &cmd.config_path)?;
@@ -664,13 +764,11 @@ pub fn should_sync_hord_db(config: &Config, ctx: &Context) -> Result<Option<(u64
         }
     };
 
-    let start_block = match open_readonly_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx) {
+    let start_block = match open_readonly_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx)
+    {
         Ok(blocks_db) => find_last_block_inserted(&blocks_db) as u64,
         Err(err) => {
-            warn!(
-                ctx.expect_logger(),
-                "{}", err
-            );
+            warn!(ctx.expect_logger(), "{}", err);
             0
         }
     };

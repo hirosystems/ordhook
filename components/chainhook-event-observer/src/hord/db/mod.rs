@@ -345,9 +345,9 @@ pub fn open_readonly_hord_db_conn_rocks_db(
     let path = get_default_hord_db_file_path_rocks_db(&base_dir);
     let mut opts = rocksdb::Options::default();
     opts.create_if_missing(true);
-    opts.set_compression_type(rocksdb::DBCompressionType::Lz4);
     opts.set_max_open_files(1000);
-    let db = DB::open_for_read_only(&opts, path, false).map_err(|e| format!("unable to open blocks_db: {}", e.to_string()))?;
+    let db = DB::open_for_read_only(&opts, path, false)
+        .map_err(|e| format!("unable to open blocks_db: {}", e.to_string()))?;
     Ok(db)
 }
 
@@ -358,9 +358,9 @@ pub fn open_readwrite_hord_db_conn_rocks_db(
     let path = get_default_hord_db_file_path_rocks_db(&base_dir);
     let mut opts = rocksdb::Options::default();
     opts.create_if_missing(true);
-    opts.set_compression_type(rocksdb::DBCompressionType::Lz4);
     opts.set_max_open_files(1000);
-    let db = DB::open(&opts, path).map_err(|e| format!("unable to open blocks_db: {}", e.to_string()))?;
+    let db = DB::open(&opts, path)
+        .map_err(|e| format!("unable to open blocks_db: {}", e.to_string()))?;
     Ok(db)
 }
 
@@ -434,6 +434,20 @@ pub fn delete_blocks_in_block_range(
 ) {
     for block_height in start_block..=end_block {
         remove_entry_from_blocks(block_height, blocks_db_rw, ctx);
+    }
+}
+
+pub fn delete_blocks_in_block_range_sqlite(
+    start_block: u32,
+    end_block: u32,
+    rw_hord_db_conn: &Connection,
+    ctx: &Context,
+) {
+    if let Err(e) = rw_hord_db_conn.execute(
+        "DELETE FROM blocks WHERE id >= ?1 AND id <= ?2",
+        rusqlite::params![&start_block, &end_block],
+    ) {
+        ctx.try_log(|logger| slog::error!(logger, "{}", e.to_string()));
     }
 }
 
@@ -722,11 +736,12 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
     let mut blocks_stored = 0;
     let mut cursor = 1 + start_block as usize;
     let mut inbox = HashMap::new();
+    let mut num_writes = 0;
 
     while let Ok(Some((block_height, compacted_block, raw_block))) = block_compressed_rx.recv() {
         insert_entry_in_blocks(block_height, &compacted_block, &blocks_db_rw, &ctx);
         blocks_stored += 1;
-
+        num_writes += 1;
         inbox.insert(raw_block.height, raw_block);
 
         // In the context of ordinals, we're constrained to process blocks sequentially
@@ -776,6 +791,24 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
             });
             return Ok(());
         }
+
+        if num_writes > 5000 {
+            ctx.try_log(|logger| {
+                slog::info!(logger, "Flushing DB to disk...");
+            });
+            if let Err(e) = blocks_db_rw.flush() {
+                ctx.try_log(|logger| {
+                    slog::error!(logger, "{}", e.to_string());
+                });
+            }
+            num_writes = 0;
+        }
+    }
+
+    if let Err(e) = blocks_db_rw.flush() {
+        ctx.try_log(|logger| {
+            slog::error!(logger, "{}", e.to_string());
+        });
     }
 
     retrieve_block_hash_pool.join();
