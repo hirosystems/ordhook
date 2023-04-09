@@ -318,7 +318,7 @@ struct CheckHordDbCommand {
 struct InitHordDbCommand {
     /// Load config file path
     #[clap(long = "config-path")]
-pub config_path: Option<String>,
+    pub config_path: Option<String>,
     /// # of Networking thread
     pub network_threads: usize,
 }
@@ -616,7 +616,6 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     let _ = blocks_db.flush();
                     delete_blocks_in_block_range_sqlite(300001, 500000, &sqlite_db_conn_rw, &ctx);
 
-
                     for i in 500001..=783986 {
                         match find_block_at_block_height_sqlite(i, &sqlite_db_conn_rw) {
                             Some(block) => {
@@ -646,14 +645,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                                 "Resuming hord indexing from block #{}", start_block
                             );
                         }
-                        perform_hord_db_update(
-                            start_block,
-                            end_block,
-                            10,
-                            &config,
-                            &ctx,
-                        )
-                        .await?;
+                        perform_hord_db_update(start_block, end_block, 10, &config, &ctx).await?;
                     } else {
                         info!(ctx.expect_logger(), "Database hord up to date");
                     }
