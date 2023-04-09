@@ -192,6 +192,10 @@ pub struct CompactedBlock(
 use std::io::{Read, Write};
 
 impl CompactedBlock {
+    fn empty() -> CompactedBlock {
+        CompactedBlock((([0, 0, 0, 0], 0), vec![]))
+    }
+
     pub fn from_full_block(block: &BitcoinBlockFullBreakdown) -> CompactedBlock {
         let mut txs = vec![];
         let mut coinbase_value = 0;
@@ -258,8 +262,8 @@ impl CompactedBlock {
     }
 
     pub fn from_hex_bytes(bytes: &str) -> CompactedBlock {
-        let bytes = hex_simd::decode_to_vec(&bytes).unwrap();
-        let value = serde_cbor::from_slice(&bytes[..]).unwrap();
+        let bytes = hex_simd::decode_to_vec(&bytes).unwrap_or(vec![]);
+        let value = serde_cbor::from_slice(&bytes[..]).unwrap_or(CompactedBlock::empty());
         value
     }
 
