@@ -22,7 +22,7 @@ RUN cp target/release/chainhook /out
 
 FROM debian:bullseye-slim
 
-RUN apt update && apt install -y libssl-dev
+RUN apt update && apt install -y ca-certificates libssl-dev
 
 COPY --from=build /out/ /bin/
 
