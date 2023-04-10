@@ -39,19 +39,33 @@ impl Service {
         Self { config, ctx }
     }
 
-    pub async fn run(
-        &mut self,
-        mut predicates: Vec<ChainhookFullSpecification>,
-    ) -> Result<(), String> {
+    pub async fn run(&mut self, predicates: Vec<ChainhookFullSpecification>) -> Result<(), String> {
         let mut chainhook_config = ChainhookConfig::new();
 
         if predicates.is_empty() {
-            let mut registered_predicates = load_predicates_from_redis(&self.config, &self.ctx)?;
-            predicates.append(&mut registered_predicates);
+            let registered_predicates = load_predicates_from_redis(&self.config, &self.ctx)?;
+            for predicate in registered_predicates.into_iter() {
+                let predicate_uuid = predicate.uuid().to_string();
+                match chainhook_config.register_specification(predicate) {
+                    Ok(_) => {
+                        info!(
+                            self.ctx.expect_logger(),
+                            "Predicate {} retrieved from storage and loaded", predicate_uuid,
+                        );
+                    }
+                    Err(e) => {
+                        error!(
+                            self.ctx.expect_logger(),
+                            "Failed loading predicate from storage: {}",
+                            e.to_string()
+                        );
+                    }
+                }
+            }
         }
 
         for predicate in predicates.into_iter() {
-            match chainhook_config.register_hook(
+            match chainhook_config.register_full_specification(
                 (
                     &self.config.network.bitcoin_network,
                     &self.config.network.stacks_network,
@@ -62,14 +76,14 @@ impl Service {
                 Ok(spec) => {
                     info!(
                         self.ctx.expect_logger(),
-                        "Predicate {} retrieved from storage and loaded",
+                        "Predicate {} retrieved from config and loaded",
                         spec.uuid(),
                     );
                 }
                 Err(e) => {
                     error!(
                         self.ctx.expect_logger(),
-                        "Failed loading predicate from storage: {}",
+                        "Failed loading predicate from config: {}",
                         e.to_string()
                     );
                 }
@@ -593,7 +607,7 @@ fn update_storage_with_confirmed_stacks_blocks(
 fn load_predicates_from_redis(
     config: &Config,
     ctx: &Context,
-) -> Result<Vec<ChainhookFullSpecification>, String> {
+) -> Result<Vec<ChainhookSpecification>, String> {
     let redis_config = config.expected_redis_config();
     let client = redis::Client::open(redis_config.uri.clone()).unwrap();
     let mut redis_con = match client.get_connection() {
@@ -619,7 +633,7 @@ fn load_predicates_from_redis(
     for key in chainhooks_to_load.iter() {
         let chainhook = match redis_con.hget::<_, _, String>(key, "specification") {
             Ok(spec) => {
-                ChainhookFullSpecification::deserialize_specification(&spec, key).unwrap()
+                ChainhookSpecification::deserialize_specification(&spec, key).unwrap()
                 // todo
             }
             Err(e) => {

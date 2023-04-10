@@ -45,7 +45,7 @@ impl ChainhookConfig {
         bitcoin
     }
 
-    pub fn register_hook(
+    pub fn register_full_specification(
         &mut self,
         networks: (&BitcoinNetwork, &StacksNetwork),
         hook: ChainhookFullSpecification,
@@ -66,6 +66,18 @@ impl ChainhookConfig {
             }
         };
         Ok(spec)
+    }
+
+    pub fn register_specification(&mut self, spec: ChainhookSpecification) -> Result<(), String> {
+        match spec {
+            ChainhookSpecification::Stacks(spec) => {
+                self.stacks_chainhooks.push(spec.clone());
+            }
+            ChainhookSpecification::Bitcoin(spec) => {
+                self.bitcoin_chainhooks.push(spec.clone());
+            }
+        };
+        Ok(())
     }
 
     pub fn deregister_stacks_hook(

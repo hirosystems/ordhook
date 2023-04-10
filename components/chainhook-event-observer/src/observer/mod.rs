@@ -1207,7 +1207,9 @@ pub async fn start_observer_commands_handler(
                         }
                     };
 
-                    let spec = match hook_formation.register_hook(networks, hook, &api_key) {
+                    let spec = match hook_formation
+                        .register_full_specification(networks, hook, &api_key)
+                    {
                         Ok(uuid) => uuid,
                         Err(e) => {
                             ctx.try_log(|logger| {
