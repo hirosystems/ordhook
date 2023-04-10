@@ -430,8 +430,9 @@ fn try_parse_ordinal_operation(
     _block_height: u64,
     _ctx: &Context,
 ) -> Option<OrdinalOperation> {
-    for input in tx.vin.iter() {
-        if let Some(ref witnesses) = input.txinwitness {
+    // This should eventually become a loop once/if there is settlement on https://github.com/casey/ord/issues/2000.
+    if let Some(first_input) = tx.vin.get(0) {
+        if let Some(ref witnesses) = first_input.txinwitness {
             for bytes in witnesses.iter() {
                 let script = Script::from(bytes.to_vec());
                 let parser = InscriptionParser {
