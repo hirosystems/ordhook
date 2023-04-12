@@ -557,21 +557,14 @@ pub fn find_inscription_with_id(
 ) -> Option<TraversalResult> {
     let args: &[&dyn ToSql] = &[&inscription_id.to_sql().unwrap()];
     let mut stmt = inscriptions_db_conn
-        .prepare("SELECT inscription_number, ordinal_number, block_height, inscription_id, block_hash FROM inscriptions WHERE inscription_id = ?")
+        .prepare("SELECT inscription_number, ordinal_number, block_hash FROM inscriptions WHERE inscription_id = ?")
         .unwrap();
     let mut rows = stmt.query(args).unwrap();
     while let Ok(Some(row)) = rows.next() {
-        let inscription_block_hash: String = row.get(4).unwrap();
+        let inscription_block_hash: String = row.get(2).unwrap();
         if block_hash.eq(&inscription_block_hash) {
             let inscription_number: u64 = row.get(0).unwrap();
             let ordinal_number: u64 = row.get(1).unwrap();
-            let block_height: u64 = row.get(2).unwrap();
-            let transaction_id = {
-                let inscription_id: String = row.get(3).unwrap();
-                TransactionIdentifier {
-                    hash: format!("0x{}", &inscription_id[0..inscription_id.len() - 2]),
-                }
-            };
             let traversal = TraversalResult {
                 inscription_number,
                 ordinal_number,
