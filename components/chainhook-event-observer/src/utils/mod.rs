@@ -139,11 +139,12 @@ impl AbstractBlock for BitcoinBlockData {
     }
 }
 
-pub async fn send_request(request: RequestBuilder, ctx: &Context) {
+pub async fn send_request(request: RequestBuilder, ctx: &Context) -> Result<(), ()> {
     match request.send().await {
         Ok(res) => {
             if res.status().is_success() {
                 ctx.try_log(|logger| slog::info!(logger, "Trigger {} successful", res.url()));
+                return Ok(());
             } else {
                 ctx.try_log(|logger| {
                     slog::warn!(
@@ -161,15 +162,16 @@ pub async fn send_request(request: RequestBuilder, ctx: &Context) {
             });
         }
     }
+    Err(())
 }
 
-pub fn file_append(path: String, bytes: Vec<u8>, ctx: &Context) {
+pub fn file_append(path: String, bytes: Vec<u8>, ctx: &Context) -> Result<(), ()> {
     let mut file_path = match std::env::current_dir() {
         Err(e) => {
             ctx.try_log(|logger| {
                 slog::warn!(logger, "unable to retrieve current_dir {}", e.to_string())
             });
-            return;
+            return Err(());
         }
         Ok(p) => p,
     };
@@ -188,7 +190,7 @@ pub fn file_append(path: String, bytes: Vec<u8>, ctx: &Context) {
                         e.to_string()
                     )
                 });
-                return;
+                return Err(());
             }
         }
     }
@@ -201,7 +203,7 @@ pub fn file_append(path: String, bytes: Vec<u8>, ctx: &Context) {
     {
         Err(e) => {
             ctx.try_log(|logger| slog::warn!(logger, "unable to open file {}", e.to_string()));
-            return;
+            return Err(());
         }
         Ok(p) => p,
     };
@@ -216,12 +218,15 @@ pub fn file_append(path: String, bytes: Vec<u8>, ctx: &Context) {
                     e.to_string()
                 )
             });
-            return;
+            return Err(());
         }
     };
 
     if let Err(e) = writeln!(file, "{}", utf8) {
         ctx.try_log(|logger| slog::warn!(logger, "unable to open file {}", e.to_string()));
         eprintln!("Couldn't write to file: {}", e);
+        return Err(());
     }
+
+    Ok(())
 }

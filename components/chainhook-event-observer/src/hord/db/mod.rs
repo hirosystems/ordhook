@@ -517,7 +517,7 @@ pub fn find_latest_inscription_block_height(
 pub fn find_latest_inscription_number(
     inscriptions_db_conn: &Connection,
     _ctx: &Context,
-) -> Result<u64, String> {
+) -> Result<Option<u64>, String> {
     let args: &[&dyn ToSql] = &[];
     let mut stmt = inscriptions_db_conn
         .prepare(
@@ -527,9 +527,9 @@ pub fn find_latest_inscription_number(
     let mut rows = stmt.query(args).unwrap();
     while let Ok(Some(row)) = rows.next() {
         let inscription_number: u64 = row.get(0).unwrap();
-        return Ok(inscription_number);
+        return Ok(Some(inscription_number));
     }
-    Ok(0)
+    Ok(None)
 }
 
 pub fn find_inscription_with_ordinal_number(

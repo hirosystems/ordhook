@@ -6,8 +6,7 @@ use chainhook_event_observer::chainhooks::bitcoin::{
     BitcoinChainhookOccurrence, BitcoinTriggerChainhook,
 };
 use chainhook_event_observer::chainhooks::types::{
-    BitcoinChainhookSpecification, BitcoinPredicateType,
-    Protocols,
+    BitcoinChainhookSpecification, BitcoinPredicateType, Protocols,
 };
 use chainhook_event_observer::hord::db::{
     fetch_and_cache_blocks_in_hord_db, find_all_inscriptions, find_block_at_block_height,
@@ -27,7 +26,7 @@ use chainhook_event_observer::utils::{file_append, send_request, Context};
 use chainhook_types::{BitcoinChainEvent, BitcoinChainUpdatedWithBlocksData};
 use std::collections::{BTreeMap, HashMap};
 
-pub async fn scan_bitcoin_chain_with_predicate_via_http(
+pub async fn scan_bitcoin_chainstate_via_http_using_predicate(
     predicate_spec: BitcoinChainhookSpecification,
     config: &Config,
     ctx: &Context,
@@ -137,6 +136,7 @@ pub async fn scan_bitcoin_chain_with_predicate_via_http(
 
     let mut blocks_scanned = 0;
     let mut actions_triggered = 0;
+    let mut err_count = 0;
 
     let event_observer_config = config.get_event_observer_config();
     let bitcoin_config = event_observer_config.get_bitcoin_config();
@@ -199,8 +199,14 @@ pub async fn scan_bitcoin_chain_with_predicate_via_http(
                 ctx,
             );
 
-            actions_triggered +=
-                execute_predicates_action(hits, &event_observer_config, &ctx).await;
+            match execute_predicates_action(hits, &event_observer_config, &ctx).await {
+                Ok(actions) => actions_triggered += actions,
+                Err(_) => err_count += 1,
+            }
+
+            if err_count >= 3 {
+                return Err(format!("Scan aborted (consecutive action errors >= 3)"));
+            }
         }
     } else {
         let use_scan_to_seed_hord_db = true;
@@ -242,8 +248,14 @@ pub async fn scan_bitcoin_chain_with_predicate_via_http(
                 ctx,
             );
 
-            actions_triggered +=
-                execute_predicates_action(hits, &event_observer_config, &ctx).await;
+            match execute_predicates_action(hits, &event_observer_config, &ctx).await {
+                Ok(actions) => actions_triggered += actions,
+                Err(_) => err_count += 1,
+            }
+
+            if err_count >= 3 {
+                return Err(format!("Scan aborted (consecutive action errors >= 3)"));
+            }
         }
     }
     info!(
@@ -258,7 +270,7 @@ pub async fn execute_predicates_action<'a>(
     hits: Vec<BitcoinTriggerChainhook<'a>>,
     config: &EventObserverConfig,
     ctx: &Context,
-) -> u32 {
+) -> Result<u32, ()> {
     let mut actions_triggered = 0;
     let proofs = gather_proofs(&hits, &config, &ctx);
     for hit in hits.into_iter() {
@@ -269,13 +281,17 @@ pub async fn execute_predicates_action<'a>(
             Ok(action) => {
                 actions_triggered += 1;
                 match action {
-                    BitcoinChainhookOccurrence::Http(request) => send_request(request, &ctx).await,
-                    BitcoinChainhookOccurrence::File(path, bytes) => file_append(path, bytes, &ctx),
+                    BitcoinChainhookOccurrence::Http(request) => {
+                        send_request(request, &ctx).await?
+                    }
+                    BitcoinChainhookOccurrence::File(path, bytes) => {
+                        file_append(path, bytes, &ctx)?
+                    }
                     BitcoinChainhookOccurrence::Data(_payload) => unreachable!(),
-                }
+                };
             }
         }
     }
 
-    actions_triggered
+    Ok(actions_triggered)
 }

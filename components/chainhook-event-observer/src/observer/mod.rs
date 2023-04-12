@@ -1028,7 +1028,7 @@ pub async fn start_observer_commands_handler(
                             request
                         )
                     });
-                    send_request(request, &ctx).await;
+                    let _ = send_request(request, &ctx).await;
                 }
 
                 if let Some(ref tx) = observer_events_tx {
@@ -1160,7 +1160,7 @@ pub async fn start_observer_commands_handler(
                             request
                         )
                     });
-                    send_request(request, &ctx).await;
+                    let _ = send_request(request, &ctx).await;
                 }
 
                 if let Some(ref tx) = observer_events_tx {
