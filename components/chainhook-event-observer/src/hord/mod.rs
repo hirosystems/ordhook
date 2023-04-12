@@ -29,8 +29,8 @@ use crate::{
 };
 
 use self::db::{
-    open_readonly_hord_db_conn_rocks_db, remove_entry_from_blocks, remove_entry_from_inscriptions,
-    TraversalResult, WatchedSatpoint,
+    find_inscription_with_id, open_readonly_hord_db_conn_rocks_db, remove_entry_from_blocks,
+    remove_entry_from_inscriptions, TraversalResult, WatchedSatpoint,
 };
 
 pub fn revert_hord_db_with_augmented_bitcoin_block(
@@ -102,16 +102,27 @@ pub fn update_hord_db_and_augment_bitcoin_block(
     }
 
     let mut transactions_ids = vec![];
+    let mut traversals = HashMap::new();
+
     for new_tx in new_block.transactions.iter_mut().skip(1) {
         // Have a new inscription been revealed, if so, are looking at a re-inscription
         for ordinal_event in new_tx.metadata.ordinal_operations.iter_mut() {
-            if let OrdinalOperation::InscriptionRevealed(_) = ordinal_event {
-                transactions_ids.push(new_tx.transaction_identifier.clone());
+            if let OrdinalOperation::InscriptionRevealed(inscription_data) = ordinal_event {
+                if let Some(traversal) = find_inscription_with_id(
+                    &inscription_data.inscription_id,
+                    &new_block.block_identifier.hash,
+                    inscriptions_db_conn_rw,
+                    ctx,
+                ) {
+                    traversals.insert(new_tx.transaction_identifier.clone(), traversal);
+                } else {
+                    // Enqueue for traversals
+                    transactions_ids.push(new_tx.transaction_identifier.clone());
+                }
             }
         }
     }
 
-    let mut traversals = HashMap::new();
     if !transactions_ids.is_empty() {
         let expected_traversals = transactions_ids.len();
         let (traversal_tx, traversal_rx) = channel::<(TransactionIdentifier, _)>();
