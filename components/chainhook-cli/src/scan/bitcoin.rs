@@ -6,7 +6,7 @@ use chainhook_event_observer::chainhooks::bitcoin::{
     BitcoinChainhookOccurrence, BitcoinTriggerChainhook,
 };
 use chainhook_event_observer::chainhooks::types::{
-    BitcoinChainhookFullSpecification, BitcoinChainhookSpecification, BitcoinPredicateType,
+    BitcoinChainhookSpecification, BitcoinPredicateType,
     Protocols,
 };
 use chainhook_event_observer::hord::db::{
@@ -27,7 +27,7 @@ use chainhook_event_observer::utils::{file_append, send_request, Context};
 use chainhook_types::{BitcoinChainEvent, BitcoinChainUpdatedWithBlocksData};
 use std::collections::{BTreeMap, HashMap};
 
-pub async fn scan_bitcoin_chain_with_predicate(
+pub async fn scan_bitcoin_chain_with_predicate_via_http(
     predicate_spec: BitcoinChainhookSpecification,
     config: &Config,
     ctx: &Context,

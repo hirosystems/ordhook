@@ -1,7 +1,7 @@
 use crate::block::DigestingCommand;
 use crate::config::generator::generate_config;
 use crate::config::Config;
-use crate::scan::bitcoin::scan_bitcoin_chain_with_predicate;
+use crate::scan::bitcoin::scan_bitcoin_chain_with_predicate_via_http;
 use crate::scan::stacks::scan_stacks_chain_with_predicate;
 use crate::service::Service;
 
@@ -535,7 +535,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                             }
                         };
 
-                        scan_bitcoin_chain_with_predicate(predicate_spec, &config, &ctx).await?;
+                        scan_bitcoin_chain_with_predicate_via_http(predicate_spec, &config, &ctx).await?;
                     }
                     ChainhookFullSpecification::Stacks(predicate) => {
                         scan_stacks_chain_with_predicate(predicate, &mut config, &ctx).await?;

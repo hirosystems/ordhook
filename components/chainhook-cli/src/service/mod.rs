@@ -1,18 +1,14 @@
 use crate::config::Config;
-use crate::scan::bitcoin::scan_bitcoin_chain_with_predicate;
-use chainhook_event_observer::bitcoincore_rpc::jsonrpc;
-use chainhook_event_observer::chainhooks::bitcoin::{
-    handle_bitcoin_hook_action, BitcoinChainhookOccurrence, BitcoinTriggerChainhook,
-};
+use crate::scan::bitcoin::scan_bitcoin_chain_with_predicate_via_http;
+
+
 use chainhook_event_observer::chainhooks::types::{
-    BitcoinPredicateType, ChainhookConfig, ChainhookFullSpecification, OrdinalOperations, Protocols,
+    ChainhookConfig, ChainhookFullSpecification,
 };
-use chainhook_event_observer::hord::db::{
-    find_all_inscriptions, find_all_inscriptions_block_heights,
-};
-use chainhook_event_observer::indexer;
+
+
 use chainhook_event_observer::observer::{start_event_observer, ApiKey, ObserverEvent};
-use chainhook_event_observer::utils::{file_append, send_request, Context};
+use chainhook_event_observer::utils::{Context};
 use chainhook_event_observer::{
     chainhooks::stacks::{
         evaluate_stacks_predicate_on_transaction, handle_stacks_hook_action,
@@ -25,10 +21,10 @@ use chainhook_types::{
     StacksTransactionData,
 };
 use redis::{Commands, Connection};
-use reqwest::Client as HttpClient;
-use std::collections::{BTreeMap, HashMap, HashSet};
+
+use std::collections::{HashMap};
 use std::sync::mpsc::channel;
-use std::time::Duration;
+
 
 pub const DEFAULT_INGESTION_PORT: u16 = 20455;
 pub const DEFAULT_CONTROL_PORT: u16 = 20456;
@@ -317,7 +313,7 @@ impl Service {
                             info!(self.ctx.expect_logger(), "Stacks chainhook {} scan completed: action triggered by {} transactions", stacks_hook.uuid, total_hits);
                         }
                         ChainhookSpecification::Bitcoin(predicate_spec) => {
-                            match scan_bitcoin_chain_with_predicate(
+                            match scan_bitcoin_chain_with_predicate_via_http(
                                 predicate_spec,
                                 &self.config,
                                 &self.ctx,
@@ -328,7 +324,7 @@ impl Service {
                                 Err(e) => {
                                     info!(
                                         self.ctx.expect_logger(),
-                                        "Unable to evaluate predicate on the bitcoin chainstate: {e}",
+                                        "Unable to evaluate predicate on Bitcoin chainstate: {e}",
                                     );
                                 }
                             };
