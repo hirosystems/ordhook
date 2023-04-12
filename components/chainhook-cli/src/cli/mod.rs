@@ -41,16 +41,16 @@ struct Opts {
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
 enum Command {
-    /// Manage predicates
+    /// Generate and test predicates
     #[clap(subcommand)]
     Predicates(PredicatesCommand),
-    /// Manage config
+    /// Generate configuration files
     #[clap(subcommand)]
     Config(ConfigCommand),
-    /// Start chainhook-cli
+    /// Run a service streaming blocks and evaluating registered predicates
     #[clap(subcommand)]
     Service(ServiceCommand),
-    /// Protocols specific commands
+    /// Explore the Ordinal Theory  
     #[clap(subcommand)]
     Hord(HordCommand),
 }
@@ -69,7 +69,7 @@ enum PredicatesCommand {
 #[derive(Subcommand, PartialEq, Clone, Debug)]
 #[clap(bin_name = "config", aliases = &["config"])]
 enum ConfigCommand {
-    /// Generate new predicate
+    /// Generate new config
     #[clap(name = "new", bin_name = "new", aliases = &["generate"])]
     New(NewConfig),
 }
@@ -103,10 +103,10 @@ struct NewConfig {
 struct NewPredicate {
     /// Predicate's name
     pub name: String,
-    /// Generate a Bitcoin chainhook
+    /// Generate a Bitcoin predicate
     #[clap(long = "bitcoin", conflicts_with = "stacks")]
     pub bitcoin: bool,
-    /// Generate a Stacks chainhook
+    /// Generate a Stacks predicate
     #[clap(long = "stacks", conflicts_with = "bitcoin")]
     pub stacks: bool,
 }
