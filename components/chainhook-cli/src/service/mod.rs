@@ -1,10 +1,14 @@
 use crate::config::Config;
+use crate::scan::bitcoin::scan_bitcoin_chain_with_predicate;
 use chainhook_event_observer::bitcoincore_rpc::jsonrpc;
 use chainhook_event_observer::chainhooks::bitcoin::{
     handle_bitcoin_hook_action, BitcoinChainhookOccurrence, BitcoinTriggerChainhook,
 };
 use chainhook_event_observer::chainhooks::types::{
     BitcoinPredicateType, ChainhookConfig, ChainhookFullSpecification, OrdinalOperations, Protocols,
+};
+use chainhook_event_observer::hord::db::{
+    find_all_inscriptions, find_all_inscriptions_block_heights,
 };
 use chainhook_event_observer::indexer;
 use chainhook_event_observer::observer::{start_event_observer, ApiKey, ObserverEvent};
@@ -22,7 +26,7 @@ use chainhook_types::{
 };
 use redis::{Commands, Connection};
 use reqwest::Client as HttpClient;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::mpsc::channel;
 use std::time::Duration;
 
@@ -313,221 +317,21 @@ impl Service {
                             info!(self.ctx.expect_logger(), "Stacks chainhook {} scan completed: action triggered by {} transactions", stacks_hook.uuid, total_hits);
                         }
                         ChainhookSpecification::Bitcoin(predicate_spec) => {
-                            let mut inscriptions_hints = BTreeMap::new();
-                            let use_hinting = false;
-                            if let BitcoinPredicateType::Protocol(Protocols::Ordinal(
-                                OrdinalOperations::InscriptionRevealed,
-                            )) = &predicate_spec.predicate
+                            match scan_bitcoin_chain_with_predicate(
+                                predicate_spec,
+                                &self.config,
+                                &self.ctx,
+                            )
+                            .await
                             {
-                                inscriptions_hints.insert(1, 1);
-
-                                // if let Some(ref ordinal_index) = bitcoin_context.ordinal_index {
-                                //     for (inscription_number, inscription_id) in ordinal_index
-                                //         .database
-                                //         .begin_read()
-                                //         .unwrap()
-                                //         .open_table(INSCRIPTION_NUMBER_TO_INSCRIPTION_ID)
-                                //         .unwrap()
-                                //         .iter()
-                                //         .unwrap()
-                                //     {
-                                //         let inscription =
-                                //             InscriptionId::load(*inscription_id.value());
-                                //         println!(
-                                //             "{} -> {}",
-                                //             inscription_number.value(),
-                                //             inscription
-                                //         );
-
-                                //         let entry = ordinal_index
-                                //             .get_inscription_entry(inscription)
-                                //             .unwrap()
-                                //             .unwrap();
-                                //         println!("{:?}", entry);
-
-                                //         let blockhash = ordinal_index
-                                //             .database
-                                //             .begin_read()
-                                //             .unwrap()
-                                //             .open_table(HEIGHT_TO_BLOCK_HASH)
-                                //             .unwrap()
-                                //             .get(&entry.height)
-                                //             .unwrap()
-                                //             .map(|k| BlockHash::load(*k.value()))
-                                //             .unwrap();
-
-                                //         inscriptions_hints.insert(entry.height, blockhash);
-                                //         use_hinting = true;
-                                //     }
-                                // }
-                            }
-
-                            let start_block = match predicate_spec.start_block {
-                                Some(n) => n,
-                                None => 0,
-                            };
-
-                            let end_block = match predicate_spec.end_block {
-                                Some(n) => n,
-                                None => {
-                                    let body = json!({
-                                        "jsonrpc": "1.0",
-                                        "id": "chainhook-cli",
-                                        "method": "getblockcount",
-                                        "params": json!([])
-                                    });
-                                    let http_client = HttpClient::builder()
-                                        .timeout(Duration::from_secs(20))
-                                        .build()
-                                        .expect("Unable to build http client");
-                                    http_client
-                                        .post(&self.config.network.bitcoind_rpc_url)
-                                        .basic_auth(
-                                            &self.config.network.bitcoind_rpc_username,
-                                            Some(&self.config.network.bitcoind_rpc_password),
-                                        )
-                                        .header("Content-Type", "application/json")
-                                        .header("Host", &self.config.network.bitcoind_rpc_url[7..])
-                                        .json(&body)
-                                        .send()
-                                        .await
-                                        .map_err(|e| format!("unable to send request ({})", e))?
-                                        .json::<jsonrpc::Response>()
-                                        .await
-                                        .map_err(|e| format!("unable to parse response ({})", e))?
-                                        .result::<u64>()
-                                        .map_err(|e| format!("unable to parse response ({})", e))?
+                                Ok(_) => {}
+                                Err(e) => {
+                                    info!(
+                                        self.ctx.expect_logger(),
+                                        "Unable to evaluate predicate on the bitcoin chainstate: {e}",
+                                    );
                                 }
                             };
-
-                            let mut total_hits = vec![];
-                            for cursor in start_block..=end_block {
-                                let block_hash = if use_hinting {
-                                    match inscriptions_hints.remove(&cursor) {
-                                        Some(block_hash) => block_hash.to_string(),
-                                        None => continue,
-                                    }
-                                } else {
-                                    let body = json!({
-                                        "jsonrpc": "1.0",
-                                        "id": "chainhook-cli",
-                                        "method": "getblockhash",
-                                        "params": [cursor]
-                                    });
-                                    let http_client = HttpClient::builder()
-                                        .timeout(Duration::from_secs(20))
-                                        .build()
-                                        .expect("Unable to build http client");
-                                    http_client
-                                        .post(&self.config.network.bitcoind_rpc_url)
-                                        .basic_auth(
-                                            &self.config.network.bitcoind_rpc_username,
-                                            Some(&self.config.network.bitcoind_rpc_password),
-                                        )
-                                        .header("Content-Type", "application/json")
-                                        .header("Host", &self.config.network.bitcoind_rpc_url[7..])
-                                        .json(&body)
-                                        .send()
-                                        .await
-                                        .map_err(|e| format!("unable to send request ({})", e))?
-                                        .json::<jsonrpc::Response>()
-                                        .await
-                                        .map_err(|e| format!("unable to parse response ({})", e))?
-                                        .result::<String>()
-                                        .map_err(|e| format!("unable to parse response ({})", e))?
-                                };
-
-                                let body = json!({
-                                    "jsonrpc": "1.0",
-                                    "id": "chainhook-cli",
-                                    "method": "getblock",
-                                    "params": [block_hash, 2]
-                                });
-                                let http_client = HttpClient::builder()
-                                    .timeout(Duration::from_secs(20))
-                                    .build()
-                                    .expect("Unable to build http client");
-                                let raw_block = http_client
-                                    .post(&self.config.network.bitcoind_rpc_url)
-                                    .basic_auth(
-                                        &self.config.network.bitcoind_rpc_username,
-                                        Some(&self.config.network.bitcoind_rpc_password),
-                                    )
-                                    .header("Content-Type", "application/json")
-                                    .header("Host", &self.config.network.bitcoind_rpc_url[7..])
-                                    .json(&body)
-                                    .send()
-                                    .await
-                                    .map_err(|e| format!("unable to send request ({})", e))?
-                                    .json::<jsonrpc::Response>()
-                                    .await
-                                    .map_err(|e| format!("unable to parse response ({})", e))?
-                                    .result::<indexer::bitcoin::BitcoinBlockFullBreakdown>()
-                                    .map_err(|e| format!("unable to parse response ({})", e))?;
-
-                                let block = match indexer::bitcoin::standardize_bitcoin_block(
-                                    raw_block,
-                                    &event_observer_config.bitcoin_network,
-                                    &self.ctx,
-                                ) {
-                                    Ok(data) => data,
-                                    Err(e) => {
-                                        warn!(
-                                            self.ctx.expect_logger(),
-                                            "Unable to standardize block#{} {}: {}",
-                                            cursor,
-                                            block_hash,
-                                            e
-                                        );
-                                        continue;
-                                    }
-                                };
-
-                                let mut hits = vec![];
-                                for tx in block.transactions.iter() {
-                                    if predicate_spec
-                                        .predicate
-                                        .evaluate_transaction_predicate(&tx, &self.ctx)
-                                    {
-                                        info!(
-                                            self.ctx.expect_logger(),
-                                            "Action #{} triggered by transaction {} (block #{})",
-                                            predicate_spec.uuid,
-                                            tx.transaction_identifier.hash,
-                                            cursor
-                                        );
-                                        hits.push(tx);
-                                        total_hits.push(tx.transaction_identifier.hash.to_string());
-                                    }
-                                }
-
-                                if hits.len() > 0 {
-                                    let trigger = BitcoinTriggerChainhook {
-                                        chainhook: &predicate_spec,
-                                        apply: vec![(hits, &block)],
-                                        rollback: vec![],
-                                    };
-
-                                    let proofs = HashMap::new();
-                                    match handle_bitcoin_hook_action(trigger, &proofs) {
-                                        Err(e) => {
-                                            error!(
-                                                self.ctx.expect_logger(),
-                                                "unable to handle action {}", e
-                                            );
-                                        }
-                                        Ok(BitcoinChainhookOccurrence::Http(request)) => {
-                                            send_request(request, &self.ctx).await;
-                                        }
-                                        Ok(BitcoinChainhookOccurrence::File(path, bytes)) => {
-                                            file_append(path, bytes, &self.ctx)
-                                        }
-                                        Ok(BitcoinChainhookOccurrence::Data(_payload)) => {
-                                            unreachable!()
-                                        }
-                                    }
-                                }
-                            }
                         }
                     }
                 }

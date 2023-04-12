@@ -523,7 +523,19 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                 let predicate = load_predicate_from_path(&cmd.predicate_path)?;
                 match predicate {
                     ChainhookFullSpecification::Bitcoin(predicate) => {
-                        scan_bitcoin_chain_with_predicate(predicate, &config, &ctx).await?;
+                        let predicate_spec = match predicate
+                            .into_selected_network_specification(&config.network.bitcoin_network)
+                        {
+                            Ok(predicate) => predicate,
+                            Err(e) => {
+                                return Err(format!(
+                                    "Specification missing for network {:?}: {e}",
+                                    config.network.bitcoin_network
+                                ));
+                            }
+                        };
+
+                        scan_bitcoin_chain_with_predicate(predicate_spec, &config, &ctx).await?;
                     }
                     ChainhookFullSpecification::Stacks(predicate) => {
                         scan_stacks_chain_with_predicate(predicate, &mut config, &ctx).await?;

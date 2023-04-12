@@ -6,7 +6,8 @@ use chainhook_event_observer::chainhooks::bitcoin::{
     BitcoinChainhookOccurrence, BitcoinTriggerChainhook,
 };
 use chainhook_event_observer::chainhooks::types::{
-    BitcoinChainhookFullSpecification, BitcoinPredicateType, Protocols,
+    BitcoinChainhookFullSpecification, BitcoinChainhookSpecification, BitcoinPredicateType,
+    Protocols,
 };
 use chainhook_event_observer::hord::db::{
     fetch_and_cache_blocks_in_hord_db, find_all_inscriptions, find_block_at_block_height,
@@ -27,7 +28,7 @@ use chainhook_types::{BitcoinChainEvent, BitcoinChainUpdatedWithBlocksData};
 use std::collections::{BTreeMap, HashMap};
 
 pub async fn scan_bitcoin_chain_with_predicate(
-    predicate: BitcoinChainhookFullSpecification,
+    predicate_spec: BitcoinChainhookSpecification,
     config: &Config,
     ctx: &Context,
 ) -> Result<(), String> {
@@ -42,17 +43,6 @@ pub async fn scan_bitcoin_chain_with_predicate(
             return Err(format!("Bitcoin RPC error: {}", message.to_string()));
         }
     };
-
-    let predicate_spec =
-        match predicate.into_selected_network_specification(&config.network.bitcoin_network) {
-            Ok(predicate) => predicate,
-            Err(e) => {
-                return Err(format!(
-                    "Specification missing for network {:?}: {e}",
-                    config.network.bitcoin_network
-                ));
-            }
-        };
 
     let start_block = match predicate_spec.start_block {
         Some(start_block) => start_block,
