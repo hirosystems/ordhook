@@ -169,11 +169,20 @@ pub async fn scan_bitcoin_chain_with_predicate(
             let block_hash = retrieve_block_hash_with_retry(&cursor, &bitcoin_config, ctx).await?;
             let block_breakdown =
                 download_and_parse_block_with_retry(&block_hash, &bitcoin_config, ctx).await?;
-            let mut block = indexer::bitcoin::standardize_bitcoin_block(
+            let mut block = match indexer::bitcoin::standardize_bitcoin_block(
                 block_breakdown,
                 &event_observer_config.bitcoin_network,
                 ctx,
-            )?;
+            ) {
+                Ok(data) => data,
+                Err(e) => {
+                    warn!(
+                        ctx.expect_logger(),
+                        "Unable to standardize block#{} {}: {}", cursor, block_hash, e
+                    );
+                    continue;
+                }
+            };
 
             update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
                 &mut block,
@@ -215,11 +224,21 @@ pub async fn scan_bitcoin_chain_with_predicate(
             let block_hash = retrieve_block_hash_with_retry(&cursor, &bitcoin_config, ctx).await?;
             let block_breakdown =
                 download_and_parse_block_with_retry(&block_hash, &bitcoin_config, ctx).await?;
-            let block = indexer::bitcoin::standardize_bitcoin_block(
+
+            let block = match indexer::bitcoin::standardize_bitcoin_block(
                 block_breakdown,
                 &event_observer_config.bitcoin_network,
                 ctx,
-            )?;
+            ) {
+                Ok(data) => data,
+                Err(e) => {
+                    warn!(
+                        ctx.expect_logger(),
+                        "Unable to standardize block#{} {}: {}", cursor, block_hash, e
+                    );
+                    continue;
+                }
+            };
 
             let chain_event =
                 BitcoinChainEvent::ChainUpdatedWithBlocks(BitcoinChainUpdatedWithBlocksData {

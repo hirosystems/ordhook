@@ -465,11 +465,23 @@ impl Service {
                                     .result::<indexer::bitcoin::BitcoinBlockFullBreakdown>()
                                     .map_err(|e| format!("unable to parse response ({})", e))?;
 
-                                let block = indexer::bitcoin::standardize_bitcoin_block(
+                                let block = match indexer::bitcoin::standardize_bitcoin_block(
                                     raw_block,
                                     &event_observer_config.bitcoin_network,
                                     &self.ctx,
-                                )?;
+                                ) {
+                                    Ok(data) => data,
+                                    Err(e) => {
+                                        warn!(
+                                            self.ctx.expect_logger(),
+                                            "Unable to standardize block#{} {}: {}",
+                                            cursor,
+                                            block_hash,
+                                            e
+                                        );
+                                        continue;
+                                    }
+                                };
 
                                 let mut hits = vec![];
                                 for tx in block.transactions.iter() {
