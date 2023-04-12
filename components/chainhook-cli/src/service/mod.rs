@@ -1,30 +1,21 @@
 use crate::config::Config;
-use crate::scan::bitcoin::scan_bitcoin_chain_with_predicate_via_http;
+use crate::scan::bitcoin::scan_bitcoin_chainstate_via_http_using_predicate;
+use crate::scan::stacks::scan_stacks_chainstate_via_csv_using_predicate;
 
-
-use chainhook_event_observer::chainhooks::types::{
-    ChainhookConfig, ChainhookFullSpecification,
-};
-
+use chainhook_event_observer::chainhooks::types::{ChainhookConfig, ChainhookFullSpecification};
 
 use chainhook_event_observer::observer::{start_event_observer, ApiKey, ObserverEvent};
-use chainhook_event_observer::utils::{Context};
+use chainhook_event_observer::utils::Context;
 use chainhook_event_observer::{
-    chainhooks::stacks::{
-        evaluate_stacks_predicate_on_transaction, handle_stacks_hook_action,
-        StacksChainhookOccurrence, StacksTriggerChainhook,
-    },
     chainhooks::types::ChainhookSpecification,
 };
 use chainhook_types::{
-    BitcoinBlockSignaling, BlockIdentifier, StacksBlockData, StacksBlockMetadata, StacksChainEvent,
-    StacksTransactionData,
+    BitcoinBlockSignaling, StacksBlockData, StacksChainEvent,
 };
 use redis::{Commands, Connection};
 
-use std::collections::{HashMap};
-use std::sync::mpsc::channel;
 
+use std::sync::mpsc::channel;
 
 pub const DEFAULT_INGESTION_PORT: u16 = 20455;
 pub const DEFAULT_CONTROL_PORT: u16 = 20456;
@@ -191,129 +182,30 @@ impl Service {
                         );
                     }
                     match chainhook {
-                        ChainhookSpecification::Stacks(stacks_hook) => {
-                            // Retrieve highest block height stored
-                            let tip_height: u64 = redis_con.get(&format!("stx:tip")).unwrap_or(1);
-
-                            let start_block = stacks_hook.start_block.unwrap_or(1); // TODO(lgalabru): handle STX hooks and genesis block :s
-                            let end_block = stacks_hook.end_block.unwrap_or(tip_height); // TODO(lgalabru): handle STX hooks and genesis block :s
-
+                        ChainhookSpecification::Stacks(predicate_spec) => {
+                            let end_block = match scan_stacks_chainstate_via_csv_using_predicate(
+                                predicate_spec,
+                                &mut self.config,
+                                &self.ctx,
+                            )
+                            .await
+                            {
+                                Ok(end_block) => end_block,
+                                Err(e) => {
+                                    error!(
+                                        self.ctx.expect_logger(),
+                                        "Unable to evaluate predicate on Bitcoin chainstate: {e}",
+                                    );
+                                    continue;
+                                }
+                            };
                             info!(
                                 self.ctx.expect_logger(),
-                                "Processing Stacks chainhook {}, will scan blocks [{}; {}]",
-                                stacks_hook.uuid,
-                                start_block,
-                                end_block
+                                "Stacks chainstate scan completed up to block: {}", end_block.index
                             );
-                            let mut total_hits = 0;
-                            for cursor in start_block..=end_block {
-                                debug!(
-                                    self.ctx.expect_logger(),
-                                    "Evaluating predicate #{} on block #{}",
-                                    stacks_hook.uuid,
-                                    cursor
-                                );
-                                let (
-                                    block_identifier,
-                                    parent_block_identifier,
-                                    timestamp,
-                                    transactions,
-                                    metadata,
-                                ) = {
-                                    let payload: Vec<String> = redis_con
-                                        .hget(
-                                            &format!("stx:{}", cursor),
-                                            &[
-                                                "block_identifier",
-                                                "parent_block_identifier",
-                                                "timestamp",
-                                                "transactions",
-                                                "metadata",
-                                            ],
-                                        )
-                                        .expect("unable to retrieve tip height");
-                                    if payload.len() != 5 {
-                                        warn!(self.ctx.expect_logger(), "Chain still being processed, please retry in a few minutes");
-                                        continue;
-                                    }
-                                    (
-                                        serde_json::from_str::<BlockIdentifier>(&payload[0])
-                                            .unwrap(),
-                                        serde_json::from_str::<BlockIdentifier>(&payload[1])
-                                            .unwrap(),
-                                        serde_json::from_str::<i64>(&payload[2]).unwrap(),
-                                        serde_json::from_str::<Vec<StacksTransactionData>>(
-                                            &payload[3],
-                                        )
-                                        .unwrap(),
-                                        serde_json::from_str::<StacksBlockMetadata>(&payload[4])
-                                            .unwrap(),
-                                    )
-                                };
-                                let mut hits = vec![];
-                                for tx in transactions.iter() {
-                                    if evaluate_stacks_predicate_on_transaction(
-                                        &tx,
-                                        &stacks_hook,
-                                        &self.ctx,
-                                    ) {
-                                        debug!(
-                                            self.ctx.expect_logger(),
-                                            "Action #{} triggered by transaction {} (block #{})",
-                                            stacks_hook.uuid,
-                                            tx.transaction_identifier.hash,
-                                            cursor
-                                        );
-                                        hits.push(tx);
-                                        total_hits += 1;
-                                    }
-                                }
-
-                                if hits.len() > 0 {
-                                    let block = StacksBlockData {
-                                        block_identifier,
-                                        parent_block_identifier,
-                                        timestamp,
-                                        transactions: vec![],
-                                        metadata,
-                                    };
-                                    let trigger = StacksTriggerChainhook {
-                                        chainhook: &stacks_hook,
-                                        apply: vec![(hits, &block)],
-                                        rollback: vec![],
-                                    };
-
-                                    let proofs = HashMap::new();
-                                    match handle_stacks_hook_action(trigger, &proofs, &self.ctx) {
-                                        Err(e) => {
-                                            info!(
-                                                self.ctx.expect_logger(),
-                                                "unable to handle action {}", e
-                                            );
-                                        }
-                                        Ok(StacksChainhookOccurrence::Http(request)) => {
-                                            if let Err(e) =
-                                                hiro_system_kit::nestable_block_on(request.send())
-                                            {
-                                                error!(
-                                                    self.ctx.expect_logger(),
-                                                    "unable to perform action {}", e
-                                                );
-                                            }
-                                        }
-                                        Ok(_) => {
-                                            error!(
-                                                self.ctx.expect_logger(),
-                                                "action not supported"
-                                            );
-                                        }
-                                    }
-                                }
-                            }
-                            info!(self.ctx.expect_logger(), "Stacks chainhook {} scan completed: action triggered by {} transactions", stacks_hook.uuid, total_hits);
                         }
                         ChainhookSpecification::Bitcoin(predicate_spec) => {
-                            match scan_bitcoin_chain_with_predicate_via_http(
+                            match scan_bitcoin_chainstate_via_http_using_predicate(
                                 predicate_spec,
                                 &self.config,
                                 &self.ctx,
@@ -322,7 +214,7 @@ impl Service {
                             {
                                 Ok(_) => {}
                                 Err(e) => {
-                                    info!(
+                                    error!(
                                         self.ctx.expect_logger(),
                                         "Unable to evaluate predicate on Bitcoin chainstate: {e}",
                                     );

@@ -1,8 +1,8 @@
 use crate::block::DigestingCommand;
 use crate::config::generator::generate_config;
 use crate::config::Config;
-use crate::scan::bitcoin::scan_bitcoin_chain_with_predicate_via_http;
-use crate::scan::stacks::scan_stacks_chain_with_predicate;
+use crate::scan::bitcoin::scan_bitcoin_chainstate_via_http_using_predicate;
+use crate::scan::stacks::scan_stacks_chainstate_via_csv_using_predicate;
 use crate::service::Service;
 
 use chainhook_event_observer::bitcoincore_rpc::{Auth, Client, RpcApi};
@@ -535,10 +535,32 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                             }
                         };
 
-                        scan_bitcoin_chain_with_predicate_via_http(predicate_spec, &config, &ctx).await?;
+                        scan_bitcoin_chainstate_via_http_using_predicate(
+                            predicate_spec,
+                            &config,
+                            &ctx,
+                        )
+                        .await?;
                     }
                     ChainhookFullSpecification::Stacks(predicate) => {
-                        scan_stacks_chain_with_predicate(predicate, &mut config, &ctx).await?;
+                        let predicate_spec = match predicate
+                            .into_selected_network_specification(&config.network.stacks_network)
+                        {
+                            Ok(predicate) => predicate,
+                            Err(e) => {
+                                return Err(format!(
+                                    "Specification missing for network {:?}: {e}",
+                                    config.network.bitcoin_network
+                                ));
+                            }
+                        };
+
+                        scan_stacks_chainstate_via_csv_using_predicate(
+                            predicate_spec,
+                            &mut config,
+                            &ctx,
+                        )
+                        .await?;
                     }
                 }
             }
