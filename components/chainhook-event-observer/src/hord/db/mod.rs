@@ -116,9 +116,7 @@ fn create_or_open_readwrite_db(cache_path: &PathBuf, ctx: &Context) -> Connectio
     let page_size: i64 = 16384;
     conn.pragma_update(None, "mmap_size", mmap_size).unwrap();
     conn.pragma_update(None, "page_size", page_size).unwrap();
-    conn.pragma_update(None, "journal_mode", &"WAL").unwrap();
     conn.pragma_update(None, "synchronous", &"NORMAL").unwrap();
-
     conn
 }
 
