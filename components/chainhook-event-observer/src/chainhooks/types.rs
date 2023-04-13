@@ -491,7 +491,7 @@ pub enum OutputPredicate {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", tag = "operation")]
 pub enum StacksOperations {
     StackerRewarded,
     BlockCommitted,
@@ -501,7 +501,7 @@ pub enum StacksOperations {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", tag = "operation")]
 pub enum OrdinalOperations {
     InscriptionFeed,
 }
