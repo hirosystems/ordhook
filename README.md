@@ -160,19 +160,11 @@ The current `bitcoin` predicates supports the following `if_this` constructs:
     }
 }
 
-// Get any transaction including a new Ordinal inscription
+// Get any transaction including a new Ordinal inscription (inscription revealed and transfered)
 {
     "if_this": {
         "protocol": "ordinals",
-        "operation": "inscription_revealed"
-    }
-}
-
-// Get any transaction transferring a revealed Ordinal inscription
-{
-    "if_this": {
-        "protocol": "ordinals",
-        "operation": "inscription_transferred"
+        "operation": "inscription_feed"
     }
 }
 
@@ -273,7 +265,7 @@ Putting all the pieces together:
     "testnet": {
       "if_this": {
         "protocol": "ordinals",
-        "operation": "inscription_revealed"
+        "operation": "inscription_feed"
       },
       "then_that": {
         "http_post": {
@@ -286,7 +278,7 @@ Putting all the pieces together:
     "mainnet": {
       "if_this": {
         "protocol": "ordinals",
-        "operation": "inscription_revealed"
+        "operation": "inscription_feed"
       },
       "then_that": {
         "http_post": {

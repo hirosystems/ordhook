@@ -509,8 +509,7 @@ pub enum StacksOperations {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum OrdinalOperations {
-    InscriptionRevealed,
-    InscriptionTransferred,
+    InscriptionFeed,
 }
 
 pub fn get_stacks_canonical_magic_bytes(network: &BitcoinNetwork) -> [u8; 2] {
