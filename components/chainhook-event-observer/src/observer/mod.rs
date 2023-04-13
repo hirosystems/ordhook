@@ -1172,7 +1172,7 @@ pub async fn start_observer_commands_handler(
             }
             ObserverCommand::PropagateStacksMempoolEvent(mempool_event) => {
                 ctx.try_log(|logger| {
-                    slog::info!(logger, "Handling PropagateStacksMempoolEvent command")
+                    slog::debug!(logger, "Handling PropagateStacksMempoolEvent command")
                 });
                 if let Some(ref tx) = observer_events_tx {
                     let _ = tx.send(ObserverEvent::StacksChainMempoolEvent(mempool_event));

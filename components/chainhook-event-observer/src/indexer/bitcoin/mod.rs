@@ -401,7 +401,7 @@ pub fn standardize_bitcoin_block(
                 stacks_operations,
                 ordinal_operations,
                 proof: None,
-                fee: sats_out - sats_in,
+                fee: sats_in - sats_out,
             },
         };
         transactions.push(tx);
