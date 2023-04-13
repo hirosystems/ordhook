@@ -338,7 +338,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
                     }
                 };
 
-                let (outpoint_post_transfer, offset_post_transfer, updated_address) =
+                let (outpoint_post_transfer, offset_post_transfer, updated_address, post_transfer_output_value) =
                     match post_transfer_output {
                         Some(index) => {
                             let outpoint =
@@ -372,13 +372,13 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
                             };
 
                             // let vout = new_tx.metadata.outputs[index];
-                            (outpoint, offset, updated_address)
+                            (outpoint, offset, updated_address, Some(new_tx.metadata.outputs[post_transfer_output_index].value))
                         }
                         None => {
                             // Get Coinbase TX
                             let offset = first_sat_post_subsidy + cumulated_fees;
                             let outpoint = coinbase_txid.clone();
-                            (outpoint, offset, None)
+                            (outpoint, offset, None, None)
                         }
                     };
 
@@ -432,6 +432,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
                     updated_address,
                     satpoint_pre_transfer,
                     satpoint_post_transfer,
+                    post_transfer_output_value,
                 };
 
                 // Attach transfer event

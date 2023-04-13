@@ -314,6 +314,7 @@ pub struct OrdinalInscriptionTransferData {
     pub updated_address: Option<String>,
     pub satpoint_pre_transfer: String,
     pub satpoint_post_transfer: String,
+    pub post_transfer_output_value: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
