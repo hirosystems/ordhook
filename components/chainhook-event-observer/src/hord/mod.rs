@@ -208,6 +208,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
                 inscription.ordinal_number = traversal.ordinal_number;
                 inscription.inscription_number = traversal.inscription_number;
                 inscription.transfers_pre_inscription = traversal.transfers;
+                inscription.inscription_fee = new_tx.metadata.fee;
 
                 match storage {
                     Storage::Sqlite(rw_hord_db_conn) => {

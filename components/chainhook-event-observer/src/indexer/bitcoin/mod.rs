@@ -449,7 +449,7 @@ fn try_parse_ordinal_operation(
                     index: 0,
                 };
 
-                let inscription_fee = tx
+                let inscription_output_value = tx
                     .vout
                     .get(0)
                     .and_then(|o| Some(o.value.to_sat()))
@@ -474,7 +474,8 @@ fn try_parse_ordinal_operation(
                         content_length: inscription_content_bytes.len(),
                         inscription_id: inscription_id.to_string(),
                         inscriber_address,
-                        inscription_fee,
+                        inscription_output_value,
+                        inscription_fee: 0,
                         inscription_number: 0,
                         ordinal_number: 0,
                         ordinal_block_height: 0,
