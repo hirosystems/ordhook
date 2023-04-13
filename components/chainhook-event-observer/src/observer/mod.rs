@@ -536,10 +536,11 @@ pub fn apply_bitcoin_block() {}
 pub fn rollback_bitcoin_block() {}
 
 pub fn gather_proofs<'a>(
-    chainhooks_to_trigger: &Vec<BitcoinTriggerChainhook<'a>>,
+    trigger: &BitcoinTriggerChainhook<'a>,
+    proofs: &mut HashMap<&'a TransactionIdentifier, String>,
     config: &EventObserverConfig,
     ctx: &Context,
-) -> HashMap<&'a TransactionIdentifier, String> {
+) {
     let bitcoin_client_rpc = Client::new(
         &config.bitcoind_rpc_url,
         Auth::UserPass(
@@ -549,35 +550,31 @@ pub fn gather_proofs<'a>(
     )
     .expect("unable to build http client");
 
-    let mut proofs = HashMap::new();
-    for hook_to_trigger in chainhooks_to_trigger.iter() {
-        for (transactions, block) in hook_to_trigger.apply.iter() {
-            for transaction in transactions.iter() {
-                if !proofs.contains_key(&transaction.transaction_identifier) {
-                    ctx.try_log(|logger| {
-                        slog::info!(
-                            logger,
-                            "Collecting proof for transaction {}",
-                            transaction.transaction_identifier.hash
-                        )
-                    });
-                    match get_bitcoin_proof(
-                        &bitcoin_client_rpc,
-                        &transaction.transaction_identifier,
-                        &block.block_identifier,
-                    ) {
-                        Ok(proof) => {
-                            proofs.insert(&transaction.transaction_identifier, proof);
-                        }
-                        Err(e) => {
-                            ctx.try_log(|logger| slog::error!(logger, "{e}"));
-                        }
+    for (transactions, block) in trigger.apply.iter() {
+        for transaction in transactions.iter() {
+            if !proofs.contains_key(&transaction.transaction_identifier) {
+                ctx.try_log(|logger| {
+                    slog::info!(
+                        logger,
+                        "Collecting proof for transaction {}",
+                        transaction.transaction_identifier.hash
+                    )
+                });
+                match get_bitcoin_proof(
+                    &bitcoin_client_rpc,
+                    &transaction.transaction_identifier,
+                    &block.block_identifier,
+                ) {
+                    Ok(proof) => {
+                        proofs.insert(&transaction.transaction_identifier, proof);
+                    }
+                    Err(e) => {
+                        ctx.try_log(|logger| slog::error!(logger, "{e}"));
                     }
                 }
             }
         }
     }
-    proofs
 }
 
 pub async fn start_observer_commands_handler(
@@ -939,7 +936,13 @@ pub async fn start_observer_commands_handler(
                                 }
                             }
 
-                            let proofs = gather_proofs(&chainhooks_to_trigger, &config, &ctx);
+                            let mut proofs = HashMap::new();
+                            for trigger in chainhooks_to_trigger.iter() {
+                                if trigger.chainhook.include_proof {
+                                    gather_proofs(&trigger, &mut proofs, &config, &ctx);
+                                }
+                            }
+
                             ctx.try_log(|logger| {
                                 slog::info!(
                                     logger,

@@ -9,9 +9,7 @@ use crate::{
     config::Config,
 };
 use chainhook_event_observer::{
-    chainhooks::{
-        stacks::evaluate_stacks_chainhook_on_blocks,
-    },
+    chainhooks::stacks::evaluate_stacks_chainhook_on_blocks,
     indexer::{self, stacks::standardize_stacks_serialized_block_header, Indexer},
     utils::Context,
 };

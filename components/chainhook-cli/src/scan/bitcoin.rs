@@ -272,9 +272,12 @@ pub async fn execute_predicates_action<'a>(
     ctx: &Context,
 ) -> Result<u32, ()> {
     let mut actions_triggered = 0;
-    let proofs = gather_proofs(&hits, &config, &ctx);
-    for hit in hits.into_iter() {
-        match handle_bitcoin_hook_action(hit, &proofs) {
+    let mut proofs = HashMap::new();
+    for trigger in hits.into_iter() {
+        if trigger.chainhook.include_proof {
+            gather_proofs(&trigger, &mut proofs, &config, &ctx);
+        }
+        match handle_bitcoin_hook_action(trigger, &proofs) {
             Err(e) => {
                 error!(ctx.expect_logger(), "unable to handle action {}", e);
             }

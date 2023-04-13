@@ -4,16 +4,11 @@ use crate::scan::stacks::scan_stacks_chainstate_via_csv_using_predicate;
 
 use chainhook_event_observer::chainhooks::types::{ChainhookConfig, ChainhookFullSpecification};
 
+use chainhook_event_observer::chainhooks::types::ChainhookSpecification;
 use chainhook_event_observer::observer::{start_event_observer, ApiKey, ObserverEvent};
 use chainhook_event_observer::utils::Context;
-use chainhook_event_observer::{
-    chainhooks::types::ChainhookSpecification,
-};
-use chainhook_types::{
-    BitcoinBlockSignaling, StacksBlockData, StacksChainEvent,
-};
+use chainhook_types::{BitcoinBlockSignaling, StacksBlockData, StacksChainEvent};
 use redis::{Commands, Connection};
-
 
 use std::sync::mpsc::channel;
 

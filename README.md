@@ -217,6 +217,18 @@ Additional configuration knobs available:
 // Stop evaluating chainhook after a given number of occurrences found:
 "expire_after_occurrence": 1
 
+// Include proof:
+"include_proof": false
+
+// Include Bitcoin transaction inputs in payload:
+"include_inputs": false
+
+// Include Bitcoin transaction outputs in payload:
+"include_outputs": false
+
+// Include Bitcoin transaction witness in payload:
+"include_witness": false
+
 ```
 
 Putting all the pieces together:

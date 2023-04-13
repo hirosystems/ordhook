@@ -470,6 +470,10 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                                 action: HookAction::FileAppend(FileHook {
                                     path: "ordinals.txt".into(),
                                 }),
+                                include_inputs: None,
+                                include_outputs: None,
+                                include_proof: None,
+                                include_witness: None,
                             },
                         );
 
