@@ -737,9 +737,9 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
                     let block_data = hiro_system_kit::nestable_block_on(future).unwrap();
                     let _ = block_data_tx.send(Some(block_data));
                 });
-                let res = retrieve_block_data_pool.join();
-                res
             }
+            let res = retrieve_block_data_pool.join();
+            res
         })
         .expect("unable to spawn thread");
 
@@ -757,10 +757,9 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
                         block_data,
                     )));
                 });
-
-                let res = compress_block_data_pool.join();
-                res
             }
+            let res = compress_block_data_pool.join();
+            res
         })
         .expect("unable to spawn thread");
 

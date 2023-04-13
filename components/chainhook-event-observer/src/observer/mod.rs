@@ -1023,14 +1023,6 @@ pub async fn start_observer_commands_handler(
                 }
 
                 for request in requests.into_iter() {
-                    // todo(lgalabru): collect responses for reporting
-                    ctx.try_log(|logger| {
-                        slog::info!(
-                            logger,
-                            "Dispatching request from bitcoin chainhook {:?}",
-                            request
-                        )
-                    });
                     let _ = send_request(request, &ctx).await;
                 }
 

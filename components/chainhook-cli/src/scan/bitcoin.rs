@@ -198,6 +198,13 @@ pub async fn scan_bitcoin_chainstate_via_http_using_predicate(
                 vec![&predicate_spec],
                 ctx,
             );
+            info!(
+                ctx.expect_logger(),
+                "Processing block #{} through predicate {}: {} hits",
+                cursor,
+                predicate_spec.uuid,
+                hits.len()
+            );
 
             match execute_predicates_action(hits, &event_observer_config, &ctx).await {
                 Ok(actions) => actions_triggered += actions,

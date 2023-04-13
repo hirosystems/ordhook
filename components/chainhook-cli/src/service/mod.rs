@@ -372,9 +372,9 @@ fn load_predicates_from_redis(
                         key,
                         e.to_string()
                     );
-                    continue;    
+                    continue;
                 }
-            }
+            },
             Err(e) => {
                 error!(
                     ctx.expect_logger(),

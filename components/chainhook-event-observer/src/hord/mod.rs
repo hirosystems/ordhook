@@ -338,49 +338,58 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
                     }
                 };
 
-                let (outpoint_post_transfer, offset_post_transfer, updated_address, post_transfer_output_value) =
-                    match post_transfer_output {
-                        Some(index) => {
-                            let outpoint =
-                                format!("{}:{}", &new_tx.transaction_identifier.hash[2..], index);
-                            let offset = 0;
-                            let script_pub_key_hex =
-                                new_tx.metadata.outputs[index].get_script_pubkey_hex();
-                            let updated_address = match Script::from_hex(&script_pub_key_hex) {
-                                Ok(script) => match Address::from_script(&script, Network::Bitcoin)
-                                {
-                                    Ok(address) => Some(address.to_string()),
-                                    Err(e) => {
-                                        ctx.try_log(|logger| {
+                let (
+                    outpoint_post_transfer,
+                    offset_post_transfer,
+                    updated_address,
+                    post_transfer_output_value,
+                ) = match post_transfer_output {
+                    Some(index) => {
+                        let outpoint =
+                            format!("{}:{}", &new_tx.transaction_identifier.hash[2..], index);
+                        let offset = 0;
+                        let script_pub_key_hex =
+                            new_tx.metadata.outputs[index].get_script_pubkey_hex();
+                        let updated_address = match Script::from_hex(&script_pub_key_hex) {
+                            Ok(script) => match Address::from_script(&script, Network::Bitcoin) {
+                                Ok(address) => Some(address.to_string()),
+                                Err(e) => {
+                                    ctx.try_log(|logger| {
                                             slog::warn!(
                                                 logger,
                                                 "unable to retrieve address from {script_pub_key_hex}: {}", e.to_string()
                                             )
                                         });
-                                        None
-                                    }
-                                },
-                                Err(e) => {
-                                    ctx.try_log(|logger| {
-                                        slog::warn!(
-                                            logger,
-                                            "unable to retrieve address from {script_pub_key_hex}: {}", e.to_string()
-                                        )
-                                    });
                                     None
                                 }
-                            };
+                            },
+                            Err(e) => {
+                                ctx.try_log(|logger| {
+                                    slog::warn!(
+                                        logger,
+                                        "unable to retrieve address from {script_pub_key_hex}: {}",
+                                        e.to_string()
+                                    )
+                                });
+                                None
+                            }
+                        };
 
-                            // let vout = new_tx.metadata.outputs[index];
-                            (outpoint, offset, updated_address, Some(new_tx.metadata.outputs[post_transfer_output_index].value))
-                        }
-                        None => {
-                            // Get Coinbase TX
-                            let offset = first_sat_post_subsidy + cumulated_fees;
-                            let outpoint = coinbase_txid.clone();
-                            (outpoint, offset, None, None)
-                        }
-                    };
+                        // let vout = new_tx.metadata.outputs[index];
+                        (
+                            outpoint,
+                            offset,
+                            updated_address,
+                            Some(new_tx.metadata.outputs[post_transfer_output_index].value),
+                        )
+                    }
+                    None => {
+                        // Get Coinbase TX
+                        let offset = first_sat_post_subsidy + cumulated_fees;
+                        let outpoint = coinbase_txid.clone();
+                        (outpoint, offset, None, None)
+                    }
+                };
 
                 // ctx.try_log(|logger| {
                 //     slog::info!(
