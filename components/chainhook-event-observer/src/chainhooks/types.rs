@@ -217,6 +217,10 @@ pub struct BitcoinChainhookSpecification {
     pub expire_after_occurrence: Option<u64>,
     pub predicate: BitcoinPredicateType,
     pub action: HookAction,
+    pub include_proof: bool,
+    pub include_inputs: bool,
+    pub include_outputs: bool,
+    pub include_witness: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
@@ -283,6 +287,10 @@ impl BitcoinChainhookFullSpecification {
             expire_after_occurrence: spec.expire_after_occurrence,
             predicate: spec.predicate,
             action: spec.action,
+            include_proof: spec.include_proof.unwrap_or(false),
+            include_inputs: spec.include_inputs.unwrap_or(false),
+            include_outputs: spec.include_outputs.unwrap_or(false),
+            include_witness: spec.include_witness.unwrap_or(false),
         })
     }
 }
@@ -295,6 +303,14 @@ pub struct BitcoinChainhookNetworkSpecification {
     pub end_block: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expire_after_occurrence: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub include_proof: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub include_inputs: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub include_outputs: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub include_witness: Option<bool>,
     #[serde(rename = "if_this")]
     pub predicate: BitcoinPredicateType,
     #[serde(rename = "then_that")]
@@ -453,41 +469,8 @@ pub enum BitcoinPredicateType {
     Txid(ExactMatchingRule),
     Inputs(InputPredicate),
     Outputs(OutputPredicate),
-    Protocol(Protocols),
-}
-
-impl BitcoinPredicateType {
-    pub fn include_inputs(&self) -> bool {
-        match &self {
-            BitcoinPredicateType::Block => true,
-            BitcoinPredicateType::Txid(_rules) => true,
-            BitcoinPredicateType::Inputs(_rules) => true,
-            BitcoinPredicateType::Outputs(_rules) => false,
-            BitcoinPredicateType::Protocol(Protocols::Ordinal(_)) => false,
-            BitcoinPredicateType::Protocol(Protocols::Stacks(_)) => false,
-        }
-    }
-
-    pub fn include_outputs(&self) -> bool {
-        match &self {
-            BitcoinPredicateType::Block => true,
-            BitcoinPredicateType::Txid(_rules) => true,
-            BitcoinPredicateType::Inputs(_rules) => false,
-            BitcoinPredicateType::Outputs(_rules) => true,
-            BitcoinPredicateType::Protocol(Protocols::Ordinal(_)) => true,
-            BitcoinPredicateType::Protocol(Protocols::Stacks(_)) => false,
-        }
-    }
-
-    pub fn include_witness(&self) -> bool {
-        match &self {
-            BitcoinPredicateType::Block => true,
-            BitcoinPredicateType::Txid(_rules) => true,
-            BitcoinPredicateType::Inputs(_rules) => false,
-            BitcoinPredicateType::Outputs(_rules) => false,
-            BitcoinPredicateType::Protocol(_rules) => false,
-        }
-    }
+    StacksProtocol(StacksOperations),
+    OrdinalsProtocol(OrdinalOperations),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
@@ -508,14 +491,7 @@ pub enum OutputPredicate {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum Protocols {
-    Stacks(StacksOperations),
-    Ordinal(OrdinalOperations),
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", tag = "operation")]
 pub enum StacksOperations {
     StackerRewarded,
     BlockCommitted,
@@ -525,10 +501,9 @@ pub enum StacksOperations {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", tag = "operation")]
 pub enum OrdinalOperations {
-    InscriptionRevealed,
-    InscriptionTransferred,
+    InscriptionFeed,
 }
 
 pub fn get_stacks_canonical_magic_bytes(network: &BitcoinNetwork) -> [u8; 2] {

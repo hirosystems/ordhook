@@ -517,7 +517,7 @@ pub fn find_latest_inscription_block_height(
 pub fn find_latest_inscription_number(
     inscriptions_db_conn: &Connection,
     _ctx: &Context,
-) -> Result<u64, String> {
+) -> Result<Option<u64>, String> {
     let args: &[&dyn ToSql] = &[];
     let mut stmt = inscriptions_db_conn
         .prepare(
@@ -527,9 +527,9 @@ pub fn find_latest_inscription_number(
     let mut rows = stmt.query(args).unwrap();
     while let Ok(Some(row)) = rows.next() {
         let inscription_number: u64 = row.get(0).unwrap();
-        return Ok(inscription_number);
+        return Ok(Some(inscription_number));
     }
-    Ok(0)
+    Ok(None)
 }
 
 pub fn find_inscription_with_ordinal_number(
@@ -545,6 +545,33 @@ pub fn find_inscription_with_ordinal_number(
     while let Ok(Some(row)) = rows.next() {
         let inscription_id: String = row.get(0).unwrap();
         return Some(inscription_id);
+    }
+    return None;
+}
+
+pub fn find_inscription_with_id(
+    inscription_id: &str,
+    block_hash: &str,
+    inscriptions_db_conn: &Connection,
+    _ctx: &Context,
+) -> Option<TraversalResult> {
+    let args: &[&dyn ToSql] = &[&inscription_id.to_sql().unwrap()];
+    let mut stmt = inscriptions_db_conn
+        .prepare("SELECT inscription_number, ordinal_number, block_hash FROM inscriptions WHERE inscription_id = ?")
+        .unwrap();
+    let mut rows = stmt.query(args).unwrap();
+    while let Ok(Some(row)) = rows.next() {
+        let inscription_block_hash: String = row.get(2).unwrap();
+        if block_hash.eq(&inscription_block_hash) {
+            let inscription_number: u64 = row.get(0).unwrap();
+            let ordinal_number: u64 = row.get(1).unwrap();
+            let traversal = TraversalResult {
+                inscription_number,
+                ordinal_number,
+                transfers: 0,
+            };
+            return Some(traversal);
+        }
     }
     return None;
 }

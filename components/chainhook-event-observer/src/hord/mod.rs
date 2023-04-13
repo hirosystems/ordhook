@@ -29,8 +29,8 @@ use crate::{
 };
 
 use self::db::{
-    open_readonly_hord_db_conn_rocks_db, remove_entry_from_blocks, remove_entry_from_inscriptions,
-    TraversalResult, WatchedSatpoint,
+    find_inscription_with_id, open_readonly_hord_db_conn_rocks_db, remove_entry_from_blocks,
+    remove_entry_from_inscriptions, TraversalResult, WatchedSatpoint,
 };
 
 pub fn revert_hord_db_with_augmented_bitcoin_block(
@@ -102,16 +102,27 @@ pub fn update_hord_db_and_augment_bitcoin_block(
     }
 
     let mut transactions_ids = vec![];
+    let mut traversals = HashMap::new();
+
     for new_tx in new_block.transactions.iter_mut().skip(1) {
         // Have a new inscription been revealed, if so, are looking at a re-inscription
         for ordinal_event in new_tx.metadata.ordinal_operations.iter_mut() {
-            if let OrdinalOperation::InscriptionRevealed(_) = ordinal_event {
-                transactions_ids.push(new_tx.transaction_identifier.clone());
+            if let OrdinalOperation::InscriptionRevealed(inscription_data) = ordinal_event {
+                if let Some(traversal) = find_inscription_with_id(
+                    &inscription_data.inscription_id,
+                    &new_block.block_identifier.hash,
+                    inscriptions_db_conn_rw,
+                    ctx,
+                ) {
+                    traversals.insert(new_tx.transaction_identifier.clone(), traversal);
+                } else {
+                    // Enqueue for traversals
+                    transactions_ids.push(new_tx.transaction_identifier.clone());
+                }
             }
         }
     }
 
-    let mut traversals = HashMap::new();
     if !transactions_ids.is_empty() {
         let expected_traversals = transactions_ids.len();
         let (traversal_tx, traversal_rx) = channel::<(TransactionIdentifier, _)>();
@@ -197,6 +208,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
                 inscription.ordinal_number = traversal.ordinal_number;
                 inscription.inscription_number = traversal.inscription_number;
                 inscription.transfers_pre_inscription = traversal.transfers;
+                inscription.inscription_fee = new_tx.metadata.fee;
 
                 match storage {
                     Storage::Sqlite(rw_hord_db_conn) => {
@@ -218,7 +230,8 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
                         } else {
                             inscription.inscription_number =
                                 match find_latest_inscription_number(&inscription_db_conn, &ctx) {
-                                    Ok(inscription_number) => inscription_number + 1,
+                                    Ok(None) => 0,
+                                    Ok(Some(inscription_number)) => inscription_number + 1,
                                     Err(e) => {
                                         ctx.try_log(|logger| {
                                             slog::error!(
@@ -325,7 +338,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
                     }
                 };
 
-                let (outpoint_post_transfer, offset_post_transfer, updated_address) =
+                let (outpoint_post_transfer, offset_post_transfer, updated_address, post_transfer_output_value) =
                     match post_transfer_output {
                         Some(index) => {
                             let outpoint =
@@ -359,13 +372,13 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
                             };
 
                             // let vout = new_tx.metadata.outputs[index];
-                            (outpoint, offset, updated_address)
+                            (outpoint, offset, updated_address, Some(new_tx.metadata.outputs[post_transfer_output_index].value))
                         }
                         None => {
                             // Get Coinbase TX
                             let offset = first_sat_post_subsidy + cumulated_fees;
                             let outpoint = coinbase_txid.clone();
-                            (outpoint, offset, None)
+                            (outpoint, offset, None, None)
                         }
                     };
 
@@ -419,6 +432,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
                     updated_address,
                     satpoint_pre_transfer,
                     satpoint_post_transfer,
+                    post_transfer_output_value,
                 };
 
                 // Attach transfer event

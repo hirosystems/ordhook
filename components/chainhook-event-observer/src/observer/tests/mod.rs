@@ -100,6 +100,10 @@ fn bitcoin_chainhook_p2pkh(
                 ExactMatchingRule::Equals(address.to_string()),
             )),
             action: HookAction::Noop,
+            include_proof: None,
+            include_inputs: None,
+            include_outputs: None,
+            include_witness: None,
         },
     );
 

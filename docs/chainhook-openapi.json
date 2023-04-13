@@ -512,8 +512,7 @@
         "OrdinalOperations": {
           "type": "string",
           "enum": [
-            "inscription_revealed",
-            "inscription_transferred"
+            "inscription_feed"
           ]
         },
         "HookAction": {

@@ -1,14 +1,14 @@
 use crate::block::DigestingCommand;
 use crate::config::generator::generate_config;
 use crate::config::Config;
-use crate::scan::bitcoin::scan_bitcoin_chain_with_predicate;
-use crate::scan::stacks::scan_stacks_chain_with_predicate;
+use crate::scan::bitcoin::scan_bitcoin_chainstate_via_http_using_predicate;
+use crate::scan::stacks::scan_stacks_chainstate_via_csv_using_predicate;
 use crate::service::Service;
 
 use chainhook_event_observer::bitcoincore_rpc::{Auth, Client, RpcApi};
 use chainhook_event_observer::chainhooks::types::{
     BitcoinChainhookFullSpecification, BitcoinChainhookNetworkSpecification, BitcoinPredicateType,
-    ChainhookFullSpecification, FileHook, HookAction, OrdinalOperations, Protocols,
+    ChainhookFullSpecification, FileHook, HookAction, OrdinalOperations,
     StacksChainhookFullSpecification, StacksChainhookNetworkSpecification, StacksPredicate,
     StacksPrintEventBasedPredicate,
 };
@@ -41,16 +41,16 @@ struct Opts {
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
 enum Command {
-    /// Manage predicates
+    /// Generate and test predicates
     #[clap(subcommand)]
     Predicates(PredicatesCommand),
-    /// Manage config
+    /// Generate configuration files
     #[clap(subcommand)]
     Config(ConfigCommand),
-    /// Start chainhook-cli
+    /// Run a service streaming blocks and evaluating registered predicates
     #[clap(subcommand)]
     Service(ServiceCommand),
-    /// Protocols specific commands
+    /// Explore the Ordinal Theory  
     #[clap(subcommand)]
     Hord(HordCommand),
 }
@@ -69,7 +69,7 @@ enum PredicatesCommand {
 #[derive(Subcommand, PartialEq, Clone, Debug)]
 #[clap(bin_name = "config", aliases = &["config"])]
 enum ConfigCommand {
-    /// Generate new predicate
+    /// Generate new config
     #[clap(name = "new", bin_name = "new", aliases = &["generate"])]
     New(NewConfig),
 }
@@ -103,10 +103,10 @@ struct NewConfig {
 struct NewPredicate {
     /// Predicate's name
     pub name: String,
-    /// Generate a Bitcoin chainhook
+    /// Generate a Bitcoin predicate
     #[clap(long = "bitcoin", conflicts_with = "stacks")]
     pub bitcoin: bool,
-    /// Generate a Stacks chainhook
+    /// Generate a Stacks predicate
     #[clap(long = "stacks", conflicts_with = "bitcoin")]
     pub stacks: bool,
 }
@@ -463,13 +463,17 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                             BitcoinChainhookNetworkSpecification {
                                 start_block: Some(0),
                                 end_block: Some(100),
-                                predicate: BitcoinPredicateType::Protocol(Protocols::Ordinal(
-                                    OrdinalOperations::InscriptionRevealed,
-                                )),
+                                predicate: BitcoinPredicateType::OrdinalsProtocol(
+                                    OrdinalOperations::InscriptionFeed,
+                                ),
                                 expire_after_occurrence: None,
                                 action: HookAction::FileAppend(FileHook {
                                     path: "ordinals.txt".into(),
                                 }),
+                                include_inputs: None,
+                                include_outputs: None,
+                                include_proof: None,
+                                include_witness: None,
                             },
                         );
 
@@ -523,10 +527,44 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                 let predicate = load_predicate_from_path(&cmd.predicate_path)?;
                 match predicate {
                     ChainhookFullSpecification::Bitcoin(predicate) => {
-                        scan_bitcoin_chain_with_predicate(predicate, &config, &ctx).await?;
+                        let predicate_spec = match predicate
+                            .into_selected_network_specification(&config.network.bitcoin_network)
+                        {
+                            Ok(predicate) => predicate,
+                            Err(e) => {
+                                return Err(format!(
+                                    "Specification missing for network {:?}: {e}",
+                                    config.network.bitcoin_network
+                                ));
+                            }
+                        };
+
+                        scan_bitcoin_chainstate_via_http_using_predicate(
+                            predicate_spec,
+                            &config,
+                            &ctx,
+                        )
+                        .await?;
                     }
                     ChainhookFullSpecification::Stacks(predicate) => {
-                        scan_stacks_chain_with_predicate(predicate, &mut config, &ctx).await?;
+                        let predicate_spec = match predicate
+                            .into_selected_network_specification(&config.network.stacks_network)
+                        {
+                            Ok(predicate) => predicate,
+                            Err(e) => {
+                                return Err(format!(
+                                    "Specification missing for network {:?}: {e}",
+                                    config.network.bitcoin_network
+                                ));
+                            }
+                        };
+
+                        scan_stacks_chainstate_via_csv_using_predicate(
+                            predicate_spec,
+                            &mut config,
+                            &ctx,
+                        )
+                        .await?;
                     }
                 }
             }

@@ -129,7 +129,7 @@ The current `bitcoin` predicates supports the following `if_this` constructs:
 // Broadcasted payloads include Proof of Transfer reward informations.
 {
     "if_this": {
-        "protocol": "stacks",
+        "scope": "stacks_protocol",
         "operation": "block_committed"
     }
 }
@@ -137,7 +137,7 @@ The current `bitcoin` predicates supports the following `if_this` constructs:
 // Get any transaction including a key registration operation 
 {
     "if_this": {
-        "protocol": "stacks",
+        "scope": "stacks_protocol",
         "operation": "leader_key_registered"
     }
 }
@@ -146,7 +146,7 @@ The current `bitcoin` predicates supports the following `if_this` constructs:
 // Coming soon
 {
     "if_this": {
-        "protocol": "stacks",
+        "scope": "stacks_protocol",
         "operation": "stx_transfered"
     }
 }
@@ -155,24 +155,16 @@ The current `bitcoin` predicates supports the following `if_this` constructs:
 // Coming soon
 {
     "if_this": {
-        "protocol": "stacks",
+        "scope": "stacks_protocol",
         "operation": "stx_locked"
     }
 }
 
-// Get any transaction including a new Ordinal inscription
+// Get any transaction including a new Ordinal inscription (inscription revealed and transfered)
 {
     "if_this": {
-        "protocol": "ordinals",
-        "operation": "inscription_revealed"
-    }
-}
-
-// Get any transaction transferring a revealed Ordinal inscription
-{
-    "if_this": {
-        "protocol": "ordinals",
-        "operation": "inscription_transferred"
+        "scope": "ordinals_protocol",
+        "operation": "inscription_feed"
     }
 }
 
@@ -216,6 +208,18 @@ Additional configuration knobs available:
 
 // Stop evaluating chainhook after a given number of occurrences found:
 "expire_after_occurrence": 1
+
+// Include proof:
+"include_proof": false
+
+// Include Bitcoin transaction inputs in payload:
+"include_inputs": false
+
+// Include Bitcoin transaction outputs in payload:
+"include_outputs": false
+
+// Include Bitcoin transaction witness in payload:
+"include_witness": false
 
 ```
 
@@ -261,7 +265,7 @@ Putting all the pieces together:
     "testnet": {
       "if_this": {
         "protocol": "ordinals",
-        "operation": "inscription_revealed"
+        "operation": "inscription_feed"
       },
       "then_that": {
         "http_post": {
@@ -274,7 +278,7 @@ Putting all the pieces together:
     "mainnet": {
       "if_this": {
         "protocol": "ordinals",
-        "operation": "inscription_revealed"
+        "operation": "inscription_feed"
       },
       "then_that": {
         "http_post": {

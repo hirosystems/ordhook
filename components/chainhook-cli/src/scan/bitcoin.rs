@@ -6,7 +6,7 @@ use chainhook_event_observer::chainhooks::bitcoin::{
     BitcoinChainhookOccurrence, BitcoinTriggerChainhook,
 };
 use chainhook_event_observer::chainhooks::types::{
-    BitcoinChainhookFullSpecification, BitcoinPredicateType, Protocols,
+    BitcoinChainhookSpecification, BitcoinPredicateType,
 };
 use chainhook_event_observer::hord::db::{
     fetch_and_cache_blocks_in_hord_db, find_all_inscriptions, find_block_at_block_height,
@@ -26,8 +26,8 @@ use chainhook_event_observer::utils::{file_append, send_request, Context};
 use chainhook_types::{BitcoinChainEvent, BitcoinChainUpdatedWithBlocksData};
 use std::collections::{BTreeMap, HashMap};
 
-pub async fn scan_bitcoin_chain_with_predicate(
-    predicate: BitcoinChainhookFullSpecification,
+pub async fn scan_bitcoin_chainstate_via_http_using_predicate(
+    predicate_spec: BitcoinChainhookSpecification,
     config: &Config,
     ctx: &Context,
 ) -> Result<(), String> {
@@ -42,17 +42,6 @@ pub async fn scan_bitcoin_chain_with_predicate(
             return Err(format!("Bitcoin RPC error: {}", message.to_string()));
         }
     };
-
-    let predicate_spec =
-        match predicate.into_selected_network_specification(&config.network.bitcoin_network) {
-            Ok(predicate) => predicate,
-            Err(e) => {
-                return Err(format!(
-                    "Specification missing for network {:?}: {e}",
-                    config.network.bitcoin_network
-                ));
-            }
-        };
 
     let start_block = match predicate_spec.start_block {
         Some(start_block) => start_block,
@@ -82,7 +71,7 @@ pub async fn scan_bitcoin_chain_with_predicate(
     let mut is_predicate_evaluating_ordinals = false;
     let mut hord_blocks_requires_update = false;
 
-    if let BitcoinPredicateType::Protocol(Protocols::Ordinal(_)) = &predicate_spec.predicate {
+    if let BitcoinPredicateType::OrdinalsProtocol(_) = &predicate_spec.predicate {
         is_predicate_evaluating_ordinals = true;
         if let Ok(inscriptions_db_conn) =
             open_readonly_hord_db_conn(&config.expected_cache_path(), &ctx)
@@ -147,6 +136,7 @@ pub async fn scan_bitcoin_chain_with_predicate(
 
     let mut blocks_scanned = 0;
     let mut actions_triggered = 0;
+    let mut err_count = 0;
 
     let event_observer_config = config.get_event_observer_config();
     let bitcoin_config = event_observer_config.get_bitcoin_config();
@@ -169,11 +159,20 @@ pub async fn scan_bitcoin_chain_with_predicate(
             let block_hash = retrieve_block_hash_with_retry(&cursor, &bitcoin_config, ctx).await?;
             let block_breakdown =
                 download_and_parse_block_with_retry(&block_hash, &bitcoin_config, ctx).await?;
-            let mut block = indexer::bitcoin::standardize_bitcoin_block(
+            let mut block = match indexer::bitcoin::standardize_bitcoin_block(
                 block_breakdown,
                 &event_observer_config.bitcoin_network,
                 ctx,
-            )?;
+            ) {
+                Ok(data) => data,
+                Err(e) => {
+                    warn!(
+                        ctx.expect_logger(),
+                        "Unable to standardize block#{} {}: {}", cursor, block_hash, e
+                    );
+                    continue;
+                }
+            };
 
             update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
                 &mut block,
@@ -200,8 +199,14 @@ pub async fn scan_bitcoin_chain_with_predicate(
                 ctx,
             );
 
-            actions_triggered +=
-                execute_predicates_action(hits, &event_observer_config, &ctx).await;
+            match execute_predicates_action(hits, &event_observer_config, &ctx).await {
+                Ok(actions) => actions_triggered += actions,
+                Err(_) => err_count += 1,
+            }
+
+            if err_count >= 3 {
+                return Err(format!("Scan aborted (consecutive action errors >= 3)"));
+            }
         }
     } else {
         let use_scan_to_seed_hord_db = true;
@@ -215,11 +220,21 @@ pub async fn scan_bitcoin_chain_with_predicate(
             let block_hash = retrieve_block_hash_with_retry(&cursor, &bitcoin_config, ctx).await?;
             let block_breakdown =
                 download_and_parse_block_with_retry(&block_hash, &bitcoin_config, ctx).await?;
-            let block = indexer::bitcoin::standardize_bitcoin_block(
+
+            let block = match indexer::bitcoin::standardize_bitcoin_block(
                 block_breakdown,
                 &event_observer_config.bitcoin_network,
                 ctx,
-            )?;
+            ) {
+                Ok(data) => data,
+                Err(e) => {
+                    warn!(
+                        ctx.expect_logger(),
+                        "Unable to standardize block#{} {}: {}", cursor, block_hash, e
+                    );
+                    continue;
+                }
+            };
 
             let chain_event =
                 BitcoinChainEvent::ChainUpdatedWithBlocks(BitcoinChainUpdatedWithBlocksData {
@@ -233,8 +248,14 @@ pub async fn scan_bitcoin_chain_with_predicate(
                 ctx,
             );
 
-            actions_triggered +=
-                execute_predicates_action(hits, &event_observer_config, &ctx).await;
+            match execute_predicates_action(hits, &event_observer_config, &ctx).await {
+                Ok(actions) => actions_triggered += actions,
+                Err(_) => err_count += 1,
+            }
+
+            if err_count >= 3 {
+                return Err(format!("Scan aborted (consecutive action errors >= 3)"));
+            }
         }
     }
     info!(
@@ -249,24 +270,31 @@ pub async fn execute_predicates_action<'a>(
     hits: Vec<BitcoinTriggerChainhook<'a>>,
     config: &EventObserverConfig,
     ctx: &Context,
-) -> u32 {
+) -> Result<u32, ()> {
     let mut actions_triggered = 0;
-    let proofs = gather_proofs(&hits, &config, &ctx);
-    for hit in hits.into_iter() {
-        match handle_bitcoin_hook_action(hit, &proofs) {
+    let mut proofs = HashMap::new();
+    for trigger in hits.into_iter() {
+        if trigger.chainhook.include_proof {
+            gather_proofs(&trigger, &mut proofs, &config, &ctx);
+        }
+        match handle_bitcoin_hook_action(trigger, &proofs) {
             Err(e) => {
                 error!(ctx.expect_logger(), "unable to handle action {}", e);
             }
             Ok(action) => {
                 actions_triggered += 1;
                 match action {
-                    BitcoinChainhookOccurrence::Http(request) => send_request(request, &ctx).await,
-                    BitcoinChainhookOccurrence::File(path, bytes) => file_append(path, bytes, &ctx),
+                    BitcoinChainhookOccurrence::Http(request) => {
+                        send_request(request, &ctx).await?
+                    }
+                    BitcoinChainhookOccurrence::File(path, bytes) => {
+                        file_append(path, bytes, &ctx)?
+                    }
                     BitcoinChainhookOccurrence::Data(_payload) => unreachable!(),
-                }
+                };
             }
         }
     }
 
-    actions_triggered
+    Ok(actions_triggered)
 }
