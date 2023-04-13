@@ -6,7 +6,7 @@ use chainhook_event_observer::chainhooks::bitcoin::{
     BitcoinChainhookOccurrence, BitcoinTriggerChainhook,
 };
 use chainhook_event_observer::chainhooks::types::{
-    BitcoinChainhookSpecification, BitcoinPredicateType, Protocols,
+    BitcoinChainhookSpecification, BitcoinPredicateType,
 };
 use chainhook_event_observer::hord::db::{
     fetch_and_cache_blocks_in_hord_db, find_all_inscriptions, find_block_at_block_height,
@@ -71,7 +71,7 @@ pub async fn scan_bitcoin_chainstate_via_http_using_predicate(
     let mut is_predicate_evaluating_ordinals = false;
     let mut hord_blocks_requires_update = false;
 
-    if let BitcoinPredicateType::Protocol(Protocols::Ordinal(_)) = &predicate_spec.predicate {
+    if let BitcoinPredicateType::OrdinalsProtocol(_) = &predicate_spec.predicate {
         is_predicate_evaluating_ordinals = true;
         if let Ok(inscriptions_db_conn) =
             open_readonly_hord_db_conn(&config.expected_cache_path(), &ctx)

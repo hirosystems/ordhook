@@ -469,7 +469,8 @@ pub enum BitcoinPredicateType {
     Txid(ExactMatchingRule),
     Inputs(InputPredicate),
     Outputs(OutputPredicate),
-    Protocol(Protocols),
+    StacksProtocol(StacksOperations),
+    OrdinalsProtocol(OrdinalOperations),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
@@ -487,13 +488,6 @@ pub enum OutputPredicate {
     P2sh(ExactMatchingRule),
     P2wpkh(ExactMatchingRule),
     P2wsh(ExactMatchingRule),
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum Protocols {
-    Stacks(StacksOperations),
-    Ordinal(OrdinalOperations),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]

@@ -129,7 +129,7 @@ The current `bitcoin` predicates supports the following `if_this` constructs:
 // Broadcasted payloads include Proof of Transfer reward informations.
 {
     "if_this": {
-        "protocol": "stacks",
+        "scope": "stacks_protocol",
         "operation": "block_committed"
     }
 }
@@ -137,7 +137,7 @@ The current `bitcoin` predicates supports the following `if_this` constructs:
 // Get any transaction including a key registration operation 
 {
     "if_this": {
-        "protocol": "stacks",
+        "scope": "stacks_protocol",
         "operation": "leader_key_registered"
     }
 }
@@ -146,7 +146,7 @@ The current `bitcoin` predicates supports the following `if_this` constructs:
 // Coming soon
 {
     "if_this": {
-        "protocol": "stacks",
+        "scope": "stacks_protocol",
         "operation": "stx_transfered"
     }
 }
@@ -155,7 +155,7 @@ The current `bitcoin` predicates supports the following `if_this` constructs:
 // Coming soon
 {
     "if_this": {
-        "protocol": "stacks",
+        "scope": "stacks_protocol",
         "operation": "stx_locked"
     }
 }
@@ -163,7 +163,7 @@ The current `bitcoin` predicates supports the following `if_this` constructs:
 // Get any transaction including a new Ordinal inscription (inscription revealed and transfered)
 {
     "if_this": {
-        "protocol": "ordinals",
+        "scope": "ordinals_protocol",
         "operation": "inscription_feed"
     }
 }

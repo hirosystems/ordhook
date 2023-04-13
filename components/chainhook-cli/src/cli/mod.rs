@@ -8,7 +8,7 @@ use crate::service::Service;
 use chainhook_event_observer::bitcoincore_rpc::{Auth, Client, RpcApi};
 use chainhook_event_observer::chainhooks::types::{
     BitcoinChainhookFullSpecification, BitcoinChainhookNetworkSpecification, BitcoinPredicateType,
-    ChainhookFullSpecification, FileHook, HookAction, OrdinalOperations, Protocols,
+    ChainhookFullSpecification, FileHook, HookAction, OrdinalOperations,
     StacksChainhookFullSpecification, StacksChainhookNetworkSpecification, StacksPredicate,
     StacksPrintEventBasedPredicate,
 };
@@ -463,9 +463,9 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                             BitcoinChainhookNetworkSpecification {
                                 start_block: Some(0),
                                 end_block: Some(100),
-                                predicate: BitcoinPredicateType::Protocol(Protocols::Ordinal(
+                                predicate: BitcoinPredicateType::OrdinalsProtocol(
                                     OrdinalOperations::InscriptionFeed,
-                                )),
+                                ),
                                 expire_after_occurrence: None,
                                 action: HookAction::FileAppend(FileHook {
                                     path: "ordinals.txt".into(),

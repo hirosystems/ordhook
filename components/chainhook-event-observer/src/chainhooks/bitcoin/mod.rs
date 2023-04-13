@@ -1,6 +1,6 @@
 use super::types::{
     BitcoinChainhookSpecification, BitcoinPredicateType, ExactMatchingRule, HookAction,
-    InputPredicate, MatchingRule, OrdinalOperations, OutputPredicate, Protocols, StacksOperations,
+    InputPredicate, MatchingRule, OrdinalOperations, OutputPredicate, StacksOperations,
 };
 use crate::utils::Context;
 
@@ -373,9 +373,7 @@ impl BitcoinPredicateType {
                 // TODO(lgalabru)
                 unimplemented!()
             }
-            BitcoinPredicateType::Protocol(Protocols::Stacks(
-                StacksOperations::StackerRewarded,
-            )) => {
+            BitcoinPredicateType::StacksProtocol(StacksOperations::StackerRewarded) => {
                 for op in tx.metadata.stacks_operations.iter() {
                     if let StacksBaseChainOperation::BlockCommitted(_) = op {
                         return true;
@@ -383,7 +381,7 @@ impl BitcoinPredicateType {
                 }
                 false
             }
-            BitcoinPredicateType::Protocol(Protocols::Stacks(StacksOperations::BlockCommitted)) => {
+            BitcoinPredicateType::StacksProtocol(StacksOperations::BlockCommitted) => {
                 for op in tx.metadata.stacks_operations.iter() {
                     if let StacksBaseChainOperation::BlockCommitted(_) = op {
                         return true;
@@ -391,9 +389,7 @@ impl BitcoinPredicateType {
                 }
                 false
             }
-            BitcoinPredicateType::Protocol(Protocols::Stacks(
-                StacksOperations::LeaderRegistered,
-            )) => {
+            BitcoinPredicateType::StacksProtocol(StacksOperations::LeaderRegistered) => {
                 for op in tx.metadata.stacks_operations.iter() {
                     if let StacksBaseChainOperation::LeaderRegistered(_) = op {
                         return true;
@@ -401,7 +397,7 @@ impl BitcoinPredicateType {
                 }
                 false
             }
-            BitcoinPredicateType::Protocol(Protocols::Stacks(StacksOperations::StxTransfered)) => {
+            BitcoinPredicateType::StacksProtocol(StacksOperations::StxTransfered) => {
                 for op in tx.metadata.stacks_operations.iter() {
                     if let StacksBaseChainOperation::StxTransfered(_) = op {
                         return true;
@@ -409,7 +405,7 @@ impl BitcoinPredicateType {
                 }
                 false
             }
-            BitcoinPredicateType::Protocol(Protocols::Stacks(StacksOperations::StxLocked)) => {
+            BitcoinPredicateType::StacksProtocol(StacksOperations::StxLocked) => {
                 for op in tx.metadata.stacks_operations.iter() {
                     if let StacksBaseChainOperation::StxLocked(_) = op {
                         return true;
@@ -417,9 +413,7 @@ impl BitcoinPredicateType {
                 }
                 false
             }
-            BitcoinPredicateType::Protocol(Protocols::Ordinal(
-                OrdinalOperations::InscriptionFeed,
-            )) => {
+            BitcoinPredicateType::OrdinalsProtocol(OrdinalOperations::InscriptionFeed) => {
                 for op in tx.metadata.ordinal_operations.iter() {
                     if let OrdinalOperation::InscriptionRevealed(_) = op {
                         return true;
