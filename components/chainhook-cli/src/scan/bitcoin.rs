@@ -145,11 +145,12 @@ pub async fn scan_bitcoin_chainstate_via_http_using_predicate(
         let hord_db_conn = open_readonly_hord_db_conn(&config.expected_cache_path(), ctx)?;
 
         let mut storage = Storage::Memory(BTreeMap::new());
-        for (cursor, local_traverals) in inscriptions_cache.into_iter() {
+        for cursor in start_block..=end_block {
             // Only consider inscriptions in the interval specified
-            if cursor < start_block || cursor > end_block {
-                continue;
-            }
+            let local_traverals = match inscriptions_cache.remove(&cursor) {
+                Some(entry) => entry,
+                None => continue
+            };
             for (transaction_identifier, traversal_result) in local_traverals.into_iter() {
                 traversals.insert(transaction_identifier, traversal_result);
             }

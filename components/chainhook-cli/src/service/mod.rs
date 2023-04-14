@@ -278,6 +278,7 @@ impl Service {
                     };
                 }
                 ObserverEvent::Terminate => {
+                    info!(self.ctx.expect_logger(), "Terminating runloop");
                     break;
                 }
                 _ => {}

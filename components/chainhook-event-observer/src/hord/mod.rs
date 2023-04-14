@@ -198,8 +198,9 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
                     Some(traversal) => traversal,
                     None => {
                         ctx.try_log(|logger| {
-                            slog::error!(logger, "unable to retrieve satoshi point",);
+                            slog::info!(logger, "Unable to retrieve cached inscription data for inscription {}", new_tx.transaction_identifier.hash);
                         });
+                        ordinals_events_indexes_to_discard.push_front(ordinal_event_index);
                         continue;
                     }
                 };
