@@ -27,7 +27,7 @@ use chainhook_types::{BitcoinChainEvent, BitcoinChainUpdatedWithBlocksData};
 use std::collections::{BTreeMap, HashMap};
 
 pub async fn scan_bitcoin_chainstate_via_http_using_predicate(
-    predicate_spec: BitcoinChainhookSpecification,
+    predicate_spec: &BitcoinChainhookSpecification,
     config: &Config,
     ctx: &Context,
 ) -> Result<(), String> {
@@ -149,7 +149,7 @@ pub async fn scan_bitcoin_chainstate_via_http_using_predicate(
             // Only consider inscriptions in the interval specified
             let local_traverals = match inscriptions_cache.remove(&cursor) {
                 Some(entry) => entry,
-                None => continue
+                None => continue,
             };
             for (transaction_identifier, traversal_result) in local_traverals.into_iter() {
                 traversals.insert(transaction_identifier, traversal_result);

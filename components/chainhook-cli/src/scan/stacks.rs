@@ -23,7 +23,7 @@ use chainhook_event_observer::{
 use chainhook_types::BlockIdentifier;
 
 pub async fn scan_stacks_chainstate_via_csv_using_predicate(
-    predicate_spec: StacksChainhookSpecification,
+    predicate_spec: &StacksChainhookSpecification,
     config: &mut Config,
     ctx: &Context,
 ) -> Result<BlockIdentifier, String> {

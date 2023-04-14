@@ -11,7 +11,7 @@ use schemars::JsonSchema;
 
 use crate::observer::ApiKey;
 
-#[derive(Clone, Debug, JsonSchema)]
+#[derive(Clone, Debug)]
 pub struct ChainhookConfig {
     pub stacks_chainhooks: Vec<StacksChainhookSpecification>,
     pub bitcoin_chainhooks: Vec<BitcoinChainhookSpecification>,
@@ -66,6 +66,30 @@ impl ChainhookConfig {
             }
         };
         Ok(spec)
+    }
+
+    pub fn enable_specification(
+        &mut self,
+        predicate_spec: &ChainhookSpecification,
+    ) {
+        match predicate_spec {
+            ChainhookSpecification::Stacks(spec_to_enable) => {
+                for spec in self.stacks_chainhooks.iter_mut() {
+                    if spec.uuid.eq(&spec_to_enable.uuid) {
+                        spec.enabled = true;
+                        break;
+                    }
+                }
+            }
+            ChainhookSpecification::Bitcoin(spec_to_enable) => {
+                for spec in self.bitcoin_chainhooks.iter_mut() {
+                    if spec.uuid.eq(&spec_to_enable.uuid) {
+                        spec.enabled = true;
+                        break;
+                    }
+                }
+            }
+        };
     }
 
     pub fn register_specification(&mut self, spec: ChainhookSpecification) -> Result<(), String> {
@@ -131,7 +155,7 @@ impl Serialize for ChainhookConfig {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum ChainhookSpecification {
     Bitcoin(BitcoinChainhookSpecification),
@@ -201,7 +225,7 @@ impl ChainhookSpecification {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct BitcoinChainhookSpecification {
     pub uuid: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -221,6 +245,7 @@ pub struct BitcoinChainhookSpecification {
     pub include_inputs: bool,
     pub include_outputs: bool,
     pub include_witness: bool,
+    pub enabled: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
@@ -291,6 +316,7 @@ impl BitcoinChainhookFullSpecification {
             include_inputs: spec.include_inputs.unwrap_or(false),
             include_outputs: spec.include_outputs.unwrap_or(false),
             include_witness: spec.include_witness.unwrap_or(false),
+            enabled: false,
         })
     }
 }
@@ -349,6 +375,7 @@ impl StacksChainhookFullSpecification {
             expire_after_occurrence: spec.expire_after_occurrence,
             predicate: spec.predicate,
             action: spec.action,
+            enabled: false,
         })
     }
 }
@@ -645,7 +672,7 @@ pub enum BlockIdentifierHashRule {
     BuildsOff(String),
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct StacksChainhookSpecification {
     pub uuid: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -666,6 +693,7 @@ pub struct StacksChainhookSpecification {
     #[serde(rename = "predicate")]
     pub predicate: StacksPredicate,
     pub action: HookAction,
+    pub enabled: bool,
 }
 
 impl StacksChainhookSpecification {

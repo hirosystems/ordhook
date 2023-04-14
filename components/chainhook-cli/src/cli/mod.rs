@@ -540,7 +540,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                         };
 
                         scan_bitcoin_chainstate_via_http_using_predicate(
-                            predicate_spec,
+                            &predicate_spec,
                             &config,
                             &ctx,
                         )
@@ -560,7 +560,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                         };
 
                         scan_stacks_chainstate_via_csv_using_predicate(
-                            predicate_spec,
+                            &predicate_spec,
                             &mut config,
                             &ctx,
                         )
