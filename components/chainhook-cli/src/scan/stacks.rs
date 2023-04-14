@@ -170,7 +170,7 @@ pub async fn scan_stacks_chainstate_via_csv_using_predicate(
             Ok(action) => {
                 actions_triggered += 1;
                 let res = match action {
-                    StacksChainhookOccurrence::Http(request) => send_request(request, &ctx).await,
+                    StacksChainhookOccurrence::Http(request) => send_request(request, 3, 1, &ctx).await,
                     StacksChainhookOccurrence::File(path, bytes) => file_append(path, bytes, &ctx),
                     StacksChainhookOccurrence::Data(_payload) => unreachable!(),
                 };

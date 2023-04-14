@@ -1025,7 +1025,7 @@ pub async fn start_observer_commands_handler(
                 }
 
                 for request in requests.into_iter() {
-                    let _ = send_request(request, &ctx).await;
+                    let _ = send_request(request, 3, 1, &ctx).await;
                 }
 
                 if let Some(ref tx) = observer_events_tx {
@@ -1158,7 +1158,7 @@ pub async fn start_observer_commands_handler(
                             request
                         )
                     });
-                    let _ = send_request(request, &ctx).await;
+                    let _ = send_request(request, 3, 1, &ctx).await;
                 }
 
                 if let Some(ref tx) = observer_events_tx {

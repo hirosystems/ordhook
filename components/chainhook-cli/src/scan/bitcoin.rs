@@ -213,7 +213,7 @@ pub async fn scan_bitcoin_chainstate_via_http_using_predicate(
 
             info!(
                 ctx.expect_logger(),
-                "Processing block #{} through {} predicate {}",
+                "Processing block #{} through {} predicate (inscriptions revealed: [{}])",
                 cursor,
                 predicate_spec.uuid,
                 inscriptions_revealed.join(", ")
@@ -325,7 +325,7 @@ pub async fn execute_predicates_action<'a>(
                 actions_triggered += 1;
                 match action {
                     BitcoinChainhookOccurrence::Http(request) => {
-                        send_request(request, &ctx).await?
+                        send_request(request, 3, 1, &ctx).await?
                     }
                     BitcoinChainhookOccurrence::File(path, bytes) => {
                         file_append(path, bytes, &ctx)?
