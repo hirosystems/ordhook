@@ -68,10 +68,7 @@ impl ChainhookConfig {
         Ok(spec)
     }
 
-    pub fn enable_specification(
-        &mut self,
-        predicate_spec: &ChainhookSpecification,
-    ) {
+    pub fn enable_specification(&mut self, predicate_spec: &ChainhookSpecification) {
         match predicate_spec {
             ChainhookSpecification::Stacks(spec_to_enable) => {
                 for spec in self.stacks_chainhooks.iter_mut() {

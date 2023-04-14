@@ -5,7 +5,8 @@ pub mod ord;
 use bitcoincore_rpc::bitcoin::hashes::hex::FromHex;
 use bitcoincore_rpc::bitcoin::{Address, Network, Script};
 use chainhook_types::{
-    BitcoinBlockData, OrdinalInscriptionTransferData, OrdinalOperation, TransactionIdentifier,
+    BitcoinBlockData, OrdinalInscriptionRevealData, OrdinalInscriptionTransferData,
+    OrdinalOperation, TransactionIdentifier,
 };
 use hiro_system_kit::slog;
 use rocksdb::DB;
@@ -32,6 +33,20 @@ use self::db::{
     find_inscription_with_id, open_readonly_hord_db_conn_rocks_db, remove_entry_from_blocks,
     remove_entry_from_inscriptions, TraversalResult, WatchedSatpoint,
 };
+
+pub fn get_inscriptions_revealed_in_block(
+    block: &BitcoinBlockData,
+) -> Vec<&OrdinalInscriptionRevealData> {
+    let mut ops = vec![];
+    for tx in block.transactions.iter() {
+        for op in tx.metadata.ordinal_operations.iter() {
+            if let OrdinalOperation::InscriptionRevealed(op) = op {
+                ops.push(op);
+            }
+        }
+    }
+    ops
+}
 
 pub fn revert_hord_db_with_augmented_bitcoin_block(
     block: &BitcoinBlockData,

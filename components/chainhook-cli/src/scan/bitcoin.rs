@@ -14,6 +14,7 @@ use chainhook_event_observer::hord::db::{
     open_readwrite_hord_db_conn, open_readwrite_hord_db_conn_rocks_db,
 };
 use chainhook_event_observer::hord::{
+    get_inscriptions_revealed_in_block,
     update_storage_and_augment_bitcoin_block_with_inscription_reveal_data,
     update_storage_and_augment_bitcoin_block_with_inscription_transfer_data, Storage,
 };
@@ -52,10 +53,11 @@ pub async fn scan_bitcoin_chainstate_via_http_using_predicate(
             );
         }
     };
-    let end_block = match predicate_spec.end_block {
-        Some(end_block) => end_block,
+
+    let (mut end_block, floating_end_block) = match predicate_spec.end_block {
+        Some(end_block) => (end_block, false),
         None => match bitcoin_rpc.get_blockchain_info() {
-            Ok(result) => result.blocks,
+            Ok(result) => (result.blocks, true),
             Err(e) => {
                 return Err(format!(
                     "unable to retrieve Bitcoin chain tip ({})",
@@ -145,7 +147,10 @@ pub async fn scan_bitcoin_chainstate_via_http_using_predicate(
         let hord_db_conn = open_readonly_hord_db_conn(&config.expected_cache_path(), ctx)?;
 
         let mut storage = Storage::Memory(BTreeMap::new());
-        for cursor in start_block..=end_block {
+        let mut cursor = start_block.saturating_sub(1);
+        while cursor <= end_block {
+            cursor += 1;
+
             // Only consider inscriptions in the interval specified
             let local_traverals = match inscriptions_cache.remove(&cursor) {
                 Some(entry) => entry,
@@ -188,6 +193,12 @@ pub async fn scan_bitcoin_chainstate_via_http_using_predicate(
                 &mut storage,
                 &ctx,
             );
+
+            let inscriptions_revealed = get_inscriptions_revealed_in_block(&block)
+                .iter()
+                .map(|d| d.inscription_number.to_string())
+                .collect::<Vec<String>>();
+
             let chain_event =
                 BitcoinChainEvent::ChainUpdatedWithBlocks(BitcoinChainUpdatedWithBlocksData {
                     new_blocks: vec![block],
@@ -199,12 +210,13 @@ pub async fn scan_bitcoin_chainstate_via_http_using_predicate(
                 vec![&predicate_spec],
                 ctx,
             );
+
             info!(
                 ctx.expect_logger(),
-                "Processing block #{} through predicate {}: {} hits",
+                "Processing block #{} through {} predicate {}",
                 cursor,
                 predicate_spec.uuid,
-                hits.len()
+                inscriptions_revealed.join(", ")
             );
 
             match execute_predicates_action(hits, &event_observer_config, &ctx).await {
@@ -215,6 +227,15 @@ pub async fn scan_bitcoin_chainstate_via_http_using_predicate(
             if err_count >= 3 {
                 return Err(format!("Scan aborted (consecutive action errors >= 3)"));
             }
+
+            if cursor == end_block && floating_end_block {
+                end_block = match bitcoin_rpc.get_blockchain_info() {
+                    Ok(result) => result.blocks,
+                    Err(_e) => {
+                        continue;
+                    }
+                };
+            }
         }
     } else {
         let use_scan_to_seed_hord_db = true;
@@ -223,7 +244,9 @@ pub async fn scan_bitcoin_chainstate_via_http_using_predicate(
             // Start ingestion pipeline
         }
 
-        for cursor in start_block..=end_block {
+        let mut cursor = start_block.saturating_sub(1);
+        while cursor <= end_block {
+            cursor += 1;
             blocks_scanned += 1;
             let block_hash = retrieve_block_hash_with_retry(&cursor, &bitcoin_config, ctx).await?;
             let block_breakdown =
@@ -263,6 +286,15 @@ pub async fn scan_bitcoin_chainstate_via_http_using_predicate(
 
             if err_count >= 3 {
                 return Err(format!("Scan aborted (consecutive action errors >= 3)"));
+            }
+
+            if cursor == end_block && floating_end_block {
+                end_block = match bitcoin_rpc.get_blockchain_info() {
+                    Ok(result) => result.blocks,
+                    Err(_e) => {
+                        continue;
+                    }
+                };
             }
         }
     }
