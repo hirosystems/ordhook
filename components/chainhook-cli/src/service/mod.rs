@@ -198,6 +198,7 @@ impl Service {
                                     moved_ctx.expect_logger(),
                                     "Unable to evaluate predicate on Bitcoin chainstate: {e}",
                                 );
+                                return;
                             }
                         };
                         let _ = observer_command_tx.send(ObserverCommand::EnablePredicate(
