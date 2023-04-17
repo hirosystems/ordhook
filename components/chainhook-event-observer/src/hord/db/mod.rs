@@ -762,7 +762,7 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
         .expect("unable to spawn thread");
 
     let mut blocks_stored = 0;
-    let mut cursor = 1 + start_block as usize;
+    let mut cursor = start_block as usize;
     let mut inbox = HashMap::new();
     let mut num_writes = 0;
 
@@ -801,7 +801,7 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
                 &ctx,
             ) {
                 ctx.try_log(|logger| {
-                    slog::error!(logger, "Unable to augment bitcoin block with hord_db: {e}",)
+                    slog::error!(logger, "Unable to augment bitcoin block {} with hord_db: {e}", new_block.block_identifier.index)
                 });
                 return Err(e);
             }

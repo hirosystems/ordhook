@@ -699,7 +699,7 @@ pub async fn start_observer_commands_handler(
                                         ctx.try_log(|logger| {
                                             slog::error!(
                                                 logger,
-                                                "Unable to augment bitcoin block with hord_db: {e}",
+                                                "Unable to insert bitcoin block {} in hord_db: {e}", block.block_identifier.index
                                             )
                                         });
                                     }
@@ -832,7 +832,7 @@ pub async fn start_observer_commands_handler(
                                         ctx.try_log(|logger| {
                                             slog::error!(
                                                 logger,
-                                                "Unable to augment bitcoin block with hord_db: {e}",
+                                                "Unable to apply bitcoin block {} with hord_db: {e}", block.block_identifier.index
                                             )
                                         });
                                     }
