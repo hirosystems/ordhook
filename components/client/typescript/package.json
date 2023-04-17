@@ -4,6 +4,7 @@
   "description": "TS client for Chainhook",
   "main": "./dist/index.js",
   "scripts": {
+    "build": "tsc --project tsconfig.build.json",
     "test": "jest"
   },
   "repository": {
@@ -20,6 +21,7 @@
     "url": "https://github.com/hirosystems/chainhook/issues"
   },
   "homepage": "https://github.com/hirosystems/chainhook#readme",
+  "prettier": "@stacks/prettier-config",
   "devDependencies": {
     "@stacks/eslint-config": "^1.2.0",
     "@types/jest": "^29.5.0",
@@ -38,6 +40,10 @@
     "typescript": "^5.0.2"
   },
   "dependencies": {
-    "@sinclair/typebox": "^0.26.3"
+    "@fastify/type-provider-typebox": "^3.0.0",
+    "@sinclair/typebox": "^0.26.3",
+    "fastify": "^4.15.0",
+    "pino": "^8.11.0",
+    "undici": "^5.21.2"
   }
 }
