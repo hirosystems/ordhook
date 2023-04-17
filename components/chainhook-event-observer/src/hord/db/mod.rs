@@ -74,6 +74,13 @@ pub fn initialize_hord_db(path: &PathBuf, ctx: &Context) -> Connection {
     ) {
         ctx.try_log(|logger| slog::error!(logger, "{}", e.to_string()));
     }
+    if let Err(e) = conn.execute(
+        "CREATE INDEX IF NOT EXISTS index_inscriptions_on_block_height ON inscriptions(block_height);",
+        [],
+    ) {
+        ctx.try_log(|logger| slog::error!(logger, "{}", e.to_string()));
+    }
+
 
     conn
 }
@@ -508,6 +515,25 @@ pub fn find_latest_inscription_block_height(
     while let Ok(Some(row)) = rows.next() {
         let block_height: u64 = row.get(0).unwrap();
         return Ok(Some(block_height));
+    }
+    Ok(None)
+}
+
+pub fn find_latest_inscription_number_at_block_height(
+    block_height: &u64,
+    inscriptions_db_conn: &Connection,
+    _ctx: &Context,
+) -> Result<Option<u64>, String> {
+    let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
+    let mut stmt = inscriptions_db_conn
+        .prepare(
+            "SELECT inscription_number FROM inscriptions WHERE block_height < ? ORDER BY inscription_number DESC LIMIT 1",
+        )
+        .unwrap();
+    let mut rows = stmt.query(args).unwrap();
+    while let Ok(Some(row)) = rows.next() {
+        let inscription_number: u64 = row.get(0).unwrap();
+        return Ok(Some(inscription_number));
     }
     Ok(None)
 }

@@ -20,7 +20,7 @@ use crate::{
     hord::{
         db::{
             find_inscription_with_ordinal_number, find_inscriptions_at_wached_outpoint,
-            find_latest_inscription_number, insert_entry_in_blocks,
+            insert_entry_in_blocks,
             retrieve_satoshi_point_using_local_storage, store_new_inscription,
             update_transfered_inscription, CompactedBlock,
         },
@@ -31,7 +31,7 @@ use crate::{
 
 use self::db::{
     find_inscription_with_id, open_readonly_hord_db_conn_rocks_db, remove_entry_from_blocks,
-    remove_entry_from_inscriptions, TraversalResult, WatchedSatpoint,
+    remove_entry_from_inscriptions, TraversalResult, WatchedSatpoint, find_latest_inscription_number_at_block_height,
 };
 
 pub fn get_inscriptions_revealed_in_block(
@@ -249,7 +249,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
                             ordinals_events_indexes_to_discard.push_front(ordinal_event_index);
                         } else {
                             inscription.inscription_number =
-                                match find_latest_inscription_number(&inscription_db_conn, &ctx) {
+                                match find_latest_inscription_number_at_block_height(&block.block_identifier.index, &inscription_db_conn, &ctx) {
                                     Ok(None) => 0,
                                     Ok(Some(inscription_number)) => inscription_number + 1,
                                     Err(e) => {
