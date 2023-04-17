@@ -20,9 +20,8 @@ use crate::{
     hord::{
         db::{
             find_inscription_with_ordinal_number, find_inscriptions_at_wached_outpoint,
-            insert_entry_in_blocks,
-            retrieve_satoshi_point_using_local_storage, store_new_inscription,
-            update_transfered_inscription, CompactedBlock,
+            insert_entry_in_blocks, retrieve_satoshi_point_using_local_storage,
+            store_new_inscription, update_transfered_inscription, CompactedBlock,
         },
         ord::height::Height,
     },
@@ -30,8 +29,9 @@ use crate::{
 };
 
 use self::db::{
-    find_inscription_with_id, open_readonly_hord_db_conn_rocks_db, remove_entry_from_blocks,
-    remove_entry_from_inscriptions, TraversalResult, WatchedSatpoint, find_latest_inscription_number_at_block_height,
+    find_inscription_with_id, find_latest_inscription_number_at_block_height,
+    open_readonly_hord_db_conn_rocks_db, remove_entry_from_blocks, remove_entry_from_inscriptions,
+    TraversalResult, WatchedSatpoint,
 };
 
 pub fn get_inscriptions_revealed_in_block(
@@ -202,6 +202,24 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
     inscription_db_conn: &Connection,
     ctx: &Context,
 ) {
+    let mut latest_inscription_number = match find_latest_inscription_number_at_block_height(
+        &block.block_identifier.index,
+        &inscription_db_conn,
+        &ctx,
+    ) {
+        Ok(None) => 0,
+        Ok(Some(inscription_number)) => inscription_number + 1,
+        Err(e) => {
+            ctx.try_log(|logger| {
+                slog::error!(
+                    logger,
+                    "unable to retrieve inscription number: {}",
+                    e.to_string()
+                );
+            });
+            return;
+        }
+    };
     for new_tx in block.transactions.iter_mut().skip(1) {
         let mut ordinals_events_indexes_to_discard = VecDeque::new();
         // Have a new inscription been revealed, if so, are looking at a re-inscription
@@ -209,6 +227,8 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
             new_tx.metadata.ordinal_operations.iter_mut().enumerate()
         {
             if let OrdinalOperation::InscriptionRevealed(inscription) = ordinal_event {
+                let inscription_number = latest_inscription_number;
+                latest_inscription_number += 1;
                 let traversal = match traversals.get(&new_tx.transaction_identifier) {
                     Some(traversal) => traversal,
                     None => {
@@ -248,21 +268,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
                             });
                             ordinals_events_indexes_to_discard.push_front(ordinal_event_index);
                         } else {
-                            inscription.inscription_number =
-                                match find_latest_inscription_number_at_block_height(&block.block_identifier.index, &inscription_db_conn, &ctx) {
-                                    Ok(None) => 0,
-                                    Ok(Some(inscription_number)) => inscription_number + 1,
-                                    Err(e) => {
-                                        ctx.try_log(|logger| {
-                                            slog::error!(
-                                                logger,
-                                                "unable to retrieve satoshi number: {}",
-                                                e.to_string()
-                                            );
-                                        });
-                                        continue;
-                                    }
-                                };
+                            inscription.inscription_number = inscription_number;
                             ctx.try_log(|logger| {
                                 slog::info!(
                             logger,
@@ -273,13 +279,13 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
                             traversal.ordinal_number
                         );
                             });
+                            store_new_inscription(
+                                &inscription,
+                                &block.block_identifier,
+                                &rw_hord_db_conn,
+                                &ctx,
+                            );    
                         }
-                        store_new_inscription(
-                            &inscription,
-                            &block.block_identifier,
-                            &rw_hord_db_conn,
-                            &ctx,
-                        );
                     }
                     Storage::Memory(map) => {
                         let outpoint = inscription.satpoint_post_inscription

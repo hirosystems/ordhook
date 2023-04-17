@@ -37,7 +37,7 @@ impl Service {
             let registered_predicates = load_predicates_from_redis(&self.config, &self.ctx)?;
             for predicate in registered_predicates.into_iter() {
                 let predicate_uuid = predicate.uuid().to_string();
-                match chainhook_config.register_specification(predicate) {
+                match chainhook_config.register_specification(predicate, true) {
                     Ok(_) => {
                         info!(
                             self.ctx.expect_logger(),
@@ -379,7 +379,7 @@ fn load_predicates_from_redis(
 
     let mut predicates = vec![];
     for key in chainhooks_to_load.iter() {
-        let chainhook = match redis_con.hget::<_, _, String>(key, "specification") {
+        let mut chainhook = match redis_con.hget::<_, _, String>(key, "specification") {
             Ok(spec) => match ChainhookSpecification::deserialize_specification(&spec, key) {
                 Ok(spec) => spec,
                 Err(e) => {

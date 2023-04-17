@@ -81,7 +81,6 @@ pub fn initialize_hord_db(path: &PathBuf, ctx: &Context) -> Connection {
         ctx.try_log(|logger| slog::error!(logger, "{}", e.to_string()));
     }
 
-
     conn
 }
 
@@ -827,7 +826,11 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
                 &ctx,
             ) {
                 ctx.try_log(|logger| {
-                    slog::error!(logger, "Unable to augment bitcoin block {} with hord_db: {e}", new_block.block_identifier.index)
+                    slog::error!(
+                        logger,
+                        "Unable to augment bitcoin block {} with hord_db: {e}",
+                        new_block.block_identifier.index
+                    )
                 });
                 return Err(e);
             }
