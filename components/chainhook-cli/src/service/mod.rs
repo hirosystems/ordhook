@@ -379,7 +379,7 @@ fn load_predicates_from_redis(
 
     let mut predicates = vec![];
     for key in chainhooks_to_load.iter() {
-        let mut chainhook = match redis_con.hget::<_, _, String>(key, "specification") {
+        let chainhook = match redis_con.hget::<_, _, String>(key, "specification") {
             Ok(spec) => match ChainhookSpecification::deserialize_specification(&spec, key) {
                 Ok(spec) => spec,
                 Err(e) => {

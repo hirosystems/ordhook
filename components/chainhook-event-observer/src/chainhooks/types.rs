@@ -89,15 +89,19 @@ impl ChainhookConfig {
         };
     }
 
-    pub fn register_specification(&mut self, spec: ChainhookSpecification, enabled: bool) -> Result<(), String> {
+    pub fn register_specification(
+        &mut self,
+        spec: ChainhookSpecification,
+        enabled: bool,
+    ) -> Result<(), String> {
         match spec {
             ChainhookSpecification::Stacks(spec) => {
-                let mut spec = spec.clone(); 
+                let mut spec = spec.clone();
                 spec.enabled = enabled;
                 self.stacks_chainhooks.push(spec);
             }
             ChainhookSpecification::Bitcoin(spec) => {
-                let mut spec = spec.clone(); 
+                let mut spec = spec.clone();
                 spec.enabled = enabled;
                 self.bitcoin_chainhooks.push(spec);
             }
