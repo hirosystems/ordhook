@@ -26,7 +26,7 @@ An event emitted on-chain triggers a centralized logic that can be committed on-
 
 #### **How can I use Chainhook in my application?**
 
-Chainhook can be used from the exposed RESTful API endpoints. A comprehensive OpenAPI specification explaining how to interact with the Chainhook REST API can be found [here](../docs/chainhook-openapi.json).
+Chainhook can be used from the exposed RESTful API endpoints. A comprehensive OpenAPI specification explaining how to interact with the Chainhook REST API can be found [here](https://raw.githubusercontent.com/hirosystems/chainhook/develop/docs/chainhook-openapi.json).
 
 #### **Can I run chainhooks on the mainnet?**
 
