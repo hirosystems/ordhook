@@ -1,5 +1,5 @@
 ---
-title: Chainhook Overview
+title: Overview
 ---
 
 # What is Chainhook?

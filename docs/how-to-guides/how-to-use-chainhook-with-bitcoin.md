@@ -2,7 +2,11 @@
 title: Use Chainhook with Bitcoin
 ---
 
-# Guide to `if_this` / `then_that` predicate design
+# Use chainhook with Bitcoin
+
+The following guide helps you define predicates to use chainhook with Bitcoin.
+
+## Guide to `if_this` / `then_that` predicate design
 
 To get started with Bitcoin predicates, we can use the `chainhook` to generate a template: 
 
@@ -10,7 +14,7 @@ To get started with Bitcoin predicates, we can use the `chainhook` to generate a
 $ chainhook predicates new hello-ordinals.json --bitcoin
 ```
 
-The above command generates a JSON file that looks like this:
+The above command generates a hello-ordinals.json file that looks like this:
 
 ```
 {
@@ -223,7 +227,7 @@ Append events to a file through the filesystem. Convenient for local tests. The 
 }
 ```
 
-### Additional configuration knobs available
+## Additional configuration knobs available
 
 ```json
 // Ignore any block before the given block:
@@ -249,7 +253,7 @@ Append events to a file through the filesystem. Convenient for local tests. The 
 
 ```
 
-### Putting all the above configurations together
+## Putting all the above configurations together
 
 Retrieve and HTTP Post to `http://localhost:3000/api/v1/wrapBtc` the five first transfers to the p2wpkh `bcrt1qnxk...yt6ed99jg` address of any amount, occurring after block height 10200.
 
@@ -280,7 +284,7 @@ Retrieve and HTTP Post to `http://localhost:3000/api/v1/wrapBtc` the five first 
 }
 ```
 
-### Another example
+## Another example
 
 A specification file can also include different networks. In this case, the chainhook will select the predicate corresponding to the network it was launched against.
 
@@ -324,7 +328,7 @@ A specification file can also include different networks. In this case, the chai
 
 ```
 
-### Guide to local Bitcoin testnet / mainnet predicate scanning
+## Guide to local Bitcoin testnet / mainnet predicate scanning
 
 To scan the Bitcoin chain with a given predicate, a `bitcoind` instance with access to the RPC methods `getblockhash` and `getblock` must be accessible. The RPC calls latency will directly impact the speed of the scans.
 
@@ -386,7 +390,7 @@ $ chainhook config new --testnet
 $ chainhook predicates scan ./path/predicate.json --config=./Testnet.toml
 ```
 
-### Tips and tricks
+## Tips and tricks
 
 To optimize your experience with scanning, the following are a few knobs you can play with:
 
