@@ -14,8 +14,8 @@ use threadpool::ThreadPool;
 
 use crate::{
     indexer::bitcoin::{
-        download_block_with_retry, retrieve_block_hash_with_retry,
-        standardize_bitcoin_block, BitcoinBlockFullBreakdown,
+        download_block_with_retry, retrieve_block_hash_with_retry, standardize_bitcoin_block,
+        BitcoinBlockFullBreakdown,
     },
     observer::BitcoinConfig,
     utils::Context,
@@ -381,7 +381,7 @@ pub fn open_readonly_hord_db_conn_rocks_db(
     let path = get_default_hord_db_file_path_rocks_db(&base_dir);
     let mut opts = rocksdb::Options::default();
     opts.create_if_missing(true);
-    opts.set_max_open_files(1000);
+    opts.set_max_open_files(5000);
     let db = DB::open_for_read_only(&opts, path, false)
         .map_err(|e| format!("unable to open blocks_db: {}", e.to_string()))?;
     Ok(db)
@@ -394,7 +394,7 @@ pub fn open_readwrite_hord_db_conn_rocks_db(
     let path = get_default_hord_db_file_path_rocks_db(&base_dir);
     let mut opts = rocksdb::Options::default();
     opts.create_if_missing(true);
-    opts.set_max_open_files(1000);
+    opts.set_max_open_files(5000);
     let db = DB::open(&opts, path)
         .map_err(|e| format!("unable to open blocks_db: {}", e.to_string()))?;
     Ok(db)
@@ -752,9 +752,9 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
     let retrieve_block_hash_pool = ThreadPool::new(network_thread);
     let (block_hash_tx, block_hash_rx) = crossbeam_channel::bounded(256);
     let retrieve_block_data_pool = ThreadPool::new(network_thread);
-    let (block_data_tx, block_data_rx) = crossbeam_channel::bounded(256);
+    let (block_data_tx, block_data_rx) = crossbeam_channel::bounded(128);
     let compress_block_data_pool = ThreadPool::new(16);
-    let (block_compressed_tx, block_compressed_rx) = crossbeam_channel::bounded(512);
+    let (block_compressed_tx, block_compressed_rx) = crossbeam_channel::bounded(128);
 
     // Thread pool #1: given a block height, retrieve the block hash
     for block_cursor in start_block..=end_block {
@@ -765,7 +765,9 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
         retrieve_block_hash_pool.execute(move || {
             let future = retrieve_block_hash_with_retry(&block_height, &config, &moved_ctx);
             let block_hash = hiro_system_kit::nestable_block_on(future).unwrap();
-            let _ = block_hash_tx.send(Some((block_height, block_hash)));
+            block_hash_tx
+                .send(Some((block_height, block_hash)))
+                .expect("unable to channel block_hash");
         })
     }
 
@@ -785,8 +787,16 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
                         .try_log(|logger| slog::debug!(logger, "Fetching block #{block_height}"));
                     let future =
                         download_block_with_retry(&block_hash, &moved_bitcoin_config, &moved_ctx);
-                    let block_data = hiro_system_kit::nestable_block_on(future).unwrap();
-                    let _ = block_data_tx.send(Some((block_height, block_hash, block_data)));
+                    let res = match hiro_system_kit::nestable_block_on(future) {
+                        Ok(block_data) => Some(block_data),
+                        Err(e) => {
+                            moved_ctx.try_log(|logger| {
+                                slog::error!(logger, "unable to fetch block #{block_height}: {e}")
+                            });
+                            None
+                        }
+                    };
+                    let _ = block_data_tx.send(res);
                 });
             }
             let res = retrieve_block_data_pool.join();
@@ -796,7 +806,7 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
 
     let _ = hiro_system_kit::thread_named("Block data compression")
         .spawn(move || {
-            while let Ok(Some((_, _, block_data))) = block_data_rx.recv() {
+            while let Ok(Some(block_data)) = block_data_rx.recv() {
                 let block_compressed_tx_moved = block_compressed_tx.clone();
                 compress_block_data_pool.execute(move || {
                     let compressed_block = CompactedBlock::from_full_block(&block_data);
@@ -822,46 +832,63 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
         insert_entry_in_blocks(block_height, &compacted_block, &blocks_db_rw, &ctx);
         blocks_stored += 1;
         num_writes += 1;
-        inbox.insert(raw_block.height, raw_block);
 
         // In the context of ordinals, we're constrained to process blocks sequentially
         // Blocks are processed by a threadpool and could be coming out of order.
         // Inbox block for later if the current block is not the one we should be
         // processing.
 
-        // Is the action of processing a block allows us
-        // to process more blocks present in the inbox?
-        while let Some(next_block) = inbox.remove(&cursor) {
-            ctx.try_log(|logger| slog::info!(logger, "Processing block #{cursor}"));
-            let mut new_block = match standardize_bitcoin_block(next_block, &bitcoin_network, &ctx)
-            {
-                Ok(block) => block,
-                Err(e) => {
+        // Should we start look for inscriptions data in blocks?
+        if raw_block.height > 765000 {
+            // Is the action of processing a block allows us
+            // to process more blocks present in the inbox?
+            inbox.insert(raw_block.height, raw_block);
+            while let Some(next_block) = inbox.remove(&cursor) {
+                ctx.try_log(|logger| {
+                    slog::info!(
+                        logger,
+                        "Processing block #{cursor} (# blocks inboxed: {})",
+                        inbox.len()
+                    )
+                });
+                let mut new_block =
+                    match standardize_bitcoin_block(next_block, &bitcoin_network, &ctx) {
+                        Ok(block) => block,
+                        Err(e) => {
+                            ctx.try_log(|logger| {
+                                slog::error!(logger, "Unable to standardize bitcoin block: {e}",)
+                            });
+                            return Err(e);
+                        }
+                    };
+
+                if let Err(e) = update_hord_db_and_augment_bitcoin_block(
+                    &mut new_block,
+                    blocks_db_rw,
+                    &inscriptions_db_conn_rw,
+                    false,
+                    &hord_db_path,
+                    &ctx,
+                ) {
                     ctx.try_log(|logger| {
-                        slog::error!(logger, "Unable to standardize bitcoin block: {e}",)
+                        slog::error!(
+                            logger,
+                            "Unable to augment bitcoin block {} with hord_db: {e}",
+                            new_block.block_identifier.index
+                        )
                     });
                     return Err(e);
                 }
-            };
-
-            if let Err(e) = update_hord_db_and_augment_bitcoin_block(
-                &mut new_block,
-                blocks_db_rw,
-                &inscriptions_db_conn_rw,
-                false,
-                &hord_db_path,
-                &ctx,
-            ) {
-                ctx.try_log(|logger| {
-                    slog::error!(
-                        logger,
-                        "Unable to augment bitcoin block {} with hord_db: {e}",
-                        new_block.block_identifier.index
-                    )
-                });
-                return Err(e);
+                cursor += 1;
             }
-            cursor += 1;
+        } else {
+            ctx.try_log(|logger| {
+                slog::info!(
+                    logger,
+                    "Storing block #{block_height} (ordinals processing ignored)",
+                )
+            });
+
         }
 
         if blocks_stored == number_of_blocks_to_process {
@@ -876,9 +903,9 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
             return Ok(());
         }
 
-        if num_writes > 5000 {
+        if num_writes % 5000 == 0 {
             ctx.try_log(|logger| {
-                slog::info!(logger, "Flushing DB to disk...");
+                slog::info!(logger, "Flushing DB to disk ({num_writes} inserts)");
             });
             if let Err(e) = blocks_db_rw.flush() {
                 ctx.try_log(|logger| {

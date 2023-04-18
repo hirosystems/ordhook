@@ -159,10 +159,13 @@ pub async fn download_and_parse_block_with_retry(
             Ok(result) => break result,
             Err(e) => {
                 errors_count += 1;
-                error!(
-                    "unable to retrieve block #{block_hash} (attempt #{errors_count}): {}",
-                    e.to_string()
-                );
+                ctx.try_log(|logger| {
+                    slog::error!(
+                        logger,
+                        "unable to retrieve block #{block_hash} (attempt #{errors_count}): {}",
+                        e.to_string()
+                    )
+                });
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
@@ -177,27 +180,39 @@ pub async fn download_block_with_retry(
 ) -> Result<BitcoinBlockFullBreakdown, String> {
     let mut errors_count = 0;
     let block = loop {
-        match download_block(block_hash, bitcoin_config, ctx).await {
-            Ok(result) => match parse_downloaded_block(result) {
-                Ok(result) => break result,
+        let response = {
+            match download_block(block_hash, bitcoin_config, ctx).await {
+                Ok(result) => result,
                 Err(e) => {
                     errors_count += 1;
-                    error!(
-                        "unable to retrieve block #{block_hash} (attempt #{errors_count}): {}",
-                        e.to_string()
-                    );
+                    ctx.try_log(|logger| {
+                        slog::error!(
+                            logger,
+                            "unable to retrieve block #{block_hash} (attempt #{errors_count}): {}",
+                            e.to_string()
+                        )
+                    });
                     std::thread::sleep(std::time::Duration::from_millis(500));
+                    continue;
                 }
-            },
+            }
+        };
+
+        match parse_downloaded_block(response) {
+            Ok(result) => break result,
             Err(e) => {
                 errors_count += 1;
-                error!(
-                    "unable to retrieve block #{block_hash} (attempt #{errors_count}): {}",
-                    e.to_string()
-                );
+                ctx.try_log(|logger| {
+                    slog::error!(
+                        logger,
+                        "unable to retrieve block #{block_hash} (attempt #{errors_count}): {}",
+                        e.to_string()
+                    )
+                });
                 std::thread::sleep(std::time::Duration::from_millis(500));
+                continue;
             }
-        }
+        };
     };
     Ok(block)
 }
@@ -213,10 +228,13 @@ pub async fn retrieve_block_hash_with_retry(
             Ok(result) => break result,
             Err(e) => {
                 errors_count += 1;
-                error!(
-                    "unable to retrieve block #{block_height} (attempt #{errors_count}): {}",
-                    e.to_string()
-                );
+                ctx.try_log(|logger| {
+                    slog::error!(
+                        logger,
+                        "unable to retrieve #{block_height} (attempt #{errors_count}): {}",
+                        e.to_string()
+                    )
+                });
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
