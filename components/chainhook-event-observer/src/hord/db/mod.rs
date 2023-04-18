@@ -63,6 +63,15 @@ pub fn initialize_hord_db(path: &PathBuf, ctx: &Context) -> Connection {
         ctx.try_log(|logger| slog::error!(logger, "{}", e.to_string()));
     }
     if let Err(e) = conn.execute(
+        "CREATE TABLE IF NOT EXISTS transfers (
+            block_height INTEGER NOT NULL PRIMARY KEY
+        )",
+        [],
+    ) {
+        ctx.try_log(|logger| slog::error!(logger, "{}", e.to_string()));
+    }
+
+    if let Err(e) = conn.execute(
         "CREATE INDEX IF NOT EXISTS index_inscriptions_on_outpoint_to_watch ON inscriptions(outpoint_to_watch);",
         [],
     ) {
