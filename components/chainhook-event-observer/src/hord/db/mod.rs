@@ -1051,8 +1051,8 @@ pub fn retrieve_satoshi_point_using_local_storage(
                         ordinal_block_number = block_height;
 
                         // ctx.try_log(|logger| slog::info!(logger, "Block {ordinal_block_number} / Tx {} / [in:{sats_in}, out:{sats_out}]: {block_height} -> {ordinal_block_number}:{ordinal_offset} -> {}:{vout}",
-                        hex::encode(&txid_n),
-                        hex::encode(&txin)));
+                        // hex::encode(&txid_n),
+                        // hex::encode(&txin)));
                         tx_cursor = (txin, vout as usize);
                         break;
                     }
