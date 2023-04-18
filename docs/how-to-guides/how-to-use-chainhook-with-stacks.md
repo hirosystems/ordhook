@@ -1,5 +1,5 @@
 ---
-title: How to run chainhook as a service
+title: Use chainhook with Stacks
 ---
 
 # Guide to `if_this` / `then_that` predicate design
@@ -83,8 +83,8 @@ Get any transaction including a p2pkh output paying a given recipient `p2pkh` co
 ```
 
 Get any transaction including a p2sh output paying a given recipient `p2sh` construct admits:
- - string type. example: "2MxDJ723HBJtEMa2a9vcsns4qztxBuC8Zb2"
- - hex encoded bytes type. example: "0x76a914ee9369fb719c0ba43ddf4d94638a970b84775f4788ac"
+- string type. example: "2MxDJ723HBJtEMa2a9vcsns4qztxBuC8Zb2"
+- hex encoded bytes type. example: "0x76a914ee9369fb719c0ba43ddf4d94638a970b84775f4788ac"
 ```json
 {
     "if_this": {
@@ -140,7 +140,7 @@ Get any transaction, including a key registration operation.
 }
 ```
 
-Get any transaction, including a STX transfer operation 
+Get any transaction, including an STX transfer operation 
 // Coming soon
 ```json
 {
@@ -151,7 +151,7 @@ Get any transaction, including a STX transfer operation
 }
 ```
 
-Get any transaction, including a STX lock operation
+Get any transaction, including an STX lock operation
 // Coming soon
 ```json
 {
@@ -174,7 +174,7 @@ Get any transaction including a new Ordinal inscription (inscription revealed an
 
 In terms of actions available, the following `then_that` constructs are supported:
 
-HTTP Post block / transaction payload to a given endpoint. The `http_post` construct admits:
+HTTP Post block/transaction payload to a given endpoint. The `http_post` construct admits:
 - url (string type). Example: http://localhost:3000/api/v1/wrapBtc
 - authorization_header (string type). Secret to add to the request `authorization` header when posting payloads
 
@@ -205,7 +205,7 @@ Append events to a file through the filesystem. Convenient for local tests. The 
 ### Additional configuration knobs available
 
 ```json
-// Ignore any block before given block:
+// Ignore any block before the given block:
 "start_block": 101
 
 // Ignore any block after the given block:
@@ -231,7 +231,7 @@ Append events to a file through the filesystem. Convenient for local tests. The 
 
 ### Putting all the above configurations together
 
-Retrieve and HTTP Post to `http://localhost:3000/api/v1/wrapBtc` the 5 first transfers to the p2wpkh `bcrt1qnxk...yt6ed99jg` address, of any amount, occurring after block height 10200. 
+Retrieve and HTTP Post to `http://localhost:3000/api/v1/wrapBtc` the five first transfers to the p2wpkh `bcrt1qnxk...yt6ed99jg` address of any amount, occurring after block height 10200. 
 
 ```json
 

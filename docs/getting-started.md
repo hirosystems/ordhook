@@ -4,7 +4,7 @@ title: Getting Started
 
 # Install Chainhook
 
-You can install chainhook from source by following this guide.
+You can install chainhook from the source by following this guide.
 
 ## Install from source
 
@@ -16,7 +16,7 @@ Chainhook can be installed from the source by following the steps below:
    git clone https://github.com/hirosystems/chainhook.git
    ```
 
-2. Navigate to the root directory of the clone repo.
+2. Navigate to the root directory of the cloned repo.
    
    ```bash
    cd chainhook

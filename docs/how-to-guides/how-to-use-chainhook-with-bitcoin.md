@@ -1,8 +1,8 @@
 ---
-title: How to run chainhook as a service
+title: Use Chainhook with Bitcoin
 ---
 
-### Guide to `if_this` / `then_that` predicate design
+# Guide to `if_this` / `then_that` predicate design
 
 To get started with Bitcoin predicates, we can use the `chainhook` to generate a template: 
 
@@ -10,7 +10,7 @@ To get started with Bitcoin predicates, we can use the `chainhook` to generate a
 $ chainhook predicates new hello-ordinals.json --bitcoin
 ```
 
-The above command generates a JSON file that looks like:
+The above command generates a JSON file that looks like this:
 
 ```
 {
@@ -36,7 +36,7 @@ The above command generates a JSON file that looks like:
 }
 ```
 
-##  `if_this` and `then_that` specifications.
+##  `if_this` and `then_that` specifications
 
 The current `bitcoin` predicates support the following `if_this` constructs. Get any transaction matching a given txid. The `txid` mandatory argument admits: - 32 bytes hex encoded type. 
 
@@ -162,7 +162,7 @@ Get any transaction, including a key registration operation
 }
 ```
 
-Get any transaction, including a STX transfer operation 
+Get any transaction, including an STX transfer operation 
 // Coming soon
 ```json
 {
@@ -173,7 +173,7 @@ Get any transaction, including a STX transfer operation
 }
 ```
 
-Get any transaction, including a STX lock operation
+Get any transaction, including an STX lock operation
 // Coming soon
 ```json
 {
@@ -195,7 +195,7 @@ Get any transaction including a new Ordinal inscription (inscription revealed an
 
 In terms of actions available, the following `then_that` constructs are supported:
 
-HTTP Post block / transaction payload to a given endpoint. The `http_post` construct admits:
+HTTP Post block/transaction payload to a given endpoint. The `http_post` construct admits:
 - url (string type). Example: http://localhost:3000/api/v1/wrapBtc
 - authorization_header (string type). Secret to add to the request `authorization` header when posting payloads
 
@@ -213,7 +213,7 @@ HTTP Post block / transaction payload to a given endpoint. The `http_post` const
 Append events to a file through the filesystem. Convenient for local tests. The `file_append` construct admits:
 - path (string type). Path to the file on disk.
 
-```json
+```jsonc
 {
     "then_that": {
         "file_append": {
@@ -226,7 +226,7 @@ Append events to a file through the filesystem. Convenient for local tests. The 
 ### Additional configuration knobs available
 
 ```json
-// Ignore any block before given block:
+// Ignore any block before the given block:
 "start_block": 101
 
 // Ignore any block after the given block:
@@ -249,9 +249,9 @@ Append events to a file through the filesystem. Convenient for local tests. The 
 
 ```
 
-Putting all the pieces together:
+### Putting all the above configurations together
 
-Retrieve and HTTP Post to `http://localhost:3000/api/v1/wrapBtc` the 5 first transfers to the p2wpkh `bcrt1qnxk...yt6ed99jg` address, of any amount, occurring after block height 10200.
+Retrieve and HTTP Post to `http://localhost:3000/api/v1/wrapBtc` the five first transfers to the p2wpkh `bcrt1qnxk...yt6ed99jg` address of any amount, occurring after block height 10200.
 
 ```json
 {
@@ -280,8 +280,10 @@ Retrieve and HTTP Post to `http://localhost:3000/api/v1/wrapBtc` the 5 first tra
 }
 ```
 
-The following is an other example of the JSON file.
+### Another example
+
 A specification file can also include different networks. In this case, the chainhook will select the predicate corresponding to the network it was launched against.
+
 
 ```json
 {
@@ -384,9 +386,9 @@ $ chainhook config new --testnet
 $ chainhook predicates scan ./path/predicate.json --config=./Testnet.toml
 ```
 
-**Tips and tricks**
+### Tips and tricks
 
-To optimize their experience with scanning, developers have a few knobs they can play with:
+To optimize your experience with scanning, the following are a few knobs you can play with:
 
 - Use of adequate values for `start_block` and `end_block` in predicates will drastically improve the speed.
 - Networking: reducing the number of network hops between the chainhook and the bitcoind processes can also help a lot.

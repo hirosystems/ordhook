@@ -1,5 +1,5 @@
 ---
-title: How to run chainhook as a service
+title: Run chainhook as a Service
 ---
 
 ## Run `chainhook` as a service for streaming new blocks
