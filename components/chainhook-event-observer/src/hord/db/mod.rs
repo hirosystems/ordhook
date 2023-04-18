@@ -126,12 +126,11 @@ fn create_or_open_readwrite_db(cache_path: &PathBuf, ctx: &Context) -> Connectio
     };
     // db.profile(Some(trace_profile));
     // db.busy_handler(Some(tx_busy_handler))?;
-
-    let mmap_size: i64 = 256 * 1024 * 1024;
-    let page_size: i64 = 16384;
-    conn.pragma_update(None, "mmap_size", mmap_size).unwrap();
-    conn.pragma_update(None, "page_size", page_size).unwrap();
-    conn.pragma_update(None, "synchronous", &"NORMAL").unwrap();
+    // let mmap_size: i64 = 256 * 1024 * 1024;
+    // let page_size: i64 = 16384;
+    // conn.pragma_update(None, "mmap_size", mmap_size).unwrap();
+    // conn.pragma_update(None, "page_size", page_size).unwrap();
+    // conn.pragma_update(None, "synchronous", &"NORMAL").unwrap();
     conn
 }
 
@@ -197,8 +196,8 @@ fn open_existing_readonly_db(path: &PathBuf, ctx: &Context) -> Connection {
 #[repr(C)]
 pub struct CompactedBlock(
     pub  (
-        ([u8; 4], u64),
-        Vec<([u8; 4], Vec<([u8; 4], u32, u16, u64)>, Vec<u64>)>,
+        ([u8; 8], u64),
+        Vec<([u8; 8], Vec<([u8; 8], u32, u16, u64)>, Vec<u64>)>,
     ),
 );
 
@@ -206,7 +205,7 @@ use std::io::{Read, Write};
 
 impl CompactedBlock {
     fn empty() -> CompactedBlock {
-        CompactedBlock((([0, 0, 0, 0], 0), vec![]))
+        CompactedBlock((([0, 0, 0, 0, 0, 0, 0, 0], 0), vec![]))
     }
 
     pub fn from_full_block(block: &BitcoinBlockFullBreakdown) -> CompactedBlock {
@@ -214,7 +213,9 @@ impl CompactedBlock {
         let mut coinbase_value = 0;
         let coinbase_txid = {
             let txid = hex::decode(block.tx[0].txid.to_string()).unwrap();
-            [txid[0], txid[1], txid[2], txid[3]]
+            [
+                txid[0], txid[1], txid[2], txid[3], txid[4], txid[5], txid[6], txid[7],
+            ]
         };
         for coinbase_output in block.tx[0].vout.iter() {
             coinbase_value += coinbase_output.value.to_sat();
@@ -225,7 +226,9 @@ impl CompactedBlock {
                 let txin = hex::decode(input.txid.unwrap().to_string()).unwrap();
 
                 inputs.push((
-                    [txin[0], txin[1], txin[2], txin[3]],
+                    [
+                        txin[0], txin[1], txin[2], txin[3], txin[4], txin[5], txin[6], txin[7],
+                    ],
                     input.prevout.as_ref().unwrap().height as u32,
                     input.vout.unwrap() as u16,
                     input.prevout.as_ref().unwrap().value.to_sat(),
@@ -236,7 +239,13 @@ impl CompactedBlock {
                 outputs.push(output.value.to_sat());
             }
             let txid = hex::decode(tx.txid.to_string()).unwrap();
-            txs.push(([txid[0], txid[1], txid[2], txid[3]], inputs, outputs));
+            txs.push((
+                [
+                    txid[0], txid[1], txid[2], txid[3], txid[4], txid[5], txid[6], txid[7],
+                ],
+                inputs,
+                outputs,
+            ));
         }
         CompactedBlock(((coinbase_txid, coinbase_value), txs))
     }
@@ -247,7 +256,9 @@ impl CompactedBlock {
         let coinbase_txid = {
             let txid =
                 hex::decode(&block.transactions[0].transaction_identifier.hash[2..]).unwrap();
-            [txid[0], txid[1], txid[2], txid[3]]
+            [
+                txid[0], txid[1], txid[2], txid[3], txid[4], txid[5], txid[6], txid[7],
+            ]
         };
         for coinbase_output in block.transactions[0].metadata.outputs.iter() {
             coinbase_value += coinbase_output.value;
@@ -258,7 +269,9 @@ impl CompactedBlock {
                 let txin = hex::decode(&input.previous_output.txid[2..]).unwrap();
 
                 inputs.push((
-                    [txin[0], txin[1], txin[2], txin[3]],
+                    [
+                        txin[0], txin[1], txin[2], txin[3], txin[4], txin[5], txin[6], txin[7],
+                    ],
                     input.previous_output.block_height as u32,
                     input.previous_output.vout as u16,
                     input.previous_output.value,
@@ -269,7 +282,13 @@ impl CompactedBlock {
                 outputs.push(output.value);
             }
             let txid = hex::decode(&tx.transaction_identifier.hash[2..]).unwrap();
-            txs.push(([txid[0], txid[1], txid[2], txid[3]], inputs, outputs));
+            txs.push((
+                [
+                    txid[0], txid[1], txid[2], txid[3], txid[4], txid[5], txid[6], txid[7],
+                ],
+                inputs,
+                outputs,
+            ));
         }
         CompactedBlock(((coinbase_txid, coinbase_value), txs))
     }
@@ -306,7 +325,7 @@ impl CompactedBlock {
     }
 
     fn deserialize<R: Read>(fd: &mut R) -> std::io::Result<CompactedBlock> {
-        let mut ci = [0u8; 4];
+        let mut ci = [0u8; 8];
         fd.read_exact(&mut ci)?;
         let mut cv = [0u8; 8];
         fd.read_exact(&mut cv)?;
@@ -314,13 +333,13 @@ impl CompactedBlock {
         fd.read_exact(&mut tx_len)?;
         let mut txs = vec![];
         for _ in 0..usize::from_be_bytes(tx_len) {
-            let mut txid = [0u8; 4];
+            let mut txid = [0u8; 8];
             fd.read_exact(&mut txid)?;
             let mut inputs_len = [0u8; 8];
             fd.read_exact(&mut inputs_len)?;
             let mut inputs = vec![];
             for _ in 0..usize::from_be_bytes(inputs_len) {
-                let mut txin = [0u8; 4];
+                let mut txin = [0u8; 8];
                 fd.read_exact(&mut txin)?;
                 let mut block = [0u8; 4];
                 fd.read_exact(&mut block)?;
@@ -921,7 +940,9 @@ pub fn retrieve_satoshi_point_using_local_storage(
     let mut ordinal_block_number = block_identifier.index as u32;
     let txid = {
         let bytes = hex::decode(&transaction_identifier.hash[2..]).unwrap();
-        [bytes[0], bytes[1], bytes[2], bytes[3]]
+        [
+            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+        ]
     };
     let mut tx_cursor = (txid, 0);
     let mut hops: u32 = 0;
