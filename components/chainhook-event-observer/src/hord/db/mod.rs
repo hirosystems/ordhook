@@ -957,14 +957,14 @@ pub fn retrieve_satoshi_point_using_local_storage(
         let coinbase_txid = &res.0 .0 .0;
         let txid = tx_cursor.0;
 
-        ctx.try_log(|logger| {
-            slog::info!(
-                logger,
-                "{ordinal_block_number}:{:?}:{:?}",
-                hex::encode(&coinbase_txid),
-                hex::encode(&txid)
-            )
-        });
+        // ctx.try_log(|logger| {
+        //     slog::info!(
+        //         logger,
+        //         "{ordinal_block_number}:{:?}:{:?}",
+        //         hex::encode(&coinbase_txid),
+        //         hex::encode(&txid)
+        //     )
+        // });
 
         // evaluate exit condition: did we reach the **final** coinbase transaction
         if coinbase_txid.eq(&txid) {
@@ -1013,44 +1013,44 @@ pub fn retrieve_satoshi_point_using_local_storage(
                     continue;
                 }
 
-                ctx.try_log(|logger| {
-                    slog::info!(logger, "Evaluating {}: {:?}", hex::encode(&txid_n), outputs)
-                });
+                // ctx.try_log(|logger| {
+                //     slog::info!(logger, "Evaluating {}: {:?}", hex::encode(&txid_n), outputs)
+                // });
 
                 let mut sats_out = 0;
                 for (index, output_value) in outputs.iter().enumerate() {
                     if index == tx_cursor.1 {
                         break;
                     }
-                    ctx.try_log(|logger| {
-                        slog::info!(logger, "Adding {} from output #{}", output_value, index)
-                    });
+                    // ctx.try_log(|logger| {
+                    //     slog::info!(logger, "Adding {} from output #{}", output_value, index)
+                    // });
                     sats_out += output_value;
                 }
                 sats_out += ordinal_offset;
-                ctx.try_log(|logger| {
-                    slog::info!(
-                        logger,
-                        "Adding offset {ordinal_offset} to sats_out {sats_out}"
-                    )
-                });
+                // ctx.try_log(|logger| {
+                //     slog::info!(
+                //         logger,
+                //         "Adding offset {ordinal_offset} to sats_out {sats_out}"
+                //     )
+                // });
 
                 let mut sats_in = 0;
                 for (txin, block_height, vout, txin_value) in inputs.into_iter() {
                     sats_in += txin_value;
-                    ctx.try_log(|logger| {
-                        slog::info!(
-                            logger,
-                            "Adding txin_value {txin_value} to sats_in {sats_in} (txin: {})",
-                            hex::encode(&txin)
-                        )
-                    });
+                    // ctx.try_log(|logger| {
+                    //     slog::info!(
+                    //         logger,
+                    //         "Adding txin_value {txin_value} to sats_in {sats_in} (txin: {})",
+                    //         hex::encode(&txin)
+                    //     )
+                    // });
 
                     if sats_out < sats_in {
                         ordinal_offset = sats_out - (sats_in - txin_value);
                         ordinal_block_number = block_height;
 
-                        ctx.try_log(|logger| slog::info!(logger, "Block {ordinal_block_number} / Tx {} / [in:{sats_in}, out:{sats_out}]: {block_height} -> {ordinal_block_number}:{ordinal_offset} -> {}:{vout}",
+                        // ctx.try_log(|logger| slog::info!(logger, "Block {ordinal_block_number} / Tx {} / [in:{sats_in}, out:{sats_out}]: {block_height} -> {ordinal_block_number}:{ordinal_offset} -> {}:{vout}",
                         hex::encode(&txid_n),
                         hex::encode(&txin)));
                         tx_cursor = (txin, vout as usize);
