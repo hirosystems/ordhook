@@ -417,7 +417,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     (true, false) => {
                         let mut networks = BTreeMap::new();
 
-                        networks.insert(StacksNetwork::Simnet, StacksChainhookNetworkSpecification {
+                        networks.insert(StacksNetwork::Testnet, StacksChainhookNetworkSpecification {
                             start_block: Some(0),
                             end_block: Some(100),
                             predicate: StacksPredicate::PrintEvent(StacksPrintEventBasedPredicate {
