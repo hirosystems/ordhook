@@ -14,7 +14,7 @@ use threadpool::ThreadPool;
 
 use crate::{
     indexer::bitcoin::{
-        download_block_with_retry, parse_downloaded_block, retrieve_block_hash_with_retry,
+        download_block_with_retry, retrieve_block_hash_with_retry,
         standardize_bitcoin_block, BitcoinBlockFullBreakdown,
     },
     observer::BitcoinConfig,
@@ -786,7 +786,7 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
                     let future =
                         download_block_with_retry(&block_hash, &moved_bitcoin_config, &moved_ctx);
                     let block_data = hiro_system_kit::nestable_block_on(future).unwrap();
-                    let _ = block_data_tx.send(Some(block_data));
+                    let _ = block_data_tx.send(Some((block_height, block_hash, block_data)));
                 });
             }
             let res = retrieve_block_data_pool.join();
@@ -796,10 +796,9 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
 
     let _ = hiro_system_kit::thread_named("Block data compression")
         .spawn(move || {
-            while let Ok(Some(downloaded_block)) = block_data_rx.recv() {
+            while let Ok(Some((_, _, block_data))) = block_data_rx.recv() {
                 let block_compressed_tx_moved = block_compressed_tx.clone();
                 compress_block_data_pool.execute(move || {
-                    let block_data = parse_downloaded_block(downloaded_block).unwrap();
                     let compressed_block = CompactedBlock::from_full_block(&block_data);
                     let block_index = block_data.height as u32;
                     let _ = block_compressed_tx_moved.send(Some((

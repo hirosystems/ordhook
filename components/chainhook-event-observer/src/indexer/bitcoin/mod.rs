@@ -174,11 +174,21 @@ pub async fn download_block_with_retry(
     block_hash: &str,
     bitcoin_config: &BitcoinConfig,
     ctx: &Context,
-) -> Result<Vec<u8>, String> {
+) -> Result<BitcoinBlockFullBreakdown, String> {
     let mut errors_count = 0;
     let block = loop {
         match download_block(block_hash, bitcoin_config, ctx).await {
-            Ok(result) => break result,
+            Ok(result) => match parse_downloaded_block(result) {
+                Ok(result) => break result,
+                Err(e) => {
+                    errors_count += 1;
+                    error!(
+                        "unable to retrieve block #{block_hash} (attempt #{errors_count}): {}",
+                        e.to_string()
+                    );
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                }
+            },
             Err(e) => {
                 errors_count += 1;
                 error!(

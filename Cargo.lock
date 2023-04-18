@@ -501,7 +501,7 @@ dependencies = [
  "clarinet-files",
  "clarity-repl",
  "criterion",
- "crossbeam-channel 0.5.6",
+ "crossbeam-channel 0.5.8",
  "csv",
  "ctrlc",
  "flate2",
@@ -539,7 +539,7 @@ dependencies = [
  "clap_generate",
  "clarinet-utils",
  "clarity-repl",
- "crossbeam-channel 0.5.6",
+ "crossbeam-channel 0.5.8",
  "ctrlc",
  "futures",
  "hex",
@@ -970,9 +970,9 @@ dependencies = [
 
 [[package]]
 name = "crossbeam-channel"
-version = "0.5.6"
+version = "0.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c2dd04ddaf88237dc3b8d8f9a3c1004b506b54b3313403944054d23c0870c521"
+checksum = "a33c2bf77f2df06183c3aa30d1e96c0695a313d4f9c453cc3762a6db39f99200"
 dependencies = [
  "cfg-if 1.0.0",
  "crossbeam-utils 0.8.14",
@@ -3123,7 +3123,7 @@ version = "1.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4b8f95bd6966f5c87776639160a66bd8ab9895d9d4ab01ddba9fc60661aebe8d"
 dependencies = [
- "crossbeam-channel 0.5.6",
+ "crossbeam-channel 0.5.8",
  "crossbeam-deque 0.8.2",
  "crossbeam-utils 0.8.14",
  "num_cpus",
@@ -3944,7 +3944,7 @@ version = "2.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "766c59b252e62a34651412870ff55d8c4e6d04df19b43eecb2703e417b097ffe"
 dependencies = [
- "crossbeam-channel 0.5.6",
+ "crossbeam-channel 0.5.8",
  "slog",
  "take_mut",
  "thread_local",
