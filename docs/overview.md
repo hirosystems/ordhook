@@ -30,5 +30,3 @@ With chainhooks, developers can trigger actions, based on predicates they can wr
 - A particular contract was involved in a transaction.
 - A quantity of BTC was received on a Bitcoin address.
 - A POX transfer occurred on the Bitcoin chain.
-
-

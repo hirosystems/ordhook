@@ -2,7 +2,7 @@
 title: How to run chainhook as a service
 ---
 
-### Guide to `if_this` / `then_that` predicate design
+# Guide to `if_this` / `then_that` predicate design
 
 To get started with Bitcoin predicates, we can use the `chainhook` to generate a template: 
 
@@ -10,7 +10,7 @@ To get started with Bitcoin predicates, we can use the `chainhook` to generate a
 $ chainhook predicates new hello-ordinals.json --bitcoin
 ```
 
-We will focus on the `if_this` and `then_that` parts of the specifications.
+## `if_this` and `then_that` specifications
 
 The current `bitcoin` predicates support the following `if_this` constructs:
 
@@ -229,7 +229,8 @@ Append events to a file through the filesystem. Convenient for local tests. The 
 ```
 
 
-Putting all the pieces together:
+### Putting all the above configurations together
+
 Retrieve and HTTP Post to `http://localhost:3000/api/v1/wrapBtc` the 5 first transfers to the p2wpkh `bcrt1qnxk...yt6ed99jg` address, of any amount, occurring after block height 10200. 
 
 ```json
@@ -260,7 +261,7 @@ Retrieve and HTTP Post to `http://localhost:3000/api/v1/wrapBtc` the 5 first tra
 }
 ```
 
-Another example:
+### Another example
 
 A specification file can also include different networks. In this case, the chainhook will select the predicate corresponding to the network it was launched against.
 
@@ -362,7 +363,7 @@ $ chainhook config new --testnet
 $ chainhook predicates scan ./path/predicate.json --config-path=./Chainhook.toml
 ```
 
-**Tips and tricks**
+### Tips and tricks
 
 To optimize their experience with scanning, developers have a few knobs they can play with:
 

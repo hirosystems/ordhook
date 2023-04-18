@@ -1,5 +1,5 @@
 ---
-title: How to use chainhooks in my application?
+title: Use chainhooks in application
 ---
 
 This guide helps you interact with the RESTful endpoints exposed in Chainhooks.
