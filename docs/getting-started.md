@@ -2,11 +2,11 @@
 title: Getting Started
 ---
 
-# Install Chainhook
+# Getting Started
 
 You can install chainhook from the source by following this guide.
 
-## Install from source
+## Install Chainhook from source
 
 Chainhook can be installed from the source by following the steps below:
 

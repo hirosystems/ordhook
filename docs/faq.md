@@ -2,7 +2,7 @@
 title: FAQ's
 ---
 
-# Frequently Asked Questions
+# FAQ's
 
 #### **Can Chainhooks target both Bitcoin and stacks?**
 

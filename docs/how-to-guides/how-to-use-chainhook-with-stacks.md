@@ -2,17 +2,21 @@
 title: Use chainhook with Stacks
 ---
 
-# Guide to `if_this` / `then_that` predicate design
+# Use chainhook with Stacks
 
-To get started with Bitcoin predicates, we can use the `chainhook` to generate a template: 
+The following guide helps you define predicates to use chainhook with Stacks.
+
+## Guide to `if_this` / `then_that` predicate design
+
+To get started with Stacks predicates, we can use the `chainhook` to generate a template: 
 
 ```bash
-$ chainhook predicates new hello-ordinals.json --bitcoin
+$ chainhook predicates new hello-arkadiko.json --stacks
 ```
 
 ## `if_this` and `then_that` specifications
 
-The current `bitcoin` predicates support the following `if_this` constructs:
+The current `stacks` predicates support the following `if_this` constructs:
 
 Get any transaction matching a given txid `txid` mandatory argument admits:
 - 32 bytes hex encoded type. Example:
@@ -202,7 +206,7 @@ Append events to a file through the filesystem. Convenient for local tests. The 
 }
 ```
 
-### Additional configuration knobs available
+## Additional configuration knobs available
 
 ```json
 // Ignore any block before the given block:
@@ -228,144 +232,104 @@ Append events to a file through the filesystem. Convenient for local tests. The 
 
 ```
 
+:::tip
 
-### Putting all the above configurations together
+To optimize your experience with scanning, developers have a few knobs they can play with:
+- Use of adequate values for `start_block` and `end_block` in predicates will drastically improve the speed.
 
-Retrieve and HTTP Post to `http://localhost:3000/api/v1/wrapBtc` the five first transfers to the p2wpkh `bcrt1qnxk...yt6ed99jg` address of any amount, occurring after block height 10200. 
+:::
+
+
+
+## Putting all the above configurations together
+
+Retrieve and HTTP Post to `http://localhost:3000/api/v1/wrapBtc`. The five first transfers to the p2wpkh `bcrt1qnxk...yt6ed99jg` address of any amount occurring after block height 10200. 
 
 ```json
 
 {
-  "chain": "bitcoin",
+  "chain": "stacks",
   "uuid": "1",
-  "name": "Wrap BTC",
+  "name": "Lorem ipsum",
   "version": 1,
   "networks": {
     "testnet": {
-      "if_this": {
-        "scope": "outputs",
-        "p2wpkh": {
-          "equals": "bcrt1qnxknq3wqtphv7sfwy07m7e4sr6ut9yt6ed99jg"
-        }
-      },
-      "then_that": {
-        "http_post": {
-          "url": "http://localhost:3000/api/v1/transfers",
-          "authorization_header": "Bearer cn389ncoiwuencr"
-        }
-      },
-      "start_block": 10200,
-      "expire_after_occurrence": 5,
+        "if_this": {
+            "scope": "print_event",
+            "contract_identifier": "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.monkey-sip09",
+            "contains": "vault"
+        },
+        "then_that": {
+            "http_post": {
+            "url": "http://localhost:3000/api/v1/vaults",
+            "authorization_header": "Bearer cn389ncoiwuencr"
+            }
+        },
+        "start_block": 10200,
+        "expire_after_occurrence": 5,
     }
   }
 }
 ```
 
-### Another example
+## Another example
 
 A specification file can also include different networks. In this case, the chainhook will select the predicate corresponding to the network it was launched against.
 
 ```json
 
 {
-  "chain": "bitcoin",
+  "chain": "stacks",
   "uuid": "1",
-  "name": "Wrap BTC",
+  "name": "Lorem ipsum",
   "version": 1,
   "networks": {
     "testnet": {
-      "if_this": {
-        "scope": "ordinals_protocol",
-        "operation": "inscription_feed"
-      },
-      "then_that": {
-        "http_post": {
-          "url": "http://localhost:3000/api/v1/ordinals",
-          "authorization_header": "Bearer cn389ncoiwuencr"
-        }
-      },
-      "start_block": 10200,
+        "if_this": {
+            "scope": "print_event",
+            "contract_identifier": "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.monkey-sip09",
+            "contains": "vault"
+        },
+        "then_that": {
+            "http_post": {
+                "url": "http://localhost:3000/api/v1/vaults",
+                "authorization_header": "Bearer cn389ncoiwuencr"
+            }
+        },
+        "start_block": 10200,
+        "expire_after_occurrence": 5,
     },
     "mainnet": {
-      "if_this": {
-        "scope": "ordinals_protocol",
-        "operation": "inscription_feed"
-      },
+        "if_this": {
+            "scope": "print_event",
+            "contract_identifier": "SP456HQKV0RJXZFY1DGX8MNSNYVE3VGZJSRT459863.monkey-sip09",
+            "contains": "vault"
+        },
       "then_that": {
-        "http_post": {
-          "url": "http://my-protocol.xyz/api/v1/ordinals",
-          "authorization_header": "Bearer cn389ncoiwuencr"
-        }
+            "http_post": {
+                "url": "http://my-protocol.xyz/api/v1/vaults",
+                "authorization_header": "Bearer cn389ncoiwuencr"
+            }
       },
       "start_block": 90232,
+      "expire_after_occurrence": 5,
     }
-
   }
 }
 
 ```
 
-### Guide to local Bitcoin testnet / mainnet predicate scanning
+## Guide to local Stacks testnet / mainnet predicate scanning
 
-To scan the Bitcoin chain with a given predicate, a `bitcoind` instance with access to the RPC methods `getblockhash` and `getblock` must be accessible. The RPC calls latency will directly impact the speed of the scans.
+Developers can test their Stacks predicates without spinning up a Stacks node.
+To date, the Stacks blockchain has just over two years of activity, and the `chainhook` utility can work with both `testnet` and `mainnet` chainstates in memory.  
 
-:::note
+To test a Stacks `if_this` / `then_that` predicate, the following command can be used:
 
-Configuring a `bitcoind` instance is out of the scope of this guide.
-
-:::
-
-
-Assuming a `bitcoind` node is correctly configured, you can perform scans using the following command:
 ```bash
 $ chainhook predicates scan ./path/to/predicate.json --testnet
 ```
-When using the flag `--testnet`, the scan operation will generate a configuration file in memory using the following settings:
-```toml
-[storage]
-driver = "memory"
 
-[chainhooks]
-max_stacks_registrations = 500
-max_bitcoin_registrations = 500
+The first time this command run, a chainstate archive will be downloaded, uncompressed, and written to disk (around 3GB required for the testnet and 10GB for the mainnet).
 
-[network]
-mode = "testnet"
-bitcoind_rpc_url = "http://0.0.0.0:18332"
-bitcoind_rpc_username = "testnet"
-bitcoind_rpc_password = "testnet"
-stacks_node_rpc_url = "http://0.0.0.0:20443"
-```
-
-When using the flag `--mainnet`, the scan operation will generate a configuration file in memory using the following settings:
-```toml
-[storage]
-driver = "memory"
-
-[chainhooks]
-max_stacks_registrations = 500
-max_bitcoin_registrations = 500
-
-[network]
-mode = "mainnet"
-bitcoind_rpc_url = "http://0.0.0.0:8332"
-bitcoind_rpc_username = "mainnet"
-bitcoind_rpc_password = "mainnet"
-stacks_node_rpc_url = "http://0.0.0.0:20443"
-
-```
-
-Developers can customize their Bitcoin node's credentials and network address by adding the flag `-config=/path/to/config.toml`. 
-```bash
-$ chainhook config new --testnet
-✔ Generated config file Chainhook.toml
-
-$ chainhook predicates scan ./path/predicate.json --config-path=./Chainhook.toml
-```
-
-### Tips and tricks
-
-To optimize their experience with scanning, developers have a few knobs they can play with:
-
-- Use of adequate values for `start_block` and `end_block` in predicates will drastically improve the speed.
-- Networking: reducing the number of network hops between the chainhook and the bitcoind processes can also help a lot.
+The subsequent scans will use the cached chainstate if already present, speeding up iterations and the overall feedback loop. 

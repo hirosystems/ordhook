@@ -2,7 +2,7 @@
 title: Run chainhook as a Service
 ---
 
-## Run `chainhook` as a service for streaming new blocks
+# Run `chainhook` as a service for streaming new blocks
 
 `chainhook` can be run as a background service for streaming and processing new canonical blocks appended to the Bitcoin and Stacks blockchains.
 
@@ -22,4 +22,4 @@ $ chainhook service start --config-path=./path/to/config.toml
 $ chainhook service start --predicate-path=./path/to/predicate-1.json --start-http-api --config-path=./path/to/config.toml
 ```
 
-A comprehensive OpenAPI specification explaining how to interact with the Chainhook REST API can be found [here](./docs/chainhook-openapi.json).
+A comprehensive OpenAPI specification explaining how to interact with the Chainhook REST API can be found [here](../chainhook-openapi.json).
