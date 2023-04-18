@@ -20,12 +20,12 @@ To address this issue, Chainhooks takes away all that burden from developers, so
    
 3. **Optimized User Experience**: lighter indexes implies faster queries results, which helps minimizing end user responses time.
 
-## Predicates
+## Chain hook triggers
 
-With chainhooks, developers can trigger actions, based on predicates they can write. Predicates can, non-exhaustively, be:
+With chainhooks, developers can trigger actions, based on predicates they can write. Chainhooks support following predicates non-exhaustively:
 
 - A certain amount of SIP-10 tokens were transferred.
-- A particular address received some tokens on the Stacks blockchain.
+- A particular blockchain address received some tokens on the Stacks/Bitcoin blockchain.
 - A particular print event was emitted by a contract.
 - A particular contract was involved in a transaction.
 - A quantity of BTC was received on a Bitcoin address.

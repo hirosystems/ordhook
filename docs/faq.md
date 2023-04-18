@@ -24,10 +24,16 @@ The chainhook event observer was designed as a library written in Rust, which ma
 
 An event emitted on-chain triggers a centralized logic that can be committed on-chain once computed.
 
-#### **How can I interact with the Chainhook REST API?**
+#### **How can I use Chainhook in my application?**
 
-A comprehensive OpenAPI specification explaining how to interact with the Chainhook REST API can be found [here](../docs/chainhook-openapi.json).
+Chainhook can be used from the exposed RESTful API endpoints. A comprehensive OpenAPI specification explaining how to interact with the Chainhook REST API can be found [here](../docs/chainhook-openapi.json).
 
 #### **Can I run chainhooks on mainnet?**
 
 Yes, you can run chainhooks on both testnet and mainnet.
+
+### **How can I optimize chainhook scanning?**
+
+Use of adequate values for `start_block` and `end_block` in predicates
+
+Networking: reducing the number of network hops between chainhook and `bitcoind` process
