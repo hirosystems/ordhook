@@ -748,6 +748,7 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
     hord_db_path: &PathBuf,
     ctx: &Context,
 ) -> Result<(), String> {
+    let ordinal_computing_height: u64 = 765000;
     let number_of_blocks_to_process = end_block - start_block + 1;
     let retrieve_block_hash_pool = ThreadPool::new(network_thread);
     let (block_hash_tx, block_hash_rx) = crossbeam_channel::bounded(256);
@@ -798,6 +799,9 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
                     };
                     let _ = block_data_tx.send(res);
                 });
+                if block_height >= ordinal_computing_height {
+                    let _ = retrieve_block_data_pool.join();
+                }
             }
             let res = retrieve_block_data_pool.join();
             res
@@ -808,6 +812,7 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
         .spawn(move || {
             while let Ok(Some(block_data)) = block_data_rx.recv() {
                 let block_compressed_tx_moved = block_compressed_tx.clone();
+                let block_height = block_data.height as u64;
                 compress_block_data_pool.execute(move || {
                     let compressed_block = CompactedBlock::from_full_block(&block_data);
                     let block_index = block_data.height as u32;
@@ -817,6 +822,9 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
                         block_data,
                     )));
                 });
+                if block_height >= ordinal_computing_height {
+                    let _ = compress_block_data_pool.join();
+                }
             }
             let res = compress_block_data_pool.join();
             res
@@ -839,7 +847,11 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
         // processing.
 
         // Should we start look for inscriptions data in blocks?
-        if raw_block.height > 765000 {
+        if raw_block.height as u64 > ordinal_computing_height {
+            if cursor == 0 {
+                cursor = raw_block.height;
+            }
+            ctx.try_log(|logger| slog::info!(logger, "Queueing compacted block #{block_height}",));
             // Is the action of processing a block allows us
             // to process more blocks present in the inbox?
             inbox.insert(raw_block.height, raw_block);
@@ -847,7 +859,7 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
                 ctx.try_log(|logger| {
                     slog::info!(
                         logger,
-                        "Processing block #{cursor} (# blocks inboxed: {})",
+                        "Dequeuing block #{cursor} for processing (# blocks inboxed: {})",
                         inbox.len()
                     )
                 });
@@ -882,13 +894,7 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
                 cursor += 1;
             }
         } else {
-            ctx.try_log(|logger| {
-                slog::info!(
-                    logger,
-                    "Storing block #{block_height} (ordinals processing ignored)",
-                )
-            });
-
+            ctx.try_log(|logger| slog::info!(logger, "Storing compacted block #{block_height}",));
         }
 
         if blocks_stored == number_of_blocks_to_process {
@@ -956,7 +962,7 @@ pub fn retrieve_satoshi_point_using_local_storage(
     ctx.try_log(|logger| {
         slog::info!(
             logger,
-            "Computing Satoshi # for sat_point {}:0:0 (block #{})",
+            "Computing ordinal number for Satoshi point {}:0:0 (block #{})",
             transaction_identifier.hash,
             block_identifier.index
         )

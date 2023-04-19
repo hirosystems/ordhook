@@ -159,6 +159,7 @@ pub fn update_hord_db_and_augment_bitcoin_block(
                 let _ = moved_traversal_tx.send((transaction_id, traversal));
             });
         }
+        let _ = traversal_data_pool.join();
 
         let mut traversals_received = 0;
         while let Ok((transaction_identifier, traversal_result)) = traversal_rx.recv() {
@@ -245,7 +246,6 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
                 inscription.ordinal_offset = traversal.get_ordinal_coinbase_offset();
                 inscription.ordinal_block_height = traversal.get_ordinal_coinbase_height();
                 inscription.ordinal_number = traversal.ordinal_number;
-                inscription.inscription_number = traversal.inscription_number;
                 inscription.transfers_pre_inscription = traversal.transfers;
                 inscription.inscription_fee = new_tx.metadata.fee;
 
@@ -265,18 +265,19 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
                     });
                     ordinals_events_indexes_to_discard.push_front(ordinal_event_index);
                 } else {
+                    latest_inscription_number += 1;
+                    inscription.inscription_number = inscription_number;
                     match storage {
                         Storage::Sqlite(rw_hord_db_conn) => {
-                            latest_inscription_number += 1;
-                            inscription.inscription_number = inscription_number;
                             ctx.try_log(|logger| {
                                     slog::info!(
                                 logger,
-                                "Transaction {} in block {} inscribed some content ({}) on Satoshi #{}",
-                                new_tx.transaction_identifier.hash,
+                                "Inscription {} (#{}) detected on Satoshi {} (block {}, {} transfers)",
+                                inscription.inscription_id,
+                                inscription.inscription_number,
+                                inscription.ordinal_number,
                                 block.block_identifier.index,
-                                inscription.content_type,
-                                traversal.ordinal_number
+                                inscription.transfers_pre_inscription,
                             );
                                 });
                             store_new_inscription(
@@ -430,12 +431,12 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
                 ctx.try_log(|logger| {
                     slog::info!(
                         logger,
-                        "Transaction {} in block {} moved inscribed Satoshi #{} from {} to {}",
-                        new_tx.transaction_identifier.hash,
-                        block.block_identifier.index,
-                        watched_satpoint.ordinal_number,
+                        "Inscription {} (#{}) moved from {} to {} (block: {})",
+                        watched_satpoint.inscription_id,
+                        watched_satpoint.inscription_number,
                         satpoint_pre_transfer,
                         outpoint_post_transfer,
+                        block.block_identifier.index,
                     )
                 });
 
