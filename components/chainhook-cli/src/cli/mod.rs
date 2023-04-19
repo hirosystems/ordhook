@@ -590,8 +590,8 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     index: cmd.block_height,
                     hash: "".into(),
                 };
-
-                let traversal = retrieve_satoshi_point_using_local_storage(
+                // let global_block_cache = HashMap::new();
+                let (traversal, _) = retrieve_satoshi_point_using_local_storage(
                     &hord_db_conn,
                     &block_identifier,
                     &transaction_identifier,

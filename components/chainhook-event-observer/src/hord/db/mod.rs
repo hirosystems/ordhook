@@ -4,7 +4,8 @@ use std::{
 };
 
 use chainhook_types::{
-    BitcoinBlockData, BlockIdentifier, OrdinalInscriptionRevealData, TransactionIdentifier,
+    BitcoinBlockData, BlockIdentifier, OrdinalInscriptionRevealData, StacksBlockData,
+    TransactionIdentifier,
 };
 use hiro_system_kit::slog;
 

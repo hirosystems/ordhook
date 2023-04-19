@@ -9,6 +9,8 @@ use chainhook_types::{
     OrdinalOperation, TransactionIdentifier,
 };
 use hiro_system_kit::slog;
+use rand::seq::SliceRandom;
+use rand::thread_rng;
 use rocksdb::DB;
 use rusqlite::Connection;
 use std::collections::{BTreeMap, HashMap, VecDeque};
@@ -148,19 +150,20 @@ pub fn update_hord_db_and_augment_bitcoin_block(
             let moved_traversal_tx = traversal_tx.clone();
             let moved_ctx = ctx.clone();
             let block_identifier = new_block.block_identifier.clone();
-            let blocks_db = open_readonly_hord_db_conn_rocks_db(hord_db_path, &ctx)?;
+            let moved_hord_db_path = hord_db_path.clone();
             traversal_data_pool.execute(move || {
-                let traversal = retrieve_satoshi_point_using_local_storage(
-                    &blocks_db,
-                    &block_identifier,
-                    &transaction_id,
-                    0,
-                    &moved_ctx,
-                );
-                let _ = moved_traversal_tx.send((transaction_id, traversal));
+                if let Ok(blocks_db) = open_readonly_hord_db_conn_rocks_db(&moved_hord_db_path, &moved_ctx) {
+                    let traversal = retrieve_satoshi_point_using_local_storage(
+                        &blocks_db,
+                        &block_identifier,
+                        &transaction_id,
+                        0,
+                        &moved_ctx,
+                    );
+                    let _ = moved_traversal_tx.send((transaction_id, traversal));    
+                }
             });
         }
-        let _ = traversal_data_pool.join();
 
         let mut traversals_received = 0;
         while let Ok((transaction_identifier, traversal_result)) = traversal_rx.recv() {
@@ -171,6 +174,7 @@ pub fn update_hord_db_and_augment_bitcoin_block(
                 break;
             }
         }
+        let _ = traversal_data_pool.join();
     }
 
     let mut storage = Storage::Sqlite(inscriptions_db_conn_rw);
