@@ -114,6 +114,7 @@ pub fn update_hord_db_and_augment_bitcoin_block(
             &blocks_db_rw,
             &ctx,
         );
+        let _ = blocks_db_rw.flush();
     }
 
     let mut transactions_ids = vec![];
@@ -164,7 +165,7 @@ pub fn update_hord_db_and_augment_bitcoin_block(
         let mut traversals_received = 0;
         while let Ok((transaction_identifier, traversal_result)) = traversal_rx.recv() {
             traversals_received += 1;
-            let traversal = traversal_result?;
+            let (traversal, _) = traversal_result?;
             traversals.insert(transaction_identifier, traversal);
             if traversals_received == expected_traversals {
                 break;

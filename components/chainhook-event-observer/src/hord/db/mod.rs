@@ -874,6 +874,8 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
                         }
                     };
 
+                let _ = blocks_db_rw.flush();
+                
                 if let Err(e) = update_hord_db_and_augment_bitcoin_block(
                     &mut new_block,
                     blocks_db_rw,
@@ -958,7 +960,7 @@ pub fn retrieve_satoshi_point_using_local_storage(
     transaction_identifier: &TransactionIdentifier,
     inscription_number: u64,
     ctx: &Context,
-) -> Result<TraversalResult, String> {
+) -> Result<(TraversalResult, HashMap<u32, CompactedBlock>), String> {
     ctx.try_log(|logger| {
         slog::info!(
             logger,
@@ -978,15 +980,23 @@ pub fn retrieve_satoshi_point_using_local_storage(
     };
     let mut tx_cursor = (txid, 0);
     let mut hops: u32 = 0;
+    let mut local_block_cache = HashMap::new();
     loop {
         hops += 1;
-        let res = match find_block_at_block_height(ordinal_block_number, &blocks_db) {
-            Some(res) => res,
-            None => {
-                return Err(format!("block #{ordinal_block_number} not in database"));
-            }
+        let block = match local_block_cache.get(&ordinal_block_number) {
+            Some(block) => block,
+            None => match find_block_at_block_height(ordinal_block_number, &blocks_db) {
+                Some(block) => {
+                    local_block_cache.insert(ordinal_block_number, block);
+                    local_block_cache.get(&ordinal_block_number).unwrap()
+                }
+                None => {
+                    return Err(format!("block #{ordinal_block_number} not in database"));
+                }
+            },
         };
-        let coinbase_txid = &res.0 .0 .0;
+
+        let coinbase_txid = &block.0 .0 .0;
         let txid = tx_cursor.0;
 
         // ctx.try_log(|logger| {
@@ -1000,7 +1010,7 @@ pub fn retrieve_satoshi_point_using_local_storage(
 
         // evaluate exit condition: did we reach the **final** coinbase transaction
         if coinbase_txid.eq(&txid) {
-            let coinbase_value = &res.0 .0 .1;
+            let coinbase_value = &block.0 .0 .1;
             if ordinal_offset.lt(coinbase_value) {
                 break;
             }
@@ -1008,7 +1018,7 @@ pub fn retrieve_satoshi_point_using_local_storage(
             // loop over the transaction fees to detect the right range
             let cut_off = ordinal_offset - coinbase_value;
             let mut accumulated_fees = 0;
-            for (_, inputs, outputs) in res.0 .1 {
+            for (_, inputs, outputs) in block.0 .1.iter() {
                 let mut total_in = 0;
                 for (_, _, _, input_value) in inputs.iter() {
                     total_in += input_value;
@@ -1029,8 +1039,8 @@ pub fn retrieve_satoshi_point_using_local_storage(
                         sats_in += txin_value;
                         if sats_in >= total_out {
                             ordinal_offset = total_out - (sats_in - txin_value);
-                            ordinal_block_number = block_height;
-                            tx_cursor = (txin, vout as usize);
+                            ordinal_block_number = *block_height;
+                            tx_cursor = (txin.clone(), *vout as usize);
                             break;
                         }
                     }
@@ -1039,7 +1049,7 @@ pub fn retrieve_satoshi_point_using_local_storage(
             }
         } else {
             // isolate the target transaction
-            for (txid_n, inputs, outputs) in res.0 .1 {
+            for (txid_n, inputs, outputs) in block.0 .1.iter() {
                 // we iterate over the transactions, looking for the transaction target
                 if !txid_n.eq(&txid) {
                     continue;
@@ -1080,12 +1090,12 @@ pub fn retrieve_satoshi_point_using_local_storage(
 
                     if sats_out < sats_in {
                         ordinal_offset = sats_out - (sats_in - txin_value);
-                        ordinal_block_number = block_height;
+                        ordinal_block_number = *block_height;
 
                         // ctx.try_log(|logger| slog::info!(logger, "Block {ordinal_block_number} / Tx {} / [in:{sats_in}, out:{sats_out}]: {block_height} -> {ordinal_block_number}:{ordinal_offset} -> {}:{vout}",
                         // hex::encode(&txid_n),
                         // hex::encode(&txin)));
-                        tx_cursor = (txin, vout as usize);
+                        tx_cursor = (txin.clone(), *vout as usize);
                         break;
                     }
                 }
@@ -1096,9 +1106,12 @@ pub fn retrieve_satoshi_point_using_local_storage(
     let height = Height(ordinal_block_number.into());
     let ordinal_number = height.starting_sat().0 + ordinal_offset;
 
-    Ok(TraversalResult {
-        inscription_number,
-        ordinal_number,
-        transfers: hops,
-    })
+    Ok((
+        TraversalResult {
+            inscription_number,
+            ordinal_number,
+            transfers: hops,
+        },
+        local_block_cache,
+    ))
 }
