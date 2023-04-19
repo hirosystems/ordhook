@@ -876,7 +876,7 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
                     };
 
                 let _ = blocks_db_rw.flush();
-                
+
                 if let Err(e) = update_hord_db_and_augment_bitcoin_block(
                     &mut new_block,
                     blocks_db_rw,
@@ -961,7 +961,7 @@ pub fn retrieve_satoshi_point_using_local_storage(
     transaction_identifier: &TransactionIdentifier,
     inscription_number: u64,
     ctx: &Context,
-) -> Result<(TraversalResult, HashMap<u32, CompactedBlock>), String> {
+) -> Result<TraversalResult, String> {
     ctx.try_log(|logger| {
         slog::info!(
             logger,
@@ -983,6 +983,8 @@ pub fn retrieve_satoshi_point_using_local_storage(
     let mut hops: u32 = 0;
     let mut local_block_cache = HashMap::new();
     loop {
+        local_block_cache.clear();
+
         hops += 1;
         let block = match local_block_cache.get(&ordinal_block_number) {
             Some(block) => block,
@@ -1107,12 +1109,9 @@ pub fn retrieve_satoshi_point_using_local_storage(
     let height = Height(ordinal_block_number.into());
     let ordinal_number = height.starting_sat().0 + ordinal_offset;
 
-    Ok((
-        TraversalResult {
-            inscription_number,
-            ordinal_number,
-            transfers: hops,
-        },
-        local_block_cache,
-    ))
+    Ok(TraversalResult {
+        inscription_number,
+        ordinal_number,
+        transfers: hops,
+    })
 }

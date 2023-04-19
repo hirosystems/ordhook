@@ -146,21 +146,32 @@ pub fn update_hord_db_and_augment_bitcoin_block(
         let (traversal_tx, traversal_rx) = channel::<(TransactionIdentifier, _)>();
         let traversal_data_pool = ThreadPool::new(10);
 
+        let mut rng = thread_rng();
+        transactions_ids.shuffle(&mut rng);
+
         for transaction_id in transactions_ids.into_iter() {
             let moved_traversal_tx = traversal_tx.clone();
             let moved_ctx = ctx.clone();
             let block_identifier = new_block.block_identifier.clone();
             let moved_hord_db_path = hord_db_path.clone();
-            traversal_data_pool.execute(move || {
-                if let Ok(blocks_db) = open_readonly_hord_db_conn_rocks_db(&moved_hord_db_path, &moved_ctx) {
-                    let traversal = retrieve_satoshi_point_using_local_storage(
-                        &blocks_db,
-                        &block_identifier,
-                        &transaction_id,
-                        0,
-                        &moved_ctx,
-                    );
-                    let _ = moved_traversal_tx.send((transaction_id, traversal));    
+            traversal_data_pool.execute(move || loop {
+                match open_readonly_hord_db_conn_rocks_db(&moved_hord_db_path, &moved_ctx) {
+                    Ok(blocks_db) => {
+                        let traversal = retrieve_satoshi_point_using_local_storage(
+                            &blocks_db,
+                            &block_identifier,
+                            &transaction_id,
+                            0,
+                            &moved_ctx,
+                        );
+                        let _ = moved_traversal_tx.send((transaction_id, traversal));
+                        break;
+                    }
+                    Err(e) => {
+                        moved_ctx.try_log(|logger| {
+                            slog::error!(logger, "unable to open rocksdb: {e}",);
+                        });
+                    }
                 }
             });
         }
@@ -168,7 +179,7 @@ pub fn update_hord_db_and_augment_bitcoin_block(
         let mut traversals_received = 0;
         while let Ok((transaction_identifier, traversal_result)) = traversal_rx.recv() {
             traversals_received += 1;
-            let (traversal, _) = traversal_result?;
+            let traversal = traversal_result?;
             traversals.insert(transaction_identifier, traversal);
             if traversals_received == expected_traversals {
                 break;

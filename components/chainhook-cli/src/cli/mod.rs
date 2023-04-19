@@ -591,7 +591,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     hash: "".into(),
                 };
                 // let global_block_cache = HashMap::new();
-                let (traversal, _) = retrieve_satoshi_point_using_local_storage(
+                let traversal = retrieve_satoshi_point_using_local_storage(
                     &hord_db_conn,
                     &block_identifier,
                     &transaction_identifier,
@@ -873,7 +873,7 @@ pub async fn perform_hord_db_update(
 
     let blocks_db = open_readwrite_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
     let inscriptions_db_conn_rw = open_readwrite_hord_db_conn(&config.expected_cache_path(), &ctx)?;
-
+    
     let _ = fetch_and_cache_blocks_in_hord_db(
         &bitcoin_config,
         &blocks_db,
