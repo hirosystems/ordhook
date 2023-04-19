@@ -1,7 +1,7 @@
 import { Type } from '@sinclair/typebox';
-import { BlockIdentifier, Nullable, TransactionIdentifier } from '..';
 import { Event } from './events';
 import { Kind } from './kind';
+import { BlockIdentifier, Nullable, TransactionIdentifier } from '../common';
 
 export const Principal = Type.String();
 
@@ -11,43 +11,45 @@ const OperationIdentifier = Type.Object({
 
 const Transaction = Type.Object({
   transaction_identifier: TransactionIdentifier,
-  operations: Type.Array(Type.Object({
-    account: Type.Object({
-      address: Type.String(),
-      sub_account: Type.Optional(Type.String()),
-    }),
-    amount: Type.Optional(
-      Type.Object({
-        currency: Type.Object({
-          decimals: Type.Integer(),
-          symbol: Type.String(),
-          metadata: Type.Object({
-            asset_class_identifier: Type.String(),
-            asset_identifier: Nullable(Type.String()),
-            standard: Type.String(),
-          }),
-        }),
-        value: Type.Integer(),
-      })
-    ),
-    metadata: Type.Optional(
-      Type.Object({
-        public_key: Type.Optional(
-          Type.Object({
-            hex_bypes: Type.Optional(Type.String()),
-            curve_type: Type.String(),
-          })
-        ),
-        code: Type.Optional(Type.String()),
-        method_name: Type.Optional(Type.String()),
-        args: Type.Optional(Type.String()),
+  operations: Type.Array(
+    Type.Object({
+      account: Type.Object({
+        address: Type.String(),
+        sub_account: Type.Optional(Type.String()),
       }),
-    ),
-    operation_identifier: OperationIdentifier,
-    related_operations: Type.Optional(Type.Array(OperationIdentifier)),
-    status: Type.Optional(Type.Literal('SUCCESS')),
-    type: Type.Union([Type.Literal('CREDIT'), Type.Literal('DEBIT'), Type.Literal('LOCK')]),
-  })),
+      amount: Type.Optional(
+        Type.Object({
+          currency: Type.Object({
+            decimals: Type.Integer(),
+            symbol: Type.String(),
+            metadata: Type.Object({
+              asset_class_identifier: Type.String(),
+              asset_identifier: Nullable(Type.String()),
+              standard: Type.String(),
+            }),
+          }),
+          value: Type.Integer(),
+        })
+      ),
+      metadata: Type.Optional(
+        Type.Object({
+          public_key: Type.Optional(
+            Type.Object({
+              hex_bypes: Type.Optional(Type.String()),
+              curve_type: Type.String(),
+            })
+          ),
+          code: Type.Optional(Type.String()),
+          method_name: Type.Optional(Type.String()),
+          args: Type.Optional(Type.String()),
+        })
+      ),
+      operation_identifier: OperationIdentifier,
+      related_operations: Type.Optional(Type.Array(OperationIdentifier)),
+      status: Type.Optional(Type.Literal('SUCCESS')),
+      type: Type.Union([Type.Literal('CREDIT'), Type.Literal('DEBIT'), Type.Literal('LOCK')]),
+    })
+  ),
   metadata: Type.Object({
     description: Type.String(),
     execution_cost: Type.Optional(

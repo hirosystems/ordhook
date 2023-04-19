@@ -1,5 +1,5 @@
 import { Type } from '@sinclair/typebox';
-import { BlockIdentifier, Nullable } from '..';
+import { Nullable, BlockIdentifier } from '../common';
 
 const InscriptionRevealed = Type.Object({
   content_bytes: Type.String(),

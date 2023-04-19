@@ -16,7 +16,7 @@ const NftTransferEvent = Type.Object({
     raw_value: Type.String(),
     asset_identifier: Type.String(),
     recipient: Principal,
-    sender: Principal
+    sender: Principal,
   }),
 });
 
@@ -35,7 +35,7 @@ const FtTransferEvent = Type.Object({
     amount: Type.String(),
     asset_identifier: Type.String(),
     recipient: Principal,
-    sender: Principal
+    sender: Principal,
   }),
 });
 
@@ -62,7 +62,7 @@ const SmartContractEvent = Type.Object({
   data: Type.Object({
     contract_identifier: Principal,
     raw_value: Type.String(),
-    topic: Type.String()
+    topic: Type.String(),
   }),
 });
 
@@ -72,7 +72,7 @@ const StxTransferEvent = Type.Object({
     amount: Type.String(),
     sender: Principal,
     recipient: Principal,
-  })
+  }),
 });
 
 const StxMintEvent = Type.Object({
@@ -80,7 +80,7 @@ const StxMintEvent = Type.Object({
   data: Type.Object({
     amount: Type.String(),
     recipient: Principal,
-  })
+  }),
 });
 
 const StxLockEvent = Type.Object({
@@ -89,7 +89,7 @@ const StxLockEvent = Type.Object({
     locked_amount: Type.String(),
     unlock_height: Type.String(),
     locked_address: Type.String(),
-  })
+  }),
 });
 
 const StxBurnEvent = Type.Object({
@@ -97,7 +97,7 @@ const StxBurnEvent = Type.Object({
   data: Type.Object({
     amount: Type.String(),
     sender: Principal,
-  })
+  }),
 });
 
 const DataVarSetEvent = Type.Object({

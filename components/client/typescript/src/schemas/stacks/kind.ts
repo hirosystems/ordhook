@@ -1,5 +1,5 @@
 import { Type } from '@sinclair/typebox';
-import { Principal } from ".";
+import { Principal } from '.';
 
 const ContractCall = Type.Object({
   type: Type.Literal('ContractCall'),
@@ -19,11 +19,11 @@ const ContractDeployment = Type.Object({
 });
 
 const Coinbase = Type.Object({
-  type: Type.Literal('Coinbase')
+  type: Type.Literal('Coinbase'),
 });
 
 const NativeTokenTransfer = Type.Object({
-  type: Type.Literal('NativeTokenTransfer')
+  type: Type.Literal('NativeTokenTransfer'),
 });
 
 const BitcoinOpStackStx = Type.Object({
@@ -47,7 +47,7 @@ const BitcoinOpDelegateStackStx = Type.Object({
 });
 
 const Unsupported = Type.Object({
-  type: Type.Literal('Unsupported')
+  type: Type.Literal('Unsupported'),
 });
 
 export const Kind = Type.Union([
@@ -57,5 +57,5 @@ export const Kind = Type.Union([
   NativeTokenTransfer,
   BitcoinOpStackStx,
   BitcoinOpDelegateStackStx,
-  Unsupported
+  Unsupported,
 ]);

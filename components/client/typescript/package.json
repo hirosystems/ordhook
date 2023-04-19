@@ -3,8 +3,9 @@
   "version": "1.0.0",
   "description": "TS client for Chainhook",
   "main": "./dist/index.js",
+  "typings": "./dist/index.d.ts",
   "scripts": {
-    "build": "tsc --project tsconfig.build.json",
+    "build": "rimraf ./dist && tsc --project tsconfig.build.json",
     "test": "jest"
   },
   "repository": {
