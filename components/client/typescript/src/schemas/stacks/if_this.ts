@@ -1,4 +1,5 @@
-import { Type } from '@sinclair/typebox';
+import { Static, Type } from '@sinclair/typebox';
+import { ThenThatSchema } from '../predicate';
 
 export const StacksIfThisTxIdSchema = Type.Object({
   scope: Type.Literal('txid'),
@@ -49,3 +50,31 @@ export const StacksIfThisContractDeploymentTraitSchema = Type.Object({
   scope: Type.Literal('contract_deployment'),
   implement_trait: Type.String(),
 });
+
+export const StacksIfThisOptionsSchema = Type.Object({
+  start_block: Type.Optional(Type.Integer()),
+  end_block: Type.Optional(Type.Integer()),
+  expire_after_occurrence: Type.Optional(Type.Integer()),
+  decode_clarity_values: Type.Optional(Type.Boolean()),
+});
+
+export const StacksIfThisSchema = Type.Union([
+  StacksIfThisTxIdSchema,
+  StacksIfThisBlockHeightHigherThanSchema,
+  StacksIfThisFtEventSchema,
+  StacksIfThisNftEventSchema,
+  StacksIfThisStxEventSchema,
+  StacksIfThisPrintEventSchema,
+  StacksIfThisContractCallSchema,
+  StacksIfThisContractDeploymentSchema,
+  StacksIfThisContractDeploymentTraitSchema,
+]);
+export type StacksIfThis = Static<typeof StacksIfThisSchema>;
+
+export const StacksIfThisThenThatSchema = Type.Composite([
+  StacksIfThisOptionsSchema,
+  Type.Object({
+    if_this: StacksIfThisSchema,
+    then_that: ThenThatSchema,
+  }),
+]);

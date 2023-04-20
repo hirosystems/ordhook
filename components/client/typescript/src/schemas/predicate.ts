@@ -1,97 +1,44 @@
 import { Static, Type } from '@sinclair/typebox';
-import {
-  BitcoinIfThisTxIdSchema,
-  BitcoinIfThisOpReturnStartsWithSchema,
-  BitcoinIfThisOpReturnEqualsSchema,
-  BitcoinIfThisOpReturnEndsWithSchema,
-  BitcoinIfThisP2PKHSchema,
-  BitcoinIfThisP2SHSchema,
-  BitcoinIfThisP2WPKHSchema,
-  BitcoinIfThisP2WSHSchema,
-  BitcoinIfThisStacksBlockCommittedSchema,
-  BitcoinIfThisStacksLeaderKeyRegisteredSchema,
-  BitcoinIfThisStacksStxTransferredSchema,
-  BitcoinIfThisStacksStxLockedSchema,
-  BitcoinIfThisOrdinalsFeedSchema,
-} from './bitcoin/predicate';
-import {
-  StacksIfThisTxIdSchema,
-  StacksIfThisBlockHeightHigherThanSchema,
-  StacksIfThisFtEventSchema,
-  StacksIfThisNftEventSchema,
-  StacksIfThisStxEventSchema,
-  StacksIfThisPrintEventSchema,
-  StacksIfThisContractCallSchema,
-  StacksIfThisContractDeploymentSchema,
-  StacksIfThisContractDeploymentTraitSchema,
-} from './stacks/predicate';
+import { BitcoinIfThisThenThatSchema } from './bitcoin/if_this';
+import { StacksIfThisThenThatSchema } from './stacks/if_this';
 
-export const IfThisSchema = Type.Union([
-  BitcoinIfThisTxIdSchema,
-  BitcoinIfThisOpReturnStartsWithSchema,
-  BitcoinIfThisOpReturnEqualsSchema,
-  BitcoinIfThisOpReturnEndsWithSchema,
-  BitcoinIfThisP2PKHSchema,
-  BitcoinIfThisP2SHSchema,
-  BitcoinIfThisP2WPKHSchema,
-  BitcoinIfThisP2WSHSchema,
-  BitcoinIfThisStacksBlockCommittedSchema,
-  BitcoinIfThisStacksLeaderKeyRegisteredSchema,
-  BitcoinIfThisStacksStxTransferredSchema,
-  BitcoinIfThisStacksStxLockedSchema,
-  BitcoinIfThisOrdinalsFeedSchema,
-  StacksIfThisTxIdSchema,
-  StacksIfThisBlockHeightHigherThanSchema,
-  StacksIfThisFtEventSchema,
-  StacksIfThisNftEventSchema,
-  StacksIfThisStxEventSchema,
-  StacksIfThisPrintEventSchema,
-  StacksIfThisContractCallSchema,
-  StacksIfThisContractDeploymentSchema,
-  StacksIfThisContractDeploymentTraitSchema,
-]);
-export type IfThis = Static<typeof IfThisSchema>;
+export const ThenThatFileAppendSchema = Type.Object({
+  file_append: Type.Object({
+    path: Type.String(),
+  }),
+});
+export type ThenThatFileAppend = Static<typeof ThenThatFileAppendSchema>;
 
-export const ThenThatSchema = Type.Union([
-  Type.Object({
-    file_append: Type.Object({
-      path: Type.String(),
-    }),
+export const ThenThatHttpPostSchema = Type.Object({
+  http_post: Type.Object({
+    url: Type.String({ format: 'uri' }),
+    authorization_header: Type.String(),
   }),
-  Type.Object({
-    http_post: Type.Object({
-      url: Type.String({ format: 'uri' }),
-      authorization_header: Type.String(),
-    }),
-  }),
-]);
+});
+export type ThenThatHttpPost = Static<typeof ThenThatHttpPostSchema>;
+
+export const ThenThatSchema = Type.Union([ThenThatFileAppendSchema, ThenThatHttpPostSchema]);
 export type ThenThat = Static<typeof ThenThatSchema>;
 
-export const IfThisThenThatSchema = Type.Object({
-  start_block: Type.Optional(Type.Integer()),
-  end_block: Type.Optional(Type.Integer()),
-  expire_after_occurrence: Type.Optional(Type.Integer()),
-  include_proof: Type.Optional(Type.Boolean()),
-  include_inputs: Type.Optional(Type.Boolean()),
-  include_outputs: Type.Optional(Type.Boolean()),
-  include_witness: Type.Optional(Type.Boolean()),
-  if_this: IfThisSchema,
-  then_that: ThenThatSchema,
-});
-export type IfThisThenThat = Static<typeof IfThisThenThatSchema>;
-
-export const PredicateSchema = Type.Object({
+export const PredicateHeaderSchema = Type.Object({
   uuid: Type.String({ format: 'uuid' }),
   name: Type.String(),
   version: Type.Integer(),
   chain: Type.String(),
-  networks: Type.Union([
-    Type.Object({
-      mainnet: IfThisThenThatSchema,
-    }),
-    Type.Object({
-      testnet: IfThisThenThatSchema,
-    }),
-  ]),
 });
+export type PredicateHeader = Static<typeof PredicateHeaderSchema>;
+
+export const PredicateSchema = Type.Composite([
+  PredicateHeaderSchema,
+  Type.Object({
+    networks: Type.Union([
+      Type.Object({
+        mainnet: Type.Union([BitcoinIfThisThenThatSchema, StacksIfThisThenThatSchema]),
+      }),
+      Type.Object({
+        testnet: Type.Union([BitcoinIfThisThenThatSchema, StacksIfThisThenThatSchema]),
+      }),
+    ]),
+  }),
+]);
 export type Predicate = Static<typeof PredicateSchema>;

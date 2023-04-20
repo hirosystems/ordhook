@@ -1,4 +1,5 @@
-import { Type } from '@sinclair/typebox';
+import { Static, Type } from '@sinclair/typebox';
+import { ThenThatSchema } from '../predicate';
 
 export const BitcoinIfThisTxIdSchema = Type.Object({
   scope: Type.Literal('txid'),
@@ -70,3 +71,38 @@ export const BitcoinIfThisOrdinalsFeedSchema = Type.Object({
   scope: Type.Literal('ordinals_protocol'),
   operation: Type.Literal('inscription_feed'),
 });
+
+export const BitcoinIfThisOptionsSchema = Type.Object({
+  start_block: Type.Optional(Type.Integer()),
+  end_block: Type.Optional(Type.Integer()),
+  expire_after_occurrence: Type.Optional(Type.Integer()),
+  include_proof: Type.Optional(Type.Boolean()),
+  include_inputs: Type.Optional(Type.Boolean()),
+  include_outputs: Type.Optional(Type.Boolean()),
+  include_witness: Type.Optional(Type.Boolean()),
+});
+
+export const BitcoinIfThisSchema = Type.Union([
+  BitcoinIfThisTxIdSchema,
+  BitcoinIfThisOpReturnStartsWithSchema,
+  BitcoinIfThisOpReturnEqualsSchema,
+  BitcoinIfThisOpReturnEndsWithSchema,
+  BitcoinIfThisP2PKHSchema,
+  BitcoinIfThisP2SHSchema,
+  BitcoinIfThisP2WPKHSchema,
+  BitcoinIfThisP2WSHSchema,
+  BitcoinIfThisStacksBlockCommittedSchema,
+  BitcoinIfThisStacksLeaderKeyRegisteredSchema,
+  BitcoinIfThisStacksStxTransferredSchema,
+  BitcoinIfThisStacksStxLockedSchema,
+  BitcoinIfThisOrdinalsFeedSchema,
+]);
+export type BitcoinIfThis = Static<typeof BitcoinIfThisSchema>;
+
+export const BitcoinIfThisThenThatSchema = Type.Composite([
+  BitcoinIfThisOptionsSchema,
+  Type.Object({
+    if_this: BitcoinIfThisSchema,
+    then_that: ThenThatSchema,
+  }),
+]);
