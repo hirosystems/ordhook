@@ -259,7 +259,15 @@ impl Service {
                     }
                     match chainhook {
                         ChainhookSpecification::Stacks(predicate_spec) => {
-                            let _ = stacks_scan_op_tx.send((predicate_spec, api_key));
+                            // let _ = stacks_scan_op_tx.send((predicate_spec, api_key));
+                            info!(
+                                self.ctx.expect_logger(),
+                                "Enabling stacks predicate {}", predicate_spec.uuid
+                            );
+                            let _ = observer_command_tx.send(ObserverCommand::EnablePredicate(
+                                ChainhookSpecification::Stacks(predicate_spec),
+                                api_key,
+                            ));
                         }
                         ChainhookSpecification::Bitcoin(predicate_spec) => {
                             let _ = bitcoin_scan_op_tx.send((predicate_spec, api_key));
