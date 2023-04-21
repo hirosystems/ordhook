@@ -214,7 +214,7 @@ enum DbCommand {
 #[derive(Subcommand, PartialEq, Clone, Debug)]
 enum FindCommand {
     /// Init hord db
-    #[clap(name = "sat_point", bin_name = "sat_point")]
+    #[clap(name = "satoshi", bin_name = "satoshi")]
     SatPoint(FindSatPointCommand),
     /// Update hord db
     #[clap(name = "inscription", bin_name = "inscription")]
@@ -873,7 +873,7 @@ pub async fn perform_hord_db_update(
 
     let blocks_db = open_readwrite_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
     let inscriptions_db_conn_rw = open_readwrite_hord_db_conn(&config.expected_cache_path(), &ctx)?;
-    
+
     let _ = fetch_and_cache_blocks_in_hord_db(
         &bitcoin_config,
         &blocks_db,
