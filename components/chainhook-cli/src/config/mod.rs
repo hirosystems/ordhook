@@ -13,9 +13,9 @@ use std::path::PathBuf;
 use crate::service::{DEFAULT_CONTROL_PORT, DEFAULT_INGESTION_PORT};
 
 const DEFAULT_MAINNET_TSV_ARCHIVE: &str =
-    "https://archive.hiro.so/mainnet/stacks-blockchain-api/mainnet-stacks-blockchain-api-latest.gz";
+    "https://archive.hiro.so/mainnet/stacks-blockchain-api/mainnet-stacks-blockchain-api-latest";
 const DEFAULT_TESTNET_TSV_ARCHIVE: &str =
-    "https://archive.hiro.so/testnet/stacks-blockchain-api/testnet-stacks-blockchain-api-latest.gz";
+    "https://archive.hiro.so/testnet/stacks-blockchain-api/testnet-stacks-blockchain-api-latest";
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -216,13 +216,21 @@ impl Config {
         destination_path
     }
 
-    pub fn expected_remote_tsv_url(&self) -> &String {
+    fn expected_remote_tsv_base_url(&self) -> &String {
         for source in self.event_sources.iter() {
             if let EventSourceConfig::TsvUrl(config) = source {
                 return &config.file_url;
             }
         }
         panic!("expected remote-tsv source")
+    }
+
+    pub fn expected_remote_tsv_sha256(&self) -> String {
+        format!("{}.sha256", self.expected_remote_tsv_base_url())
+    }
+
+    pub fn expected_remote_tsv_url(&self) -> String {
+        format!("{}.gz", self.expected_remote_tsv_base_url())
     }
 
     pub fn rely_on_remote_tsv(&self) -> bool {

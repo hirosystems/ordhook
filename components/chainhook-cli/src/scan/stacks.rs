@@ -21,6 +21,7 @@ use chainhook_event_observer::{
     utils::{file_append, send_request, AbstractStacksBlock},
 };
 use chainhook_types::BlockIdentifier;
+use clarinet_files::FileLocation;
 
 pub async fn scan_stacks_chainstate_via_csv_using_predicate(
     predicate_spec: &StacksChainhookSpecification,
@@ -201,12 +202,40 @@ async fn download_dataset_if_required(config: &mut Config, ctx: &Context) -> boo
         // Download default tsv.
         if config.rely_on_remote_tsv() && config.should_download_remote_tsv() {
             let url = config.expected_remote_tsv_url();
-            let mut destination_path = config.expected_cache_path();
-            destination_path.push(archive::default_tsv_file_path(
+            let mut tsv_file_path = config.expected_cache_path();
+            tsv_file_path.push(archive::default_tsv_file_path(
                 &config.network.stacks_network,
             ));
+            let mut tsv_sha_file_path = config.expected_cache_path();
+            tsv_sha_file_path.push(archive::default_tsv_sha_file_path(
+                &config.network.stacks_network,
+            ));
+
             // Download archive if not already present in cache
-            if !destination_path.exists() {
+            // Load the local
+            let local_sha_file = FileLocation::from_path(tsv_sha_file_path).read_content();
+            let sha_url = config.expected_remote_tsv_sha256();
+
+            let remote_sha_file = match reqwest::get(&sha_url).await {
+                Ok(response) => response.bytes().await,
+                Err(e) => Err(e),
+            };
+            match (local_sha_file, remote_sha_file) {
+                (Ok(local), Ok(remote_response)) => {
+                    println!("{:?}", local);
+                    println!("{:?}", remote_response);
+                }
+                (Ok(local), _) => {
+                    // println!("Local: {:?}", local)
+                    println!("Here 2");
+                }
+                (_, _) => {
+                    // We will download the latest file
+                    println!("error reading local / remote");
+                }
+            }
+
+            if !tsv_file_path.exists() {
                 info!(ctx.expect_logger(), "Downloading {}", url);
                 match archive::download_tsv_file(&config).await {
                     Ok(_) => {}
@@ -219,10 +248,10 @@ async fn download_dataset_if_required(config: &mut Config, ctx: &Context) -> boo
                 info!(
                     ctx.expect_logger(),
                     "Building in-memory chainstate from file {}",
-                    destination_path.display()
+                    tsv_file_path.display()
                 );
             }
-            config.add_local_tsv_source(&destination_path);
+            config.add_local_tsv_source(&tsv_file_path);
         }
         true
     } else {
