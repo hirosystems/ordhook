@@ -938,22 +938,6 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
                             new_block.block_identifier.index
                         )
                     });
-
-                    delete_data_in_hord_db(
-                        767430,
-                        800000,
-                        &blocks_db_rw,
-                        &inscriptions_db_conn_rw,
-                        &ctx,
-                    )?;
-
-                    ctx.try_log(|logger| {
-                        slog::error!(
-                            logger,
-                            "Cleaning hord_db: blocks dropped",
-                            )
-                    });
-
                     return Err(e);
                 }
                 cursor += 1;
