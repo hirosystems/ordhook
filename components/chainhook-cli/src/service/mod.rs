@@ -5,7 +5,9 @@ use crate::scan::stacks::scan_stacks_chainstate_via_csv_using_predicate;
 use chainhook_event_observer::chainhooks::types::{ChainhookConfig, ChainhookFullSpecification};
 
 use chainhook_event_observer::chainhooks::types::ChainhookSpecification;
-use chainhook_event_observer::observer::{start_event_observer, ApiKey, ObserverEvent};
+use chainhook_event_observer::observer::{
+    start_event_observer, ApiKey, ObserverCommand, ObserverEvent,
+};
 use chainhook_event_observer::utils::Context;
 use chainhook_types::{BitcoinBlockSignaling, StacksBlockData, StacksChainEvent};
 use redis::{Commands, Connection};
@@ -35,7 +37,7 @@ impl Service {
             let registered_predicates = load_predicates_from_redis(&self.config, &self.ctx)?;
             for predicate in registered_predicates.into_iter() {
                 let predicate_uuid = predicate.uuid().to_string();
-                match chainhook_config.register_specification(predicate) {
+                match chainhook_config.register_specification(predicate, true) {
                     Ok(_) => {
                         info!(
                             self.ctx.expect_logger(),
@@ -115,10 +117,11 @@ impl Service {
 
         let context_cloned = self.ctx.clone();
         let event_observer_config_moved = event_observer_config.clone();
+        let observer_command_tx_moved = observer_command_tx.clone();
         let _ = std::thread::spawn(move || {
             let future = start_event_observer(
                 event_observer_config_moved,
-                observer_command_tx,
+                observer_command_tx_moved,
                 observer_command_rx,
                 Some(observer_event_tx),
                 context_cloned,
@@ -131,14 +134,16 @@ impl Service {
         let stacks_scan_pool = ThreadPool::new(STACKS_SCAN_THREAD_POOL_SIZE);
         let ctx = self.ctx.clone();
         let config = self.config.clone();
+        let observer_command_tx_moved = observer_command_tx.clone();
         let _ = hiro_system_kit::thread_named("Stacks scan runloop")
             .spawn(move || {
-                while let Ok(predicate_spec) = stacks_scan_op_rx.recv() {
+                while let Ok((predicate_spec, api_key)) = stacks_scan_op_rx.recv() {
                     let moved_ctx = ctx.clone();
                     let mut moved_config = config.clone();
+                    let observer_command_tx = observer_command_tx_moved.clone();
                     stacks_scan_pool.execute(move || {
                         let op = scan_stacks_chainstate_via_csv_using_predicate(
-                            predicate_spec,
+                            &predicate_spec,
                             &mut moved_config,
                             &moved_ctx,
                         );
@@ -156,6 +161,10 @@ impl Service {
                             moved_ctx.expect_logger(),
                             "Stacks chainstate scan completed up to block: {}", end_block.index
                         );
+                        let _ = observer_command_tx.send(ObserverCommand::EnablePredicate(
+                            ChainhookSpecification::Stacks(predicate_spec),
+                            api_key,
+                        ));
                     });
                 }
                 let res = stacks_scan_pool.join();
@@ -168,14 +177,16 @@ impl Service {
         let bitcoin_scan_pool = ThreadPool::new(BITCOIN_SCAN_THREAD_POOL_SIZE);
         let ctx = self.ctx.clone();
         let config = self.config.clone();
+        let moved_observer_command_tx = observer_command_tx.clone();
         let _ = hiro_system_kit::thread_named("Bitcoin scan runloop")
             .spawn(move || {
-                while let Ok(predicate_spec) = bitcoin_scan_op_rx.recv() {
+                while let Ok((predicate_spec, api_key)) = bitcoin_scan_op_rx.recv() {
                     let moved_ctx = ctx.clone();
                     let moved_config = config.clone();
+                    let observer_command_tx = moved_observer_command_tx.clone();
                     bitcoin_scan_pool.execute(move || {
                         let op = scan_bitcoin_chainstate_via_http_using_predicate(
-                            predicate_spec,
+                            &predicate_spec,
                             &moved_config,
                             &moved_ctx,
                         );
@@ -187,8 +198,13 @@ impl Service {
                                     moved_ctx.expect_logger(),
                                     "Unable to evaluate predicate on Bitcoin chainstate: {e}",
                                 );
+                                return;
                             }
                         };
+                        let _ = observer_command_tx.send(ObserverCommand::EnablePredicate(
+                            ChainhookSpecification::Bitcoin(predicate_spec),
+                            api_key,
+                        ));
                     });
                 }
                 let res = bitcoin_scan_pool.join();
@@ -219,7 +235,7 @@ impl Service {
                 }
             };
             match event {
-                ObserverEvent::HookRegistered(chainhook) => {
+                ObserverEvent::HookRegistered(chainhook, api_key) => {
                     // If start block specified, use it.
                     // I no start block specified, depending on the nature the hook, we'd like to retrieve:
                     // - contract-id
@@ -243,10 +259,18 @@ impl Service {
                     }
                     match chainhook {
                         ChainhookSpecification::Stacks(predicate_spec) => {
-                            let _ = stacks_scan_op_tx.send(predicate_spec);
+                            // let _ = stacks_scan_op_tx.send((predicate_spec, api_key));
+                            info!(
+                                self.ctx.expect_logger(),
+                                "Enabling stacks predicate {}", predicate_spec.uuid
+                            );
+                            let _ = observer_command_tx.send(ObserverCommand::EnablePredicate(
+                                ChainhookSpecification::Stacks(predicate_spec),
+                                api_key,
+                            ));
                         }
                         ChainhookSpecification::Bitcoin(predicate_spec) => {
-                            let _ = bitcoin_scan_op_tx.send(predicate_spec);
+                            let _ = bitcoin_scan_op_tx.send((predicate_spec, api_key));
                         }
                     }
                 }
@@ -278,6 +302,7 @@ impl Service {
                     };
                 }
                 ObserverEvent::Terminate => {
+                    info!(self.ctx.expect_logger(), "Terminating runloop");
                     break;
                 }
                 _ => {}
@@ -372,9 +397,9 @@ fn load_predicates_from_redis(
                         key,
                         e.to_string()
                     );
-                    continue;    
+                    continue;
                 }
-            }
+            },
             Err(e) => {
                 error!(
                     ctx.expect_logger(),

@@ -214,7 +214,7 @@ enum DbCommand {
 #[derive(Subcommand, PartialEq, Clone, Debug)]
 enum FindCommand {
     /// Init hord db
-    #[clap(name = "sat_point", bin_name = "sat_point")]
+    #[clap(name = "satoshi", bin_name = "satoshi")]
     SatPoint(FindSatPointCommand),
     /// Update hord db
     #[clap(name = "inscription", bin_name = "inscription")]
@@ -417,7 +417,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     (true, false) => {
                         let mut networks = BTreeMap::new();
 
-                        networks.insert(StacksNetwork::Simnet, StacksChainhookNetworkSpecification {
+                        networks.insert(StacksNetwork::Testnet, StacksChainhookNetworkSpecification {
                             start_block: Some(0),
                             end_block: Some(100),
                             predicate: StacksPredicate::PrintEvent(StacksPrintEventBasedPredicate {
@@ -540,7 +540,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                         };
 
                         scan_bitcoin_chainstate_via_http_using_predicate(
-                            predicate_spec,
+                            &predicate_spec,
                             &config,
                             &ctx,
                         )
@@ -560,7 +560,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                         };
 
                         scan_stacks_chainstate_via_csv_using_predicate(
-                            predicate_spec,
+                            &predicate_spec,
                             &mut config,
                             &ctx,
                         )
@@ -590,7 +590,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     index: cmd.block_height,
                     hash: "".into(),
                 };
-
+                // let global_block_cache = HashMap::new();
                 let traversal = retrieve_satoshi_point_using_local_storage(
                     &hord_db_conn,
                     &block_identifier,

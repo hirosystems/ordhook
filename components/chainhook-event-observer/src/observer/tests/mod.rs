@@ -126,7 +126,7 @@ fn generate_and_register_new_stacks_chainhook(
 ) -> StacksChainhookSpecification {
     let contract_identifier = format!("{}.{}", accounts::deployer_stx_address(), contract_name);
     let chainhook = stacks_chainhook_contract_call(id, &contract_identifier, None, method);
-    let _ = observer_commands_tx.send(ObserverCommand::RegisterHook(
+    let _ = observer_commands_tx.send(ObserverCommand::RegisterPredicate(
         ChainhookFullSpecification::Stacks(chainhook.clone()),
         ApiKey(None),
     ));
@@ -134,7 +134,7 @@ fn generate_and_register_new_stacks_chainhook(
         .into_selected_network_specification(&StacksNetwork::Devnet)
         .unwrap();
     assert!(match observer_events_rx.recv() {
-        Ok(ObserverEvent::HookRegistered(registered_chainhook)) => {
+        Ok(ObserverEvent::HookRegistered(registered_chainhook, ApiKey(None))) => {
             assert_eq!(
                 ChainhookSpecification::Stacks(chainhook.clone()),
                 registered_chainhook
@@ -143,6 +143,10 @@ fn generate_and_register_new_stacks_chainhook(
         }
         _ => false,
     });
+    let _ = observer_commands_tx.send(ObserverCommand::EnablePredicate(
+        ChainhookSpecification::Stacks(chainhook.clone()),
+        ApiKey(None),
+    ));
     chainhook
 }
 
@@ -154,7 +158,7 @@ fn generate_and_register_new_bitcoin_chainhook(
     expire_after_occurrence: Option<u64>,
 ) -> BitcoinChainhookSpecification {
     let chainhook = bitcoin_chainhook_p2pkh(id, &p2pkh_address, expire_after_occurrence);
-    let _ = observer_commands_tx.send(ObserverCommand::RegisterHook(
+    let _ = observer_commands_tx.send(ObserverCommand::RegisterPredicate(
         ChainhookFullSpecification::Bitcoin(chainhook.clone()),
         ApiKey(None),
     ));
@@ -162,7 +166,7 @@ fn generate_and_register_new_bitcoin_chainhook(
         .into_selected_network_specification(&BitcoinNetwork::Regtest)
         .unwrap();
     assert!(match observer_events_rx.recv() {
-        Ok(ObserverEvent::HookRegistered(registered_chainhook)) => {
+        Ok(ObserverEvent::HookRegistered(registered_chainhook, ApiKey(None))) => {
             assert_eq!(
                 ChainhookSpecification::Bitcoin(chainhook.clone()),
                 registered_chainhook
@@ -171,6 +175,10 @@ fn generate_and_register_new_bitcoin_chainhook(
         }
         _ => false,
     });
+    let _ = observer_commands_tx.send(ObserverCommand::EnablePredicate(
+        ChainhookSpecification::Bitcoin(chainhook.clone()),
+        ApiKey(None),
+    ));
     chainhook
 }
 
@@ -331,7 +339,7 @@ fn test_stacks_chainhook_register_deregister() {
     });
 
     // Deregister the hook
-    let _ = observer_commands_tx.send(ObserverCommand::DeregisterStacksHook(
+    let _ = observer_commands_tx.send(ObserverCommand::DeregisterStacksPredicate(
         chainhook.uuid.clone(),
         ApiKey(None),
     ));
@@ -434,7 +442,7 @@ fn test_stacks_chainhook_auto_deregister() {
     let contract_identifier = format!("{}.{}", accounts::deployer_stx_address(), "counter");
     let chainhook = stacks_chainhook_contract_call(0, &contract_identifier, Some(1), "increment");
 
-    let _ = observer_commands_tx.send(ObserverCommand::RegisterHook(
+    let _ = observer_commands_tx.send(ObserverCommand::RegisterPredicate(
         ChainhookFullSpecification::Stacks(chainhook.clone()),
         ApiKey(None),
     ));
@@ -442,7 +450,7 @@ fn test_stacks_chainhook_auto_deregister() {
         .into_selected_network_specification(&StacksNetwork::Devnet)
         .unwrap();
     assert!(match observer_events_rx.recv() {
-        Ok(ObserverEvent::HookRegistered(registered_chainhook)) => {
+        Ok(ObserverEvent::HookRegistered(registered_chainhook, ApiKey(None))) => {
             assert_eq!(
                 ChainhookSpecification::Stacks(chainhook.clone()),
                 registered_chainhook
@@ -735,7 +743,7 @@ fn test_bitcoin_chainhook_register_deregister() {
     });
 
     // Deregister the hook
-    let _ = observer_commands_tx.send(ObserverCommand::DeregisterBitcoinHook(
+    let _ = observer_commands_tx.send(ObserverCommand::DeregisterBitcoinPredicate(
         chainhook.uuid.clone(),
         ApiKey(None),
     ));

@@ -176,9 +176,10 @@ pub enum ObserverCommand {
     PropagateBitcoinChainEvent(BlockchainEvent),
     PropagateStacksChainEvent(StacksChainEvent),
     PropagateStacksMempoolEvent(StacksChainMempoolEvent),
-    RegisterHook(ChainhookFullSpecification, ApiKey),
-    DeregisterBitcoinHook(String, ApiKey),
-    DeregisterStacksHook(String, ApiKey),
+    RegisterPredicate(ChainhookFullSpecification, ApiKey),
+    EnablePredicate(ChainhookSpecification, ApiKey),
+    DeregisterBitcoinPredicate(String, ApiKey),
+    DeregisterStacksPredicate(String, ApiKey),
     NotifyBitcoinTransactionProxied,
     Terminate,
 }
@@ -203,7 +204,7 @@ pub enum ObserverEvent {
     BitcoinChainEvent(BitcoinChainEvent),
     StacksChainEvent(StacksChainEvent),
     NotifyBitcoinTransactionProxied,
-    HookRegistered(ChainhookSpecification),
+    HookRegistered(ChainhookSpecification, ApiKey),
     HookDeregistered(ChainhookSpecification),
     BitcoinChainhookTriggered(BitcoinChainhookOccurrencePayload),
     StacksChainhookTriggered(StacksChainhookOccurrencePayload),
@@ -698,7 +699,8 @@ pub async fn start_observer_commands_handler(
                                         ctx.try_log(|logger| {
                                             slog::error!(
                                                 logger,
-                                                "Unable to augment bitcoin block with hord_db: {e}",
+                                                "Unable to insert bitcoin block {} in hord_db: {e}",
+                                                block.block_identifier.index
                                             )
                                         });
                                     }
@@ -831,7 +833,7 @@ pub async fn start_observer_commands_handler(
                                         ctx.try_log(|logger| {
                                             slog::error!(
                                                 logger,
-                                                "Unable to augment bitcoin block with hord_db: {e}",
+                                                "Unable to apply bitcoin block {} with hord_db: {e}", block.block_identifier.index
                                             )
                                         });
                                     }
@@ -895,6 +897,7 @@ pub async fn start_observer_commands_handler(
                                 .values()
                                 .map(|v| &v.bitcoin_chainhooks)
                                 .flatten()
+                                .filter(|p| p.enabled)
                                 .collect::<Vec<_>>();
                             ctx.try_log(|logger| {
                                 slog::info!(
@@ -1023,15 +1026,7 @@ pub async fn start_observer_commands_handler(
                 }
 
                 for request in requests.into_iter() {
-                    // todo(lgalabru): collect responses for reporting
-                    ctx.try_log(|logger| {
-                        slog::info!(
-                            logger,
-                            "Dispatching request from bitcoin chainhook {:?}",
-                            request
-                        )
-                    });
-                    let _ = send_request(request, &ctx).await;
+                    let _ = send_request(request, 3, 1, &ctx).await;
                 }
 
                 if let Some(ref tx) = observer_events_tx {
@@ -1061,6 +1056,7 @@ pub async fn start_observer_commands_handler(
                                 .values()
                                 .map(|v| &v.stacks_chainhooks)
                                 .flatten()
+                                .filter(|p| p.enabled)
                                 .collect();
 
                             // process hooks
@@ -1163,7 +1159,7 @@ pub async fn start_observer_commands_handler(
                             request
                         )
                     });
-                    let _ = send_request(request, &ctx).await;
+                    let _ = send_request(request, 3, 1, &ctx).await;
                 }
 
                 if let Some(ref tx) = observer_events_tx {
@@ -1189,13 +1185,13 @@ pub async fn start_observer_commands_handler(
                     let _ = tx.send(ObserverEvent::NotifyBitcoinTransactionProxied);
                 }
             }
-            ObserverCommand::RegisterHook(hook, api_key) => match chainhook_store.write() {
+            ObserverCommand::RegisterPredicate(hook, api_key) => match chainhook_store.write() {
                 Err(e) => {
                     ctx.try_log(|logger| slog::error!(logger, "unable to obtain lock {:?}", e));
                     continue;
                 }
                 Ok(mut chainhook_store_writer) => {
-                    ctx.try_log(|logger| slog::info!(logger, "Handling RegisterHook command"));
+                    ctx.try_log(|logger| slog::info!(logger, "Handling RegisterPredicate command"));
                     let hook_formation = match chainhook_store_writer.entries.get_mut(&api_key) {
                         Some(hook_formation) => hook_formation,
                         None => {
@@ -1235,45 +1231,71 @@ pub async fn start_observer_commands_handler(
                         )
                     });
                     if let Some(ref tx) = observer_events_tx {
-                        let _ = tx.send(ObserverEvent::HookRegistered(spec));
+                        let _ = tx.send(ObserverEvent::HookRegistered(spec, api_key));
+                    } else {
+                        hook_formation.enable_specification(&spec);
                     }
                 }
             },
-            ObserverCommand::DeregisterStacksHook(hook_uuid, api_key) => {
-                match chainhook_store.write() {
-                    Err(e) => {
-                        ctx.try_log(|logger| slog::error!(logger, "unable to obtain lock {:?}", e));
-                        continue;
-                    }
-                    Ok(mut chainhook_store_writer) => {
-                        ctx.try_log(|logger| {
-                            slog::info!(logger, "Handling DeregisterStacksHook command")
-                        });
-                        let hook_formation = match chainhook_store_writer.entries.get_mut(&api_key)
-                        {
-                            Some(hook_formation) => hook_formation,
-                            None => {
-                                ctx.try_log(|logger| {
-                                    slog::error!(
-                                        logger,
-                                        "Unable to retrieve chainhooks associated with {:?}",
-                                        api_key
-                                    )
-                                });
-                                continue;
-                            }
-                        };
-                        chainhooks_lookup.remove(&hook_uuid);
-                        let hook = hook_formation.deregister_stacks_hook(hook_uuid);
-                        if let (Some(tx), Some(hook)) = (&observer_events_tx, hook) {
-                            let _ = tx.send(ObserverEvent::HookDeregistered(
-                                ChainhookSpecification::Stacks(hook),
-                            ));
+            ObserverCommand::EnablePredicate(predicate_spec, api_key) => match chainhook_store
+                .write()
+            {
+                Err(e) => {
+                    ctx.try_log(|logger| slog::error!(logger, "unable to obtain lock {:?}", e));
+                    continue;
+                }
+                Ok(mut chainhook_store_writer) => {
+                    ctx.try_log(|logger| slog::info!(logger, "Enabling Predicate"));
+                    let hook_formation = match chainhook_store_writer.entries.get_mut(&api_key) {
+                        Some(hook_formation) => hook_formation,
+                        None => {
+                            ctx.try_log(|logger| {
+                                slog::error!(
+                                    logger,
+                                    "Unable to retrieve chainhooks associated with {:?}",
+                                    api_key
+                                )
+                            });
+                            continue;
                         }
+                    };
+                    hook_formation.enable_specification(&predicate_spec);
+                }
+            },
+            ObserverCommand::DeregisterStacksPredicate(hook_uuid, api_key) => match chainhook_store
+                .write()
+            {
+                Err(e) => {
+                    ctx.try_log(|logger| slog::error!(logger, "unable to obtain lock {:?}", e));
+                    continue;
+                }
+                Ok(mut chainhook_store_writer) => {
+                    ctx.try_log(|logger| {
+                        slog::info!(logger, "Handling DeregisterStacksPredicate command")
+                    });
+                    let hook_formation = match chainhook_store_writer.entries.get_mut(&api_key) {
+                        Some(hook_formation) => hook_formation,
+                        None => {
+                            ctx.try_log(|logger| {
+                                slog::error!(
+                                    logger,
+                                    "Unable to retrieve chainhooks associated with {:?}",
+                                    api_key
+                                )
+                            });
+                            continue;
+                        }
+                    };
+                    chainhooks_lookup.remove(&hook_uuid);
+                    let hook = hook_formation.deregister_stacks_hook(hook_uuid);
+                    if let (Some(tx), Some(hook)) = (&observer_events_tx, hook) {
+                        let _ = tx.send(ObserverEvent::HookDeregistered(
+                            ChainhookSpecification::Stacks(hook),
+                        ));
                     }
                 }
-            }
-            ObserverCommand::DeregisterBitcoinHook(hook_uuid, api_key) => {
+            },
+            ObserverCommand::DeregisterBitcoinPredicate(hook_uuid, api_key) => {
                 match chainhook_store.write() {
                     Err(e) => {
                         ctx.try_log(|logger| slog::error!(logger, "unable to obtain lock {:?}", e));
@@ -1281,7 +1303,7 @@ pub async fn start_observer_commands_handler(
                     }
                     Ok(mut chainhook_store_writer) => {
                         ctx.try_log(|logger| {
-                            slog::info!(logger, "Handling DeregisterBitcoinHook command")
+                            slog::info!(logger, "Handling DeregisterBitcoinPredicate command")
                         });
                         let hook_formation = match chainhook_store_writer.entries.get_mut(&api_key)
                         {
@@ -1845,7 +1867,7 @@ pub fn handle_create_hook(
     let background_job_tx = background_job_tx.inner();
     match background_job_tx.lock() {
         Ok(tx) => {
-            let _ = tx.send(ObserverCommand::RegisterHook(hook, api_key));
+            let _ = tx.send(ObserverCommand::RegisterPredicate(hook, api_key));
         }
         _ => {}
     };
@@ -1869,7 +1891,9 @@ pub fn handle_delete_stacks_hook(
     let background_job_tx = background_job_tx.inner();
     match background_job_tx.lock() {
         Ok(tx) => {
-            let _ = tx.send(ObserverCommand::DeregisterStacksHook(hook_uuid, api_key));
+            let _ = tx.send(ObserverCommand::DeregisterStacksPredicate(
+                hook_uuid, api_key,
+            ));
         }
         _ => {}
     };
@@ -1893,7 +1917,9 @@ pub fn handle_delete_bitcoin_hook(
     let background_job_tx = background_job_tx.inner();
     match background_job_tx.lock() {
         Ok(tx) => {
-            let _ = tx.send(ObserverCommand::DeregisterBitcoinHook(hook_uuid, api_key));
+            let _ = tx.send(ObserverCommand::DeregisterBitcoinPredicate(
+                hook_uuid, api_key,
+            ));
         }
         _ => {}
     };
@@ -1906,6 +1932,12 @@ pub fn handle_delete_bitcoin_hook(
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, OpenApiFromRequest)]
 pub struct ApiKey(pub Option<String>);
+
+impl ApiKey {
+    pub fn none() -> ApiKey {
+        ApiKey(None)
+    }
+}
 
 #[derive(Debug)]
 pub enum ApiKeyError {

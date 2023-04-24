@@ -14,6 +14,7 @@ use chainhook_event_observer::hord::db::{
     open_readwrite_hord_db_conn, open_readwrite_hord_db_conn_rocks_db,
 };
 use chainhook_event_observer::hord::{
+    get_inscriptions_revealed_in_block,
     update_storage_and_augment_bitcoin_block_with_inscription_reveal_data,
     update_storage_and_augment_bitcoin_block_with_inscription_transfer_data, Storage,
 };
@@ -27,7 +28,7 @@ use chainhook_types::{BitcoinChainEvent, BitcoinChainUpdatedWithBlocksData};
 use std::collections::{BTreeMap, HashMap};
 
 pub async fn scan_bitcoin_chainstate_via_http_using_predicate(
-    predicate_spec: BitcoinChainhookSpecification,
+    predicate_spec: &BitcoinChainhookSpecification,
     config: &Config,
     ctx: &Context,
 ) -> Result<(), String> {
@@ -52,10 +53,11 @@ pub async fn scan_bitcoin_chainstate_via_http_using_predicate(
             );
         }
     };
-    let end_block = match predicate_spec.end_block {
-        Some(end_block) => end_block,
+
+    let (mut end_block, floating_end_block) = match predicate_spec.end_block {
+        Some(end_block) => (end_block, false),
         None => match bitcoin_rpc.get_blockchain_info() {
-            Ok(result) => result.blocks,
+            Ok(result) => (result.blocks, true),
             Err(e) => {
                 return Err(format!(
                     "unable to retrieve Bitcoin chain tip ({})",
@@ -145,11 +147,15 @@ pub async fn scan_bitcoin_chainstate_via_http_using_predicate(
         let hord_db_conn = open_readonly_hord_db_conn(&config.expected_cache_path(), ctx)?;
 
         let mut storage = Storage::Memory(BTreeMap::new());
-        for (cursor, local_traverals) in inscriptions_cache.into_iter() {
+        let mut cursor = start_block.saturating_sub(1);
+        while cursor <= end_block {
+            cursor += 1;
+
             // Only consider inscriptions in the interval specified
-            if cursor < start_block || cursor > end_block {
-                continue;
-            }
+            let local_traverals = match inscriptions_cache.remove(&cursor) {
+                Some(entry) => entry,
+                None => continue,
+            };
             for (transaction_identifier, traversal_result) in local_traverals.into_iter() {
                 traversals.insert(transaction_identifier, traversal_result);
             }
@@ -187,6 +193,12 @@ pub async fn scan_bitcoin_chainstate_via_http_using_predicate(
                 &mut storage,
                 &ctx,
             );
+
+            let inscriptions_revealed = get_inscriptions_revealed_in_block(&block)
+                .iter()
+                .map(|d| d.inscription_number.to_string())
+                .collect::<Vec<String>>();
+
             let chain_event =
                 BitcoinChainEvent::ChainUpdatedWithBlocks(BitcoinChainUpdatedWithBlocksData {
                     new_blocks: vec![block],
@@ -199,6 +211,14 @@ pub async fn scan_bitcoin_chainstate_via_http_using_predicate(
                 ctx,
             );
 
+            info!(
+                ctx.expect_logger(),
+                "Processing block #{} through {} predicate (inscriptions revealed: [{}])",
+                cursor,
+                predicate_spec.uuid,
+                inscriptions_revealed.join(", ")
+            );
+
             match execute_predicates_action(hits, &event_observer_config, &ctx).await {
                 Ok(actions) => actions_triggered += actions,
                 Err(_) => err_count += 1,
@@ -206,6 +226,15 @@ pub async fn scan_bitcoin_chainstate_via_http_using_predicate(
 
             if err_count >= 3 {
                 return Err(format!("Scan aborted (consecutive action errors >= 3)"));
+            }
+
+            if cursor == end_block && floating_end_block {
+                end_block = match bitcoin_rpc.get_blockchain_info() {
+                    Ok(result) => result.blocks,
+                    Err(_e) => {
+                        continue;
+                    }
+                };
             }
         }
     } else {
@@ -215,7 +244,9 @@ pub async fn scan_bitcoin_chainstate_via_http_using_predicate(
             // Start ingestion pipeline
         }
 
-        for cursor in start_block..=end_block {
+        let mut cursor = start_block.saturating_sub(1);
+        while cursor <= end_block {
+            cursor += 1;
             blocks_scanned += 1;
             let block_hash = retrieve_block_hash_with_retry(&cursor, &bitcoin_config, ctx).await?;
             let block_breakdown =
@@ -256,6 +287,15 @@ pub async fn scan_bitcoin_chainstate_via_http_using_predicate(
             if err_count >= 3 {
                 return Err(format!("Scan aborted (consecutive action errors >= 3)"));
             }
+
+            if cursor == end_block && floating_end_block {
+                end_block = match bitcoin_rpc.get_blockchain_info() {
+                    Ok(result) => result.blocks,
+                    Err(_e) => {
+                        continue;
+                    }
+                };
+            }
         }
     }
     info!(
@@ -285,7 +325,7 @@ pub async fn execute_predicates_action<'a>(
                 actions_triggered += 1;
                 match action {
                     BitcoinChainhookOccurrence::Http(request) => {
-                        send_request(request, &ctx).await?
+                        send_request(request, 3, 1, &ctx).await?
                     }
                     BitcoinChainhookOccurrence::File(path, bytes) => {
                         file_append(path, bytes, &ctx)?
