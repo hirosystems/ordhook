@@ -342,9 +342,9 @@ stacks_node_rpc_url = "http://0.0.0.0:20443"
 By passing the flag `--config=/path/to/config.toml`, developers can customize the credentials and network address of their bitcoin node. 
 ```bash
 $ chainhook config new --testnet
-✔ Generated config file Testnet.toml
+✔ Generated config file Chainhook.toml
 
-$ chainhook predicates scan ./path/predicate.json --config=./Testnet.toml
+$ chainhook predicates scan ./path/predicate.json --config-path=./Testnet.toml
 ```
 
 **Tips and tricks**
@@ -600,7 +600,7 @@ To date, the Stacks blockchain has just over 2 years of activity, and the `chain
 To test a Stacks `if_this` / `then_that` predicate, the following command can by used:
 
 ```bash
-$ chainhook predicates scan ./path/to/predicate.json --testnet
+$ chainhook predicates scan ./path/to/predicate.json  --testnet
 ```
 
 Tbe first time this command run, a chainstate archive will be downloaded, uncompressed and written to disk (aronud 3GB required for testnet, 10GB for mainnet).
