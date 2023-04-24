@@ -10,8 +10,9 @@ use crate::chainhooks::types::{
     ChainhookConfig, ChainhookFullSpecification, ChainhookSpecification,
 };
 
-use crate::hord::db::{open_readwrite_hord_db_conn, open_readwrite_hord_db_conn_rocks_db};
+#[cfg(feature = "ordinals")]
 use crate::hord::{
+    db::{open_readwrite_hord_db_conn, open_readwrite_hord_db_conn_rocks_db},
     revert_hord_db_with_augmented_bitcoin_block, update_hord_db_and_augment_bitcoin_block,
 };
 use crate::indexer::bitcoin::{
@@ -51,6 +52,7 @@ use std::str::FromStr;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
+#[cfg(feature = "zeromq")]
 use zeromq::{Socket, SocketRecv};
 
 pub const DEFAULT_INGESTION_PORT: u16 = 20445;
@@ -412,6 +414,8 @@ pub async fn start_event_observer(
         let bitcoind_zmq_url = bitcoind_zmq_url.clone();
         let ctx_moved = ctx.clone();
         let bitcoin_config = config.get_bitcoin_config();
+
+        #[cfg(feature = "zeromq")]
         hiro_system_kit::thread_named("Bitcoind zmq listener")
             .spawn(move || {
                 ctx_moved.try_log(|logger| {

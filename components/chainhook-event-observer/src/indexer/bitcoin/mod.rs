@@ -19,16 +19,13 @@ use chainhook_types::bitcoin::{OutPoint, TxIn, TxOut};
 use chainhook_types::{
     BitcoinBlockData, BitcoinBlockMetadata, BitcoinNetwork, BitcoinTransactionData,
     BitcoinTransactionMetadata, BlockCommitmentData, BlockHeader, BlockIdentifier,
-    KeyRegistrationData, LockSTXData, OrdinalInscriptionRevealData, OrdinalOperation, PoxReward,
+    KeyRegistrationData, LockSTXData, PoxReward,
     StacksBaseChainOperation, StacksBlockCommitmentData, TransactionIdentifier, TransferSTXData,
 };
 use hiro_system_kit::slog;
 
 use serde::Deserialize;
 
-use crate::hord::inscription::InscriptionParser;
-
-use crate::hord::ord::inscription_id::InscriptionId;
 
 #[derive(Clone, PartialEq, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -357,7 +354,9 @@ pub fn standardize_bitcoin_block(
         }
 
         let mut ordinal_operations = vec![];
-        if let Some(op) = try_parse_ordinal_operation(&tx, block_height, ctx) {
+
+        #[cfg(feature = "ordinals")]
+        if let Some(op) = crate::hord::try_parse_ordinal_operation(&tx, block_height, ctx) {
             ordinal_operations.push(op);
         }
 
@@ -451,71 +450,6 @@ pub fn standardize_bitcoin_block(
         metadata: BitcoinBlockMetadata {},
         transactions,
     })
-}
-
-fn try_parse_ordinal_operation(
-    tx: &BitcoinTransactionFullBreakdown,
-    _block_height: u64,
-    _ctx: &Context,
-) -> Option<OrdinalOperation> {
-    // This should eventually become a loop once/if there is settlement on https://github.com/casey/ord/issues/2000.
-    if let Some(first_input) = tx.vin.get(0) {
-        if let Some(ref witnesses) = first_input.txinwitness {
-            for bytes in witnesses.iter() {
-                let script = Script::from(bytes.to_vec());
-                let parser = InscriptionParser {
-                    instructions: script.instructions().peekable(),
-                };
-
-                let inscription = match parser.parse_script() {
-                    Ok(inscription) => inscription,
-                    Err(_) => continue,
-                };
-
-                let inscription_id = InscriptionId {
-                    txid: tx.txid.clone(),
-                    index: 0,
-                };
-
-                let inscription_output_value = tx
-                    .vout
-                    .get(0)
-                    .and_then(|o| Some(o.value.to_sat()))
-                    .unwrap_or(0);
-
-                let no_content_bytes = vec![];
-                let inscription_content_bytes = inscription.body().unwrap_or(&no_content_bytes);
-
-                let inscriber_address = if let Ok(authors) = Address::from_script(
-                    &tx.vout[0].script_pub_key.script().unwrap(),
-                    bitcoin::Network::Bitcoin,
-                ) {
-                    Some(authors.to_string())
-                } else {
-                    None
-                };
-
-                return Some(OrdinalOperation::InscriptionRevealed(
-                    OrdinalInscriptionRevealData {
-                        content_type: inscription.content_type().unwrap_or("unknown").to_string(),
-                        content_bytes: format!("0x{}", hex::encode(&inscription_content_bytes)),
-                        content_length: inscription_content_bytes.len(),
-                        inscription_id: inscription_id.to_string(),
-                        inscriber_address,
-                        inscription_output_value,
-                        inscription_fee: 0,
-                        inscription_number: 0,
-                        ordinal_number: 0,
-                        ordinal_block_height: 0,
-                        ordinal_offset: 0,
-                        transfers_pre_inscription: 0,
-                        satpoint_post_inscription: format!("{}:0:0", tx.txid.clone()),
-                    },
-                ));
-            }
-        }
-    }
-    None
 }
 
 fn try_parse_stacks_operation(
