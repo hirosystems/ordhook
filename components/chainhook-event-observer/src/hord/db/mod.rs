@@ -603,8 +603,10 @@ pub fn find_latest_inscription_number_at_block_height(
         .prepare(
             "SELECT inscription_number FROM inscriptions WHERE block_height < ? ORDER BY inscription_number DESC LIMIT 1",
         )
-        .unwrap();
-    let mut rows = stmt.query(args).unwrap();
+        .map_err(|e| format!("unable to query inscriptions: {}", e.to_string()))?;
+    let mut rows = stmt
+        .query(args)
+        .map_err(|e| format!("unable to query inscriptions: {}", e.to_string()))?;
     while let Ok(Some(row)) = rows.next() {
         let inscription_number: u64 = row.get(0).unwrap();
         return Ok(Some(inscription_number));
