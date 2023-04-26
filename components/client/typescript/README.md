@@ -86,4 +86,6 @@ server helpers to handle all node interactions transparently.
 ## Type Definitions
 
 This library includes type definitions for all possible Chainhook predicate configurations and event
-payloads.
+payloads in the form of [Typebox](https://github.com/sinclairzx81/typebox) schemas. If you need to
+compile or validate any of the supplied types, generate JSON schemas, etc., you can use all of
+Typebox's tools to do so.
