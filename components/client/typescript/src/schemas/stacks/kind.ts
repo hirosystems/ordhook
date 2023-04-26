@@ -1,11 +1,11 @@
 import { Type } from '@sinclair/typebox';
-import { Principal } from '.';
+import { PrincipalSchema } from './payload';
 
 const ContractCall = Type.Object({
   type: Type.Literal('ContractCall'),
   data: Type.Object({
     args: Type.Array(Type.String()),
-    contract_identifier: Principal,
+    contract_identifier: PrincipalSchema,
     method: Type.String(),
   }),
 });
@@ -13,7 +13,7 @@ const ContractCall = Type.Object({
 const ContractDeployment = Type.Object({
   type: Type.Literal('ContractDeployment'),
   data: Type.Object({
-    contract_identifier: Principal,
+    contract_identifier: PrincipalSchema,
     code: Type.String(),
   }),
 });

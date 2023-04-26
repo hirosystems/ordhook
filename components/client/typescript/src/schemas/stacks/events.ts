@@ -1,12 +1,12 @@
 import { Type } from '@sinclair/typebox';
-import { Principal } from '.';
+import { PrincipalSchema } from './payload';
 
 const NftMintEvent = Type.Object({
   type: Type.Literal('NFTMintEvent'),
   data: Type.Object({
     asset_class_identifier: Type.String(),
     asset_identifier: Type.String(),
-    recipient: Principal,
+    recipient: PrincipalSchema,
   }),
 });
 
@@ -15,8 +15,8 @@ const NftTransferEvent = Type.Object({
   data: Type.Object({
     raw_value: Type.String(),
     asset_identifier: Type.String(),
-    recipient: Principal,
-    sender: Principal,
+    recipient: PrincipalSchema,
+    sender: PrincipalSchema,
   }),
 });
 
@@ -25,7 +25,7 @@ const NftBurnEvent = Type.Object({
   data: Type.Object({
     asset_class_identifier: Type.String(),
     asset_identifier: Type.String(),
-    sender: Principal,
+    sender: PrincipalSchema,
   }),
 });
 
@@ -34,8 +34,8 @@ const FtTransferEvent = Type.Object({
   data: Type.Object({
     amount: Type.String(),
     asset_identifier: Type.String(),
-    recipient: Principal,
-    sender: Principal,
+    recipient: PrincipalSchema,
+    sender: PrincipalSchema,
   }),
 });
 
@@ -44,7 +44,7 @@ const FtMintEvent = Type.Object({
   data: Type.Object({
     amount: Type.String(),
     asset_identifier: Type.String(),
-    recipient: Principal,
+    recipient: PrincipalSchema,
   }),
 });
 
@@ -53,14 +53,14 @@ const FtBurnEvent = Type.Object({
   data: Type.Object({
     amount: Type.String(),
     asset_identifier: Type.String(),
-    sender: Principal,
+    sender: PrincipalSchema,
   }),
 });
 
 const SmartContractEvent = Type.Object({
   type: Type.Literal('SmartContractEvent'),
   data: Type.Object({
-    contract_identifier: Principal,
+    contract_identifier: PrincipalSchema,
     raw_value: Type.String(),
     topic: Type.String(),
   }),
@@ -70,8 +70,8 @@ const StxTransferEvent = Type.Object({
   type: Type.Literal('STXTransferEvent'),
   data: Type.Object({
     amount: Type.String(),
-    sender: Principal,
-    recipient: Principal,
+    sender: PrincipalSchema,
+    recipient: PrincipalSchema,
   }),
 });
 
@@ -79,7 +79,7 @@ const StxMintEvent = Type.Object({
   type: Type.Literal('STXMintEvent'),
   data: Type.Object({
     amount: Type.String(),
-    recipient: Principal,
+    recipient: PrincipalSchema,
   }),
 });
 
@@ -96,7 +96,7 @@ const StxBurnEvent = Type.Object({
   type: Type.Literal('STXBurnEvent'),
   data: Type.Object({
     amount: Type.String(),
-    sender: Principal,
+    sender: PrincipalSchema,
   }),
 });
 

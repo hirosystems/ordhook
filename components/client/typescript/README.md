@@ -60,10 +60,12 @@ server helpers to handle all node interactions transparently.
 
 1. Declare and start the event server
     ```typescript
+    import { Payload } from "@hirosystems/chainhook-client/dist/schemas";
+
     const server = new ChainhookEventServer(opts, chainhook);
     server.start(
         [predicate],
-        async (uuid, payload) => {
+        async (uuid: string, payload: Payload) => {
             // This handler will be called for every chainhook event received by our server
             console.log(uuid);
             console.log(payload);
