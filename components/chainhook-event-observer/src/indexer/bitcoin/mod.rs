@@ -10,7 +10,7 @@ use crate::observer::BitcoinConfig;
 use crate::utils::Context;
 use bitcoincore_rpc::bitcoin::hashes::hex::FromHex;
 use bitcoincore_rpc::bitcoin::hashes::Hash;
-use bitcoincore_rpc::bitcoin::{self, Address, Amount, BlockHash, Script};
+use bitcoincore_rpc::bitcoin::{self, Address, Amount, BlockHash};
 use bitcoincore_rpc_json::{
     GetRawTransactionResultVinScriptSig, GetRawTransactionResultVoutScriptPubKey,
 };
@@ -19,13 +19,12 @@ use chainhook_types::bitcoin::{OutPoint, TxIn, TxOut};
 use chainhook_types::{
     BitcoinBlockData, BitcoinBlockMetadata, BitcoinNetwork, BitcoinTransactionData,
     BitcoinTransactionMetadata, BlockCommitmentData, BlockHeader, BlockIdentifier,
-    KeyRegistrationData, LockSTXData, PoxReward,
-    StacksBaseChainOperation, StacksBlockCommitmentData, TransactionIdentifier, TransferSTXData,
+    KeyRegistrationData, LockSTXData, PoxReward, StacksBaseChainOperation,
+    StacksBlockCommitmentData, TransactionIdentifier, TransferSTXData,
 };
 use hiro_system_kit::slog;
 
 use serde::Deserialize;
-
 
 #[derive(Clone, PartialEq, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
