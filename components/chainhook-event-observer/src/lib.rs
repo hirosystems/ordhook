@@ -10,7 +10,8 @@ extern crate serde_derive;
 extern crate serde_json;
 
 pub extern crate bitcoincore_rpc;
-pub extern crate redb;
+pub extern crate rocksdb;
+
 pub use chainhook_types;
 
 pub mod chainhooks;

@@ -39,7 +39,6 @@ ctrlc = { version = "3.2.2", optional = true }
 schemars = { version = "0.8.10" }
 rocket_okapi = "0.8.0-rc.1"
 crossbeam-channel = "0.5.6"
-redb = { version = "0.13.0", optional = true }
 chrono = { version = "0.4.19", optional = true }
 anyhow = { version = "1.0.56", features = ["backtrace"], optional = true  }
 futures = "0.3.21"
@@ -51,6 +50,14 @@ rand = "0.8.5"
 hex-simd = "0.8.0"
 serde_cbor = "0.11.2"
 zeromq = { version = "*", default-features = false, features = ["tokio-runtime", "tcp-transport"] }
+zerocopy = "0.6.1"
+zerocopy-derive = "0.3.2"
+
+[dependencies.rocksdb]
+version = "0.20.1"
+default-features = false
+optional = true
+features = ["lz4", "snappy"]
 
 [replace]
 "jsonrpc:0.13.0" = { git = 'https://github.com/apoelstra/rust-jsonrpc', rev = "1063671f122a8985c1b7c29030071253da515839" }
@@ -59,4 +66,4 @@ zeromq = { version = "*", default-features = false, features = ["tokio-runtime",
 default = ["cli", "ordinals"]
 cli = ["clap", "clap_generate", "toml", "ctrlc", "log"]
 log = ["hiro-system-kit/log"]
-ordinals = ["redb", "chrono", "anyhow"]
+ordinals = ["rocksdb", "chrono", "anyhow"]

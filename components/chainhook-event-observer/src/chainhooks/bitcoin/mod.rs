@@ -1,6 +1,6 @@
 use super::types::{
     BitcoinChainhookSpecification, BitcoinPredicateType, ExactMatchingRule, HookAction,
-    InputPredicate, MatchingRule, OrdinalOperations, OutputPredicate, Protocols, StacksOperations,
+    InputPredicate, MatchingRule, OrdinalOperations, OutputPredicate, StacksOperations,
 };
 use crate::utils::Context;
 
@@ -130,14 +130,14 @@ pub fn serialize_bitcoin_payload_to_json<'a>(
     trigger: BitcoinTriggerChainhook<'a>,
     proofs: &HashMap<&'a TransactionIdentifier, String>,
 ) -> JsonValue {
-    let predicate = &trigger.chainhook.predicate;
+    let predicate_spec = &trigger.chainhook;
     json!({
         "apply": trigger.apply.into_iter().map(|(transactions, block)| {
             json!({
                 "block_identifier": block.block_identifier,
                 "parent_block_identifier": block.parent_block_identifier,
                 "timestamp": block.timestamp,
-                "transactions": serialize_bitcoin_transactions_to_json(&predicate, &transactions, proofs),
+                "transactions": serialize_bitcoin_transactions_to_json(&predicate_spec, &transactions, proofs),
                 "metadata": block.metadata,
             })
         }).collect::<Vec<_>>(),
@@ -146,7 +146,7 @@ pub fn serialize_bitcoin_payload_to_json<'a>(
                 "block_identifier": block.block_identifier,
                 "parent_block_identifier": block.parent_block_identifier,
                 "timestamp": block.timestamp,
-                "transactions": serialize_bitcoin_transactions_to_json(&predicate, &transactions, proofs),
+                "transactions": serialize_bitcoin_transactions_to_json(&predicate_spec, &transactions, proofs),
                 "metadata": block.metadata,
             })
         }).collect::<Vec<_>>(),
@@ -158,36 +158,57 @@ pub fn serialize_bitcoin_payload_to_json<'a>(
 }
 
 pub fn serialize_bitcoin_transactions_to_json<'a>(
-    predicate: &BitcoinPredicateType,
+    predicate_spec: &BitcoinChainhookSpecification,
     transactions: &Vec<&BitcoinTransactionData>,
     proofs: &HashMap<&'a TransactionIdentifier, String>,
 ) -> Vec<JsonValue> {
-    transactions.into_iter().map(|transaction| {
+    transactions
+        .into_iter()
+        .map(|transaction| {
             let mut metadata = serde_json::Map::new();
-            if predicate.include_inputs() {
-                metadata.insert("inputs".into(), json!(transaction.metadata.inputs.iter().map(|input| {
-                    json!({
-                        "txin": format!("0x{}:{}", input.previous_output.txid, input.previous_output.vout),
-                        "sequence": input.sequence,
-                    })
-                }).collect::<Vec<_>>()));
+            if predicate_spec.include_inputs {
+                metadata.insert(
+                    "inputs".into(),
+                    json!(transaction
+                        .metadata
+                        .inputs
+                        .iter()
+                        .map(|input| {
+                            json!({
+                                "txin": format!("0x{}", input.previous_output.txid),
+                                "vout": input.previous_output.vout,
+                                "sequence": input.sequence,
+                            })
+                        })
+                        .collect::<Vec<_>>()),
+                );
             }
-            if predicate.include_outputs() {
+            if predicate_spec.include_outputs {
                 metadata.insert("outputs".into(), json!(transaction.metadata.outputs));
             }
             if !transaction.metadata.stacks_operations.is_empty() {
-                metadata.insert("stacks_operations".into(), json!(transaction.metadata.stacks_operations));
+                metadata.insert(
+                    "stacks_operations".into(),
+                    json!(transaction.metadata.stacks_operations),
+                );
             }
             if !transaction.metadata.ordinal_operations.is_empty() {
-                metadata.insert("ordinal_operations".into(), json!(transaction.metadata.ordinal_operations));
+                metadata.insert(
+                    "ordinal_operations".into(),
+                    json!(transaction.metadata.ordinal_operations),
+                );
             }
-            metadata.insert("proof".into(), json!(proofs.get(&transaction.transaction_identifier)));
+            metadata.insert(
+                "proof".into(),
+                json!(proofs.get(&transaction.transaction_identifier)),
+            );
             json!({
                 "transaction_identifier": transaction.transaction_identifier,
                 "operations": transaction.operations,
                 "metadata": metadata
             })
-        }).collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>()
 }
 
 pub fn handle_bitcoin_hook_action<'a>(
@@ -352,9 +373,7 @@ impl BitcoinPredicateType {
                 // TODO(lgalabru)
                 unimplemented!()
             }
-            BitcoinPredicateType::Protocol(Protocols::Stacks(
-                StacksOperations::StackerRewarded,
-            )) => {
+            BitcoinPredicateType::StacksProtocol(StacksOperations::StackerRewarded) => {
                 for op in tx.metadata.stacks_operations.iter() {
                     if let StacksBaseChainOperation::BlockCommitted(_) = op {
                         return true;
@@ -362,7 +381,7 @@ impl BitcoinPredicateType {
                 }
                 false
             }
-            BitcoinPredicateType::Protocol(Protocols::Stacks(StacksOperations::BlockCommitted)) => {
+            BitcoinPredicateType::StacksProtocol(StacksOperations::BlockCommitted) => {
                 for op in tx.metadata.stacks_operations.iter() {
                     if let StacksBaseChainOperation::BlockCommitted(_) = op {
                         return true;
@@ -370,9 +389,7 @@ impl BitcoinPredicateType {
                 }
                 false
             }
-            BitcoinPredicateType::Protocol(Protocols::Stacks(
-                StacksOperations::LeaderRegistered,
-            )) => {
+            BitcoinPredicateType::StacksProtocol(StacksOperations::LeaderRegistered) => {
                 for op in tx.metadata.stacks_operations.iter() {
                     if let StacksBaseChainOperation::LeaderRegistered(_) = op {
                         return true;
@@ -380,7 +397,7 @@ impl BitcoinPredicateType {
                 }
                 false
             }
-            BitcoinPredicateType::Protocol(Protocols::Stacks(StacksOperations::StxTransfered)) => {
+            BitcoinPredicateType::StacksProtocol(StacksOperations::StxTransfered) => {
                 for op in tx.metadata.stacks_operations.iter() {
                     if let StacksBaseChainOperation::StxTransfered(_) = op {
                         return true;
@@ -388,7 +405,7 @@ impl BitcoinPredicateType {
                 }
                 false
             }
-            BitcoinPredicateType::Protocol(Protocols::Stacks(StacksOperations::StxLocked)) => {
+            BitcoinPredicateType::StacksProtocol(StacksOperations::StxLocked) => {
                 for op in tx.metadata.stacks_operations.iter() {
                     if let StacksBaseChainOperation::StxLocked(_) = op {
                         return true;
@@ -396,20 +413,11 @@ impl BitcoinPredicateType {
                 }
                 false
             }
-            BitcoinPredicateType::Protocol(Protocols::Ordinal(
-                OrdinalOperations::InscriptionRevealed,
-            )) => {
+            BitcoinPredicateType::OrdinalsProtocol(OrdinalOperations::InscriptionFeed) => {
                 for op in tx.metadata.ordinal_operations.iter() {
                     if let OrdinalOperation::InscriptionRevealed(_) = op {
                         return true;
                     }
-                }
-                false
-            }
-            BitcoinPredicateType::Protocol(Protocols::Ordinal(
-                OrdinalOperations::InscriptionTransferred,
-            )) => {
-                for op in tx.metadata.ordinal_operations.iter() {
                     if let OrdinalOperation::InscriptionTransferred(_) = op {
                         return true;
                     }

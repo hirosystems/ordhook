@@ -139,37 +139,62 @@ impl AbstractBlock for BitcoinBlockData {
     }
 }
 
-pub async fn send_request(request: RequestBuilder, ctx: &Context) {
-    match request.send().await {
-        Ok(res) => {
-            if res.status().is_success() {
-                ctx.try_log(|logger| slog::info!(logger, "Trigger {} successful", res.url()));
-            } else {
+pub async fn send_request(
+    request_builder: RequestBuilder,
+    attempts_max: u16,
+    attempts_interval_sec: u16,
+    ctx: &Context,
+) -> Result<(), ()> {
+    let mut retry = 0;
+    loop {
+        let request_builder = match request_builder.try_clone() {
+            Some(rb) => rb,
+            None => {
+                ctx.try_log(|logger| slog::warn!(logger, "unable to clone request builder"));
+                return Err(());
+            }
+        };
+        match request_builder.send().await {
+            Ok(res) => {
+                if res.status().is_success() {
+                    ctx.try_log(|logger| slog::info!(logger, "Trigger {} successful", res.url()));
+                    return Ok(());
+                } else {
+                    retry += 1;
+                    ctx.try_log(|logger| {
+                        slog::warn!(
+                            logger,
+                            "Trigger {} failed with status {}",
+                            res.url(),
+                            res.status()
+                        )
+                    });
+                }
+            }
+            Err(e) => {
+                retry += 1;
                 ctx.try_log(|logger| {
-                    slog::warn!(
-                        logger,
-                        "Trigger {} failed with status {}",
-                        res.url(),
-                        res.status()
-                    )
+                    slog::warn!(logger, "unable to send request {}", e.to_string())
                 });
             }
         }
-        Err(e) => {
+        if retry >= attempts_max {
             ctx.try_log(|logger| {
-                slog::warn!(logger, "unable to build and send request {}", e.to_string())
+                slog::error!(logger, "unable to send request after several retries")
             });
+            return Err(());
         }
+        std::thread::sleep(std::time::Duration::from_secs(attempts_interval_sec.into()));
     }
 }
 
-pub fn file_append(path: String, bytes: Vec<u8>, ctx: &Context) {
+pub fn file_append(path: String, bytes: Vec<u8>, ctx: &Context) -> Result<(), ()> {
     let mut file_path = match std::env::current_dir() {
         Err(e) => {
             ctx.try_log(|logger| {
                 slog::warn!(logger, "unable to retrieve current_dir {}", e.to_string())
             });
-            return;
+            return Err(());
         }
         Ok(p) => p,
     };
@@ -188,7 +213,7 @@ pub fn file_append(path: String, bytes: Vec<u8>, ctx: &Context) {
                         e.to_string()
                     )
                 });
-                return;
+                return Err(());
             }
         }
     }
@@ -201,7 +226,7 @@ pub fn file_append(path: String, bytes: Vec<u8>, ctx: &Context) {
     {
         Err(e) => {
             ctx.try_log(|logger| slog::warn!(logger, "unable to open file {}", e.to_string()));
-            return;
+            return Err(());
         }
         Ok(p) => p,
     };
@@ -216,12 +241,15 @@ pub fn file_append(path: String, bytes: Vec<u8>, ctx: &Context) {
                     e.to_string()
                 )
             });
-            return;
+            return Err(());
         }
     };
 
     if let Err(e) = writeln!(file, "{}", utf8) {
         ctx.try_log(|logger| slog::warn!(logger, "unable to open file {}", e.to_string()));
         eprintln!("Couldn't write to file: {}", e);
+        return Err(());
     }
+
+    Ok(())
 }

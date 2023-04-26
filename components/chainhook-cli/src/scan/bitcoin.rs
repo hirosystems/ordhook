@@ -6,27 +6,29 @@ use chainhook_event_observer::chainhooks::bitcoin::{
     BitcoinChainhookOccurrence, BitcoinTriggerChainhook,
 };
 use chainhook_event_observer::chainhooks::types::{
-    BitcoinChainhookFullSpecification, BitcoinPredicateType, Protocols,
+    BitcoinChainhookSpecification, BitcoinPredicateType,
 };
 use chainhook_event_observer::hord::db::{
-    fetch_and_cache_blocks_in_hord_db, find_all_inscriptions, find_compacted_block_at_block_height,
-    find_latest_compacted_block_known, open_readonly_hord_db_conn, open_readwrite_hord_db_conn,
+    fetch_and_cache_blocks_in_hord_db, find_all_inscriptions, find_block_at_block_height,
+    find_last_block_inserted, open_readonly_hord_db_conn, open_readonly_hord_db_conn_rocks_db,
+    open_readwrite_hord_db_conn, open_readwrite_hord_db_conn_rocks_db,
 };
 use chainhook_event_observer::hord::{
+    get_inscriptions_revealed_in_block,
     update_storage_and_augment_bitcoin_block_with_inscription_reveal_data,
     update_storage_and_augment_bitcoin_block_with_inscription_transfer_data, Storage,
 };
 use chainhook_event_observer::indexer;
 use chainhook_event_observer::indexer::bitcoin::{
-    retrieve_block_hash_with_retry, retrieve_full_block_breakdown_with_retry,
+    download_and_parse_block_with_retry, retrieve_block_hash_with_retry,
 };
 use chainhook_event_observer::observer::{gather_proofs, EventObserverConfig};
 use chainhook_event_observer::utils::{file_append, send_request, Context};
 use chainhook_types::{BitcoinChainEvent, BitcoinChainUpdatedWithBlocksData};
 use std::collections::{BTreeMap, HashMap};
 
-pub async fn scan_bitcoin_chain_with_predicate(
-    predicate: BitcoinChainhookFullSpecification,
+pub async fn scan_bitcoin_chainstate_via_http_using_predicate(
+    predicate_spec: &BitcoinChainhookSpecification,
     config: &Config,
     ctx: &Context,
 ) -> Result<(), String> {
@@ -42,17 +44,6 @@ pub async fn scan_bitcoin_chain_with_predicate(
         }
     };
 
-    let predicate_spec =
-        match predicate.into_selected_network_specification(&config.network.bitcoin_network) {
-            Ok(predicate) => predicate,
-            Err(e) => {
-                return Err(format!(
-                    "Specification missing for network {:?}: {e}",
-                    config.network.bitcoin_network
-                ));
-            }
-        };
-
     let start_block = match predicate_spec.start_block {
         Some(start_block) => start_block,
         None => {
@@ -62,10 +53,11 @@ pub async fn scan_bitcoin_chain_with_predicate(
             );
         }
     };
-    let end_block = match predicate_spec.end_block {
-        Some(end_block) => end_block,
+
+    let (mut end_block, floating_end_block) = match predicate_spec.end_block {
+        Some(end_block) => (end_block, false),
         None => match bitcoin_rpc.get_blockchain_info() {
-            Ok(result) => result.blocks,
+            Ok(result) => (result.blocks, true),
             Err(e) => {
                 return Err(format!(
                     "unable to retrieve Bitcoin chain tip ({})",
@@ -81,13 +73,19 @@ pub async fn scan_bitcoin_chain_with_predicate(
     let mut is_predicate_evaluating_ordinals = false;
     let mut hord_blocks_requires_update = false;
 
-    if let BitcoinPredicateType::Protocol(Protocols::Ordinal(_)) = &predicate_spec.predicate {
+    if let BitcoinPredicateType::OrdinalsProtocol(_) = &predicate_spec.predicate {
         is_predicate_evaluating_ordinals = true;
-        if let Ok(hord_db_conn) = open_readonly_hord_db_conn(&config.expected_cache_path(), &ctx) {
-            inscriptions_cache = find_all_inscriptions(&hord_db_conn);
+        if let Ok(inscriptions_db_conn) =
+            open_readonly_hord_db_conn(&config.expected_cache_path(), &ctx)
+        {
+            inscriptions_cache = find_all_inscriptions(&inscriptions_db_conn);
             // Will we have to update the blocks table?
-            if find_compacted_block_at_block_height(end_block as u32, &hord_db_conn).is_none() {
-                hord_blocks_requires_update = true;
+            if let Ok(blocks_db) =
+                open_readonly_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx)
+            {
+                if find_block_at_block_height(end_block as u32, &blocks_db).is_none() {
+                    hord_blocks_requires_update = true;
+                }
             }
         }
     }
@@ -103,20 +101,23 @@ pub async fn scan_bitcoin_chain_with_predicate(
             // TODO: make sure that we have a contiguous chain
             // check_compacted_blocks_chain_integrity(&hord_db_conn);
 
-            let hord_db_conn = open_readonly_hord_db_conn(&config.expected_cache_path(), ctx)?;
+            let blocks_db_rw =
+                open_readwrite_hord_db_conn_rocks_db(&config.expected_cache_path(), ctx)?;
 
-            let start_block = find_latest_compacted_block_known(&hord_db_conn) as u64;
+            let start_block = find_last_block_inserted(&blocks_db_rw) as u64;
             if start_block < end_block {
                 warn!(
                     ctx.expect_logger(),
                     "Database hord.sqlite appears to be outdated regarding the window of blocks provided. Syncing {} missing blocks",
                     (end_block - start_block)
                 );
-                let rw_hord_db_conn =
+
+                let inscriptions_db_conn_rw =
                     open_readwrite_hord_db_conn(&config.expected_cache_path(), ctx)?;
                 fetch_and_cache_blocks_in_hord_db(
                     &config.get_event_observer_config().get_bitcoin_config(),
-                    &rw_hord_db_conn,
+                    &blocks_db_rw,
+                    &inscriptions_db_conn_rw,
                     start_block,
                     end_block,
                     8,
@@ -125,7 +126,7 @@ pub async fn scan_bitcoin_chain_with_predicate(
                 )
                 .await?;
 
-                inscriptions_cache = find_all_inscriptions(&hord_db_conn);
+                inscriptions_cache = find_all_inscriptions(&inscriptions_db_conn_rw);
             }
         }
     }
@@ -137,6 +138,7 @@ pub async fn scan_bitcoin_chain_with_predicate(
 
     let mut blocks_scanned = 0;
     let mut actions_triggered = 0;
+    let mut err_count = 0;
 
     let event_observer_config = config.get_event_observer_config();
     let bitcoin_config = event_observer_config.get_bitcoin_config();
@@ -145,11 +147,15 @@ pub async fn scan_bitcoin_chain_with_predicate(
         let hord_db_conn = open_readonly_hord_db_conn(&config.expected_cache_path(), ctx)?;
 
         let mut storage = Storage::Memory(BTreeMap::new());
-        for (cursor, local_traverals) in inscriptions_cache.into_iter() {
+        let mut cursor = start_block.saturating_sub(1);
+        while cursor <= end_block {
+            cursor += 1;
+
             // Only consider inscriptions in the interval specified
-            if cursor < start_block || cursor > end_block {
-                continue;
-            }
+            let local_traverals = match inscriptions_cache.remove(&cursor) {
+                Some(entry) => entry,
+                None => continue,
+            };
             for (transaction_identifier, traversal_result) in local_traverals.into_iter() {
                 traversals.insert(transaction_identifier, traversal_result);
             }
@@ -158,12 +164,21 @@ pub async fn scan_bitcoin_chain_with_predicate(
 
             let block_hash = retrieve_block_hash_with_retry(&cursor, &bitcoin_config, ctx).await?;
             let block_breakdown =
-                retrieve_full_block_breakdown_with_retry(&block_hash, &bitcoin_config, ctx).await?;
-            let mut block = indexer::bitcoin::standardize_bitcoin_block(
+                download_and_parse_block_with_retry(&block_hash, &bitcoin_config, ctx).await?;
+            let mut block = match indexer::bitcoin::standardize_bitcoin_block(
                 block_breakdown,
                 &event_observer_config.bitcoin_network,
                 ctx,
-            )?;
+            ) {
+                Ok(data) => data,
+                Err(e) => {
+                    warn!(
+                        ctx.expect_logger(),
+                        "Unable to standardize block#{} {}: {}", cursor, block_hash, e
+                    );
+                    continue;
+                }
+            };
 
             update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
                 &mut block,
@@ -178,6 +193,12 @@ pub async fn scan_bitcoin_chain_with_predicate(
                 &mut storage,
                 &ctx,
             );
+
+            let inscriptions_revealed = get_inscriptions_revealed_in_block(&block)
+                .iter()
+                .map(|d| d.inscription_number.to_string())
+                .collect::<Vec<String>>();
+
             let chain_event =
                 BitcoinChainEvent::ChainUpdatedWithBlocks(BitcoinChainUpdatedWithBlocksData {
                     new_blocks: vec![block],
@@ -190,8 +211,31 @@ pub async fn scan_bitcoin_chain_with_predicate(
                 ctx,
             );
 
-            actions_triggered +=
-                execute_predicates_action(hits, &event_observer_config, &ctx).await;
+            info!(
+                ctx.expect_logger(),
+                "Processing block #{} through {} predicate (inscriptions revealed: [{}])",
+                cursor,
+                predicate_spec.uuid,
+                inscriptions_revealed.join(", ")
+            );
+
+            match execute_predicates_action(hits, &event_observer_config, &ctx).await {
+                Ok(actions) => actions_triggered += actions,
+                Err(_) => err_count += 1,
+            }
+
+            if err_count >= 3 {
+                return Err(format!("Scan aborted (consecutive action errors >= 3)"));
+            }
+
+            if cursor == end_block && floating_end_block {
+                end_block = match bitcoin_rpc.get_blockchain_info() {
+                    Ok(result) => result.blocks,
+                    Err(_e) => {
+                        continue;
+                    }
+                };
+            }
         }
     } else {
         let use_scan_to_seed_hord_db = true;
@@ -200,16 +244,28 @@ pub async fn scan_bitcoin_chain_with_predicate(
             // Start ingestion pipeline
         }
 
-        for cursor in start_block..=end_block {
+        let mut cursor = start_block.saturating_sub(1);
+        while cursor <= end_block {
+            cursor += 1;
             blocks_scanned += 1;
             let block_hash = retrieve_block_hash_with_retry(&cursor, &bitcoin_config, ctx).await?;
             let block_breakdown =
-                retrieve_full_block_breakdown_with_retry(&block_hash, &bitcoin_config, ctx).await?;
-            let block = indexer::bitcoin::standardize_bitcoin_block(
+                download_and_parse_block_with_retry(&block_hash, &bitcoin_config, ctx).await?;
+
+            let block = match indexer::bitcoin::standardize_bitcoin_block(
                 block_breakdown,
                 &event_observer_config.bitcoin_network,
                 ctx,
-            )?;
+            ) {
+                Ok(data) => data,
+                Err(e) => {
+                    warn!(
+                        ctx.expect_logger(),
+                        "Unable to standardize block#{} {}: {}", cursor, block_hash, e
+                    );
+                    continue;
+                }
+            };
 
             let chain_event =
                 BitcoinChainEvent::ChainUpdatedWithBlocks(BitcoinChainUpdatedWithBlocksData {
@@ -223,8 +279,23 @@ pub async fn scan_bitcoin_chain_with_predicate(
                 ctx,
             );
 
-            actions_triggered +=
-                execute_predicates_action(hits, &event_observer_config, &ctx).await;
+            match execute_predicates_action(hits, &event_observer_config, &ctx).await {
+                Ok(actions) => actions_triggered += actions,
+                Err(_) => err_count += 1,
+            }
+
+            if err_count >= 3 {
+                return Err(format!("Scan aborted (consecutive action errors >= 3)"));
+            }
+
+            if cursor == end_block && floating_end_block {
+                end_block = match bitcoin_rpc.get_blockchain_info() {
+                    Ok(result) => result.blocks,
+                    Err(_e) => {
+                        continue;
+                    }
+                };
+            }
         }
     }
     info!(
@@ -239,24 +310,31 @@ pub async fn execute_predicates_action<'a>(
     hits: Vec<BitcoinTriggerChainhook<'a>>,
     config: &EventObserverConfig,
     ctx: &Context,
-) -> u32 {
+) -> Result<u32, ()> {
     let mut actions_triggered = 0;
-    let proofs = gather_proofs(&hits, &config, &ctx);
-    for hit in hits.into_iter() {
-        match handle_bitcoin_hook_action(hit, &proofs) {
+    let mut proofs = HashMap::new();
+    for trigger in hits.into_iter() {
+        if trigger.chainhook.include_proof {
+            gather_proofs(&trigger, &mut proofs, &config, &ctx);
+        }
+        match handle_bitcoin_hook_action(trigger, &proofs) {
             Err(e) => {
                 error!(ctx.expect_logger(), "unable to handle action {}", e);
             }
             Ok(action) => {
                 actions_triggered += 1;
                 match action {
-                    BitcoinChainhookOccurrence::Http(request) => send_request(request, &ctx).await,
-                    BitcoinChainhookOccurrence::File(path, bytes) => file_append(path, bytes, &ctx),
+                    BitcoinChainhookOccurrence::Http(request) => {
+                        send_request(request, 3, 1, &ctx).await?
+                    }
+                    BitcoinChainhookOccurrence::File(path, bytes) => {
+                        file_append(path, bytes, &ctx)?
+                    }
                     BitcoinChainhookOccurrence::Data(_payload) => unreachable!(),
-                }
+                };
             }
         }
     }
 
-    actions_triggered
+    Ok(actions_triggered)
 }
