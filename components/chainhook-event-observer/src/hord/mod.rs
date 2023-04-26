@@ -74,7 +74,7 @@ pub fn try_parse_ordinal_operation(
 
                 let inscriber_address = if let Ok(authors) = Address::from_script(
                     &tx.vout[0].script_pub_key.script().unwrap(),
-                    bitcoin::Network::Bitcoin,
+                    bitcoincore_rpc::bitcoin::Network::Bitcoin,
                 ) {
                     Some(authors.to_string())
                 } else {
@@ -330,30 +330,32 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
                 inscription.ordinal_offset = traversal.get_ordinal_coinbase_offset();
                 inscription.ordinal_block_height = traversal.get_ordinal_coinbase_height();
                 inscription.ordinal_number = traversal.ordinal_number;
+                inscription.inscription_number = traversal.inscription_number;
                 inscription.transfers_pre_inscription = traversal.transfers;
                 inscription.inscription_fee = new_tx.metadata.fee;
 
-                if let Some(_entry) = find_inscription_with_ordinal_number(
-                    &traversal.ordinal_number,
-                    &inscription_db_conn,
-                    &ctx,
-                ) {
-                    ctx.try_log(|logger| {
-                        slog::warn!(
-                            logger,
-                            "Transaction {} in block {} is overriding an existing inscription {}",
-                            new_tx.transaction_identifier.hash,
-                            block.block_identifier.index,
-                            traversal.ordinal_number
-                        );
-                    });
-                    ordinals_events_indexes_to_discard.push_front(ordinal_event_index);
-                } else {
-                    latest_inscription_number += 1;
-                    inscription.inscription_number = inscription_number;
-                    match storage {
-                        Storage::Sqlite(rw_hord_db_conn) => {
+                match storage {
+                    Storage::Sqlite(rw_hord_db_conn) => {
+                        if let Some(_entry) = find_inscription_with_ordinal_number(
+                            &traversal.ordinal_number,
+                            &inscription_db_conn,
+                            &ctx,
+                        ) {
                             ctx.try_log(|logger| {
+                                    slog::warn!(
+                                        logger,
+                                        "Transaction {} in block {} is overriding an existing inscription {}",
+                                        new_tx.transaction_identifier.hash,
+                                        block.block_identifier.index,
+                                        traversal.ordinal_number
+                                    );
+                                });
+                            ordinals_events_indexes_to_discard.push_front(ordinal_event_index);
+                            continue;
+                        }
+                        latest_inscription_number += 1;
+                        inscription.inscription_number = inscription_number;
+                        ctx.try_log(|logger| {
                                     slog::info!(
                                 logger,
                                 "Inscription {} (#{}) detected on Satoshi {} (block {}, {} transfers)",
@@ -364,28 +366,26 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
                                 inscription.transfers_pre_inscription,
                             );
                                 });
-                            store_new_inscription(
-                                &inscription,
-                                &block.block_identifier,
-                                &rw_hord_db_conn,
-                                &ctx,
-                            );
-                        }
-                        Storage::Memory(map) => {
-                            // Do something!
-                            let outpoint = inscription.satpoint_post_inscription
-                                [0..inscription.satpoint_post_inscription.len() - 2]
-                                .to_string();
-                            map.insert(
-                                outpoint,
-                                vec![WatchedSatpoint {
-                                    inscription_id: inscription.inscription_id.clone(),
-                                    inscription_number: inscription.inscription_number,
-                                    ordinal_number: inscription.ordinal_number,
-                                    offset: 0,
-                                }],
-                            );
-                        }
+                        store_new_inscription(
+                            &inscription,
+                            &block.block_identifier,
+                            &rw_hord_db_conn,
+                            &ctx,
+                        );
+                    }
+                    Storage::Memory(map) => {
+                        let outpoint = inscription.satpoint_post_inscription
+                            [0..inscription.satpoint_post_inscription.len() - 2]
+                            .to_string();
+                        map.insert(
+                            outpoint,
+                            vec![WatchedSatpoint {
+                                inscription_id: inscription.inscription_id.clone(),
+                                inscription_number: inscription.inscription_number,
+                                ordinal_number: inscription.ordinal_number,
+                                offset: 0,
+                            }],
+                        );
                     }
                 }
             }
