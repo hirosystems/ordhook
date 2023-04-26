@@ -1,23 +1,22 @@
 {
   "compilerOptions": {
-    "target": "es2021",                                  /* Set the JavaScript language version for emitted JavaScript and include compatible library declarations. */
-    "lib": [ "es2021" ],                                        /* Specify a set of bundled library declaration files that describe the target runtime environment. */
-    "module": "commonjs",                                /* Specify what module code is generated. */
-    "moduleResolution": "node",                       /* Specify how TypeScript looks up a file from a given module specifier. */
+    "target": "es2021",
+    "lib": [ "es2021" ],
+    "module": "commonjs",
+    "moduleResolution": "node",
     "typeRoots": [
       "./node_modules/@types"
-    ],                                  /* Specify multiple folders that act like './node_modules/@types'. */
-    "declaration": true,                              /* Generate .d.ts files from TypeScript and JavaScript files in your project. */
-    "sourceMap": true,                                /* Create source map files for emitted JavaScript files. */
-    "outDir": "./dist",                                   /* Specify an output folder for all emitted files. */
-    "allowSyntheticDefaultImports": false,             /* Allow 'import x from y' when a module doesn't have a default export. */
-    "esModuleInterop": false,                             /* Emit additional JavaScript to ease support for importing CommonJS modules. This enables 'allowSyntheticDefaultImports' for type compatibility. */
-    "forceConsistentCasingInFileNames": true,            /* Ensure that casing is correct in imports. */
-    "strict": true,                                      /* Enable all strict type-checking options. */
-    "skipLibCheck": true                                 /* Skip type checking all .d.ts files. */
+    ],
+    "declaration": true,
+    "sourceMap": true,
+    "outDir": "./dist",
+    "allowSyntheticDefaultImports": false,
+    "esModuleInterop": false,
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,
+    "skipLibCheck": true
   },
   "include": [
     "./src/**/*.ts",
-    "./tests/**/*.ts",
   ],
 }
