@@ -1,15 +1,15 @@
 import { Static, Type } from '@sinclair/typebox';
-import { Event } from './events';
-import { Kind } from './kind';
 import {
   BlockIdentifierSchema,
   Nullable,
   OperationIdentifierSchema,
   TransactionIdentifierSchema,
 } from '../common';
+import { StacksTransactionEventSchema } from './tx_events';
+import { StacksTransactionKindSchema } from './tx_kind';
 
-export const PrincipalSchema = Type.String();
-export type Principal = Static<typeof PrincipalSchema>;
+export const StacksPrincipalSchema = Type.String();
+export type StacksPrincipal = Static<typeof StacksPrincipalSchema>;
 
 export const StacksExecutionCostSchema = Type.Optional(
   Type.Object({
@@ -24,7 +24,7 @@ export type StacksExecutionCost = Static<typeof StacksExecutionCostSchema>;
 
 export const StacksTransactionReceiptSchema = Type.Object({
   contract_calls_stack: Type.Array(Type.String()),
-  events: Type.Array(Event),
+  events: Type.Array(StacksTransactionEventSchema),
   mutated_assets_radius: Type.Array(Type.String()),
   mutated_contracts_radius: Type.Array(Type.String()),
 });
@@ -40,22 +40,22 @@ export const StacksTransactionMetadataSchema = Type.Object({
   description: Type.String(),
   execution_cost: StacksExecutionCostSchema,
   fee: Type.Integer(),
-  kind: Kind,
+  kind: StacksTransactionKindSchema,
   nonce: Type.Integer(),
   position: StacksTransactionPositionSchema,
   proof: Nullable(Type.String()),
   raw_tx: Type.String(),
   receipt: StacksTransactionReceiptSchema,
   result: Type.String(),
-  sender: PrincipalSchema,
-  sponsor: Type.Optional(PrincipalSchema),
+  sender: StacksPrincipalSchema,
+  sponsor: Type.Optional(StacksPrincipalSchema),
   success: Type.Boolean(),
 });
 export type StacksTransactionMetadata = Static<typeof StacksTransactionMetadataSchema>;
 
 export const StacksOperationAccountSchema = Type.Object({
-  address: PrincipalSchema,
-  sub_account: Type.Optional(PrincipalSchema),
+  address: StacksPrincipalSchema,
+  sub_account: Type.Optional(StacksPrincipalSchema),
 });
 export type StacksOperationAccount = Static<typeof StacksOperationAccountSchema>;
 
