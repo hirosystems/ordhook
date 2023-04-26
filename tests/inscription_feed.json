@@ -1,0 +1,22 @@
+{
+    "uuid": "1",
+    "name": "Unwrap BTC",
+    "version": 1,
+    "chain": "bitcoin",
+    "networks": {
+        "mainnet": {
+            "start_block": 777534,
+            "end_block": 777540,
+            "if_this": {
+                "scope": "ordinals_protocol",
+                "operation": "inscription_feed"
+            },
+            "then_that": {
+                "file_append": {
+                    "path": "mainnet-inscription_feed.txt"
+                }
+            }
+        }
+
+    }
+}
