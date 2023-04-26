@@ -270,7 +270,15 @@ pub fn standardize_stacks_block(
             match get_tx_description(&tx.raw_tx, &tx_events) {
                 Ok(desc) => desc,
                 Err(e) => {
-                    return Err(format!("unable to standardize block ({})", e.to_string()));
+                    if tx.status.eq("abort_by_response") {
+                        // We should probably revisit this approach
+                        continue;
+                    }
+                    return Err(format!(
+                        "unable to standardize block #{} ({})",
+                        block.block_height,
+                        e.to_string()
+                    ));
                 }
             };
         let events = tx_events

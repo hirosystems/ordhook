@@ -1,5 +1,6 @@
 use crate::config::Config;
 use chainhook_types::StacksNetwork;
+use clarinet_files::FileLocation;
 use flate2::read::GzDecoder;
 use futures_util::StreamExt;
 use std::fs;
@@ -10,16 +11,35 @@ pub fn default_tsv_file_path(network: &StacksNetwork) -> String {
     format!("{:?}-stacks-events.tsv", network).to_lowercase()
 }
 
+pub fn default_tsv_sha_file_path(network: &StacksNetwork) -> String {
+    format!("{:?}-stacks-events.sha256", network).to_lowercase()
+}
+
 pub async fn download_tsv_file(config: &Config) -> Result<(), String> {
     let mut destination_path = config.expected_cache_path();
     std::fs::create_dir_all(&destination_path).unwrap_or_else(|e| {
         println!("{}", e.to_string());
     });
 
-    let url = config.expected_remote_tsv_url();
-    let res = reqwest::get(url)
+    let remote_sha_url = config.expected_remote_tsv_sha256();
+    let res = reqwest::get(&remote_sha_url)
         .await
-        .or(Err(format!("Failed to GET from '{}'", &url)))?;
+        .or(Err(format!("Failed to GET from '{}'", &remote_sha_url)))?
+        .bytes()
+        .await
+        .or(Err(format!("Failed to GET from '{}'", &remote_sha_url)))?;
+
+    let mut local_sha_file_path = destination_path.clone();
+    local_sha_file_path.push(default_tsv_sha_file_path(&config.network.stacks_network));
+
+    println!("1");
+    let local_sha_file = FileLocation::from_path(local_sha_file_path);
+    let _ = local_sha_file.write_content(&res.to_vec());
+
+    let file_url = config.expected_remote_tsv_url();
+    let res = reqwest::get(&file_url)
+        .await
+        .or(Err(format!("Failed to GET from '{}'", &file_url)))?;
 
     // Download chunks
     let (tx, rx) = flume::bounded(0);

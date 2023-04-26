@@ -148,24 +148,71 @@ pub struct RewardParticipant {
     amt: u64,
 }
 
-pub async fn retrieve_full_block_breakdown_with_retry(
+pub async fn download_and_parse_block_with_retry(
     block_hash: &str,
     bitcoin_config: &BitcoinConfig,
     ctx: &Context,
 ) -> Result<BitcoinBlockFullBreakdown, String> {
     let mut errors_count = 0;
     let block = loop {
-        match retrieve_full_block_breakdown(block_hash, bitcoin_config, ctx).await {
+        match download_and_parse_block(block_hash, bitcoin_config, ctx).await {
             Ok(result) => break result,
             Err(e) => {
                 errors_count += 1;
-                error!(
-                    "unable to retrieve block #{block_hash} (attempt #{errors_count}): {}",
-                    e.to_string()
-                );
+                ctx.try_log(|logger| {
+                    slog::error!(
+                        logger,
+                        "unable to retrieve block #{block_hash} (attempt #{errors_count}): {}",
+                        e.to_string()
+                    )
+                });
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
+    };
+    Ok(block)
+}
+
+pub async fn download_block_with_retry(
+    block_hash: &str,
+    bitcoin_config: &BitcoinConfig,
+    ctx: &Context,
+) -> Result<BitcoinBlockFullBreakdown, String> {
+    let mut errors_count = 0;
+    let block = loop {
+        let response = {
+            match download_block(block_hash, bitcoin_config, ctx).await {
+                Ok(result) => result,
+                Err(e) => {
+                    errors_count += 1;
+                    ctx.try_log(|logger| {
+                        slog::error!(
+                            logger,
+                            "unable to retrieve block #{block_hash} (attempt #{errors_count}): {}",
+                            e.to_string()
+                        )
+                    });
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    continue;
+                }
+            }
+        };
+
+        match parse_downloaded_block(response) {
+            Ok(result) => break result,
+            Err(e) => {
+                errors_count += 1;
+                ctx.try_log(|logger| {
+                    slog::error!(
+                        logger,
+                        "unable to retrieve block #{block_hash} (attempt #{errors_count}): {}",
+                        e.to_string()
+                    )
+                });
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                continue;
+            }
+        };
     };
     Ok(block)
 }
@@ -181,10 +228,13 @@ pub async fn retrieve_block_hash_with_retry(
             Ok(result) => break result,
             Err(e) => {
                 errors_count += 1;
-                error!(
-                    "unable to retrieve block #{block_height} (attempt #{errors_count}): {}",
-                    e.to_string()
-                );
+                ctx.try_log(|logger| {
+                    slog::error!(
+                        logger,
+                        "unable to retrieve #{block_height} (attempt #{errors_count}): {}",
+                        e.to_string()
+                    )
+                });
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
@@ -192,11 +242,11 @@ pub async fn retrieve_block_hash_with_retry(
     Ok(block_hash)
 }
 
-pub async fn retrieve_full_block_breakdown(
+pub async fn download_block(
     block_hash: &str,
     bitcoin_config: &BitcoinConfig,
     _ctx: &Context,
-) -> Result<BitcoinBlockFullBreakdown, String> {
+) -> Result<Vec<u8>, String> {
     use reqwest::Client as HttpClient;
     let body = json!({
         "jsonrpc": "1.0",
@@ -217,13 +267,30 @@ pub async fn retrieve_full_block_breakdown(
         .send()
         .await
         .map_err(|e| format!("unable to send request ({})", e))?
-        .json::<bitcoincore_rpc::jsonrpc::Response>()
+        .bytes()
         .await
-        .map_err(|e| format!("unable to parse response ({})", e))?
-        .result::<BitcoinBlockFullBreakdown>()
-        .map_err(|e| format!("unable to parse response ({})", e))?;
-
+        .map_err(|e| format!("unable to get bytes ({})", e))?
+        .to_vec();
     Ok(block)
+}
+
+pub fn parse_downloaded_block(
+    downloaded_block: Vec<u8>,
+) -> Result<BitcoinBlockFullBreakdown, String> {
+    let block = serde_json::from_slice::<bitcoincore_rpc::jsonrpc::Response>(&downloaded_block[..])
+        .map_err(|e| format!("unable to parse jsonrpc payload ({})", e))?
+        .result::<BitcoinBlockFullBreakdown>()
+        .map_err(|e| format!("unable to parse block ({})", e))?;
+    Ok(block)
+}
+
+pub async fn download_and_parse_block(
+    block_hash: &str,
+    bitcoin_config: &BitcoinConfig,
+    _ctx: &Context,
+) -> Result<BitcoinBlockFullBreakdown, String> {
+    let response = download_block(block_hash, bitcoin_config, _ctx).await?;
+    parse_downloaded_block(response)
 }
 
 pub async fn retrieve_block_hash(
@@ -362,7 +429,7 @@ pub fn standardize_bitcoin_block(
                 stacks_operations,
                 ordinal_operations,
                 proof: None,
-                fee: sats_out - sats_in,
+                fee: sats_in - sats_out,
             },
         };
         transactions.push(tx);
@@ -391,8 +458,9 @@ fn try_parse_ordinal_operation(
     _block_height: u64,
     _ctx: &Context,
 ) -> Option<OrdinalOperation> {
-    for input in tx.vin.iter() {
-        if let Some(ref witnesses) = input.txinwitness {
+    // This should eventually become a loop once/if there is settlement on https://github.com/casey/ord/issues/2000.
+    if let Some(first_input) = tx.vin.get(0) {
+        if let Some(ref witnesses) = first_input.txinwitness {
             for bytes in witnesses.iter() {
                 let script = Script::from(bytes.to_vec());
                 let parser = InscriptionParser {
@@ -409,7 +477,7 @@ fn try_parse_ordinal_operation(
                     index: 0,
                 };
 
-                let inscription_fee = tx
+                let inscription_output_value = tx
                     .vout
                     .get(0)
                     .and_then(|o| Some(o.value.to_sat()))
@@ -434,7 +502,8 @@ fn try_parse_ordinal_operation(
                         content_length: inscription_content_bytes.len(),
                         inscription_id: inscription_id.to_string(),
                         inscriber_address,
-                        inscription_fee,
+                        inscription_output_value,
+                        inscription_fee: 0,
                         inscription_number: 0,
                         ordinal_number: 0,
                         ordinal_block_height: 0,
@@ -580,8 +649,17 @@ fn try_parse_stacks_operation(
                     Err(_) => None,
                 };
             }
+
+            // let mining_address_pre_commit = match inputs[0].script_sig {
+            //     Some(script) => match script.script() {
+
             //     }
+
             // }
+            // mining_address_post_commit = match inputs.first().and_then(|i| i.script_sig).and_then(|s| s.script()).script_pub_key.script() {
+            //     Ok(script) => Address::from_script(&script, bitcoin::Network::Bitcoin).and_then(|a| Ok(a.to_string())).ok(),
+            //     Err(_) => None
+            // };
 
             let pox_cycle_index = pox_config.get_pox_cycle_id(block_height);
             let pox_cycle_length = pox_config.get_pox_cycle_len();

@@ -314,6 +314,7 @@ pub struct OrdinalInscriptionTransferData {
     pub updated_address: Option<String>,
     pub satpoint_pre_transfer: String,
     pub satpoint_post_transfer: String,
+    pub post_transfer_output_value: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
@@ -323,6 +324,7 @@ pub struct OrdinalInscriptionRevealData {
     pub content_length: usize,
     pub inscription_number: u64,
     pub inscription_fee: u64,
+    pub inscription_output_value: u64,
     pub inscription_id: String,
     pub inscriber_address: Option<String>,
     pub ordinal_number: u64,

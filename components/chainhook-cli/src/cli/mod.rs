@@ -1,22 +1,23 @@
 use crate::block::DigestingCommand;
 use crate::config::generator::generate_config;
 use crate::config::Config;
-use crate::scan::bitcoin::scan_bitcoin_chain_with_predicate;
-use crate::scan::stacks::scan_stacks_chain_with_predicate;
+use crate::scan::bitcoin::scan_bitcoin_chainstate_via_http_using_predicate;
+use crate::scan::stacks::scan_stacks_chainstate_via_csv_using_predicate;
 use crate::service::Service;
 
 use chainhook_event_observer::bitcoincore_rpc::{Auth, Client, RpcApi};
 use chainhook_event_observer::chainhooks::types::{
     BitcoinChainhookFullSpecification, BitcoinChainhookNetworkSpecification, BitcoinPredicateType,
-    ChainhookFullSpecification, FileHook, HookAction, OrdinalOperations, Protocols,
+    ChainhookFullSpecification, FileHook, HookAction, OrdinalOperations,
     StacksChainhookFullSpecification, StacksChainhookNetworkSpecification, StacksPredicate,
     StacksPrintEventBasedPredicate,
 };
 use chainhook_event_observer::hord::db::{
-    delete_data_in_hord_db, fetch_and_cache_blocks_in_hord_db, find_all_inscriptions,
-    find_compacted_block_at_block_height, find_inscriptions_at_wached_outpoint,
-    find_latest_compacted_block_known, initialize_hord_db, open_readonly_hord_db_conn,
-    open_readwrite_hord_db_conn, patch_inscription_number,
+    delete_blocks_in_block_range_sqlite, delete_data_in_hord_db, fetch_and_cache_blocks_in_hord_db,
+    find_block_at_block_height, find_block_at_block_height_sqlite,
+    find_inscriptions_at_wached_outpoint, find_last_block_inserted, initialize_hord_db,
+    insert_entry_in_blocks, open_readonly_hord_db_conn, open_readonly_hord_db_conn_rocks_db,
+    open_readwrite_hord_db_conn, open_readwrite_hord_db_conn_rocks_db,
     retrieve_satoshi_point_using_local_storage,
 };
 use chainhook_event_observer::observer::BitcoinConfig;
@@ -40,16 +41,16 @@ struct Opts {
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
 enum Command {
-    /// Manage predicates
+    /// Generate and test predicates
     #[clap(subcommand)]
     Predicates(PredicatesCommand),
-    /// Manage config
+    /// Generate configuration files
     #[clap(subcommand)]
     Config(ConfigCommand),
-    /// Start chainhook-cli
+    /// Run a service streaming blocks and evaluating registered predicates
     #[clap(subcommand)]
     Service(ServiceCommand),
-    /// Protocols specific commands
+    /// Explore the Ordinal Theory  
     #[clap(subcommand)]
     Hord(HordCommand),
 }
@@ -68,7 +69,7 @@ enum PredicatesCommand {
 #[derive(Subcommand, PartialEq, Clone, Debug)]
 #[clap(bin_name = "config", aliases = &["config"])]
 enum ConfigCommand {
-    /// Generate new predicate
+    /// Generate new config
     #[clap(name = "new", bin_name = "new", aliases = &["generate"])]
     New(NewConfig),
 }
@@ -102,10 +103,10 @@ struct NewConfig {
 struct NewPredicate {
     /// Predicate's name
     pub name: String,
-    /// Generate a Bitcoin chainhook
+    /// Generate a Bitcoin predicate
     #[clap(long = "bitcoin", conflicts_with = "stacks")]
     pub bitcoin: bool,
-    /// Generate a Stacks chainhook
+    /// Generate a Stacks predicate
     #[clap(long = "stacks", conflicts_with = "bitcoin")]
     pub stacks: bool,
 }
@@ -173,6 +174,9 @@ struct StartCommand {
     /// Start REST API for managing predicates
     #[clap(long = "start-http-api")]
     pub start_http_api: bool,
+    /// Disable hord indexing
+    #[clap(long = "no-hord")]
+    pub hord_disabled: bool,
 }
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
@@ -187,9 +191,6 @@ enum HordCommand {
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
 enum DbCommand {
-    /// Init hord db
-    #[clap(name = "init", bin_name = "init")]
-    Init(InitHordDbCommand),
     /// Rewrite hord db
     #[clap(name = "rewrite", bin_name = "rewrite")]
     Rewrite(UpdateHordDbCommand),
@@ -202,12 +203,18 @@ enum DbCommand {
     /// Patch DB
     #[clap(name = "patch", bin_name = "patch")]
     Patch(PatchHordDbCommand),
+    /// Check integrity
+    #[clap(name = "check", bin_name = "check")]
+    Check(CheckHordDbCommand),
+    /// Legacy command
+    #[clap(name = "init", bin_name = "init")]
+    Init(InitHordDbCommand),
 }
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
 enum FindCommand {
     /// Init hord db
-    #[clap(name = "sat_point", bin_name = "sat_point")]
+    #[clap(name = "satoshi", bin_name = "satoshi")]
     SatPoint(FindSatPointCommand),
     /// Update hord db
     #[clap(name = "inscription", bin_name = "inscription")]
@@ -261,15 +268,6 @@ struct FindInscriptionCommand {
 }
 
 #[derive(Parser, PartialEq, Clone, Debug)]
-struct InitHordDbCommand {
-    /// # of Networking thread
-    pub network_threads: usize,
-    /// Load config file path
-    #[clap(long = "config-path")]
-    pub config_path: Option<String>,
-}
-
-#[derive(Parser, PartialEq, Clone, Debug)]
 struct UpdateHordDbCommand {
     /// Starting block
     pub start_block: u64,
@@ -309,6 +307,22 @@ struct PatchHordDbCommand {
     pub config_path: Option<String>,
 }
 
+#[derive(Parser, PartialEq, Clone, Debug)]
+struct CheckHordDbCommand {
+    /// Load config file path
+    #[clap(long = "config-path")]
+    pub config_path: Option<String>,
+}
+
+#[derive(Parser, PartialEq, Clone, Debug)]
+struct InitHordDbCommand {
+    /// Load config file path
+    #[clap(long = "config-path")]
+    pub config_path: Option<String>,
+    /// # of Networking thread
+    pub network_threads: usize,
+}
+
 pub fn main() {
     let logger = hiro_system_kit::log::setup_logger();
     let _guard = hiro_system_kit::log::setup_global_logger(logger.clone());
@@ -344,12 +358,37 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                 if cmd.predicates_paths.len() > 0 && !cmd.start_http_api {
                     config.chainhooks.enable_http_api = false;
                 }
-                let mut service = Service::new(config, ctx);
                 let predicates = cmd
                     .predicates_paths
                     .iter()
                     .map(|p| load_predicate_from_path(p))
                     .collect::<Result<Vec<ChainhookFullSpecification>, _>>()?;
+
+                info!(ctx.expect_logger(), "Starting service...",);
+
+                if !cmd.hord_disabled {
+                    info!(
+                        ctx.expect_logger(),
+                        "Ordinal indexing is enabled by default hord, checking index... (use --no-hord to disable ordinals)"
+                    );
+
+                    if let Some((start_block, end_block)) = should_sync_hord_db(&config, &ctx)? {
+                        if start_block == 0 {
+                            info!(
+                                ctx.expect_logger(),
+                                "Initializing hord indexing from block #{}", start_block
+                            );
+                        } else {
+                            info!(
+                                ctx.expect_logger(),
+                                "Resuming hord indexing from block #{}", start_block
+                            );
+                        }
+                        perform_hord_db_update(start_block, end_block, 8, &config, &ctx).await?;
+                    }
+                }
+
+                let mut service = Service::new(config, ctx);
                 return service.run(predicates).await;
             }
         },
@@ -378,7 +417,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     (true, false) => {
                         let mut networks = BTreeMap::new();
 
-                        networks.insert(StacksNetwork::Simnet, StacksChainhookNetworkSpecification {
+                        networks.insert(StacksNetwork::Testnet, StacksChainhookNetworkSpecification {
                             start_block: Some(0),
                             end_block: Some(100),
                             predicate: StacksPredicate::PrintEvent(StacksPrintEventBasedPredicate {
@@ -424,13 +463,17 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                             BitcoinChainhookNetworkSpecification {
                                 start_block: Some(0),
                                 end_block: Some(100),
-                                predicate: BitcoinPredicateType::Protocol(Protocols::Ordinal(
-                                    OrdinalOperations::InscriptionRevealed,
-                                )),
+                                predicate: BitcoinPredicateType::OrdinalsProtocol(
+                                    OrdinalOperations::InscriptionFeed,
+                                ),
                                 expire_after_occurrence: None,
                                 action: HookAction::FileAppend(FileHook {
                                     path: "ordinals.txt".into(),
                                 }),
+                                include_inputs: None,
+                                include_outputs: None,
+                                include_proof: None,
+                                include_witness: None,
                             },
                         );
 
@@ -484,10 +527,44 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                 let predicate = load_predicate_from_path(&cmd.predicate_path)?;
                 match predicate {
                     ChainhookFullSpecification::Bitcoin(predicate) => {
-                        scan_bitcoin_chain_with_predicate(predicate, &config, &ctx).await?;
+                        let predicate_spec = match predicate
+                            .into_selected_network_specification(&config.network.bitcoin_network)
+                        {
+                            Ok(predicate) => predicate,
+                            Err(e) => {
+                                return Err(format!(
+                                    "Specification missing for network {:?}: {e}",
+                                    config.network.bitcoin_network
+                                ));
+                            }
+                        };
+
+                        scan_bitcoin_chainstate_via_http_using_predicate(
+                            &predicate_spec,
+                            &config,
+                            &ctx,
+                        )
+                        .await?;
                     }
                     ChainhookFullSpecification::Stacks(predicate) => {
-                        scan_stacks_chain_with_predicate(predicate, &mut config, &ctx).await?;
+                        let predicate_spec = match predicate
+                            .into_selected_network_specification(&config.network.stacks_network)
+                        {
+                            Ok(predicate) => predicate,
+                            Err(e) => {
+                                return Err(format!(
+                                    "Specification missing for network {:?}: {e}",
+                                    config.network.bitcoin_network
+                                ));
+                            }
+                        };
+
+                        scan_stacks_chainstate_via_csv_using_predicate(
+                            &predicate_spec,
+                            &mut config,
+                            &ctx,
+                        )
+                        .await?;
                     }
                 }
             }
@@ -498,10 +575,10 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     Config::default(cmd.devnet, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
 
                 let hord_db_conn =
-                    open_readonly_hord_db_conn(&config.expected_cache_path(), &ctx).unwrap();
+                    open_readonly_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx)
+                        .unwrap();
 
-                let tip_height = find_latest_compacted_block_known(&hord_db_conn) as u64;
-
+                let tip_height = find_last_block_inserted(&hord_db_conn) as u64;
                 if cmd.block_height > tip_height {
                     perform_hord_db_update(tip_height, cmd.block_height, 8, &config, &ctx).await?;
                 }
@@ -513,7 +590,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     index: cmd.block_height,
                     hash: "".into(),
                 };
-
+                // let global_block_cache = HashMap::new();
                 let traversal = retrieve_satoshi_point_using_local_storage(
                     &hord_db_conn,
                     &block_identifier,
@@ -540,79 +617,125 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
         Command::Hord(HordCommand::Db(subcmd)) => match subcmd {
             DbCommand::Init(cmd) => {
                 let config = Config::default(false, false, false, &cmd.config_path)?;
-                let auth = Auth::UserPass(
-                    config.network.bitcoind_rpc_username.clone(),
-                    config.network.bitcoind_rpc_password.clone(),
-                );
 
-                let bitcoin_rpc = match Client::new(&config.network.bitcoind_rpc_url, auth) {
-                    Ok(con) => con,
-                    Err(message) => {
-                        return Err(format!("Bitcoin RPC error: {}", message.to_string()));
+                let sqlite_db_conn_rw =
+                    open_readwrite_hord_db_conn(&config.expected_cache_path(), &ctx)?;
+
+                // Migrate if required
+                if find_block_at_block_height_sqlite(1, &sqlite_db_conn_rw).is_some() {
+                    let blocks_db =
+                        open_readwrite_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
+
+                    for i in 0..=300000 {
+                        match find_block_at_block_height_sqlite(i, &sqlite_db_conn_rw) {
+                            Some(block) => {
+                                insert_entry_in_blocks(i, &block, &blocks_db, &ctx);
+                                info!(ctx.expect_logger(), "Block #{} inserted", i);
+                            }
+                            None => {
+                                error!(ctx.expect_logger(), "Block #{} missing", i);
+                            }
+                        }
                     }
-                };
+                    let _ = blocks_db.flush();
+                    delete_blocks_in_block_range_sqlite(0, 300000, &sqlite_db_conn_rw, &ctx);
 
-                let end_block = match bitcoin_rpc.get_blockchain_info() {
-                    Ok(result) => result.blocks,
-                    Err(e) => {
-                        return Err(format!(
-                            "unable to retrieve Bitcoin chain tip ({})",
-                            e.to_string()
-                        ));
+                    for i in 300001..=500000 {
+                        match find_block_at_block_height_sqlite(i, &sqlite_db_conn_rw) {
+                            Some(block) => {
+                                insert_entry_in_blocks(i, &block, &blocks_db, &ctx);
+                                info!(ctx.expect_logger(), "Block #{} inserted", i);
+                            }
+                            None => {
+                                info!(ctx.expect_logger(), "Block #{} missing", i);
+                            }
+                        }
                     }
-                };
+                    let _ = blocks_db.flush();
+                    delete_blocks_in_block_range_sqlite(300001, 500000, &sqlite_db_conn_rw, &ctx);
 
-                let hord_db_conn = open_readonly_hord_db_conn(&config.expected_cache_path(), &ctx)?;
-                let start_block = find_latest_compacted_block_known(&hord_db_conn) as u64;
-                if start_block == 0 {
-                    let _ = initialize_hord_db(&config.expected_cache_path(), &ctx);
-                } else {
-                    info!(
-                        ctx.expect_logger(),
-                        "Resuming hord indexing from block #{}", start_block
-                    );
+                    for i in 500001..=783986 {
+                        match find_block_at_block_height_sqlite(i, &sqlite_db_conn_rw) {
+                            Some(block) => {
+                                insert_entry_in_blocks(i, &block, &blocks_db, &ctx);
+                                info!(ctx.expect_logger(), "Block #{} inserted", i);
+                            }
+                            None => {
+                                info!(ctx.expect_logger(), "Block #{} missing", i);
+                            }
+                        }
+                    }
+                    let _ = blocks_db.flush();
+                    delete_blocks_in_block_range_sqlite(500001, 783986, &sqlite_db_conn_rw, &ctx);
                 }
 
-                perform_hord_db_update(start_block, end_block, cmd.network_threads, &config, &ctx)
-                    .await?;
+                // Sync
+                for _ in 0..5 {
+                    if let Some((start_block, end_block)) = should_sync_hord_db(&config, &ctx)? {
+                        if start_block == 0 {
+                            info!(
+                                ctx.expect_logger(),
+                                "Initializing hord indexing from block #{}", start_block
+                            );
+                        } else {
+                            info!(
+                                ctx.expect_logger(),
+                                "Resuming hord indexing from block #{}", start_block
+                            );
+                        }
+                        perform_hord_db_update(start_block, end_block, 10, &config, &ctx).await?;
+                    } else {
+                        info!(ctx.expect_logger(), "Database hord up to date");
+                    }
+                }
+
+                // Start node
+                let mut service = Service::new(config, ctx);
+                return service.run(vec![]).await;
             }
             DbCommand::Sync(cmd) => {
                 let config = Config::default(false, false, false, &cmd.config_path)?;
-                let auth = Auth::UserPass(
-                    config.network.bitcoind_rpc_username.clone(),
-                    config.network.bitcoind_rpc_password.clone(),
-                );
-
-                let bitcoin_rpc = match Client::new(&config.network.bitcoind_rpc_url, auth) {
-                    Ok(con) => con,
-                    Err(message) => {
-                        return Err(format!("Bitcoin RPC error: {}", message.to_string()));
+                if let Some((start_block, end_block)) = should_sync_hord_db(&config, &ctx)? {
+                    if start_block == 0 {
+                        info!(
+                            ctx.expect_logger(),
+                            "Initializing hord indexing from block #{}", start_block
+                        );
+                    } else {
+                        info!(
+                            ctx.expect_logger(),
+                            "Resuming hord indexing from block #{}", start_block
+                        );
                     }
-                };
-
-                let hord_db_conn = open_readonly_hord_db_conn(&config.expected_cache_path(), &ctx)?;
-
-                let start_block = find_latest_compacted_block_known(&hord_db_conn) as u64;
-
-                let end_block = match bitcoin_rpc.get_blockchain_info() {
-                    Ok(result) => result.blocks,
-                    Err(e) => {
-                        return Err(format!(
-                            "unable to retrieve Bitcoin chain tip ({})",
-                            e.to_string()
-                        ));
-                    }
-                };
-
-                perform_hord_db_update(start_block, end_block, cmd.network_threads, &config, &ctx)
+                    perform_hord_db_update(
+                        start_block,
+                        end_block,
+                        cmd.network_threads,
+                        &config,
+                        &ctx,
+                    )
                     .await?;
+                } else {
+                    info!(ctx.expect_logger(), "Database hord up to date");
+                }
             }
             DbCommand::Rewrite(cmd) => {
                 let config = Config::default(false, false, false, &cmd.config_path)?;
                 // Delete data, if any
-                let rw_hord_db_conn =
-                    open_readwrite_hord_db_conn(&config.expected_cache_path(), &ctx)?;
-                delete_data_in_hord_db(cmd.start_block, cmd.end_block, &rw_hord_db_conn, &ctx)?;
+                {
+                    let blocks_db_rw =
+                        open_readwrite_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
+                    let inscriptions_db_conn_rw =
+                        open_readwrite_hord_db_conn(&config.expected_cache_path(), &ctx)?;
+
+                    delete_data_in_hord_db(
+                        cmd.start_block,
+                        cmd.end_block,
+                        &blocks_db_rw,
+                        &inscriptions_db_conn_rw,
+                        &ctx,
+                    )?;
+                }
                 // Update data
                 perform_hord_db_update(
                     cmd.start_block,
@@ -623,11 +746,37 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                 )
                 .await?;
             }
+            DbCommand::Check(cmd) => {
+                let config = Config::default(false, false, false, &cmd.config_path)?;
+                // Delete data, if any
+                {
+                    let blocks_db_rw =
+                        open_readwrite_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
+
+                    let mut missing_blocks = vec![];
+                    for i in 1..=780000 {
+                        if find_block_at_block_height(i, &blocks_db_rw).is_none() {
+                            println!("Missing block {i}");
+                            missing_blocks.push(i);
+                        }
+                    }
+                    println!("{:?}", missing_blocks);
+                }
+            }
             DbCommand::Drop(cmd) => {
                 let config = Config::default(false, false, false, &cmd.config_path)?;
-                let rw_hord_db_conn =
+                let blocks_db =
+                    open_readwrite_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
+                let inscriptions_db_conn_rw =
                     open_readwrite_hord_db_conn(&config.expected_cache_path(), &ctx)?;
-                delete_data_in_hord_db(cmd.start_block, cmd.end_block, &rw_hord_db_conn, &ctx)?;
+
+                delete_data_in_hord_db(
+                    cmd.start_block,
+                    cmd.end_block,
+                    &blocks_db,
+                    &inscriptions_db_conn_rw,
+                    &ctx,
+                )?;
                 info!(
                     ctx.expect_logger(),
                     "Cleaning hord_db: {} blocks dropped",
@@ -636,46 +785,70 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
             }
             DbCommand::Patch(cmd) => {
                 let config = Config::default(false, false, false, &cmd.config_path)?;
-                let rw_hord_db_conn =
-                    open_readwrite_hord_db_conn(&config.expected_cache_path(), &ctx)?;
+                let sqlite_db_conn =
+                    open_readonly_hord_db_conn(&config.expected_cache_path(), &ctx)?;
 
-                let inscriptions_per_blocks = find_all_inscriptions(&rw_hord_db_conn);
-                let mut inscription_number = 0;
-                for (block_height, inscriptions) in inscriptions_per_blocks.iter() {
-                    let block = match find_compacted_block_at_block_height(
-                        *block_height as u32,
-                        &rw_hord_db_conn,
-                    ) {
-                        Some(block) => block,
-                        None => continue,
-                    };
+                let blocks_db =
+                    open_readwrite_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
 
-                    for (txid, _) in inscriptions.iter() {
-                        for (txid_n, _, _) in block.0 .1.iter() {
-                            if txid.hash[2..10].eq(&hex::encode(txid_n)) {
-                                let inscription_id = format!("{}i0", &txid.hash[2..]);
-                                patch_inscription_number(
-                                    &inscription_id,
-                                    inscription_number,
-                                    &rw_hord_db_conn,
-                                    &ctx,
-                                );
-                                info!(
-                                    ctx.expect_logger(),
-                                    "Patch inscription_number: {}\t{}\t({})",
-                                    inscription_id,
-                                    inscription_number,
-                                    block_height
-                                );
-                            }
+                for i in 0..774940 {
+                    match find_block_at_block_height_sqlite(i, &sqlite_db_conn) {
+                        Some(block) => {
+                            insert_entry_in_blocks(i, &block, &blocks_db, &ctx);
+                            println!("Block #{} inserted", i);
                         }
-                        inscription_number += 1;
+                        None => {
+                            println!("Block #{} missing", i)
+                        }
                     }
                 }
             }
         },
     }
     Ok(())
+}
+
+pub fn should_sync_hord_db(config: &Config, ctx: &Context) -> Result<Option<(u64, u64)>, String> {
+    let auth = Auth::UserPass(
+        config.network.bitcoind_rpc_username.clone(),
+        config.network.bitcoind_rpc_password.clone(),
+    );
+
+    let bitcoin_rpc = match Client::new(&config.network.bitcoind_rpc_url, auth) {
+        Ok(con) => con,
+        Err(message) => {
+            return Err(format!("Bitcoin RPC error: {}", message.to_string()));
+        }
+    };
+
+    let start_block = match open_readonly_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx)
+    {
+        Ok(blocks_db) => find_last_block_inserted(&blocks_db) as u64,
+        Err(err) => {
+            warn!(ctx.expect_logger(), "{}", err);
+            0
+        }
+    };
+
+    if start_block == 0 {
+        let _ = initialize_hord_db(&config.expected_cache_path(), &ctx);
+    }
+
+    let end_block = match bitcoin_rpc.get_blockchain_info() {
+        Ok(result) => result.blocks,
+        Err(e) => {
+            return Err(format!(
+                "unable to retrieve Bitcoin chain tip ({})",
+                e.to_string()
+            ));
+        }
+    };
+
+    if start_block < end_block {
+        Ok(Some((start_block, end_block)))
+    } else {
+        Ok(None)
+    }
 }
 
 pub async fn perform_hord_db_update(
@@ -698,11 +871,13 @@ pub async fn perform_hord_db_update(
         bitcoin_block_signaling: config.network.bitcoin_block_signaling.clone(),
     };
 
-    let rw_hord_db_conn = open_readwrite_hord_db_conn(&config.expected_cache_path(), &ctx)?;
+    let blocks_db = open_readwrite_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
+    let inscriptions_db_conn_rw = open_readwrite_hord_db_conn(&config.expected_cache_path(), &ctx)?;
 
     let _ = fetch_and_cache_blocks_in_hord_db(
         &bitcoin_config,
-        &rw_hord_db_conn,
+        &blocks_db,
+        &inscriptions_db_conn_rw,
         start_block,
         end_block,
         network_threads,

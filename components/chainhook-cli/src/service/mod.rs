@@ -1,33 +1,24 @@
 use crate::config::Config;
-use chainhook_event_observer::bitcoincore_rpc::jsonrpc;
-use chainhook_event_observer::chainhooks::bitcoin::{
-    handle_bitcoin_hook_action, BitcoinChainhookOccurrence, BitcoinTriggerChainhook,
+use crate::scan::bitcoin::scan_bitcoin_chainstate_via_http_using_predicate;
+use crate::scan::stacks::scan_stacks_chainstate_via_csv_using_predicate;
+
+use chainhook_event_observer::chainhooks::types::{ChainhookConfig, ChainhookFullSpecification};
+
+use chainhook_event_observer::chainhooks::types::ChainhookSpecification;
+use chainhook_event_observer::observer::{
+    start_event_observer, ApiKey, ObserverCommand, ObserverEvent,
 };
-use chainhook_event_observer::chainhooks::types::{
-    BitcoinPredicateType, ChainhookConfig, ChainhookFullSpecification, OrdinalOperations, Protocols,
-};
-use chainhook_event_observer::indexer;
-use chainhook_event_observer::observer::{start_event_observer, ApiKey, ObserverEvent};
-use chainhook_event_observer::utils::{file_append, send_request, Context};
-use chainhook_event_observer::{
-    chainhooks::stacks::{
-        evaluate_stacks_predicate_on_transaction, handle_stacks_hook_action,
-        StacksChainhookOccurrence, StacksTriggerChainhook,
-    },
-    chainhooks::types::ChainhookSpecification,
-};
-use chainhook_types::{
-    BitcoinBlockSignaling, BlockIdentifier, StacksBlockData, StacksBlockMetadata, StacksChainEvent,
-    StacksTransactionData,
-};
+use chainhook_event_observer::utils::Context;
+use chainhook_types::{BitcoinBlockSignaling, StacksBlockData, StacksChainEvent};
 use redis::{Commands, Connection};
-use reqwest::Client as HttpClient;
-use std::collections::{BTreeMap, HashMap};
+use threadpool::ThreadPool;
+
 use std::sync::mpsc::channel;
-use std::time::Duration;
 
 pub const DEFAULT_INGESTION_PORT: u16 = 20455;
 pub const DEFAULT_CONTROL_PORT: u16 = 20456;
+pub const STACKS_SCAN_THREAD_POOL_SIZE: usize = 12;
+pub const BITCOIN_SCAN_THREAD_POOL_SIZE: usize = 12;
 
 pub struct Service {
     config: Config,
@@ -39,19 +30,33 @@ impl Service {
         Self { config, ctx }
     }
 
-    pub async fn run(
-        &mut self,
-        mut predicates: Vec<ChainhookFullSpecification>,
-    ) -> Result<(), String> {
+    pub async fn run(&mut self, predicates: Vec<ChainhookFullSpecification>) -> Result<(), String> {
         let mut chainhook_config = ChainhookConfig::new();
 
         if predicates.is_empty() {
-            let mut registered_predicates = load_predicates_from_redis(&self.config, &self.ctx)?;
-            predicates.append(&mut registered_predicates);
+            let registered_predicates = load_predicates_from_redis(&self.config, &self.ctx)?;
+            for predicate in registered_predicates.into_iter() {
+                let predicate_uuid = predicate.uuid().to_string();
+                match chainhook_config.register_specification(predicate, true) {
+                    Ok(_) => {
+                        info!(
+                            self.ctx.expect_logger(),
+                            "Predicate {} retrieved from storage and loaded", predicate_uuid,
+                        );
+                    }
+                    Err(e) => {
+                        error!(
+                            self.ctx.expect_logger(),
+                            "Failed loading predicate from storage: {}",
+                            e.to_string()
+                        );
+                    }
+                }
+            }
         }
 
         for predicate in predicates.into_iter() {
-            match chainhook_config.register_hook(
+            match chainhook_config.register_full_specification(
                 (
                     &self.config.network.bitcoin_network,
                     &self.config.network.stacks_network,
@@ -62,14 +67,14 @@ impl Service {
                 Ok(spec) => {
                     info!(
                         self.ctx.expect_logger(),
-                        "Predicate {} retrieved from storage and loaded",
+                        "Predicate {} retrieved from config and loaded",
                         spec.uuid(),
                     );
                 }
                 Err(e) => {
                     error!(
                         self.ctx.expect_logger(),
-                        "Failed loading predicate from storage: {}",
+                        "Failed loading predicate from config: {}",
                         e.to_string()
                     );
                 }
@@ -110,26 +115,102 @@ impl Service {
             );
         }
 
-        // let ordinal_index = match initialize_ordinal_index(&event_observer_config, None, &self.ctx)
-        // {
-        //     Ok(index) => index,
-        //     Err(e) => {
-        //         panic!()
-        //     }
-        // };
-
         let context_cloned = self.ctx.clone();
         let event_observer_config_moved = event_observer_config.clone();
+        let observer_command_tx_moved = observer_command_tx.clone();
         let _ = std::thread::spawn(move || {
             let future = start_event_observer(
                 event_observer_config_moved,
-                observer_command_tx,
+                observer_command_tx_moved,
                 observer_command_rx,
                 Some(observer_event_tx),
                 context_cloned,
             );
             let _ = hiro_system_kit::nestable_block_on(future);
         });
+
+        // Stacks scan operation threadpool
+        let (stacks_scan_op_tx, stacks_scan_op_rx) = crossbeam_channel::unbounded();
+        let stacks_scan_pool = ThreadPool::new(STACKS_SCAN_THREAD_POOL_SIZE);
+        let ctx = self.ctx.clone();
+        let config = self.config.clone();
+        let observer_command_tx_moved = observer_command_tx.clone();
+        let _ = hiro_system_kit::thread_named("Stacks scan runloop")
+            .spawn(move || {
+                while let Ok((predicate_spec, api_key)) = stacks_scan_op_rx.recv() {
+                    let moved_ctx = ctx.clone();
+                    let mut moved_config = config.clone();
+                    let observer_command_tx = observer_command_tx_moved.clone();
+                    stacks_scan_pool.execute(move || {
+                        let op = scan_stacks_chainstate_via_csv_using_predicate(
+                            &predicate_spec,
+                            &mut moved_config,
+                            &moved_ctx,
+                        );
+                        let end_block = match hiro_system_kit::nestable_block_on(op) {
+                            Ok(end_block) => end_block,
+                            Err(e) => {
+                                error!(
+                                    moved_ctx.expect_logger(),
+                                    "Unable to evaluate predicate on Stacks chainstate: {e}",
+                                );
+                                return;
+                            }
+                        };
+                        info!(
+                            moved_ctx.expect_logger(),
+                            "Stacks chainstate scan completed up to block: {}", end_block.index
+                        );
+                        let _ = observer_command_tx.send(ObserverCommand::EnablePredicate(
+                            ChainhookSpecification::Stacks(predicate_spec),
+                            api_key,
+                        ));
+                    });
+                }
+                let res = stacks_scan_pool.join();
+                res
+            })
+            .expect("unable to spawn thread");
+
+        // Bitcoin scan operation threadpool
+        let (bitcoin_scan_op_tx, bitcoin_scan_op_rx) = crossbeam_channel::unbounded();
+        let bitcoin_scan_pool = ThreadPool::new(BITCOIN_SCAN_THREAD_POOL_SIZE);
+        let ctx = self.ctx.clone();
+        let config = self.config.clone();
+        let moved_observer_command_tx = observer_command_tx.clone();
+        let _ = hiro_system_kit::thread_named("Bitcoin scan runloop")
+            .spawn(move || {
+                while let Ok((predicate_spec, api_key)) = bitcoin_scan_op_rx.recv() {
+                    let moved_ctx = ctx.clone();
+                    let moved_config = config.clone();
+                    let observer_command_tx = moved_observer_command_tx.clone();
+                    bitcoin_scan_pool.execute(move || {
+                        let op = scan_bitcoin_chainstate_via_http_using_predicate(
+                            &predicate_spec,
+                            &moved_config,
+                            &moved_ctx,
+                        );
+
+                        match hiro_system_kit::nestable_block_on(op) {
+                            Ok(_) => {}
+                            Err(e) => {
+                                error!(
+                                    moved_ctx.expect_logger(),
+                                    "Unable to evaluate predicate on Bitcoin chainstate: {e}",
+                                );
+                                return;
+                            }
+                        };
+                        let _ = observer_command_tx.send(ObserverCommand::EnablePredicate(
+                            ChainhookSpecification::Bitcoin(predicate_spec),
+                            api_key,
+                        ));
+                    });
+                }
+                let res = bitcoin_scan_pool.join();
+                res
+            })
+            .expect("unable to spawn thread");
 
         loop {
             let event = match observer_event_rx.recv() {
@@ -154,7 +235,7 @@ impl Service {
                 }
             };
             match event {
-                ObserverEvent::HookRegistered(chainhook) => {
+                ObserverEvent::HookRegistered(chainhook, api_key) => {
                     // If start block specified, use it.
                     // I no start block specified, depending on the nature the hook, we'd like to retrieve:
                     // - contract-id
@@ -177,331 +258,19 @@ impl Service {
                         );
                     }
                     match chainhook {
-                        ChainhookSpecification::Stacks(stacks_hook) => {
-                            // Retrieve highest block height stored
-                            let tip_height: u64 = redis_con.get(&format!("stx:tip")).unwrap_or(1);
-
-                            let start_block = stacks_hook.start_block.unwrap_or(1); // TODO(lgalabru): handle STX hooks and genesis block :s
-                            let end_block = stacks_hook.end_block.unwrap_or(tip_height); // TODO(lgalabru): handle STX hooks and genesis block :s
-
+                        ChainhookSpecification::Stacks(predicate_spec) => {
+                            // let _ = stacks_scan_op_tx.send((predicate_spec, api_key));
                             info!(
                                 self.ctx.expect_logger(),
-                                "Processing Stacks chainhook {}, will scan blocks [{}; {}]",
-                                stacks_hook.uuid,
-                                start_block,
-                                end_block
+                                "Enabling stacks predicate {}", predicate_spec.uuid
                             );
-                            let mut total_hits = 0;
-                            for cursor in start_block..=end_block {
-                                debug!(
-                                    self.ctx.expect_logger(),
-                                    "Evaluating predicate #{} on block #{}",
-                                    stacks_hook.uuid,
-                                    cursor
-                                );
-                                let (
-                                    block_identifier,
-                                    parent_block_identifier,
-                                    timestamp,
-                                    transactions,
-                                    metadata,
-                                ) = {
-                                    let payload: Vec<String> = redis_con
-                                        .hget(
-                                            &format!("stx:{}", cursor),
-                                            &[
-                                                "block_identifier",
-                                                "parent_block_identifier",
-                                                "timestamp",
-                                                "transactions",
-                                                "metadata",
-                                            ],
-                                        )
-                                        .expect("unable to retrieve tip height");
-                                    if payload.len() != 5 {
-                                        warn!(self.ctx.expect_logger(), "Chain still being processed, please retry in a few minutes");
-                                        continue;
-                                    }
-                                    (
-                                        serde_json::from_str::<BlockIdentifier>(&payload[0])
-                                            .unwrap(),
-                                        serde_json::from_str::<BlockIdentifier>(&payload[1])
-                                            .unwrap(),
-                                        serde_json::from_str::<i64>(&payload[2]).unwrap(),
-                                        serde_json::from_str::<Vec<StacksTransactionData>>(
-                                            &payload[3],
-                                        )
-                                        .unwrap(),
-                                        serde_json::from_str::<StacksBlockMetadata>(&payload[4])
-                                            .unwrap(),
-                                    )
-                                };
-                                let mut hits = vec![];
-                                for tx in transactions.iter() {
-                                    if evaluate_stacks_predicate_on_transaction(
-                                        &tx,
-                                        &stacks_hook,
-                                        &self.ctx,
-                                    ) {
-                                        debug!(
-                                            self.ctx.expect_logger(),
-                                            "Action #{} triggered by transaction {} (block #{})",
-                                            stacks_hook.uuid,
-                                            tx.transaction_identifier.hash,
-                                            cursor
-                                        );
-                                        hits.push(tx);
-                                        total_hits += 1;
-                                    }
-                                }
-
-                                if hits.len() > 0 {
-                                    let block = StacksBlockData {
-                                        block_identifier,
-                                        parent_block_identifier,
-                                        timestamp,
-                                        transactions: vec![],
-                                        metadata,
-                                    };
-                                    let trigger = StacksTriggerChainhook {
-                                        chainhook: &stacks_hook,
-                                        apply: vec![(hits, &block)],
-                                        rollback: vec![],
-                                    };
-
-                                    let proofs = HashMap::new();
-                                    match handle_stacks_hook_action(trigger, &proofs, &self.ctx) {
-                                        Err(e) => {
-                                            info!(
-                                                self.ctx.expect_logger(),
-                                                "unable to handle action {}", e
-                                            );
-                                        }
-                                        Ok(StacksChainhookOccurrence::Http(request)) => {
-                                            if let Err(e) =
-                                                hiro_system_kit::nestable_block_on(request.send())
-                                            {
-                                                error!(
-                                                    self.ctx.expect_logger(),
-                                                    "unable to perform action {}", e
-                                                );
-                                            }
-                                        }
-                                        Ok(_) => {
-                                            error!(
-                                                self.ctx.expect_logger(),
-                                                "action not supported"
-                                            );
-                                        }
-                                    }
-                                }
-                            }
-                            info!(self.ctx.expect_logger(), "Stacks chainhook {} scan completed: action triggered by {} transactions", stacks_hook.uuid, total_hits);
+                            let _ = observer_command_tx.send(ObserverCommand::EnablePredicate(
+                                ChainhookSpecification::Stacks(predicate_spec),
+                                api_key,
+                            ));
                         }
                         ChainhookSpecification::Bitcoin(predicate_spec) => {
-                            let mut inscriptions_hints = BTreeMap::new();
-                            let use_hinting = false;
-                            if let BitcoinPredicateType::Protocol(Protocols::Ordinal(
-                                OrdinalOperations::InscriptionRevealed,
-                            )) = &predicate_spec.predicate
-                            {
-                                inscriptions_hints.insert(1, 1);
-
-                                // if let Some(ref ordinal_index) = bitcoin_context.ordinal_index {
-                                //     for (inscription_number, inscription_id) in ordinal_index
-                                //         .database
-                                //         .begin_read()
-                                //         .unwrap()
-                                //         .open_table(INSCRIPTION_NUMBER_TO_INSCRIPTION_ID)
-                                //         .unwrap()
-                                //         .iter()
-                                //         .unwrap()
-                                //     {
-                                //         let inscription =
-                                //             InscriptionId::load(*inscription_id.value());
-                                //         println!(
-                                //             "{} -> {}",
-                                //             inscription_number.value(),
-                                //             inscription
-                                //         );
-
-                                //         let entry = ordinal_index
-                                //             .get_inscription_entry(inscription)
-                                //             .unwrap()
-                                //             .unwrap();
-                                //         println!("{:?}", entry);
-
-                                //         let blockhash = ordinal_index
-                                //             .database
-                                //             .begin_read()
-                                //             .unwrap()
-                                //             .open_table(HEIGHT_TO_BLOCK_HASH)
-                                //             .unwrap()
-                                //             .get(&entry.height)
-                                //             .unwrap()
-                                //             .map(|k| BlockHash::load(*k.value()))
-                                //             .unwrap();
-
-                                //         inscriptions_hints.insert(entry.height, blockhash);
-                                //         use_hinting = true;
-                                //     }
-                                // }
-                            }
-
-                            let start_block = match predicate_spec.start_block {
-                                Some(n) => n,
-                                None => 0,
-                            };
-
-                            let end_block = match predicate_spec.end_block {
-                                Some(n) => n,
-                                None => {
-                                    let body = json!({
-                                        "jsonrpc": "1.0",
-                                        "id": "chainhook-cli",
-                                        "method": "getblockcount",
-                                        "params": json!([])
-                                    });
-                                    let http_client = HttpClient::builder()
-                                        .timeout(Duration::from_secs(20))
-                                        .build()
-                                        .expect("Unable to build http client");
-                                    http_client
-                                        .post(&self.config.network.bitcoind_rpc_url)
-                                        .basic_auth(
-                                            &self.config.network.bitcoind_rpc_username,
-                                            Some(&self.config.network.bitcoind_rpc_password),
-                                        )
-                                        .header("Content-Type", "application/json")
-                                        .header("Host", &self.config.network.bitcoind_rpc_url[7..])
-                                        .json(&body)
-                                        .send()
-                                        .await
-                                        .map_err(|e| format!("unable to send request ({})", e))?
-                                        .json::<jsonrpc::Response>()
-                                        .await
-                                        .map_err(|e| format!("unable to parse response ({})", e))?
-                                        .result::<u64>()
-                                        .map_err(|e| format!("unable to parse response ({})", e))?
-                                }
-                            };
-
-                            let mut total_hits = vec![];
-                            for cursor in start_block..=end_block {
-                                let block_hash = if use_hinting {
-                                    match inscriptions_hints.remove(&cursor) {
-                                        Some(block_hash) => block_hash.to_string(),
-                                        None => continue,
-                                    }
-                                } else {
-                                    let body = json!({
-                                        "jsonrpc": "1.0",
-                                        "id": "chainhook-cli",
-                                        "method": "getblockhash",
-                                        "params": [cursor]
-                                    });
-                                    let http_client = HttpClient::builder()
-                                        .timeout(Duration::from_secs(20))
-                                        .build()
-                                        .expect("Unable to build http client");
-                                    http_client
-                                        .post(&self.config.network.bitcoind_rpc_url)
-                                        .basic_auth(
-                                            &self.config.network.bitcoind_rpc_username,
-                                            Some(&self.config.network.bitcoind_rpc_password),
-                                        )
-                                        .header("Content-Type", "application/json")
-                                        .header("Host", &self.config.network.bitcoind_rpc_url[7..])
-                                        .json(&body)
-                                        .send()
-                                        .await
-                                        .map_err(|e| format!("unable to send request ({})", e))?
-                                        .json::<jsonrpc::Response>()
-                                        .await
-                                        .map_err(|e| format!("unable to parse response ({})", e))?
-                                        .result::<String>()
-                                        .map_err(|e| format!("unable to parse response ({})", e))?
-                                };
-
-                                let body = json!({
-                                    "jsonrpc": "1.0",
-                                    "id": "chainhook-cli",
-                                    "method": "getblock",
-                                    "params": [block_hash, 2]
-                                });
-                                let http_client = HttpClient::builder()
-                                    .timeout(Duration::from_secs(20))
-                                    .build()
-                                    .expect("Unable to build http client");
-                                let raw_block = http_client
-                                    .post(&self.config.network.bitcoind_rpc_url)
-                                    .basic_auth(
-                                        &self.config.network.bitcoind_rpc_username,
-                                        Some(&self.config.network.bitcoind_rpc_password),
-                                    )
-                                    .header("Content-Type", "application/json")
-                                    .header("Host", &self.config.network.bitcoind_rpc_url[7..])
-                                    .json(&body)
-                                    .send()
-                                    .await
-                                    .map_err(|e| format!("unable to send request ({})", e))?
-                                    .json::<jsonrpc::Response>()
-                                    .await
-                                    .map_err(|e| format!("unable to parse response ({})", e))?
-                                    .result::<indexer::bitcoin::BitcoinBlockFullBreakdown>()
-                                    .map_err(|e| format!("unable to parse response ({})", e))?;
-
-                                let block = indexer::bitcoin::standardize_bitcoin_block(
-                                    raw_block,
-                                    &event_observer_config.bitcoin_network,
-                                    &self.ctx,
-                                )?;
-
-                                let mut hits = vec![];
-                                for tx in block.transactions.iter() {
-                                    if predicate_spec
-                                        .predicate
-                                        .evaluate_transaction_predicate(&tx, &self.ctx)
-                                    {
-                                        info!(
-                                            self.ctx.expect_logger(),
-                                            "Action #{} triggered by transaction {} (block #{})",
-                                            predicate_spec.uuid,
-                                            tx.transaction_identifier.hash,
-                                            cursor
-                                        );
-                                        hits.push(tx);
-                                        total_hits.push(tx.transaction_identifier.hash.to_string());
-                                    }
-                                }
-
-                                if hits.len() > 0 {
-                                    let trigger = BitcoinTriggerChainhook {
-                                        chainhook: &predicate_spec,
-                                        apply: vec![(hits, &block)],
-                                        rollback: vec![],
-                                    };
-
-                                    let proofs = HashMap::new();
-                                    match handle_bitcoin_hook_action(trigger, &proofs) {
-                                        Err(e) => {
-                                            error!(
-                                                self.ctx.expect_logger(),
-                                                "unable to handle action {}", e
-                                            );
-                                        }
-                                        Ok(BitcoinChainhookOccurrence::Http(request)) => {
-                                            send_request(request, &self.ctx).await;
-                                        }
-                                        Ok(BitcoinChainhookOccurrence::File(path, bytes)) => {
-                                            file_append(path, bytes, &self.ctx)
-                                        }
-                                        Ok(BitcoinChainhookOccurrence::Data(_payload)) => {
-                                            unreachable!()
-                                        }
-                                    }
-                                }
-                            }
+                            let _ = bitcoin_scan_op_tx.send((predicate_spec, api_key));
                         }
                     }
                 }
@@ -533,6 +302,7 @@ impl Service {
                     };
                 }
                 ObserverEvent::Terminate => {
+                    info!(self.ctx.expect_logger(), "Terminating runloop");
                     break;
                 }
                 _ => {}
@@ -593,7 +363,7 @@ fn update_storage_with_confirmed_stacks_blocks(
 fn load_predicates_from_redis(
     config: &Config,
     ctx: &Context,
-) -> Result<Vec<ChainhookFullSpecification>, String> {
+) -> Result<Vec<ChainhookSpecification>, String> {
     let redis_config = config.expected_redis_config();
     let client = redis::Client::open(redis_config.uri.clone()).unwrap();
     let mut redis_con = match client.get_connection() {
@@ -618,10 +388,18 @@ fn load_predicates_from_redis(
     let mut predicates = vec![];
     for key in chainhooks_to_load.iter() {
         let chainhook = match redis_con.hget::<_, _, String>(key, "specification") {
-            Ok(spec) => {
-                ChainhookFullSpecification::deserialize_specification(&spec, key).unwrap()
-                // todo
-            }
+            Ok(spec) => match ChainhookSpecification::deserialize_specification(&spec, key) {
+                Ok(spec) => spec,
+                Err(e) => {
+                    error!(
+                        ctx.expect_logger(),
+                        "unable to load chainhook associated with key {}: {}",
+                        key,
+                        e.to_string()
+                    );
+                    continue;
+                }
+            },
             Err(e) => {
                 error!(
                     ctx.expect_logger(),
