@@ -729,6 +729,48 @@ pub struct WatchedSatpoint {
     pub offset: u64,
 }
 
+impl WatchedSatpoint {
+    pub fn get_genesis_satpoint(&self) -> String {
+        format!(
+            "{}:0",
+            &self.inscription_id[0..self.inscription_id.len() - 2]
+        )
+    }
+}
+
+pub fn find_watched_satpoint_for_inscription(
+    inscription_id: &str,
+    inscriptions_db_conn: &Connection,
+) -> Result<(u64, WatchedSatpoint), String> {
+    let args: &[&dyn ToSql] = &[&inscription_id.to_sql().unwrap()];
+    let mut stmt = inscriptions_db_conn
+        .prepare("SELECT inscription_id, inscription_number, ordinal_number, offset, block_height FROM inscriptions WHERE inscription_id = ? ORDER BY offset ASC")
+        .map_err(|e| format!("unable to query inscriptions table: {}", e.to_string()))?;
+    let mut rows = stmt
+        .query(args)
+        .map_err(|e| format!("unable to query inscriptions table: {}", e.to_string()))?;
+    while let Ok(Some(row)) = rows.next() {
+        let inscription_id: String = row.get(0).unwrap();
+        let inscription_number: u64 = row.get(1).unwrap();
+        let ordinal_number: u64 = row.get(2).unwrap();
+        let offset: u64 = row.get(3).unwrap();
+        let block_height: u64 = row.get(4).unwrap();
+        return Ok((
+            block_height,
+            WatchedSatpoint {
+                inscription_id,
+                inscription_number,
+                ordinal_number,
+                offset,
+            },
+        ));
+    }
+    return Err(format!(
+        "unable to find inscription with id {}",
+        inscription_id
+    ));
+}
+
 pub fn find_inscriptions_at_wached_outpoint(
     outpoint: &str,
     hord_db_conn: &Connection,
