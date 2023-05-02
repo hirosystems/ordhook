@@ -86,7 +86,7 @@ pub async fn scan_bitcoin_chainstate_via_http_using_predicate(
             if let Ok(blocks_db) =
                 open_readonly_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx)
             {
-                if find_block_at_block_height(end_block as u32, &blocks_db).is_none() {
+                if find_block_at_block_height(end_block as u32, 3, &blocks_db).is_none() {
                     hord_blocks_requires_update = true;
                 }
             }

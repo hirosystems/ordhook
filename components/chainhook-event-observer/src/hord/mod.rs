@@ -397,6 +397,13 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
     }
 }
 
+/// For each input of each transaction in the block, we retrieve the UTXO spent (outpoint_pre_transfer)
+/// and we check using a `storage` (in-memory or sqlite) absctraction if we have some existing inscriptions
+/// for this entry.
+/// When this is the case, it means that an inscription_transfer event needs to be produced. We need to
+/// compute the output index (if any) `post_transfer_output` that will now include the inscription.
+/// When identifying the output index, we will also need to provide an updated offset for pin pointing
+/// the satoshi location.
 pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
     block: &mut BitcoinBlockData,
     storage: &mut Storage,
@@ -406,10 +413,11 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
     let first_sat_post_subsidy = Height(block.block_identifier.index).starting_sat().0;
     let coinbase_txid = &block.transactions[0].transaction_identifier.hash.clone();
 
+    // todo: handle ordinals coinbase spend
+
     for new_tx in block.transactions.iter_mut().skip(1) {
         // Have inscriptions been transfered?
         let mut sats_in_offset = 0;
-        let mut sats_out_offset = new_tx.metadata.outputs[0].value;
 
         for input in new_tx.metadata.inputs.iter() {
             // input.previous_output.txid
@@ -418,8 +426,6 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
                 &input.previous_output.txid[2..],
                 input.previous_output.vout
             );
-
-            let mut post_transfer_output_index = 0;
 
             let entries = match storage {
                 Storage::Sqlite(rw_hord_db_conn) => {
@@ -432,20 +438,25 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
             };
 
             for mut watched_satpoint in entries.into_iter() {
+                let mut post_transfer_output_index = 0;
+                let mut sats_out_offset = 0;
+                let mut next_output_value = new_tx.metadata.outputs[0].value;
                 let satpoint_pre_transfer =
                     format!("{}:{}", outpoint_pre_transfer, watched_satpoint.offset);
 
                 // Question is: are inscriptions moving to a new output,
                 // burnt or lost in fees and transfered to the miner?
-                let post_transfer_output = loop {
-                    if sats_out_offset >= sats_in_offset + watched_satpoint.offset {
+                
+                let post_transfer_output: Option<usize> = loop {
+                    if sats_out_offset + next_output_value > sats_in_offset + watched_satpoint.offset {
                         break Some(post_transfer_output_index);
                     }
-                    if post_transfer_output_index + 1 >= new_tx.metadata.outputs.len() {
+                    sats_out_offset += next_output_value;
+                    post_transfer_output_index += 1;
+                    if post_transfer_output_index >= new_tx.metadata.outputs.len() {
                         break None;
                     } else {
-                        post_transfer_output_index += 1;
-                        sats_out_offset +=
+                        next_output_value =
                             new_tx.metadata.outputs[post_transfer_output_index].value;
                     }
                 };
@@ -459,7 +470,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
                     Some(index) => {
                         let outpoint =
                             format!("{}:{}", &new_tx.transaction_identifier.hash[2..], index);
-                        let offset = 0;
+                        let offset = (sats_in_offset + watched_satpoint.offset) - sats_out_offset;
                         let script_pub_key_hex =
                             new_tx.metadata.outputs[index].get_script_pubkey_hex();
                         let updated_address = match Script::from_hex(&script_pub_key_hex) {
@@ -487,7 +498,6 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
                             }
                         };
 
-                        // let vout = new_tx.metadata.outputs[index];
                         (
                             outpoint,
                             offset,
@@ -497,20 +507,12 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
                     }
                     None => {
                         // Get Coinbase TX
-                        let offset = first_sat_post_subsidy + cumulated_fees;
-                        let outpoint = coinbase_txid.clone();
+                        let offset = first_sat_post_subsidy + cumulated_fees + watched_satpoint.offset;
+                        let outpoint = format!("{}:0", &coinbase_txid[2..]);
                         (outpoint, offset, None, None)
                     }
                 };
 
-                // ctx.try_log(|logger| {
-                //     slog::info!(
-                //         logger,
-                //         "Updating watched outpoint {} to outpoint {}",
-                //         outpoint_post_transfer,
-                //         outpoint_pre_transfer,
-                //     )
-                // });
                 // At this point we know that inscriptions are being moved.
                 ctx.try_log(|logger| {
                     slog::info!(
