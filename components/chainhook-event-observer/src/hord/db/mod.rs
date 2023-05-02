@@ -482,13 +482,26 @@ pub fn find_last_block_inserted(blocks_db: &DB) -> u32 {
     }
 }
 
-pub fn find_block_at_block_height(block_height: u32, blocks_db: &DB) -> Option<CompactedBlock> {
-    match blocks_db.get(block_height.to_be_bytes()) {
-        Ok(Some(ref res)) => {
-            let res = CompactedBlock::deserialize(&mut std::io::Cursor::new(&res)).unwrap();
-            Some(res)
+pub fn find_block_at_block_height(
+    block_height: u32,
+    retry: u8,
+    blocks_db: &DB,
+) -> Option<CompactedBlock> {
+    let mut attempt = 0;
+    loop {
+        match blocks_db.get(block_height.to_be_bytes()) {
+            Ok(Some(ref res)) => {
+                let res = CompactedBlock::deserialize(&mut std::io::Cursor::new(&res)).unwrap();
+                return Some(res);
+            }
+            _ => {
+                attempt += 1;
+                std::thread::sleep(std::time::Duration::from_secs(1));
+                if attempt > retry {
+                    return None;
+                }
+            }
         }
-        _ => None,
     }
 }
 
@@ -1036,7 +1049,7 @@ pub fn retrieve_satoshi_point_using_local_storage(
         hops += 1;
         let block = match local_block_cache.get(&ordinal_block_number) {
             Some(block) => block,
-            None => match find_block_at_block_height(ordinal_block_number, &blocks_db) {
+            None => match find_block_at_block_height(ordinal_block_number, 3, &blocks_db) {
                 Some(block) => {
                     local_block_cache.insert(ordinal_block_number, block);
                     local_block_cache.get(&ordinal_block_number).unwrap()
