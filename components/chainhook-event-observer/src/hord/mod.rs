@@ -413,6 +413,8 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
     let first_sat_post_subsidy = Height(block.block_identifier.index).starting_sat().0;
     let coinbase_txid = &block.transactions[0].transaction_identifier.hash.clone();
 
+    // todo: handle ordinals coinbase spend
+
     for new_tx in block.transactions.iter_mut().skip(1) {
         // Have inscriptions been transfered?
         let mut sats_in_offset = 0;
@@ -496,7 +498,6 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
                             }
                         };
 
-                        // let vout = new_tx.metadata.outputs[index];
                         (
                             outpoint,
                             offset,
@@ -506,7 +507,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
                     }
                     None => {
                         // Get Coinbase TX
-                        let offset = first_sat_post_subsidy + cumulated_fees;
+                        let offset = first_sat_post_subsidy + cumulated_fees + watched_satpoint.offset;
                         let outpoint = format!("{}:0", &coinbase_txid[2..]);
                         (outpoint, offset, None, None)
                     }
