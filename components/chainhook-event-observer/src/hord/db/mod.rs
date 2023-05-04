@@ -1089,6 +1089,13 @@ pub fn retrieve_satoshi_point_using_local_storage(
         local_block_cache.clear();
 
         hops += 1;
+        if hops as u64 > block_identifier.index {
+            return Err(format!(
+                "Unable to process transaction {}, manual investigation required",
+                transaction_identifier.hash
+            ));
+        }
+
         let block = match local_block_cache.get(&ordinal_block_number) {
             Some(block) => block,
             None => match find_block_at_block_height(ordinal_block_number, 3, &blocks_db) {
@@ -1204,6 +1211,13 @@ pub fn retrieve_satoshi_point_using_local_storage(
                         tx_cursor = (txin.clone(), *vout as usize);
                         break;
                     }
+                }
+
+                if sats_in == 0 {
+                    return Err(format!(
+                        "Transaction {} is originating from a non spending transaction",
+                        transaction_identifier.hash
+                    ));
                 }
             }
         }
