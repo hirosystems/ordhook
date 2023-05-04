@@ -247,8 +247,27 @@ pub fn update_hord_db_and_augment_bitcoin_block(
         let mut traversals_received = 0;
         while let Ok((transaction_identifier, traversal_result)) = traversal_rx.recv() {
             traversals_received += 1;
-            let traversal = traversal_result?;
-            traversals.insert(transaction_identifier, traversal);
+            match traversal_result {
+                Ok(traversal) => {
+                    ctx.try_log(|logger| {
+                        slog::info!(
+                            logger,
+                            "Satoshi #{} was minted in block #{} at offset {} and was transferred {} times.",
+                            traversal.ordinal_number, traversal.get_ordinal_coinbase_height(), traversal.get_ordinal_coinbase_offset(), traversal.transfers
+                            )
+                    });
+                    traversals.insert(transaction_identifier, traversal);
+                }
+                Err(e) => {
+                    ctx.try_log(|logger| {
+                        slog::error!(
+                            logger,
+                            "Unable to compute inscription's Satoshi from transaction {}: {e}",
+                            transaction_identifier.hash
+                        )
+                    });
+                }
+            }
             if traversals_received == expected_traversals {
                 break;
             }
@@ -446,9 +465,11 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
 
                 // Question is: are inscriptions moving to a new output,
                 // burnt or lost in fees and transfered to the miner?
-                
+
                 let post_transfer_output: Option<usize> = loop {
-                    if sats_out_offset + next_output_value > sats_in_offset + watched_satpoint.offset {
+                    if sats_out_offset + next_output_value
+                        > sats_in_offset + watched_satpoint.offset
+                    {
                         break Some(post_transfer_output_index);
                     }
                     sats_out_offset += next_output_value;
@@ -507,7 +528,8 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
                     }
                     None => {
                         // Get Coinbase TX
-                        let offset = first_sat_post_subsidy + cumulated_fees + watched_satpoint.offset;
+                        let offset =
+                            first_sat_post_subsidy + cumulated_fees + watched_satpoint.offset;
                         let outpoint = format!("{}:0", &coinbase_txid[2..]);
                         (outpoint, offset, None, None)
                     }
