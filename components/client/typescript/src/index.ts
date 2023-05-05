@@ -18,7 +18,7 @@ import {
  * Events relayed by this component will include the original predicate's UUID so actions can be
  * taken for each relevant predicate.
  */
-export class ChainhookEventServer {
+export class ChainhookEventObserver {
   private fastify?: FastifyInstance;
   private serverOpts: ServerOptions;
   private chainhookOpts: ChainhookNodeOptions;

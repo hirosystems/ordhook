@@ -62,7 +62,7 @@ server helpers to handle all node interactions transparently.
     ```typescript
     import { Payload } from "@hirosystems/chainhook-client/dist/schemas";
 
-    const server = new ChainhookEventServer(opts, chainhook);
+    const server = new ChainhookEventObserver(opts, chainhook);
     server.start(
         [predicate],
         async (uuid: string, payload: Payload) => {
