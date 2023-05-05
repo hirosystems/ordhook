@@ -252,7 +252,7 @@ pub fn update_hord_db_and_augment_bitcoin_block(
                     ctx.try_log(|logger| {
                         slog::info!(
                             logger,
-                            "Satoshi #{} was minted in block #{} at offset {} and was transferred {} times.",
+                            "Satoshi #{} was minted in block #{} at offset {} and was transferred {} times (progress: {traversals_received}/{expected_traversals}).",
                             traversal.ordinal_number, traversal.get_ordinal_coinbase_height(), traversal.get_ordinal_coinbase_offset(), traversal.transfers
                             )
                     });

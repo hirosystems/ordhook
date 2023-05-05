@@ -1214,10 +1214,18 @@ pub fn retrieve_satoshi_point_using_local_storage(
                 }
 
                 if sats_in == 0 {
-                    return Err(format!(
-                        "Transaction {} is originating from a non spending transaction",
-                        transaction_identifier.hash
-                    ));
+                    ctx.try_log(|logger| {
+                        slog::error!(
+                            logger,
+                            "Transaction {} is originating from a non spending transaction",
+                            transaction_identifier.hash
+                        )
+                    });
+                    return Ok(TraversalResult {
+                        inscription_number: 0,
+                        ordinal_number: 0,
+                        transfers: 0,
+                    });
                 }
             }
         }
