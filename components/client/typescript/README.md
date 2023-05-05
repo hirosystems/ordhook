@@ -48,7 +48,8 @@ server helpers to handle all node interactions transparently.
         port: 3000,
         auth_token: "<random_string>",
         // Configure this value to a hostname the Chainhook node can use to reach our local server.
-        external_host: "<external_host>:3000"
+        // e.g. http://local.server:3000
+        external_base_url: "<external_base_url>"
     };
 
     // Chainhook node options

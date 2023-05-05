@@ -21,7 +21,7 @@ const ServerOptionsSchema = Type.Object({
   hostname: Type.String(),
   port: Type.Integer(),
   auth_token: Type.String(),
-  external_host: Type.String(),
+  external_base_url: Type.String(),
 });
 /** Local event server connection and authentication options */
 export type ServerOptions = Static<typeof ServerOptionsSchema>;
@@ -97,7 +97,7 @@ export async function buildServer(
     for (const predicate of predicates) {
       const thenThat: ThenThatHttpPost = {
         http_post: {
-          url: `http://${serverOpts.external_host}/chainhook/${predicate.uuid}`,
+          url: `${serverOpts.external_base_url}/chainhook/${predicate.uuid}`,
           authorization_header: `Bearer ${serverOpts.auth_token}`,
         },
       };
