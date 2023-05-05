@@ -12,10 +12,12 @@ use std::path::PathBuf;
 
 use crate::service::{DEFAULT_CONTROL_PORT, DEFAULT_INGESTION_PORT};
 
-const DEFAULT_MAINNET_TSV_ARCHIVE: &str =
+const DEFAULT_MAINNET_STACKS_TSV_ARCHIVE: &str =
     "https://archive.hiro.so/mainnet/stacks-blockchain-api/mainnet-stacks-blockchain-api-latest";
-const DEFAULT_TESTNET_TSV_ARCHIVE: &str =
+const DEFAULT_TESTNET_STACKS_TSV_ARCHIVE: &str =
     "https://archive.hiro.so/testnet/stacks-blockchain-api/testnet-stacks-blockchain-api-latest";
+const DEFAULT_MAINNET_ORDINALS_SQLITE_ARCHIVE: &str =
+    "https://archive.hiro.so/mainnet/chainhooks/hord-latest.sqlite";
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -50,17 +52,19 @@ pub struct TikvConfig {
 
 #[derive(Clone, Debug)]
 pub enum EventSourceConfig {
-    TsvPath(TsvPathConfig),
-    TsvUrl(TsvUrlConfig),
+    StacksTsvPath(PathConfig),
+    StacksTsvUrl(UrlConfig),
+    OrdinalsSqlitePath(PathConfig),
+    OrdinalsSqliteUrl(UrlConfig),
 }
 
 #[derive(Clone, Debug)]
-pub struct TsvPathConfig {
+pub struct PathConfig {
     pub file_path: PathBuf,
 }
 
 #[derive(Clone, Debug)]
-pub struct TsvUrlConfig {
+pub struct UrlConfig {
     pub file_url: String,
 }
 
@@ -125,11 +129,11 @@ impl Config {
             if let Some(dst) = source.tsv_file_path.take() {
                 let mut file_path = PathBuf::new();
                 file_path.push(dst);
-                event_sources.push(EventSourceConfig::TsvPath(TsvPathConfig { file_path }));
+                event_sources.push(EventSourceConfig::StacksTsvPath(PathConfig { file_path }));
                 continue;
             }
             if let Some(file_url) = source.tsv_file_url.take() {
-                event_sources.push(EventSourceConfig::TsvUrl(TsvUrlConfig { file_url }));
+                event_sources.push(EventSourceConfig::StacksTsvUrl(UrlConfig { file_url }));
                 continue;
             }
         }
@@ -174,15 +178,32 @@ impl Config {
     pub fn is_initial_ingestion_required(&self) -> bool {
         for source in self.event_sources.iter() {
             match source {
-                EventSourceConfig::TsvUrl(_) | EventSourceConfig::TsvPath(_) => return true,
+                EventSourceConfig::StacksTsvUrl(_) | EventSourceConfig::StacksTsvPath(_) => {
+                    return true
+                }
+                _ => {}
             }
         }
         return false;
     }
 
-    pub fn add_local_tsv_source(&mut self, file_path: &PathBuf) {
+    pub fn add_local_stacks_tsv_source(&mut self, file_path: &PathBuf) {
         self.event_sources
-            .push(EventSourceConfig::TsvPath(TsvPathConfig {
+            .push(EventSourceConfig::StacksTsvPath(PathConfig {
+                file_path: file_path.clone(),
+            }));
+    }
+
+    pub fn add_ordinals_sqlite_remote_source_url(&mut self, file_url: &str) {
+        self.event_sources
+            .push(EventSourceConfig::OrdinalsSqliteUrl(UrlConfig {
+                file_url: file_url.to_string(),
+            }));
+    }
+
+    pub fn add_local_ordinals_sqlite_source(&mut self, file_path: &PathBuf) {
+        self.event_sources
+            .push(EventSourceConfig::OrdinalsSqlitePath(PathConfig {
                 file_path: file_path.clone(),
             }));
     }
@@ -201,9 +222,9 @@ impl Config {
         }
     }
 
-    pub fn expected_local_tsv_file(&self) -> &PathBuf {
+    pub fn expected_local_stacks_tsv_file(&self) -> &PathBuf {
         for source in self.event_sources.iter() {
-            if let EventSourceConfig::TsvPath(config) = source {
+            if let EventSourceConfig::StacksTsvPath(config) = source {
                 return &config.file_path;
             }
         }
@@ -216,40 +237,80 @@ impl Config {
         destination_path
     }
 
-    fn expected_remote_tsv_base_url(&self) -> &String {
+    fn expected_remote_ordinals_sqlite_base_url(&self) -> &String {
         for source in self.event_sources.iter() {
-            if let EventSourceConfig::TsvUrl(config) = source {
+            if let EventSourceConfig::OrdinalsSqliteUrl(config) = source {
                 return &config.file_url;
             }
         }
         panic!("expected remote-tsv source")
     }
 
-    pub fn expected_remote_tsv_sha256(&self) -> String {
-        format!("{}.sha256", self.expected_remote_tsv_base_url())
-    }
-
-    pub fn expected_remote_tsv_url(&self) -> String {
-        format!("{}.gz", self.expected_remote_tsv_base_url())
-    }
-
-    pub fn rely_on_remote_tsv(&self) -> bool {
+    fn expected_remote_stacks_tsv_base_url(&self) -> &String {
         for source in self.event_sources.iter() {
-            if let EventSourceConfig::TsvUrl(_config) = source {
+            if let EventSourceConfig::StacksTsvUrl(config) = source {
+                return &config.file_url;
+            }
+        }
+        panic!("expected remote-tsv source")
+    }
+
+    pub fn expected_remote_stacks_tsv_sha256(&self) -> String {
+        format!("{}.sha256", self.expected_remote_stacks_tsv_base_url())
+    }
+
+    pub fn expected_remote_stacks_tsv_url(&self) -> String {
+        format!("{}.gz", self.expected_remote_stacks_tsv_base_url())
+    }
+
+    pub fn expected_remote_ordinals_sqlite_sha256(&self) -> String {
+        format!("{}.sha256", self.expected_remote_ordinals_sqlite_base_url())
+    }
+
+    pub fn expected_remote_ordinals_sqlite_url(&self) -> String {
+        format!("{}.gz", self.expected_remote_ordinals_sqlite_base_url())
+    }
+
+    pub fn rely_on_remote_stacks_tsv(&self) -> bool {
+        for source in self.event_sources.iter() {
+            if let EventSourceConfig::StacksTsvUrl(_config) = source {
                 return true;
             }
         }
         false
     }
 
-    pub fn should_download_remote_tsv(&self) -> bool {
+    pub fn rely_on_remote_ordinals_sqlite(&self) -> bool {
+        for source in self.event_sources.iter() {
+            if let EventSourceConfig::OrdinalsSqliteUrl(_config) = source {
+                return true;
+            }
+        }
+        false
+    }
+
+    pub fn should_download_remote_stacks_tsv(&self) -> bool {
         let mut rely_on_remote_tsv = false;
         let mut remote_tsv_present_locally = false;
         for source in self.event_sources.iter() {
-            if let EventSourceConfig::TsvUrl(_config) = source {
+            if let EventSourceConfig::StacksTsvUrl(_config) = source {
                 rely_on_remote_tsv = true;
             }
-            if let EventSourceConfig::TsvPath(_config) = source {
+            if let EventSourceConfig::StacksTsvPath(_config) = source {
+                remote_tsv_present_locally = true;
+            }
+        }
+        rely_on_remote_tsv == true && remote_tsv_present_locally == false
+    }
+
+    pub fn should_download_remote_ordinals_sqlite(&self) -> bool {
+        let mut rely_on_remote_tsv = false;
+        let mut remote_tsv_present_locally = false;
+        for source in self.event_sources.iter() {
+            if let EventSourceConfig::OrdinalsSqliteUrl(_config) = source {
+                rely_on_remote_tsv = true;
+            }
+            if let EventSourceConfig::OrdinalsSqlitePath(_config) = source {
                 remote_tsv_present_locally = true;
             }
         }
@@ -308,8 +369,8 @@ impl Config {
                 }),
                 cache_path: default_cache_path(),
             },
-            event_sources: vec![EventSourceConfig::TsvUrl(TsvUrlConfig {
-                file_url: DEFAULT_TESTNET_TSV_ARCHIVE.into(),
+            event_sources: vec![EventSourceConfig::StacksTsvUrl(UrlConfig {
+                file_url: DEFAULT_TESTNET_STACKS_TSV_ARCHIVE.into(),
             })],
             chainhooks: ChainhooksConfig {
                 max_stacks_registrations: 10,
@@ -338,9 +399,14 @@ impl Config {
                 }),
                 cache_path: default_cache_path(),
             },
-            event_sources: vec![EventSourceConfig::TsvUrl(TsvUrlConfig {
-                file_url: DEFAULT_MAINNET_TSV_ARCHIVE.into(),
-            })],
+            event_sources: vec![
+                EventSourceConfig::StacksTsvUrl(UrlConfig {
+                    file_url: DEFAULT_MAINNET_STACKS_TSV_ARCHIVE.into(),
+                }),
+                EventSourceConfig::OrdinalsSqliteUrl(UrlConfig {
+                    file_url: DEFAULT_MAINNET_ORDINALS_SQLITE_ARCHIVE.into(),
+                }),
+            ],
             chainhooks: ChainhooksConfig {
                 max_stacks_registrations: 10,
                 max_bitcoin_registrations: 10,

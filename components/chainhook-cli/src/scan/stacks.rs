@@ -1,10 +1,7 @@
-use std::{
-    collections::{HashMap, VecDeque},
-    process,
-};
+use std::collections::{HashMap, VecDeque};
 
 use crate::{
-    archive,
+    archive::download_stacks_dataset_if_required,
     block::{Record, RecordKind},
     config::Config,
 };
@@ -21,7 +18,6 @@ use chainhook_event_observer::{
     utils::{file_append, send_request, AbstractStacksBlock},
 };
 use chainhook_types::BlockIdentifier;
-use clarinet_files::FileLocation;
 
 pub async fn scan_stacks_chainstate_via_csv_using_predicate(
     predicate_spec: &StacksChainhookSpecification,
@@ -38,9 +34,9 @@ pub async fn scan_stacks_chainstate_via_csv_using_predicate(
         }
     };
 
-    let _ = download_dataset_if_required(config, ctx).await;
+    let _ = download_stacks_dataset_if_required(config, ctx).await;
 
-    let seed_tsv_path = config.expected_local_tsv_file().clone();
+    let seed_tsv_path = config.expected_local_stacks_tsv_file().clone();
 
     let (record_tx, record_rx) = std::sync::mpsc::channel();
 
@@ -195,70 +191,4 @@ pub async fn scan_stacks_chainstate_via_csv_using_predicate(
     );
 
     Ok(last_block_scanned)
-}
-
-async fn download_dataset_if_required(config: &mut Config, ctx: &Context) -> bool {
-    if config.is_initial_ingestion_required() {
-        // Download default tsv.
-        if config.rely_on_remote_tsv() && config.should_download_remote_tsv() {
-            let url = config.expected_remote_tsv_url();
-            let mut tsv_file_path = config.expected_cache_path();
-            tsv_file_path.push(archive::default_tsv_file_path(
-                &config.network.stacks_network,
-            ));
-            let mut tsv_sha_file_path = config.expected_cache_path();
-            tsv_sha_file_path.push(archive::default_tsv_sha_file_path(
-                &config.network.stacks_network,
-            ));
-
-            // Download archive if not already present in cache
-            // Load the local
-            let local_sha_file = FileLocation::from_path(tsv_sha_file_path).read_content();
-            let sha_url = config.expected_remote_tsv_sha256();
-
-            let remote_sha_file = match reqwest::get(&sha_url).await {
-                Ok(response) => response.bytes().await,
-                Err(e) => Err(e),
-            };
-            match (local_sha_file, remote_sha_file) {
-                (Ok(local), Ok(remote_response)) => {
-                    println!("{:?}", local);
-                    println!("{:?}", remote_response);
-                }
-                (Ok(local), _) => {
-                    // println!("Local: {:?}", local)
-                    println!("Here 2");
-                }
-                (_, _) => {
-                    // We will download the latest file
-                    println!("error reading local / remote");
-                }
-            }
-
-            if !tsv_file_path.exists() {
-                info!(ctx.expect_logger(), "Downloading {}", url);
-                match archive::download_tsv_file(&config).await {
-                    Ok(_) => {}
-                    Err(e) => {
-                        error!(ctx.expect_logger(), "{}", e);
-                        process::exit(1);
-                    }
-                }
-            } else {
-                info!(
-                    ctx.expect_logger(),
-                    "Building in-memory chainstate from file {}",
-                    tsv_file_path.display()
-                );
-            }
-            config.add_local_tsv_source(&tsv_file_path);
-        }
-        true
-    } else {
-        info!(
-            ctx.expect_logger(),
-            "Streaming blocks from stacks-node {}", config.network.stacks_node_rpc_url
-        );
-        false
-    }
 }

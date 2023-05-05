@@ -10,15 +10,15 @@ use crate::chainhooks::types::{
     ChainhookConfig, ChainhookFullSpecification, ChainhookSpecification,
 };
 
-use crate::hord::db::{open_readwrite_hord_db_conn, open_readwrite_hord_db_conn_rocks_db};
+#[cfg(feature = "ordinals")]
 use crate::hord::{
+    db::{open_readwrite_hord_db_conn, open_readwrite_hord_db_conn_rocks_db},
     revert_hord_db_with_augmented_bitcoin_block, update_hord_db_and_augment_bitcoin_block,
 };
 use crate::indexer::bitcoin::{
     download_and_parse_block_with_retry, standardize_bitcoin_block, BitcoinBlockFullBreakdown,
     NewBitcoinBlock,
 };
-use crate::indexer::fork_scratch_pad::ForkScratchPad;
 use crate::indexer::{self, Indexer, IndexerConfig};
 use crate::utils::{send_request, Context};
 
@@ -51,6 +51,7 @@ use std::str::FromStr;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
+#[cfg(feature = "zeromq")]
 use zeromq::{Socket, SocketRecv};
 
 pub const DEFAULT_INGESTION_PORT: u16 = 20445;
@@ -408,10 +409,12 @@ pub async fn start_event_observer(
         let _ = hiro_system_kit::nestable_block_on(ignite.launch());
     });
 
+    #[cfg(feature = "zeromq")]
     if let BitcoinBlockSignaling::ZeroMQ(ref bitcoind_zmq_url) = config.bitcoin_block_signaling {
         let bitcoind_zmq_url = bitcoind_zmq_url.clone();
         let ctx_moved = ctx.clone();
         let bitcoin_config = config.get_bitcoin_config();
+
         hiro_system_kit::thread_named("Bitcoind zmq listener")
             .spawn(move || {
                 ctx_moved.try_log(|logger| {
@@ -644,6 +647,8 @@ pub async fn start_observer_commands_handler(
                     BlockchainEvent::BlockchainUpdatedWithHeaders(data) => {
                         let mut new_blocks = vec![];
                         let mut confirmed_blocks = vec![];
+
+                        #[cfg(feature = "ordinals")]
                         let blocks_db = match open_readwrite_hord_db_conn_rocks_db(
                             &config.get_cache_path_buf(),
                             &ctx,
@@ -664,6 +669,7 @@ pub async fn start_observer_commands_handler(
                             }
                         };
 
+                        #[cfg(feature = "ordinals")]
                         let inscriptions_db_conn_rw =
                             match open_readwrite_hord_db_conn(&config.get_cache_path_buf(), &ctx) {
                                 Ok(conn) => conn,
@@ -688,6 +694,7 @@ pub async fn start_observer_commands_handler(
                         for header in data.new_headers.iter() {
                             match bitcoin_block_store.get_mut(&header.block_identifier) {
                                 Some(block) => {
+                                    #[cfg(feature = "ordinals")]
                                     if let Err(e) = update_hord_db_and_augment_bitcoin_block(
                                         block,
                                         &blocks_db,
@@ -747,6 +754,7 @@ pub async fn start_observer_commands_handler(
                         let mut blocks_to_rollback = vec![];
                         let mut confirmed_blocks = vec![];
 
+                        #[cfg(feature = "ordinals")]
                         let blocks_db = match open_readwrite_hord_db_conn_rocks_db(
                             &config.get_cache_path_buf(),
                             &ctx,
@@ -767,6 +775,7 @@ pub async fn start_observer_commands_handler(
                             }
                         };
 
+                        #[cfg(feature = "ordinals")]
                         let inscriptions_db_conn_rw =
                             match open_readwrite_hord_db_conn(&config.get_cache_path_buf(), &ctx) {
                                 Ok(conn) => conn,
@@ -791,6 +800,7 @@ pub async fn start_observer_commands_handler(
                         for header in data.headers_to_rollback.iter() {
                             match bitcoin_block_store.get(&header.block_identifier) {
                                 Some(block) => {
+                                    #[cfg(feature = "ordinals")]
                                     if let Err(e) = revert_hord_db_with_augmented_bitcoin_block(
                                         block,
                                         &blocks_db,
@@ -822,6 +832,7 @@ pub async fn start_observer_commands_handler(
                         for header in data.headers_to_apply.iter() {
                             match bitcoin_block_store.get_mut(&header.block_identifier) {
                                 Some(block) => {
+                                    #[cfg(feature = "ordinals")]
                                     if let Err(e) = update_hord_db_and_augment_bitcoin_block(
                                         block,
                                         &blocks_db,

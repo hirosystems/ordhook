@@ -10,12 +10,16 @@ extern crate serde_derive;
 extern crate serde_json;
 
 pub extern crate bitcoincore_rpc;
-pub extern crate rocksdb;
 
 pub use chainhook_types;
 
 pub mod chainhooks;
-pub mod hord;
 pub mod indexer;
 pub mod observer;
 pub mod utils;
+
+#[cfg(feature = "ordinals")]
+pub extern crate rocksdb;
+
+#[cfg(feature = "ordinals")]
+pub mod hord;

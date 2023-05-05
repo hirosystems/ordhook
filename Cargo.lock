@@ -526,7 +526,7 @@ dependencies = [
 
 [[package]]
 name = "chainhook-event-observer"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "anyhow",
  "base58 0.2.0",

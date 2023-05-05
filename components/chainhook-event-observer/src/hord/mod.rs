@@ -18,6 +18,7 @@ use std::path::PathBuf;
 use std::sync::mpsc::channel;
 use threadpool::ThreadPool;
 
+use crate::indexer::bitcoin::BitcoinTransactionFullBreakdown;
 use crate::{
     hord::{
         db::{
@@ -35,6 +36,73 @@ use self::db::{
     open_readonly_hord_db_conn_rocks_db, remove_entry_from_blocks, remove_entry_from_inscriptions,
     TraversalResult, WatchedSatpoint,
 };
+use self::inscription::InscriptionParser;
+use self::ord::inscription_id::InscriptionId;
+
+pub fn try_parse_ordinal_operation(
+    tx: &BitcoinTransactionFullBreakdown,
+    _block_height: u64,
+    _ctx: &Context,
+) -> Option<OrdinalOperation> {
+    // This should eventually become a loop once/if there is settlement on https://github.com/casey/ord/issues/2000.
+    if let Some(first_input) = tx.vin.get(0) {
+        if let Some(ref witnesses) = first_input.txinwitness {
+            for bytes in witnesses.iter() {
+                let script = Script::from(bytes.to_vec());
+                let parser = InscriptionParser {
+                    instructions: script.instructions().peekable(),
+                };
+
+                let inscription = match parser.parse_script() {
+                    Ok(inscription) => inscription,
+                    Err(_) => continue,
+                };
+
+                let inscription_id = InscriptionId {
+                    txid: tx.txid.clone(),
+                    index: 0,
+                };
+
+                let inscription_output_value = tx
+                    .vout
+                    .get(0)
+                    .and_then(|o| Some(o.value.to_sat()))
+                    .unwrap_or(0);
+
+                let no_content_bytes = vec![];
+                let inscription_content_bytes = inscription.body().unwrap_or(&no_content_bytes);
+
+                let inscriber_address = if let Ok(authors) = Address::from_script(
+                    &tx.vout[0].script_pub_key.script().unwrap(),
+                    bitcoincore_rpc::bitcoin::Network::Bitcoin,
+                ) {
+                    Some(authors.to_string())
+                } else {
+                    None
+                };
+
+                return Some(OrdinalOperation::InscriptionRevealed(
+                    OrdinalInscriptionRevealData {
+                        content_type: inscription.content_type().unwrap_or("unknown").to_string(),
+                        content_bytes: format!("0x{}", hex::encode(&inscription_content_bytes)),
+                        content_length: inscription_content_bytes.len(),
+                        inscription_id: inscription_id.to_string(),
+                        inscriber_address,
+                        inscription_output_value,
+                        inscription_fee: 0,
+                        inscription_number: 0,
+                        ordinal_number: 0,
+                        ordinal_block_height: 0,
+                        ordinal_offset: 0,
+                        transfers_pre_inscription: 0,
+                        satpoint_post_inscription: format!("{}:0:0", tx.txid.clone()),
+                    },
+                ));
+            }
+        }
+    }
+    None
+}
 
 pub fn get_inscriptions_revealed_in_block(
     block: &BitcoinBlockData,
@@ -262,30 +330,32 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
                 inscription.ordinal_offset = traversal.get_ordinal_coinbase_offset();
                 inscription.ordinal_block_height = traversal.get_ordinal_coinbase_height();
                 inscription.ordinal_number = traversal.ordinal_number;
+                inscription.inscription_number = traversal.inscription_number;
                 inscription.transfers_pre_inscription = traversal.transfers;
                 inscription.inscription_fee = new_tx.metadata.fee;
 
-                if let Some(_entry) = find_inscription_with_ordinal_number(
-                    &traversal.ordinal_number,
-                    &inscription_db_conn,
-                    &ctx,
-                ) {
-                    ctx.try_log(|logger| {
-                        slog::warn!(
-                            logger,
-                            "Transaction {} in block {} is overriding an existing inscription {}",
-                            new_tx.transaction_identifier.hash,
-                            block.block_identifier.index,
-                            traversal.ordinal_number
-                        );
-                    });
-                    ordinals_events_indexes_to_discard.push_front(ordinal_event_index);
-                } else {
-                    latest_inscription_number += 1;
-                    inscription.inscription_number = inscription_number;
-                    match storage {
-                        Storage::Sqlite(rw_hord_db_conn) => {
+                match storage {
+                    Storage::Sqlite(rw_hord_db_conn) => {
+                        if let Some(_entry) = find_inscription_with_ordinal_number(
+                            &traversal.ordinal_number,
+                            &inscription_db_conn,
+                            &ctx,
+                        ) {
                             ctx.try_log(|logger| {
+                                    slog::warn!(
+                                        logger,
+                                        "Transaction {} in block {} is overriding an existing inscription {}",
+                                        new_tx.transaction_identifier.hash,
+                                        block.block_identifier.index,
+                                        traversal.ordinal_number
+                                    );
+                                });
+                            ordinals_events_indexes_to_discard.push_front(ordinal_event_index);
+                            continue;
+                        }
+                        latest_inscription_number += 1;
+                        inscription.inscription_number = inscription_number;
+                        ctx.try_log(|logger| {
                                     slog::info!(
                                 logger,
                                 "Inscription {} (#{}) detected on Satoshi {} (block {}, {} transfers)",
@@ -296,28 +366,26 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
                                 inscription.transfers_pre_inscription,
                             );
                                 });
-                            store_new_inscription(
-                                &inscription,
-                                &block.block_identifier,
-                                &rw_hord_db_conn,
-                                &ctx,
-                            );
-                        }
-                        Storage::Memory(map) => {
-                            // Do something!
-                            let outpoint = inscription.satpoint_post_inscription
-                                [0..inscription.satpoint_post_inscription.len() - 2]
-                                .to_string();
-                            map.insert(
-                                outpoint,
-                                vec![WatchedSatpoint {
-                                    inscription_id: inscription.inscription_id.clone(),
-                                    inscription_number: inscription.inscription_number,
-                                    ordinal_number: inscription.ordinal_number,
-                                    offset: 0,
-                                }],
-                            );
-                        }
+                        store_new_inscription(
+                            &inscription,
+                            &block.block_identifier,
+                            &rw_hord_db_conn,
+                            &ctx,
+                        );
+                    }
+                    Storage::Memory(map) => {
+                        let outpoint = inscription.satpoint_post_inscription
+                            [0..inscription.satpoint_post_inscription.len() - 2]
+                            .to_string();
+                        map.insert(
+                            outpoint,
+                            vec![WatchedSatpoint {
+                                inscription_id: inscription.inscription_id.clone(),
+                                inscription_number: inscription.inscription_number,
+                                ordinal_number: inscription.ordinal_number,
+                                offset: 0,
+                            }],
+                        );
                     }
                 }
             }
@@ -329,6 +397,13 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
     }
 }
 
+/// For each input of each transaction in the block, we retrieve the UTXO spent (outpoint_pre_transfer)
+/// and we check using a `storage` (in-memory or sqlite) absctraction if we have some existing inscriptions
+/// for this entry.
+/// When this is the case, it means that an inscription_transfer event needs to be produced. We need to
+/// compute the output index (if any) `post_transfer_output` that will now include the inscription.
+/// When identifying the output index, we will also need to provide an updated offset for pin pointing
+/// the satoshi location.
 pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
     block: &mut BitcoinBlockData,
     storage: &mut Storage,
@@ -338,10 +413,11 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
     let first_sat_post_subsidy = Height(block.block_identifier.index).starting_sat().0;
     let coinbase_txid = &block.transactions[0].transaction_identifier.hash.clone();
 
+    // todo: handle ordinals coinbase spend
+
     for new_tx in block.transactions.iter_mut().skip(1) {
         // Have inscriptions been transfered?
         let mut sats_in_offset = 0;
-        let mut sats_out_offset = new_tx.metadata.outputs[0].value;
 
         for input in new_tx.metadata.inputs.iter() {
             // input.previous_output.txid
@@ -350,8 +426,6 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
                 &input.previous_output.txid[2..],
                 input.previous_output.vout
             );
-
-            let mut post_transfer_output_index = 0;
 
             let entries = match storage {
                 Storage::Sqlite(rw_hord_db_conn) => {
@@ -364,20 +438,25 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
             };
 
             for mut watched_satpoint in entries.into_iter() {
+                let mut post_transfer_output_index = 0;
+                let mut sats_out_offset = 0;
+                let mut next_output_value = new_tx.metadata.outputs[0].value;
                 let satpoint_pre_transfer =
                     format!("{}:{}", outpoint_pre_transfer, watched_satpoint.offset);
 
                 // Question is: are inscriptions moving to a new output,
                 // burnt or lost in fees and transfered to the miner?
-                let post_transfer_output = loop {
-                    if sats_out_offset >= sats_in_offset + watched_satpoint.offset {
+                
+                let post_transfer_output: Option<usize> = loop {
+                    if sats_out_offset + next_output_value > sats_in_offset + watched_satpoint.offset {
                         break Some(post_transfer_output_index);
                     }
-                    if post_transfer_output_index + 1 >= new_tx.metadata.outputs.len() {
+                    sats_out_offset += next_output_value;
+                    post_transfer_output_index += 1;
+                    if post_transfer_output_index >= new_tx.metadata.outputs.len() {
                         break None;
                     } else {
-                        post_transfer_output_index += 1;
-                        sats_out_offset +=
+                        next_output_value =
                             new_tx.metadata.outputs[post_transfer_output_index].value;
                     }
                 };
@@ -391,7 +470,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
                     Some(index) => {
                         let outpoint =
                             format!("{}:{}", &new_tx.transaction_identifier.hash[2..], index);
-                        let offset = 0;
+                        let offset = (sats_in_offset + watched_satpoint.offset) - sats_out_offset;
                         let script_pub_key_hex =
                             new_tx.metadata.outputs[index].get_script_pubkey_hex();
                         let updated_address = match Script::from_hex(&script_pub_key_hex) {
@@ -419,7 +498,6 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
                             }
                         };
 
-                        // let vout = new_tx.metadata.outputs[index];
                         (
                             outpoint,
                             offset,
@@ -429,20 +507,12 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
                     }
                     None => {
                         // Get Coinbase TX
-                        let offset = first_sat_post_subsidy + cumulated_fees;
-                        let outpoint = coinbase_txid.clone();
+                        let offset = first_sat_post_subsidy + cumulated_fees + watched_satpoint.offset;
+                        let outpoint = format!("{}:0", &coinbase_txid[2..]);
                         (outpoint, offset, None, None)
                     }
                 };
 
-                // ctx.try_log(|logger| {
-                //     slog::info!(
-                //         logger,
-                //         "Updating watched outpoint {} to outpoint {}",
-                //         outpoint_post_transfer,
-                //         outpoint_pre_transfer,
-                //     )
-                // });
                 // At this point we know that inscriptions are being moved.
                 ctx.try_log(|logger| {
                     slog::info!(
