@@ -498,7 +498,7 @@ fn try_parse_stacks_operation(
         }
         StacksOpcodes::TransferStx => {
             let res = try_parse_transfer_stx_op(&op_return_output[6..])?;
-            StacksBaseChainOperation::StxTransfered(res)
+            StacksBaseChainOperation::StxTransferred(res)
         }
         StacksOpcodes::StackStx => {
             let res = try_parse_stacks_stx_op(&op_return_output[6..])?;

@@ -528,7 +528,7 @@ pub enum StacksOperations {
     StackerRewarded,
     BlockCommitted,
     LeaderRegistered,
-    StxTransfered,
+    StxTransferred,
     StxLocked,
 }
 
