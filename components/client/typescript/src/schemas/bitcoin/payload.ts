@@ -1,5 +1,10 @@
 import { Static, Type } from '@sinclair/typebox';
-import { Nullable, BlockIdentifierSchema, TransactionIdentifierSchema } from '../common';
+import {
+  Nullable,
+  BlockIdentifierSchema,
+  TransactionIdentifierSchema,
+  RosettaOperationSchema,
+} from '../common';
 
 export const BitcoinInscriptionRevealedSchema = Type.Object({
   content_bytes: Type.String(),
@@ -49,7 +54,7 @@ export type BitcoinTransactionMetadata = Static<typeof BitcoinTransactionMetadat
 
 export const BitcoinTransactionSchema = Type.Object({
   transaction_identifier: TransactionIdentifierSchema,
-  operations: Type.Array(Type.Any()),
+  operations: Type.Array(RosettaOperationSchema),
   metadata: BitcoinTransactionMetadataSchema,
 });
 export type BitcoinTransaction = Static<typeof BitcoinTransactionSchema>;
