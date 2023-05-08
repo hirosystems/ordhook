@@ -10,6 +10,7 @@ use crate::chainhooks::types::{
     ChainhookConfig, ChainhookFullSpecification, ChainhookSpecification,
 };
 
+use crate::hord::new_traversals_cache;
 #[cfg(feature = "ordinals")]
 use crate::hord::{
     db::{open_readwrite_hord_db_conn, open_readwrite_hord_db_conn_rocks_db},
@@ -695,21 +696,25 @@ pub async fn start_observer_commands_handler(
                             match bitcoin_block_store.get_mut(&header.block_identifier) {
                                 Some(block) => {
                                     #[cfg(feature = "ordinals")]
-                                    if let Err(e) = update_hord_db_and_augment_bitcoin_block(
-                                        block,
-                                        &blocks_db,
-                                        &inscriptions_db_conn_rw,
-                                        true,
-                                        &config.get_cache_path_buf(),
-                                        &ctx,
-                                    ) {
-                                        ctx.try_log(|logger| {
-                                            slog::error!(
+                                    {
+                                        let traversals_cache = Arc::new(new_traversals_cache());
+                                        if let Err(e) = update_hord_db_and_augment_bitcoin_block(
+                                            block,
+                                            &blocks_db,
+                                            &inscriptions_db_conn_rw,
+                                            true,
+                                            &config.get_cache_path_buf(),
+                                            &traversals_cache,
+                                            &ctx,
+                                        ) {
+                                            ctx.try_log(|logger| {
+                                                slog::error!(
                                                 logger,
                                                 "Unable to insert bitcoin block {} in hord_db: {e}",
                                                 block.block_identifier.index
                                             )
-                                        });
+                                            });
+                                        }
                                     }
                                     new_blocks.push(block.clone());
                                 }
@@ -833,20 +838,24 @@ pub async fn start_observer_commands_handler(
                             match bitcoin_block_store.get_mut(&header.block_identifier) {
                                 Some(block) => {
                                     #[cfg(feature = "ordinals")]
-                                    if let Err(e) = update_hord_db_and_augment_bitcoin_block(
-                                        block,
-                                        &blocks_db,
-                                        &inscriptions_db_conn_rw,
-                                        true,
-                                        &config.get_cache_path_buf(),
-                                        &ctx,
-                                    ) {
-                                        ctx.try_log(|logger| {
-                                            slog::error!(
-                                                logger,
-                                                "Unable to apply bitcoin block {} with hord_db: {e}", block.block_identifier.index
-                                            )
-                                        });
+                                    {
+                                        let traversals_cache = Arc::new(new_traversals_cache());
+                                        if let Err(e) = update_hord_db_and_augment_bitcoin_block(
+                                            block,
+                                            &blocks_db,
+                                            &inscriptions_db_conn_rw,
+                                            true,
+                                            &config.get_cache_path_buf(),
+                                            &traversals_cache,
+                                            &ctx,
+                                        ) {
+                                            ctx.try_log(|logger| {
+                                                slog::error!(
+                                                    logger,
+                                                    "Unable to apply bitcoin block {} with hord_db: {e}", block.block_identifier.index
+                                                )
+                                            });
+                                        }
                                     }
                                     blocks_to_apply.push(block.clone());
                                 }

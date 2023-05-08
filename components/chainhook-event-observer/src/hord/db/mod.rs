@@ -27,6 +27,7 @@ use crate::{
 };
 
 use super::{
+    new_traversals_cache,
     ord::{height::Height, sat::Sat},
     update_hord_db_and_augment_bitcoin_block,
 };
@@ -955,6 +956,7 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
     let mut cursor = start_block as usize;
     let mut inbox = HashMap::new();
     let mut num_writes = 0;
+    let traversals_cache = Arc::new(new_traversals_cache());
 
     while let Ok(Some((block_height, compacted_block, raw_block))) = block_compressed_rx.recv() {
         insert_entry_in_blocks(block_height, &compacted_block, &blocks_db_rw, &ctx);
@@ -1002,6 +1004,7 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
                     &inscriptions_db_conn_rw,
                     false,
                     &hord_db_path,
+                    &traversals_cache,
                     &ctx,
                 ) {
                     ctx.try_log(|logger| {
@@ -1029,6 +1032,10 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
                 )
             });
             return Ok(());
+        }
+
+        if num_writes % 10 == 0 {
+            traversals_cache.clear();
         }
 
         if num_writes % 5000 == 0 {
@@ -1079,7 +1086,7 @@ pub fn retrieve_satoshi_point_using_local_storage(
     block_identifier: &BlockIdentifier,
     transaction_identifier: &TransactionIdentifier,
     inscription_number: u64,
-    cache: Arc<
+    traversals_cache: Arc<
         DashMap<
             (u32, [u8; 8]),
             (Vec<([u8; 8], u32, u16, u64)>, Vec<u64>),
@@ -1116,7 +1123,7 @@ pub fn retrieve_satoshi_point_using_local_storage(
             ));
         }
 
-        if let Some(cached_tx) = cache.get(&(ordinal_block_number, tx_cursor.0)) {
+        if let Some(cached_tx) = traversals_cache.get(&(ordinal_block_number, tx_cursor.0)) {
             let (inputs, outputs) = cached_tx.value();
             let mut next_found_in_cache = false;
 
@@ -1282,7 +1289,8 @@ pub fn retrieve_satoshi_point_using_local_storage(
                     // });
 
                     if sats_out < sats_in {
-                        cache.insert((ordinal_block_number, txid_n), (inputs.clone(), outputs));
+                        traversals_cache
+                            .insert((ordinal_block_number, txid_n), (inputs.clone(), outputs));
                         ordinal_offset = sats_out - (sats_in - txin_value);
                         ordinal_block_number = *block_height;
 

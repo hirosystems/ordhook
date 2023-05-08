@@ -9,12 +9,14 @@ use chainhook_types::{
     OrdinalOperation, TransactionIdentifier,
 };
 use dashmap::DashMap;
+use fxhash::{FxBuildHasher, FxHasher};
 use hiro_system_kit::slog;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use rocksdb::DB;
 use rusqlite::Connection;
 use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::hash::BuildHasherDefault;
 use std::path::PathBuf;
 use std::sync::mpsc::channel;
 use std::sync::Arc;
@@ -162,10 +164,24 @@ pub fn revert_hord_db_with_augmented_bitcoin_block(
     Ok(())
 }
 
+pub fn new_traversals_cache(
+) -> DashMap<(u32, [u8; 8]), (Vec<([u8; 8], u32, u16, u64)>, Vec<u64>), BuildHasherDefault<FxHasher>>
+{
+    let hasher = FxBuildHasher::default();
+    DashMap::with_hasher(hasher)
+}
+
 pub fn retrieve_inscribed_satoshi_points_from_block(
     block: &BitcoinBlockData,
     inscriptions_db_conn: Option<&Connection>,
     hord_db_path: &PathBuf,
+    traversals_cache: &Arc<
+        DashMap<
+            (u32, [u8; 8]),
+            (Vec<([u8; 8], u32, u16, u64)>, Vec<u64>),
+            BuildHasherDefault<FxHasher>,
+        >,
+    >,
     ctx: &Context,
 ) -> HashMap<TransactionIdentifier, TraversalResult> {
     let mut transactions_ids = vec![];
@@ -202,14 +218,12 @@ pub fn retrieve_inscribed_satoshi_points_from_block(
 
         let mut rng = thread_rng();
         transactions_ids.shuffle(&mut rng);
-        let hasher = fxhash::FxBuildHasher::default();
-        let shared_cache = Arc::new(DashMap::with_hasher(hasher));
         for transaction_id in transactions_ids.into_iter() {
             let moved_traversal_tx = traversal_tx.clone();
             let moved_ctx = ctx.clone();
             let block_identifier = block.block_identifier.clone();
             let moved_hord_db_path = hord_db_path.clone();
-            let cache = shared_cache.clone();
+            let local_cache = traversals_cache.clone();
             traversal_data_pool.execute(move || loop {
                 match open_readonly_hord_db_conn_rocks_db(&moved_hord_db_path, &moved_ctx) {
                     Ok(blocks_db) => {
@@ -218,7 +232,7 @@ pub fn retrieve_inscribed_satoshi_points_from_block(
                             &block_identifier,
                             &transaction_id,
                             0,
-                            cache,
+                            local_cache,
                             &moved_ctx,
                         );
                         let _ = moved_traversal_tx.send((transaction_id, traversal));
@@ -262,7 +276,6 @@ pub fn retrieve_inscribed_satoshi_points_from_block(
             }
         }
         let _ = traversal_data_pool.join();
-        std::thread::spawn(move || drop(shared_cache));
     }
 
     traversals
@@ -274,6 +287,13 @@ pub fn update_hord_db_and_augment_bitcoin_block(
     inscriptions_db_conn_rw: &Connection,
     write_block: bool,
     hord_db_path: &PathBuf,
+    traversals_cache: &Arc<
+        DashMap<
+            (u32, [u8; 8]),
+            (Vec<([u8; 8], u32, u16, u64)>, Vec<u64>),
+            BuildHasherDefault<FxHasher>,
+        >,
+    >,
     ctx: &Context,
 ) -> Result<(), String> {
     if write_block {
@@ -299,6 +319,7 @@ pub fn update_hord_db_and_augment_bitcoin_block(
         &new_block,
         Some(inscriptions_db_conn_rw),
         hord_db_path,
+        traversals_cache,
         ctx,
     );
 

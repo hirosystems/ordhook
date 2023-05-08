@@ -23,7 +23,7 @@ use chainhook_event_observer::hord::db::{
     open_readwrite_hord_db_conn_rocks_db, retrieve_satoshi_point_using_local_storage,
 };
 use chainhook_event_observer::hord::{
-    retrieve_inscribed_satoshi_points_from_block,
+    new_traversals_cache, retrieve_inscribed_satoshi_points_from_block,
     update_storage_and_augment_bitcoin_block_with_inscription_transfer_data, Storage,
 };
 use chainhook_event_observer::indexer;
@@ -633,14 +633,13 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                         };
 
                         let transaction_identifier = TransactionIdentifier { hash: txid.clone() };
-                        let hasher = FxBuildHasher::default();
-                        let cache = Arc::new(DashMap::with_hasher(hasher));
+                        let traversals_cache = new_traversals_cache();
                         let traversal = retrieve_satoshi_point_using_local_storage(
                             &hord_db_conn,
                             &block_identifier,
                             &transaction_identifier,
                             0,
-                            cache,
+                            Arc::new(traversals_cache),
                             &ctx,
                         )?;
                         info!(
@@ -655,10 +654,13 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                         let block =
                             fetch_and_standardize_block(cmd.block_height, &bitcoin_config, &ctx)
                                 .await?;
-                        let traversals = retrieve_inscribed_satoshi_points_from_block(
+                        let traversals_cache = Arc::new(new_traversals_cache());
+
+                        let _traversals = retrieve_inscribed_satoshi_points_from_block(
                             &block,
                             None,
                             &config.expected_cache_path(),
+                            &traversals_cache,
                             &ctx,
                         );
                         // info!(
