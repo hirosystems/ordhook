@@ -419,11 +419,11 @@ fn rocks_db_default_options() -> rocksdb::Options {
     let mut opts = rocksdb::Options::default();
     opts.create_if_missing(true);
     // Per rocksdb documentation:
-    // If cache_index_and_filter_blocks is false (which is default), 
-    // the number of index/filter blocks is controlled by option max_open_files. 
-    // If you are certain that your ulimit will always be bigger than number of files in the database, 
-    // we recommend setting max_open_files to -1, which means infinity. 
-    // This option will preload all filter and index blocks and will not need to maintain LRU of files. 
+    // If cache_index_and_filter_blocks is false (which is default),
+    // the number of index/filter blocks is controlled by option max_open_files.
+    // If you are certain that your ulimit will always be bigger than number of files in the database,
+    // we recommend setting max_open_files to -1, which means infinity.
+    // This option will preload all filter and index blocks and will not need to maintain LRU of files.
     // Setting max_open_files to -1 will get you the best possible performance.
     opts.set_max_open_files(-1);
     opts
@@ -879,12 +879,18 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
 ) -> Result<(), String> {
     let ordinal_computing_height: u64 = 765000;
     let number_of_blocks_to_process = end_block - start_block + 1;
+    let (block_hash_req_lim, block_req_lim, block_process_lim, processing_thread) =
+        if start_block >= ordinal_computing_height {
+            (8, 8, 8, 4)
+        } else {
+            (256, 128, 128, 16)
+        };
     let retrieve_block_hash_pool = ThreadPool::new(network_thread);
-    let (block_hash_tx, block_hash_rx) = crossbeam_channel::bounded(256);
+    let (block_hash_tx, block_hash_rx) = crossbeam_channel::bounded(block_hash_req_lim);
     let retrieve_block_data_pool = ThreadPool::new(network_thread);
-    let (block_data_tx, block_data_rx) = crossbeam_channel::bounded(128);
-    let compress_block_data_pool = ThreadPool::new(16);
-    let (block_compressed_tx, block_compressed_rx) = crossbeam_channel::bounded(128);
+    let (block_data_tx, block_data_rx) = crossbeam_channel::bounded(block_req_lim);
+    let compress_block_data_pool = ThreadPool::new(processing_thread);
+    let (block_compressed_tx, block_compressed_rx) = crossbeam_channel::bounded(block_process_lim);
 
     // Thread pool #1: given a block height, retrieve the block hash
     for block_cursor in start_block..=end_block {
@@ -1042,11 +1048,18 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
             return Ok(());
         }
 
-        if num_writes % 10 == 0 {
+        if num_writes % 24 == 0 {
+            ctx.try_log(|logger| {
+                slog::info!(
+                    logger,
+                    "Flushing traversals cache (#{} entries)",
+                    traversals_cache.len()
+                );
+            });
             traversals_cache.clear();
         }
 
-        if num_writes % 5000 == 0 {
+        if num_writes % 4096 == 0 {
             ctx.try_log(|logger| {
                 slog::info!(logger, "Flushing DB to disk ({num_writes} inserts)");
             });
