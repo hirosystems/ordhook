@@ -12,17 +12,29 @@ use chainhook_event_observer::chainhooks::types::{
     StacksChainhookFullSpecification, StacksChainhookNetworkSpecification, StacksPredicate,
     StacksPrintEventBasedPredicate,
 };
+use chainhook_event_observer::dashmap::DashMap;
+use chainhook_event_observer::fxhash::FxBuildHasher;
 use chainhook_event_observer::hord::db::{
     delete_blocks_in_block_range_sqlite, delete_data_in_hord_db, fetch_and_cache_blocks_in_hord_db,
     find_block_at_block_height, find_block_at_block_height_sqlite,
-    find_inscriptions_at_wached_outpoint, find_last_block_inserted, initialize_hord_db,
-    insert_entry_in_blocks, open_readonly_hord_db_conn, open_readonly_hord_db_conn_rocks_db,
-    open_readwrite_hord_db_conn, open_readwrite_hord_db_conn_rocks_db,
-    retrieve_satoshi_point_using_local_storage,
+    find_inscriptions_at_wached_outpoint, find_last_block_inserted,
+    find_watched_satpoint_for_inscription, initialize_hord_db, insert_entry_in_blocks,
+    open_readonly_hord_db_conn, open_readonly_hord_db_conn_rocks_db, open_readwrite_hord_db_conn,
+    open_readwrite_hord_db_conn_rocks_db, retrieve_satoshi_point_using_local_storage,
+};
+use chainhook_event_observer::hord::{
+    retrieve_inscribed_satoshi_points_from_block,
+    update_storage_and_augment_bitcoin_block_with_inscription_transfer_data, Storage,
+};
+use chainhook_event_observer::indexer;
+use chainhook_event_observer::indexer::bitcoin::{
+    download_and_parse_block_with_retry, retrieve_block_hash_with_retry,
 };
 use chainhook_event_observer::observer::BitcoinConfig;
 use chainhook_event_observer::utils::Context;
-use chainhook_types::{BitcoinNetwork, BlockIdentifier, StacksNetwork, TransactionIdentifier};
+use chainhook_types::{
+    BitcoinBlockData, BitcoinNetwork, BlockIdentifier, StacksNetwork, TransactionIdentifier,
+};
 use clap::{Parser, Subcommand};
 use ctrlc;
 use hiro_system_kit;
@@ -31,6 +43,7 @@ use std::io::{BufReader, Read};
 use std::path::PathBuf;
 use std::process;
 use std::sync::mpsc::Sender;
+use std::sync::Arc;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -186,7 +199,7 @@ enum HordCommand {
     Db(DbCommand),
     /// Db maintenance related commands
     #[clap(subcommand)]
-    Find(FindCommand),
+    Scan(ScanCommand),
 }
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
@@ -212,21 +225,21 @@ enum DbCommand {
 }
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
-enum FindCommand {
-    /// Init hord db
-    #[clap(name = "satoshi", bin_name = "satoshi")]
-    SatPoint(FindSatPointCommand),
-    /// Update hord db
-    #[clap(name = "inscription", bin_name = "inscription")]
-    Inscription(FindInscriptionCommand),
+enum ScanCommand {
+    /// Compute ordinal number of the 1st satoshi of the 1st input of a given transaction
+    #[clap(name = "inscriptions", bin_name = "inscriptions")]
+    Inscriptions(ScanInscriptionsCommand),
+    /// Retrieve all the transfers for a given inscription
+    #[clap(name = "transfers", bin_name = "transfers")]
+    Transfers(ScanTransfersCommand),
 }
 
 #[derive(Parser, PartialEq, Clone, Debug)]
-struct FindSatPointCommand {
+struct ScanInscriptionsCommand {
     /// Block height
     pub block_height: u64,
     /// Txid
-    pub txid: String,
+    pub txid: Option<String>,
     /// Target Devnet network
     #[clap(
         long = "devnet",
@@ -259,12 +272,40 @@ struct FindSatPointCommand {
 }
 
 #[derive(Parser, PartialEq, Clone, Debug)]
-struct FindInscriptionCommand {
-    /// Outpoint
-    pub outpoint: String,
+struct ScanTransfersCommand {
+    /// Inscription ID
+    pub inscription_id: String,
+    /// Block height
+    pub block_height: Option<u64>,
+    /// Target Devnet network
+    #[clap(
+        long = "devnet",
+        conflicts_with = "testnet",
+        conflicts_with = "mainnet"
+    )]
+    pub devnet: bool,
+    /// Target Testnet network
+    #[clap(
+        long = "testnet",
+        conflicts_with = "devnet",
+        conflicts_with = "mainnet"
+    )]
+    pub testnet: bool,
+    /// Target Mainnet network
+    #[clap(
+        long = "mainnet",
+        conflicts_with = "testnet",
+        conflicts_with = "devnet"
+    )]
+    pub mainnet: bool,
     /// Load config file path
-    #[clap(long = "db-path")]
-    pub db_path: Option<String>,
+    #[clap(
+        long = "config-path",
+        conflicts_with = "mainnet",
+        conflicts_with = "testnet",
+        conflicts_with = "devnet"
+    )]
+    pub config_path: Option<String>,
 }
 
 #[derive(Parser, PartialEq, Clone, Debug)]
@@ -569,8 +610,8 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                 }
             }
         },
-        Command::Hord(HordCommand::Find(subcmd)) => match subcmd {
-            FindCommand::SatPoint(cmd) => {
+        Command::Hord(HordCommand::Scan(subcmd)) => match subcmd {
+            ScanCommand::Inscriptions(cmd) => {
                 let config =
                     Config::default(cmd.devnet, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
 
@@ -583,12 +624,52 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     perform_hord_db_update(tip_height, cmd.block_height, 8, &config, &ctx).await?;
                 }
 
-                let transaction_identifier = TransactionIdentifier {
-                    hash: cmd.txid.clone(),
-                };
-                let block_identifier = BlockIdentifier {
-                    index: cmd.block_height,
-                    hash: "".into(),
+                match cmd.txid {
+                    Some(txid) => {
+                        // let global_block_cache = HashMap::new();
+                        let block_identifier = BlockIdentifier {
+                            index: cmd.block_height,
+                            hash: "".into(),
+                        };
+
+                        let transaction_identifier = TransactionIdentifier { hash: txid.clone() };
+                        let hasher = FxBuildHasher::default();
+                        let cache = Arc::new(DashMap::with_hasher(hasher));
+                        let traversal = retrieve_satoshi_point_using_local_storage(
+                            &hord_db_conn,
+                            &block_identifier,
+                            &transaction_identifier,
+                            0,
+                            cache,
+                            &ctx,
+                        )?;
+                        info!(
+                            ctx.expect_logger(),
+                            "Satoshi #{} was minted in block #{} at offset {} and was transferred {} times.",
+                            traversal.ordinal_number, traversal.get_ordinal_coinbase_height(), traversal.get_ordinal_coinbase_offset(), traversal.transfers
+                        );
+                    }
+                    None => {
+                        let bitcoin_config =
+                            config.get_event_observer_config().get_bitcoin_config();
+                        let block =
+                            fetch_and_standardize_block(cmd.block_height, &bitcoin_config, &ctx)
+                                .await?;
+                        let traversals = retrieve_inscribed_satoshi_points_from_block(
+                            &block,
+                            None,
+                            &config.expected_cache_path(),
+                            &ctx,
+                        );
+                        // info!(
+                        //     ctx.expect_logger(),
+                        //     "Satoshi #{} was minted in block #{} at offset {} and was transferred {} times.",
+                        //     traversal.ordinal_number, traversal.get_ordinal_coinbase_height(), traversal.get_ordinal_coinbase_offset(), traversal.transfers
+                        // );
+                    }
+                }
+            }
+            ScanCommand::Transfers(cmd) => {
                 };
                 // let global_block_cache = HashMap::new();
                 let traversal = retrieve_satoshi_point_using_local_storage(
@@ -913,4 +994,16 @@ pub fn load_predicate_from_path(
     let predicate: ChainhookFullSpecification = serde_json::from_slice(&file_buffer)
         .map_err(|e| format!("unable to parse json file {}\n{:?}", predicate_path, e))?;
     Ok(predicate)
+}
+
+pub async fn fetch_and_standardize_block(
+    block_height: u64,
+    bitcoin_config: &BitcoinConfig,
+    ctx: &Context,
+) -> Result<BitcoinBlockData, String> {
+    let block_hash = retrieve_block_hash_with_retry(&block_height, &bitcoin_config, &ctx).await?;
+    let block_breakdown =
+        download_and_parse_block_with_retry(&block_hash, &bitcoin_config, &ctx).await?;
+
+    indexer::bitcoin::standardize_bitcoin_block(block_breakdown, &bitcoin_config.network, &ctx)
 }
