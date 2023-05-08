@@ -422,7 +422,7 @@ pub fn open_readonly_hord_db_conn_rocks_db(
     let mut opts = rocksdb::Options::default();
     opts.create_if_missing(true);
     opts.set_max_open_files(5000);
-    opts.set_disable_auto_compactions(true);
+    // opts.set_disable_auto_compactions(true);
     let db = DB::open_for_read_only(&opts, path, false)
         .map_err(|e| format!("unable to open blocks_db: {}", e.to_string()))?;
     Ok(db)
@@ -436,7 +436,7 @@ pub fn open_readwrite_hord_db_conn_rocks_db(
     let mut opts = rocksdb::Options::default();
     opts.create_if_missing(true);
     opts.set_max_open_files(5000);
-    opts.set_disable_auto_compactions(true);
+    // opts.set_disable_auto_compactions(true);
     let db = DB::open(&opts, path)
         .map_err(|e| format!("unable to open blocks_db: {}", e.to_string()))?;
     Ok(db)
@@ -1073,12 +1073,6 @@ impl TraversalResult {
         self.ordinal_number - sat.height().starting_sat().n()
     }
 }
-
-// May 05 21:48:55.191 INFO Computing ordinal number for Satoshi point 0x5489d47538302148cd524f0ab1cc13223f3dc089cd5267d4cd45ccf1d532b743:0:0 (block #788201)
-// May 05 21:50:36.807 INFO Satoshi #147405521136231 was minted in block #29481 at offset 521136231 and was transferred 2858 times (progress: 2379/2379).
-
-// May 05 22:04:23.767 INFO Computing ordinal number for Satoshi point 0x57baf2e41fe5ffc70fc63129a1208c77606dd94d9ec05097a47ee557d8653c74:0:0 (block #788201)
-// May 05 22:04:56.009 INFO Satoshi #1122896574049767 was minted in block #239158 at offset 1574049767 and was transferred 10634 times (progress: 2379/2379).
 
 pub fn retrieve_satoshi_point_using_local_storage(
     blocks_db: &DB,
