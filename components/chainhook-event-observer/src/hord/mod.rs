@@ -8,6 +8,7 @@ use chainhook_types::{
     BitcoinBlockData, OrdinalInscriptionRevealData, OrdinalInscriptionTransferData,
     OrdinalOperation, TransactionIdentifier,
 };
+use dashmap::DashMap;
 use hiro_system_kit::slog;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
@@ -16,6 +17,7 @@ use rusqlite::Connection;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::mpsc::channel;
+use std::sync::Arc;
 use threadpool::ThreadPool;
 
 use crate::indexer::bitcoin::BitcoinTransactionFullBreakdown;
@@ -160,50 +162,34 @@ pub fn revert_hord_db_with_augmented_bitcoin_block(
     Ok(())
 }
 
-pub fn update_hord_db_and_augment_bitcoin_block(
-    new_block: &mut BitcoinBlockData,
-    blocks_db_rw: &DB,
-    inscriptions_db_conn_rw: &Connection,
-    write_block: bool,
+pub fn retrieve_inscribed_satoshi_points_from_block(
+    block: &BitcoinBlockData,
+    inscriptions_db_conn: Option<&Connection>,
     hord_db_path: &PathBuf,
     ctx: &Context,
-) -> Result<(), String> {
-    if write_block {
-        ctx.try_log(|logger| {
-            slog::info!(
-                logger,
-                "Updating hord.sqlite with Bitcoin block #{} for future traversals",
-                new_block.block_identifier.index,
-            )
-        });
-
-        let compacted_block = CompactedBlock::from_standardized_block(&new_block);
-        insert_entry_in_blocks(
-            new_block.block_identifier.index as u32,
-            &compacted_block,
-            &blocks_db_rw,
-            &ctx,
-        );
-        let _ = blocks_db_rw.flush();
-    }
-
+) -> HashMap<TransactionIdentifier, TraversalResult> {
     let mut transactions_ids = vec![];
     let mut traversals = HashMap::new();
 
-    for new_tx in new_block.transactions.iter_mut().skip(1) {
+    for tx in block.transactions.iter().skip(1) {
         // Have a new inscription been revealed, if so, are looking at a re-inscription
-        for ordinal_event in new_tx.metadata.ordinal_operations.iter_mut() {
+        for ordinal_event in tx.metadata.ordinal_operations.iter() {
             if let OrdinalOperation::InscriptionRevealed(inscription_data) = ordinal_event {
-                if let Some(traversal) = find_inscription_with_id(
-                    &inscription_data.inscription_id,
-                    &new_block.block_identifier.hash,
-                    inscriptions_db_conn_rw,
-                    ctx,
-                ) {
-                    traversals.insert(new_tx.transaction_identifier.clone(), traversal);
+                if let Some(inscriptions_db_conn) = inscriptions_db_conn {
+                    if let Some(traversal) = find_inscription_with_id(
+                        &inscription_data.inscription_id,
+                        &block.block_identifier.hash,
+                        inscriptions_db_conn,
+                        ctx,
+                    ) {
+                        traversals.insert(tx.transaction_identifier.clone(), traversal);
+                    } else {
+                        // Enqueue for traversals
+                        transactions_ids.push(tx.transaction_identifier.clone());
+                    }
                 } else {
                     // Enqueue for traversals
-                    transactions_ids.push(new_tx.transaction_identifier.clone());
+                    transactions_ids.push(tx.transaction_identifier.clone());
                 }
             }
         }
@@ -216,12 +202,14 @@ pub fn update_hord_db_and_augment_bitcoin_block(
 
         let mut rng = thread_rng();
         transactions_ids.shuffle(&mut rng);
-
+        let hasher = fxhash::FxBuildHasher::default();
+        let shared_cache = Arc::new(DashMap::with_hasher(hasher));
         for transaction_id in transactions_ids.into_iter() {
             let moved_traversal_tx = traversal_tx.clone();
             let moved_ctx = ctx.clone();
-            let block_identifier = new_block.block_identifier.clone();
+            let block_identifier = block.block_identifier.clone();
             let moved_hord_db_path = hord_db_path.clone();
+            let cache = shared_cache.clone();
             traversal_data_pool.execute(move || loop {
                 match open_readonly_hord_db_conn_rocks_db(&moved_hord_db_path, &moved_ctx) {
                     Ok(blocks_db) => {
@@ -230,6 +218,7 @@ pub fn update_hord_db_and_augment_bitcoin_block(
                             &block_identifier,
                             &transaction_id,
                             0,
+                            cache,
                             &moved_ctx,
                         );
                         let _ = moved_traversal_tx.send((transaction_id, traversal));
@@ -273,7 +262,45 @@ pub fn update_hord_db_and_augment_bitcoin_block(
             }
         }
         let _ = traversal_data_pool.join();
+        std::thread::spawn(move || drop(shared_cache));
     }
+
+    traversals
+}
+
+pub fn update_hord_db_and_augment_bitcoin_block(
+    new_block: &mut BitcoinBlockData,
+    blocks_db_rw: &DB,
+    inscriptions_db_conn_rw: &Connection,
+    write_block: bool,
+    hord_db_path: &PathBuf,
+    ctx: &Context,
+) -> Result<(), String> {
+    if write_block {
+        ctx.try_log(|logger| {
+            slog::info!(
+                logger,
+                "Updating hord.sqlite with Bitcoin block #{} for future traversals",
+                new_block.block_identifier.index,
+            )
+        });
+
+        let compacted_block = CompactedBlock::from_standardized_block(&new_block);
+        insert_entry_in_blocks(
+            new_block.block_identifier.index as u32,
+            &compacted_block,
+            &blocks_db_rw,
+            &ctx,
+        );
+        let _ = blocks_db_rw.flush();
+    }
+
+    let traversals = retrieve_inscribed_satoshi_points_from_block(
+        &new_block,
+        Some(inscriptions_db_conn_rw),
+        hord_db_path,
+        ctx,
+    );
 
     let mut storage = Storage::Sqlite(inscriptions_db_conn_rw);
     update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(

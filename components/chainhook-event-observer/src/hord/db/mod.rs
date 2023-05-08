@@ -1,11 +1,15 @@
 use std::{
     collections::{BTreeMap, HashMap},
+    hash::BuildHasherDefault,
     path::PathBuf,
+    sync::Arc,
 };
 
 use chainhook_types::{
     BitcoinBlockData, BlockIdentifier, OrdinalInscriptionRevealData, TransactionIdentifier,
 };
+use dashmap::DashMap;
+use fxhash::FxHasher;
 use hiro_system_kit::slog;
 
 use rocksdb::DB;
@@ -418,6 +422,7 @@ pub fn open_readonly_hord_db_conn_rocks_db(
     let mut opts = rocksdb::Options::default();
     opts.create_if_missing(true);
     opts.set_max_open_files(5000);
+    opts.set_disable_auto_compactions(true);
     let db = DB::open_for_read_only(&opts, path, false)
         .map_err(|e| format!("unable to open blocks_db: {}", e.to_string()))?;
     Ok(db)
@@ -431,9 +436,20 @@ pub fn open_readwrite_hord_db_conn_rocks_db(
     let mut opts = rocksdb::Options::default();
     opts.create_if_missing(true);
     opts.set_max_open_files(5000);
+    opts.set_disable_auto_compactions(true);
     let db = DB::open(&opts, path)
         .map_err(|e| format!("unable to open blocks_db: {}", e.to_string()))?;
     Ok(db)
+}
+
+pub fn archive_hord_db_conn_rocks_db(base_dir: &PathBuf, _ctx: &Context) {
+    let from = get_default_hord_db_file_path_rocks_db(&base_dir);
+    let to = {
+        let mut destination_path = base_dir.clone();
+        destination_path.push("hord.rocksdb_archive");
+        destination_path
+    };
+    let _ = std::fs::rename(from, to);
 }
 
 // Legacy - to remove after migrations
@@ -1058,11 +1074,24 @@ impl TraversalResult {
     }
 }
 
+// May 05 21:48:55.191 INFO Computing ordinal number for Satoshi point 0x5489d47538302148cd524f0ab1cc13223f3dc089cd5267d4cd45ccf1d532b743:0:0 (block #788201)
+// May 05 21:50:36.807 INFO Satoshi #147405521136231 was minted in block #29481 at offset 521136231 and was transferred 2858 times (progress: 2379/2379).
+
+// May 05 22:04:23.767 INFO Computing ordinal number for Satoshi point 0x57baf2e41fe5ffc70fc63129a1208c77606dd94d9ec05097a47ee557d8653c74:0:0 (block #788201)
+// May 05 22:04:56.009 INFO Satoshi #1122896574049767 was minted in block #239158 at offset 1574049767 and was transferred 10634 times (progress: 2379/2379).
+
 pub fn retrieve_satoshi_point_using_local_storage(
     blocks_db: &DB,
     block_identifier: &BlockIdentifier,
     transaction_identifier: &TransactionIdentifier,
     inscription_number: u64,
+    cache: Arc<
+        DashMap<
+            (u32, [u8; 8]),
+            (Vec<([u8; 8], u32, u16, u64)>, Vec<u64>),
+            BuildHasherDefault<FxHasher>,
+        >,
+    >,
     ctx: &Context,
 ) -> Result<TraversalResult, String> {
     ctx.try_log(|logger| {
@@ -1084,10 +1113,7 @@ pub fn retrieve_satoshi_point_using_local_storage(
     };
     let mut tx_cursor = (txid, 0);
     let mut hops: u32 = 0;
-    let mut local_block_cache = HashMap::new();
     loop {
-        local_block_cache.clear();
-
         hops += 1;
         if hops as u64 > block_identifier.index {
             return Err(format!(
@@ -1096,17 +1122,77 @@ pub fn retrieve_satoshi_point_using_local_storage(
             ));
         }
 
-        let block = match local_block_cache.get(&ordinal_block_number) {
+        if let Some(cached_tx) = cache.get(&(ordinal_block_number, tx_cursor.0)) {
+            let (inputs, outputs) = cached_tx.value();
+            let mut next_found_in_cache = false;
+
+            let mut sats_out = 0;
+            for (index, output_value) in outputs.iter().enumerate() {
+                if index == tx_cursor.1 {
+                    break;
+                }
+                // ctx.try_log(|logger| {
+                //     slog::info!(logger, "Adding {} from output #{}", output_value, index)
+                // });
+                sats_out += output_value;
+            }
+            sats_out += ordinal_offset;
+            // ctx.try_log(|logger| {
+            //     slog::info!(
+            //         logger,
+            //         "Adding offset {ordinal_offset} to sats_out {sats_out}"
+            //     )
+            // });
+
+            let mut sats_in = 0;
+            for (txin, block_height, vout, txin_value) in inputs.into_iter() {
+                sats_in += txin_value;
+                // ctx.try_log(|logger| {
+                //     slog::info!(
+                //         logger,
+                //         "Adding txin_value {txin_value} to sats_in {sats_in} (txin: {})",
+                //         hex::encode(&txin)
+                //     )
+                // });
+
+                if sats_out < sats_in {
+                    ordinal_offset = sats_out - (sats_in - txin_value);
+                    ordinal_block_number = *block_height;
+
+                    // ctx.try_log(|logger| slog::info!(logger, "Block {ordinal_block_number} / Tx {} / [in:{sats_in}, out:{sats_out}]: {block_height} -> {ordinal_block_number}:{ordinal_offset} -> {}:{vout}",
+                    // hex::encode(&txid_n),
+                    // hex::encode(&txin)));
+                    tx_cursor = (txin.clone(), *vout as usize);
+                    next_found_in_cache = true;
+                    break;
+                }
+            }
+
+            if next_found_in_cache {
+                continue;
+            }
+
+            if sats_in == 0 {
+                ctx.try_log(|logger| {
+                    slog::error!(
+                        logger,
+                        "Transaction {} is originating from a non spending transaction",
+                        transaction_identifier.hash
+                    )
+                });
+                return Ok(TraversalResult {
+                    inscription_number: 0,
+                    ordinal_number: 0,
+                    transfers: 0,
+                });
+            }
+        }
+
+        let block = match find_block_at_block_height(ordinal_block_number, 3, &blocks_db) {
             Some(block) => block,
-            None => match find_block_at_block_height(ordinal_block_number, 3, &blocks_db) {
-                Some(block) => {
-                    local_block_cache.insert(ordinal_block_number, block);
-                    local_block_cache.get(&ordinal_block_number).unwrap()
-                }
-                None => {
-                    return Err(format!("block #{ordinal_block_number} not in database"));
-                }
-            },
+            None => {
+                return Err(format!("block #{ordinal_block_number} not in database"));
+            }
         };
 
         let coinbase_txid = &block.0 .0 .0;
@@ -1162,7 +1248,7 @@ pub fn retrieve_satoshi_point_using_local_storage(
             }
         } else {
             // isolate the target transaction
-            for (txid_n, inputs, outputs) in block.0 .1.iter() {
+            for (txid_n, inputs, outputs) in block.0 .1.into_iter() {
                 // we iterate over the transactions, looking for the transaction target
                 if !txid_n.eq(&txid) {
                     continue;
@@ -1191,7 +1277,7 @@ pub fn retrieve_satoshi_point_using_local_storage(
                 // });
 
                 let mut sats_in = 0;
-                for (txin, block_height, vout, txin_value) in inputs.into_iter() {
+                for (txin, block_height, vout, txin_value) in inputs.iter() {
                     sats_in += txin_value;
                     // ctx.try_log(|logger| {
                     //     slog::info!(
@@ -1202,6 +1288,7 @@ pub fn retrieve_satoshi_point_using_local_storage(
                     // });
 
                     if sats_out < sats_in {
+                        cache.insert((ordinal_block_number, txid_n), (inputs.clone(), outputs));
                         ordinal_offset = sats_out - (sats_in - txin_value);
                         ordinal_block_number = *block_height;
 
