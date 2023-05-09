@@ -418,14 +418,15 @@ fn get_default_hord_db_file_path_rocks_db(base_dir: &PathBuf) -> PathBuf {
 fn rocks_db_default_options() -> rocksdb::Options {
     let mut opts = rocksdb::Options::default();
     opts.create_if_missing(true);
-    // Per rocksdb documentation:
+    opts.set_disable_auto_compactions(true);
+    // Per rocksdb's documentation:
     // If cache_index_and_filter_blocks is false (which is default),
     // the number of index/filter blocks is controlled by option max_open_files.
     // If you are certain that your ulimit will always be bigger than number of files in the database,
     // we recommend setting max_open_files to -1, which means infinity.
     // This option will preload all filter and index blocks and will not need to maintain LRU of files.
     // Setting max_open_files to -1 will get you the best possible performance.
-    opts.set_max_open_files(-1);
+    opts.set_max_open_files(2048);
     opts
 }
 
@@ -513,8 +514,11 @@ pub fn find_block_at_block_height(
     blocks_db: &DB,
 ) -> Option<CompactedBlock> {
     let mut attempt = 0;
+    let mut read_options = rocksdb::ReadOptions::default();
+    read_options.fill_cache(true);
+    read_options.set_verify_checksums(false);
     loop {
-        match blocks_db.get(block_height.to_be_bytes()) {
+        match blocks_db.get_pinned_opt(block_height.to_be_bytes(), &read_options) {
             Ok(Some(ref res)) => {
                 let res = CompactedBlock::deserialize(&mut std::io::Cursor::new(&res)).unwrap();
                 return Some(res);
