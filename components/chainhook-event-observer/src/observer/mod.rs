@@ -759,6 +759,21 @@ pub async fn start_observer_commands_handler(
                         let mut blocks_to_rollback = vec![];
                         let mut confirmed_blocks = vec![];
 
+                        let blocks_ids_to_rollback = data
+                            .headers_to_rollback
+                            .iter()
+                            .map(|b| b.block_identifier.index.to_string())
+                            .collect::<Vec<String>>();
+                        let blocks_ids_to_apply = data
+                            .headers_to_apply
+                            .iter()
+                            .map(|b| b.block_identifier.index.to_string())
+                            .collect::<Vec<String>>();
+
+                        ctx.try_log(|logger| {
+                            slog::info!(logger, "Bitcoin reorg detected, will rollback blocks {} and apply blocks {}", blocks_ids_to_rollback.join(", "), blocks_ids_to_apply.join(", "))
+                        });
+
                         #[cfg(feature = "ordinals")]
                         let blocks_db = match open_readwrite_hord_db_conn_rocks_db(
                             &config.get_cache_path_buf(),

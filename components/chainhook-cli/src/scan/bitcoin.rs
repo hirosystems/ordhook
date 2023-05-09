@@ -154,10 +154,10 @@ pub async fn scan_bitcoin_chainstate_via_http_using_predicate(
         while cursor <= end_block {
             cursor += 1;
 
-            // Only consider inscriptions in the interval specified
+            // Evaluating every single block is required for also keeping track of transfers.
             let local_traverals = match inscriptions_cache.remove(&cursor) {
                 Some(entry) => entry,
-                None => continue,
+                None => vec![],
             };
             for (transaction_identifier, traversal_result) in local_traverals.into_iter() {
                 traversals.insert(transaction_identifier, traversal_result);

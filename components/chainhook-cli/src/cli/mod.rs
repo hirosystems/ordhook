@@ -12,8 +12,6 @@ use chainhook_event_observer::chainhooks::types::{
     StacksChainhookFullSpecification, StacksChainhookNetworkSpecification, StacksPredicate,
     StacksPrintEventBasedPredicate,
 };
-use chainhook_event_observer::dashmap::DashMap;
-use chainhook_event_observer::fxhash::FxBuildHasher;
 use chainhook_event_observer::hord::db::{
     delete_blocks_in_block_range_sqlite, delete_data_in_hord_db, fetch_and_cache_blocks_in_hord_db,
     find_block_at_block_height, find_block_at_block_height_sqlite,
