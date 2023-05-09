@@ -1,10 +1,10 @@
 ---
-title: Run chainhook as a Service
+title: Run Chainhook as a Service
 ---
 
-# Run `chainhook` as a service for streaming new blocks
+# Run `Chainhook` as a service for streaming new blocks
 
-`chainhook` can be run as a background service for streaming and processing new canonical blocks appended to the Bitcoin and Stacks blockchains.
+`Chainhook` can be run as a background service for streaming and processing new canonical blocks appended to the Bitcoin and Stacks blockchains.
 
 When running chainhook as a service, `if_this` / `then_that` predicates can be registered by passing the path of the `JSON` file in the command line: 
 
