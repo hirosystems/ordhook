@@ -1,5 +1,5 @@
 ---
-title: Use chainhook with Stacks
+title: Use Chainhook with Stacks
 ---
 
 # Use chainhook with Stacks
@@ -18,7 +18,7 @@ $ chainhook predicates new hello-arkadiko.json --stacks
 
 The current `stacks` predicates support the following `if_this` constructs:
 
-Get any transaction matching a given txid `txid` mandatory argument admits:
+Get any transaction matching a given `txid` mandatory argument admits:
 - 32 bytes hex encoded type. Example:
 
 ```json
@@ -47,7 +47,7 @@ Get any transaction, including an OP_RETURN output starting with a set of charac
 ```
 
 Get any transaction, including an OP_RETURN output matching the sequence of bytes specified `equals` mandatory argument admits:
-- hex encoded bytes. example: `0x589403`
+- hex encoded bytes. Example: `0x589403`
 ```json
 {
     "if_this": {

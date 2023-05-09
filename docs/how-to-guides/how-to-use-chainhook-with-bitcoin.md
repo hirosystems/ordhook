@@ -2,7 +2,7 @@
 title: Use Chainhook with Bitcoin
 ---
 
-# Use chainhook with Bitcoin
+# Use Chainhook with Bitcoin
 
 The following guide helps you define predicates to use chainhook with Bitcoin.
 

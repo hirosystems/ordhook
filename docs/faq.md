@@ -32,8 +32,8 @@ Chainhook can be used from the exposed RESTful API endpoints. A comprehensive Op
 
 Yes, you can run chainhooks on both the testnet and mainnet.
 
-### **How can I optimize chainhook scanning?**
+#### **How can I optimize chainhook scanning?**
 
-Use of adequate values for `start_block` and `end_block` in predicates
+Use of adequate values for `start_block` and `end_block` in predicates.
 
-Networking: reducing the number of networks hops between chainhook and `bitcoind` process
+Networking: Reducing the number of networks hops between chainhook and `bitcoind` process.
