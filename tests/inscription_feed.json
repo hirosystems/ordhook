@@ -1,8 +1,8 @@
 {
     "uuid": "1",
-    "name": "Unwrap BTC",
-    "version": 1,
+    "name": "Hello Ordinals",
     "chain": "bitcoin",
+    "version": 1,
     "networks": {
         "mainnet": {
             "start_block": 777534,

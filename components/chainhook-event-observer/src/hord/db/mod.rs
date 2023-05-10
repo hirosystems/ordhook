@@ -27,7 +27,7 @@ use crate::{
 };
 
 use super::{
-    new_traversals_cache,
+    new_traversals_cache, new_traversals_lazy_cache,
     ord::{height::Height, sat::Sat},
     update_hord_db_and_augment_bitcoin_block,
 };
@@ -1009,7 +1009,7 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
     let mut cursor = start_block as usize;
     let mut inbox = HashMap::new();
     let mut num_writes = 0;
-    let traversals_cache = Arc::new(new_traversals_cache());
+    let traversals_cache = Arc::new(new_traversals_lazy_cache());
 
     while let Ok(Some((block_height, compacted_block, raw_block))) = block_compressed_rx.recv() {
         insert_entry_in_blocks(block_height, &compacted_block, &blocks_db_rw, &ctx);

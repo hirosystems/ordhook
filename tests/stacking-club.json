@@ -1,0 +1,21 @@
+{
+    "uuid": "1",
+    "name": "Unwrap BTC",
+    "chain": "stacks",
+    "version": 1,
+    "networks": {
+        "mainnet": {
+            "start_block": 1,
+            "end_block": 103672,
+            "if_this": {
+                "scope": "stx_event",
+                "actions": ["lock"]
+            },
+            "then_that": {
+                "file_append": {
+                    "path": "mainnet-stacking-club.txt"
+                }
+            }
+        }
+    }
+}
