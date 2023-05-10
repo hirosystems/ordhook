@@ -150,7 +150,7 @@ Get any transaction, including an STX transfer operation
 {
     "if_this": {
         "scope": "stacks_protocol",
-        "operation": "stx_transfered"
+        "operation": "stx_transferred"
     }
 }
 ```

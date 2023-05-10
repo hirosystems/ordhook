@@ -50,8 +50,8 @@ rand = "0.8.5"
 hex-simd = "0.8.0"
 serde_cbor = "0.11.2"
 zeromq = { version = "*", default-features = false, features = ["tokio-runtime", "tcp-transport"] }
-zerocopy = "0.6.1"
-zerocopy-derive = "0.3.2"
+dashmap = "5.4.0"
+fxhash = "0.2.1"
 
 [dependencies.rocksdb]
 version = "0.20.1"

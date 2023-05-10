@@ -17,7 +17,7 @@ use std::sync::mpsc::channel;
 
 pub const DEFAULT_INGESTION_PORT: u16 = 20455;
 pub const DEFAULT_CONTROL_PORT: u16 = 20456;
-pub const STACKS_SCAN_THREAD_POOL_SIZE: usize = 12;
+pub const STACKS_SCAN_THREAD_POOL_SIZE: usize = 1;
 pub const BITCOIN_SCAN_THREAD_POOL_SIZE: usize = 12;
 
 pub struct Service {
@@ -147,8 +147,8 @@ impl Service {
                             &mut moved_config,
                             &moved_ctx,
                         );
-                        let end_block = match hiro_system_kit::nestable_block_on(op) {
-                            Ok(end_block) => end_block,
+                        let last_block_in_csv = match hiro_system_kit::nestable_block_on(op) {
+                            Ok(last_block_in_csv) => last_block_in_csv,
                             Err(e) => {
                                 error!(
                                     moved_ctx.expect_logger(),
@@ -159,7 +159,8 @@ impl Service {
                         };
                         info!(
                             moved_ctx.expect_logger(),
-                            "Stacks chainstate scan completed up to block: {}", end_block.index
+                            "Stacks chainstate scan completed up to block: {}",
+                            last_block_in_csv.index
                         );
                         let _ = observer_command_tx.send(ObserverCommand::EnablePredicate(
                             ChainhookSpecification::Stacks(predicate_spec),
@@ -259,15 +260,7 @@ impl Service {
                     }
                     match chainhook {
                         ChainhookSpecification::Stacks(predicate_spec) => {
-                            // let _ = stacks_scan_op_tx.send((predicate_spec, api_key));
-                            info!(
-                                self.ctx.expect_logger(),
-                                "Enabling stacks predicate {}", predicate_spec.uuid
-                            );
-                            let _ = observer_command_tx.send(ObserverCommand::EnablePredicate(
-                                ChainhookSpecification::Stacks(predicate_spec),
-                                api_key,
-                            ));
+                            let _ = stacks_scan_op_tx.send((predicate_spec, api_key));
                         }
                         ChainhookSpecification::Bitcoin(predicate_spec) => {
                             let _ = bitcoin_scan_op_tx.send((predicate_spec, api_key));

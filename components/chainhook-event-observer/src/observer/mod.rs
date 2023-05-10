@@ -10,6 +10,7 @@ use crate::chainhooks::types::{
     ChainhookConfig, ChainhookFullSpecification, ChainhookSpecification,
 };
 
+use crate::hord::new_traversals_cache;
 #[cfg(feature = "ordinals")]
 use crate::hord::{
     db::{open_readwrite_hord_db_conn, open_readwrite_hord_db_conn_rocks_db},
@@ -595,6 +596,7 @@ pub async fn start_observer_commands_handler(
     let mut chainhooks_lookup: HashMap<String, ApiKey> = HashMap::new();
     let networks = (&config.bitcoin_network, &config.stacks_network);
     let mut bitcoin_block_store: HashMap<BlockIdentifier, BitcoinBlockData> = HashMap::new();
+    let traversals_cache = Arc::new(new_traversals_cache());
 
     loop {
         let command = match observer_commands_rx.recv() {
@@ -641,12 +643,12 @@ pub async fn start_observer_commands_handler(
                 ctx.try_log(|logger| {
                     slog::info!(logger, "Handling PropagateBitcoinChainEvent command")
                 });
+                let mut confirmed_blocks = vec![];
 
                 // Update Chain event before propagation
                 let chain_event = match blockchain_event {
                     BlockchainEvent::BlockchainUpdatedWithHeaders(data) => {
                         let mut new_blocks = vec![];
-                        let mut confirmed_blocks = vec![];
 
                         #[cfg(feature = "ordinals")]
                         let blocks_db = match open_readwrite_hord_db_conn_rocks_db(
@@ -695,21 +697,24 @@ pub async fn start_observer_commands_handler(
                             match bitcoin_block_store.get_mut(&header.block_identifier) {
                                 Some(block) => {
                                     #[cfg(feature = "ordinals")]
-                                    if let Err(e) = update_hord_db_and_augment_bitcoin_block(
-                                        block,
-                                        &blocks_db,
-                                        &inscriptions_db_conn_rw,
-                                        true,
-                                        &config.get_cache_path_buf(),
-                                        &ctx,
-                                    ) {
-                                        ctx.try_log(|logger| {
-                                            slog::error!(
+                                    {
+                                        if let Err(e) = update_hord_db_and_augment_bitcoin_block(
+                                            block,
+                                            &blocks_db,
+                                            &inscriptions_db_conn_rw,
+                                            true,
+                                            &config.get_cache_path_buf(),
+                                            &traversals_cache,
+                                            &ctx,
+                                        ) {
+                                            ctx.try_log(|logger| {
+                                                slog::error!(
                                                 logger,
                                                 "Unable to insert bitcoin block {} in hord_db: {e}",
                                                 block.block_identifier.index
                                             )
-                                        });
+                                            });
+                                        }
                                     }
                                     new_blocks.push(block.clone());
                                 }
@@ -745,14 +750,37 @@ pub async fn start_observer_commands_handler(
                         BitcoinChainEvent::ChainUpdatedWithBlocks(
                             BitcoinChainUpdatedWithBlocksData {
                                 new_blocks,
-                                confirmed_blocks,
+                                confirmed_blocks: confirmed_blocks.clone(),
                             },
                         )
                     }
                     BlockchainEvent::BlockchainUpdatedWithReorg(data) => {
                         let mut blocks_to_apply = vec![];
                         let mut blocks_to_rollback = vec![];
-                        let mut confirmed_blocks = vec![];
+
+                        let blocks_ids_to_rollback = data
+                            .headers_to_rollback
+                            .iter()
+                            .map(|b| b.block_identifier.index.to_string())
+                            .collect::<Vec<String>>();
+                        let blocks_ids_to_apply = data
+                            .headers_to_apply
+                            .iter()
+                            .map(|b| b.block_identifier.index.to_string())
+                            .collect::<Vec<String>>();
+
+                        ctx.try_log(|logger| {
+                            slog::info!(logger, "Bitcoin reorg detected, will rollback blocks {} and apply blocks {}", blocks_ids_to_rollback.join(", "), blocks_ids_to_apply.join(", "))
+                        });
+
+                        ctx.try_log(|logger| {
+                            slog::info!(
+                                logger,
+                                "Flushing traversals_cache ({} entries)",
+                                traversals_cache.len()
+                            )
+                        });
+                        traversals_cache.clear();
 
                         #[cfg(feature = "ordinals")]
                         let blocks_db = match open_readwrite_hord_db_conn_rocks_db(
@@ -833,20 +861,23 @@ pub async fn start_observer_commands_handler(
                             match bitcoin_block_store.get_mut(&header.block_identifier) {
                                 Some(block) => {
                                     #[cfg(feature = "ordinals")]
-                                    if let Err(e) = update_hord_db_and_augment_bitcoin_block(
-                                        block,
-                                        &blocks_db,
-                                        &inscriptions_db_conn_rw,
-                                        true,
-                                        &config.get_cache_path_buf(),
-                                        &ctx,
-                                    ) {
-                                        ctx.try_log(|logger| {
-                                            slog::error!(
-                                                logger,
-                                                "Unable to apply bitcoin block {} with hord_db: {e}", block.block_identifier.index
-                                            )
-                                        });
+                                    {
+                                        if let Err(e) = update_hord_db_and_augment_bitcoin_block(
+                                            block,
+                                            &blocks_db,
+                                            &inscriptions_db_conn_rw,
+                                            true,
+                                            &config.get_cache_path_buf(),
+                                            &traversals_cache,
+                                            &ctx,
+                                        ) {
+                                            ctx.try_log(|logger| {
+                                                slog::error!(
+                                                    logger,
+                                                    "Unable to apply bitcoin block {} with hord_db: {e}", block.block_identifier.index
+                                                )
+                                            });
+                                        }
                                     }
                                     blocks_to_apply.push(block.clone());
                                 }
@@ -882,7 +913,7 @@ pub async fn start_observer_commands_handler(
                         BitcoinChainEvent::ChainUpdatedWithReorg(BitcoinChainUpdatedWithReorgData {
                             blocks_to_apply,
                             blocks_to_rollback,
-                            confirmed_blocks,
+                            confirmed_blocks: confirmed_blocks.clone(),
                         })
                     }
                 };
@@ -1038,6 +1069,19 @@ pub async fn start_observer_commands_handler(
 
                 for request in requests.into_iter() {
                     let _ = send_request(request, 3, 1, &ctx).await;
+                }
+
+                for block in confirmed_blocks.into_iter() {
+                    if block.block_identifier.index % 24 == 0 {
+                        ctx.try_log(|logger| {
+                            slog::info!(
+                                logger,
+                                "Flushing traversals_cache ({} entries)",
+                                traversals_cache.len()
+                            )
+                        });
+                        traversals_cache.clear();
+                    }
                 }
 
                 if let Some(ref tx) = observer_events_tx {

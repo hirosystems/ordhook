@@ -397,9 +397,9 @@ impl BitcoinPredicateType {
                 }
                 false
             }
-            BitcoinPredicateType::StacksProtocol(StacksOperations::StxTransfered) => {
+            BitcoinPredicateType::StacksProtocol(StacksOperations::StxTransferred) => {
                 for op in tx.metadata.stacks_operations.iter() {
-                    if let StacksBaseChainOperation::StxTransfered(_) = op {
+                    if let StacksBaseChainOperation::StxTransferred(_) = op {
                         return true;
                     }
                 }

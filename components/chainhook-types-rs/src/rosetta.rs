@@ -339,7 +339,7 @@ pub struct OrdinalInscriptionRevealData {
 pub enum StacksBaseChainOperation {
     BlockCommitted(StacksBlockCommitmentData),
     LeaderRegistered(KeyRegistrationData),
-    StxTransfered(TransferSTXData),
+    StxTransferred(TransferSTXData),
     StxLocked(LockSTXData),
 }
 
