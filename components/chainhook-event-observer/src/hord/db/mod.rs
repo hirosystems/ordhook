@@ -1448,29 +1448,13 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
                 if index == tx_cursor.1 {
                     break;
                 }
-                // ctx.try_log(|logger| {
-                //     slog::info!(logger, "Adding {} from output #{}", output_value, index)
-                // });
                 sats_out += output_value;
             }
             sats_out += ordinal_offset;
-            // ctx.try_log(|logger| {
-            //     slog::info!(
-            //         logger,
-            //         "Adding offset {ordinal_offset} to sats_out {sats_out}"
-            //     )
-            // });
 
             let mut sats_in = 0;
             for input in tx.inputs.iter() {
                 sats_in += input.txin_value;
-                // ctx.try_log(|logger| {
-                //     slog::info!(
-                //         logger,
-                //         "Adding txin_value {txin_value} to sats_in {sats_in} (txin: {})",
-                //         hex::encode(&txin)
-                //     )
-                // });
 
                 if sats_out < sats_in {
                     ordinal_offset = sats_out - (sats_in - input.txin_value);
@@ -1600,9 +1584,12 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
                     ordinal_offset = sats_out - (sats_in - input.txin_value);
                     ordinal_block_number = input.block_height;
 
-                    // ctx.try_log(|logger| slog::info!(logger, "Block {ordinal_block_number} / Tx {} / [in:{sats_in}, out:{sats_out}]: {block_height} -> {ordinal_block_number}:{ordinal_offset} -> {}:{vout}",
-                    // hex::encode(&txid_n),
-                    // hex::encode(&txin)));
+                    ctx.try_log(|logger| slog::info!(logger, "Block {ordinal_block_number} / Tx {} / [in:{sats_in}, out:{sats_out}]: {} -> {ordinal_block_number}:{ordinal_offset} -> {}:{}",
+                    hex::encode(&lazy_tx.txid),
+                    input.block_height,
+                    hex::encode(&input.txin),
+                    input.vout,
+                ));
                     tx_cursor = (input.txin.clone(), input.vout as usize);
                     break;
                 }
@@ -1755,6 +1742,7 @@ impl LazyBlock {
         &self,
         searched_txid: &[u8],
     ) -> Option<LazyBlockTransaction> {
+        // println!("{:?}", hex::encode(searched_txid));
         let mut entry = None;
         let mut cursor = Cursor::new(&self.bytes);
         let mut cumulated_offset = 0;
@@ -1762,9 +1750,11 @@ impl LazyBlock {
         while entry.is_none() {
             let pos = self.get_transactions_data_pos() + cumulated_offset;
             let (inputs_len, outputs_len, size) = self.get_transaction_format(i);
+            // println!("{inputs_len} / {outputs_len} / {size}");
             cursor.set_position(pos as u64);
             let mut txid = [0u8; 8];
             let _ = cursor.read_exact(&mut txid);
+            // println!("-> {}", hex::encode(txid));
             if searched_txid.eq(&txid) {
                 entry = Some(self.get_lazy_transaction_at_pos(
                     &mut cursor,
@@ -1813,6 +1803,7 @@ impl<'a> Iterator for LazyBlockTransactionIterator<'a> {
         }
         let pos = self.lazy_block.get_transactions_data_pos() + self.cumulated_offset;
         let (inputs_len, outputs_len, size) = self.lazy_block.get_transaction_format(self.tx_index);
+        // println!("{inputs_len} / {outputs_len} / {size}");
         let mut cursor = Cursor::new(&self.lazy_block.bytes);
         cursor.set_position(pos as u64);
         let mut txid = [0u8; 8];
