@@ -14,16 +14,14 @@ use chainhook_event_observer::chainhooks::types::{
 };
 use chainhook_event_observer::hord::db::{
     delete_blocks_in_block_range_sqlite, delete_data_in_hord_db, fetch_and_cache_blocks_in_hord_db,
-    find_block_at_block_height, find_block_at_block_height_sqlite,
-    find_inscriptions_at_wached_outpoint, find_last_block_inserted,
+    find_block_at_block_height, find_block_at_block_height_sqlite, find_last_block_inserted,
     find_watched_satpoint_for_inscription, initialize_hord_db, insert_entry_in_blocks,
     insert_entry_in_blocks_lazy_block, open_readonly_hord_db_conn,
     open_readonly_hord_db_conn_rocks_db, open_readwrite_hord_db_conn,
-    open_readwrite_hord_db_conn_rocks_db, retrieve_satoshi_point_using_lazy_storage,
-    CompactedBlock, LazyBlock,
+    open_readwrite_hord_db_conn_rocks_db, retrieve_satoshi_point_using_lazy_storage, LazyBlock,
 };
 use chainhook_event_observer::hord::{
-    new_traversals_cache, new_traversals_lazy_cache, retrieve_inscribed_satoshi_points_from_block,
+    new_traversals_lazy_cache, retrieve_inscribed_satoshi_points_from_block,
     update_storage_and_augment_bitcoin_block_with_inscription_transfer_data, Storage,
 };
 use chainhook_event_observer::indexer;

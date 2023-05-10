@@ -27,7 +27,7 @@ use crate::{
 };
 
 use super::{
-    new_traversals_cache, new_traversals_lazy_cache,
+    new_traversals_lazy_cache,
     ord::{height::Height, sat::Sat},
     update_hord_db_and_augment_bitcoin_block,
 };
@@ -570,9 +570,21 @@ pub fn find_lazy_block_at_block_height(
     retry: u8,
     blocks_db: &DB,
 ) -> Option<LazyBlock> {
-    match blocks_db.get(block_height.to_be_bytes()) {
-        Ok(Some(res)) => Some(LazyBlock::new(res)),
-        _ => None,
+    let mut attempt = 0;
+    // let mut read_options = rocksdb::ReadOptions::default();
+    // read_options.fill_cache(true);
+    // read_options.set_verify_checksums(false);
+    loop {
+        match blocks_db.get(block_height.to_be_bytes()) {
+            Ok(Some(res)) => return Some(LazyBlock::new(res)),
+            _ => {
+                attempt += 1;
+                std::thread::sleep(std::time::Duration::from_secs(1));
+                if attempt > retry {
+                    return None;
+                }
+            }
+        }
     }
 }
 
