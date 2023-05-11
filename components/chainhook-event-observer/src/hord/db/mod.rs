@@ -1558,21 +1558,13 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
                 sats_in += input.txin_value;
 
                 if sats_out < sats_in {
+                    traversals_cache.insert((ordinal_block_number, tx_cursor.0), lazy_tx.clone());
                     ordinal_offset = sats_out - (sats_in - input.txin_value);
                     ordinal_block_number = input.block_height;
-
-                    ctx.try_log(|logger| slog::info!(logger, "Block {ordinal_block_number} / Tx {} / [in:{sats_in}, out:{sats_out}]: {} -> {ordinal_block_number}:{ordinal_offset} -> {}:{}",
-                    hex::encode(&lazy_tx.txid),
-                    input.block_height,
-                    hex::encode(&input.txin),
-                    input.vout,
-                ));
                     tx_cursor = (input.txin.clone(), input.vout as usize);
                     break;
                 }
             }
-
-            traversals_cache.insert((ordinal_block_number, tx_cursor.0), lazy_tx);
 
             if sats_in == 0 {
                 ctx.try_log(|logger| {
@@ -1607,14 +1599,14 @@ pub struct LazyBlock {
     pub tx_len: u16,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LazyBlockTransaction {
     pub txid: [u8; 8],
     pub inputs: Vec<LazyBlockTransactionInput>,
     pub outputs: Vec<u64>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LazyBlockTransactionInput {
     pub txin: [u8; 8],
     pub block_height: u32,
