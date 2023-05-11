@@ -28,7 +28,7 @@ use crate::{
         db::{
             find_inscription_with_ordinal_number, find_inscriptions_at_wached_outpoint,
             insert_entry_in_blocks, retrieve_satoshi_point_using_lazy_storage,
-            store_new_inscription, update_transfered_inscription, CompactedBlock,
+            store_new_inscription, update_transfered_inscription,
         },
         ord::height::Height,
     },
@@ -38,7 +38,7 @@ use crate::{
 use self::db::{
     find_inscription_with_id, find_latest_inscription_number_at_block_height,
     open_readonly_hord_db_conn_rocks_db, remove_entry_from_blocks, remove_entry_from_inscriptions,
-    LazyBlockTransaction, TraversalResult, WatchedSatpoint,
+    LazyBlock, LazyBlockTransaction, TraversalResult, WatchedSatpoint,
 };
 use self::inscription::InscriptionParser;
 use self::ord::inscription_id::InscriptionId;
@@ -308,7 +308,13 @@ pub fn update_hord_db_and_augment_bitcoin_block(
             )
         });
 
-        let compacted_block = CompactedBlock::from_standardized_block(&new_block);
+        let compacted_block = LazyBlock::from_standardized_block(&new_block).map_err(|e| {
+            format!(
+                "unable to serialize block {}: {}",
+                new_block.block_identifier.index,
+                e.to_string()
+            )
+        })?;
         insert_entry_in_blocks(
             new_block.block_identifier.index as u32,
             &compacted_block,
