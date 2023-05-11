@@ -1435,7 +1435,7 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
         hops += 1;
         if hops as u64 > block_identifier.index {
             return Err(format!(
-                "Unable to process transaction {}, manual investigation required",
+                "Unable to process transaction {} detected after {hops} iterations. Manual investigation required",
                 transaction_identifier.hash
             ));
         }
@@ -1459,10 +1459,6 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
                 if sats_out < sats_in {
                     ordinal_offset = sats_out - (sats_in - input.txin_value);
                     ordinal_block_number = input.block_height;
-
-                    // ctx.try_log(|logger| slog::info!(logger, "Block {ordinal_block_number} / Tx {} / [in:{sats_in}, out:{sats_out}]: {block_height} -> {ordinal_block_number}:{ordinal_offset} -> {}:{vout}",
-                    // hex::encode(&txid_n),
-                    // hex::encode(&txin)));
                     tx_cursor = (input.txin.clone(), input.vout as usize);
                     next_found_in_cache = true;
                     break;
@@ -1499,15 +1495,6 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
 
         let coinbase_txid = lazy_block.get_coinbase_txid();
         let txid = tx_cursor.0;
-
-        // ctx.try_log(|logger| {
-        //     slog::info!(
-        //         logger,
-        //         "{ordinal_block_number}:{:?}:{:?}",
-        //         hex::encode(&coinbase_txid),
-        //         hex::encode(&txid)
-        //     )
-        // });
 
         // evaluate exit condition: did we reach the **final** coinbase transaction
         if coinbase_txid.eq(&txid) {
@@ -1562,9 +1549,6 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
                 if index == tx_cursor.1 {
                     break;
                 }
-                // ctx.try_log(|logger| {
-                //     slog::info!(logger, "Adding {} from output #{}", output_value, index)
-                // });
                 sats_out += output_value;
             }
             sats_out += ordinal_offset;
@@ -1572,13 +1556,6 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
             let mut sats_in = 0;
             for input in lazy_tx.inputs.iter() {
                 sats_in += input.txin_value;
-                // ctx.try_log(|logger| {
-                //     slog::info!(
-                //         logger,
-                //         "Adding txin_value {txin_value} to sats_in {sats_in} (txin: {})",
-                //         hex::encode(&txin)
-                //     )
-                // });
 
                 if sats_out < sats_in {
                     ordinal_offset = sats_out - (sats_in - input.txin_value);
