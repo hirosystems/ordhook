@@ -242,11 +242,9 @@ pub fn retrieve_inscribed_satoshi_points_from_block(
                     }
                     Err(e) => {
                         moved_ctx.try_log(|logger| {
-                            slog::error!(
+                            slog::warn!(
                                 logger,
-                                "Unable to retrieve satoshi point in {} ({}): {e}",
-                                transaction_id.hash,
-                                block_identifier.index
+                                "Unable to open db: {e}",
                             );
                         });
                     }
