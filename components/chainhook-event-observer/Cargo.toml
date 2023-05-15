@@ -64,7 +64,7 @@ features = ["lz4", "snappy"]
 
 [features]
 default = ["cli", "ordinals"]
-zeromq = ["zeromq"]
+zeromq = ["dep:zeromq"]
 cli = ["clap", "clap_generate", "toml", "ctrlc", "log"]
 log = ["hiro-system-kit/log"]
 ordinals = ["rocksdb", "chrono", "anyhow"]

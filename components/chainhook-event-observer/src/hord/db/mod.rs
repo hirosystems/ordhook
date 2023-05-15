@@ -1304,15 +1304,14 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
 
         // evaluate exit condition: did we reach the **final** coinbase transaction
         if coinbase_txid.eq(&txid) {
-            let coinbase_value = &lazy_block.get_coinbase_sats();
-            if ordinal_offset.lt(coinbase_value) {
+            let subsidy = Height(ordinal_block_number.into()).subsidy();
+            if ordinal_offset.lt(&subsidy) {
                 // Great!
                 break;
             }
 
             // loop over the transaction fees to detect the right range
-            let cut_off = ordinal_offset - coinbase_value;
-            let mut accumulated_fees = 0;
+            let mut accumulated_fees = subsidy;
 
             for tx in lazy_block.iter_tx() {
                 let mut total_in = 0;
@@ -1327,7 +1326,7 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
 
                 let fee = total_in - total_out;
                 accumulated_fees += fee;
-                if accumulated_fees > cut_off {
+                if accumulated_fees > ordinal_offset {
                     // We are looking at the right transaction
                     // Retraverse the inputs to select the index to be picked
                     let mut sats_in = 0;

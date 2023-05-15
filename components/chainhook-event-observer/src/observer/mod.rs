@@ -20,6 +20,7 @@ use crate::indexer::bitcoin::{
     download_and_parse_block_with_retry, standardize_bitcoin_block, BitcoinBlockFullBreakdown,
     NewBitcoinBlock,
 };
+use crate::indexer::fork_scratch_pad::ForkScratchPad;
 use crate::indexer::{self, Indexer, IndexerConfig};
 use crate::utils::{send_request, Context};
 
