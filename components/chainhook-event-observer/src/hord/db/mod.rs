@@ -1325,13 +1325,16 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
                 }
 
                 let fee = total_in - total_out;
-                accumulated_fees += fee;
-                if accumulated_fees > ordinal_offset {
+                if accumulated_fees + fee > ordinal_offset {
                     // We are looking at the right transaction
                     // Retraverse the inputs to select the index to be picked
+                    let offset_within_fee = ordinal_offset - accumulated_fees;
+                    total_out += offset_within_fee;
                     let mut sats_in = 0;
+
                     for input in tx.inputs.into_iter() {
                         sats_in += input.txin_value;
+
                         if sats_in >= total_out {
                             ordinal_offset = total_out - (sats_in - input.txin_value);
                             ordinal_block_number = input.block_height;
@@ -1340,6 +1343,8 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
                         }
                     }
                     break;
+                } else {
+                    accumulated_fees += fee;
                 }
             }
         } else {
