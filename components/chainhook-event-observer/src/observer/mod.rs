@@ -10,7 +10,7 @@ use crate::chainhooks::types::{
     ChainhookConfig, ChainhookFullSpecification, ChainhookSpecification,
 };
 
-use crate::hord::new_traversals_cache;
+use crate::hord::new_traversals_lazy_cache;
 #[cfg(feature = "ordinals")]
 use crate::hord::{
     db::{open_readwrite_hord_db_conn, open_readwrite_hord_db_conn_rocks_db},
@@ -20,6 +20,7 @@ use crate::indexer::bitcoin::{
     download_and_parse_block_with_retry, standardize_bitcoin_block, BitcoinBlockFullBreakdown,
     NewBitcoinBlock,
 };
+use crate::indexer::fork_scratch_pad::ForkScratchPad;
 use crate::indexer::{self, Indexer, IndexerConfig};
 use crate::utils::{send_request, Context};
 
@@ -596,7 +597,7 @@ pub async fn start_observer_commands_handler(
     let mut chainhooks_lookup: HashMap<String, ApiKey> = HashMap::new();
     let networks = (&config.bitcoin_network, &config.stacks_network);
     let mut bitcoin_block_store: HashMap<BlockIdentifier, BitcoinBlockData> = HashMap::new();
-    let traversals_cache = Arc::new(new_traversals_cache());
+    let traversals_cache = Arc::new(new_traversals_lazy_cache());
 
     loop {
         let command = match observer_commands_rx.recv() {

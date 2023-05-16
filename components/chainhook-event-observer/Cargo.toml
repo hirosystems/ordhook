@@ -49,7 +49,7 @@ threadpool = "1.8.1"
 rand = "0.8.5"
 hex-simd = "0.8.0"
 serde_cbor = "0.11.2"
-zeromq = { version = "*", default-features = false, features = ["tokio-runtime", "tcp-transport"] }
+zeromq = { version = "*", default-features = false, features = ["tokio-runtime", "tcp-transport"], optional = true }
 dashmap = "5.4.0"
 fxhash = "0.2.1"
 
@@ -64,6 +64,7 @@ features = ["lz4", "snappy"]
 
 [features]
 default = ["cli", "ordinals"]
+zeromq = ["dep:zeromq"]
 cli = ["clap", "clap_generate", "toml", "ctrlc", "log"]
 log = ["hiro-system-kit/log"]
 ordinals = ["rocksdb", "chrono", "anyhow"]

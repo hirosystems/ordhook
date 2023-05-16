@@ -27,7 +27,7 @@ use crate::{
 };
 
 use super::{
-    new_traversals_cache,
+    new_traversals_lazy_cache,
     ord::{height::Height, sat::Sat},
     update_hord_db_and_augment_bitcoin_block,
 };
@@ -167,37 +167,6 @@ fn open_existing_readonly_db(path: &PathBuf, ctx: &Context) -> Connection {
     return conn;
 }
 
-// #[derive(zerocopy::FromBytes, zerocopy::AsBytes)]
-// #[repr(C)]
-// pub struct T {
-//     ci: [u8; 4],
-//     cv: u64,
-//     t: Vec<Tx>,
-// }
-
-// #[derive(zerocopy::FromBytes, zerocopy::AsBytes)]
-// #[repr(C, packed)]
-// pub struct Tx {
-//     t: [u8; 4],
-//     i: TxIn,
-//     o: TxOut,
-// }
-
-// #[derive(zerocopy::FromBytes, zerocopy::AsBytes)]
-// #[repr(C, packed)]
-// pub struct TxIn {
-//     i: [u8; 4],
-//     b: u32,
-//     o: u16,
-//     v: u64
-// }
-
-// #[derive(zerocopy::FromBytes, zerocopy::AsBytes)]
-// #[repr(C, packed)]
-// pub struct TxOut {
-//     v: u64,
-// }
-
 #[derive(Debug, Serialize, Deserialize)]
 #[repr(C)]
 pub struct CompactedBlock(
@@ -213,121 +182,10 @@ impl CompactedBlock {
     fn empty() -> CompactedBlock {
         CompactedBlock((([0, 0, 0, 0, 0, 0, 0, 0], 0), vec![]))
     }
-
-    pub fn from_full_block(block: &BitcoinBlockFullBreakdown) -> CompactedBlock {
-        let mut txs = vec![];
-        let mut coinbase_value = 0;
-        let coinbase_txid = {
-            let txid = hex::decode(block.tx[0].txid.to_string()).unwrap();
-            [
-                txid[0], txid[1], txid[2], txid[3], txid[4], txid[5], txid[6], txid[7],
-            ]
-        };
-        for coinbase_output in block.tx[0].vout.iter() {
-            coinbase_value += coinbase_output.value.to_sat();
-        }
-        for tx in block.tx.iter().skip(1) {
-            let mut inputs = vec![];
-            for input in tx.vin.iter() {
-                let txin = hex::decode(input.txid.unwrap().to_string()).unwrap();
-
-                inputs.push((
-                    [
-                        txin[0], txin[1], txin[2], txin[3], txin[4], txin[5], txin[6], txin[7],
-                    ],
-                    input.prevout.as_ref().unwrap().height as u32,
-                    input.vout.unwrap() as u16,
-                    input.prevout.as_ref().unwrap().value.to_sat(),
-                ));
-            }
-            let mut outputs = vec![];
-            for output in tx.vout.iter() {
-                outputs.push(output.value.to_sat());
-            }
-            let txid = hex::decode(tx.txid.to_string()).unwrap();
-            txs.push((
-                [
-                    txid[0], txid[1], txid[2], txid[3], txid[4], txid[5], txid[6], txid[7],
-                ],
-                inputs,
-                outputs,
-            ));
-        }
-        CompactedBlock(((coinbase_txid, coinbase_value), txs))
-    }
-
-    pub fn from_standardized_block(block: &BitcoinBlockData) -> CompactedBlock {
-        let mut txs = vec![];
-        let mut coinbase_value = 0;
-        let coinbase_txid = {
-            let txid =
-                hex::decode(&block.transactions[0].transaction_identifier.hash[2..]).unwrap();
-            [
-                txid[0], txid[1], txid[2], txid[3], txid[4], txid[5], txid[6], txid[7],
-            ]
-        };
-        for coinbase_output in block.transactions[0].metadata.outputs.iter() {
-            coinbase_value += coinbase_output.value;
-        }
-        for tx in block.transactions.iter().skip(1) {
-            let mut inputs = vec![];
-            for input in tx.metadata.inputs.iter() {
-                let txin = hex::decode(&input.previous_output.txid[2..]).unwrap();
-
-                inputs.push((
-                    [
-                        txin[0], txin[1], txin[2], txin[3], txin[4], txin[5], txin[6], txin[7],
-                    ],
-                    input.previous_output.block_height as u32,
-                    input.previous_output.vout as u16,
-                    input.previous_output.value,
-                ));
-            }
-            let mut outputs = vec![];
-            for output in tx.metadata.outputs.iter() {
-                outputs.push(output.value);
-            }
-            let txid = hex::decode(&tx.transaction_identifier.hash[2..]).unwrap();
-            txs.push((
-                [
-                    txid[0], txid[1], txid[2], txid[3], txid[4], txid[5], txid[6], txid[7],
-                ],
-                inputs,
-                outputs,
-            ));
-        }
-        CompactedBlock(((coinbase_txid, coinbase_value), txs))
-    }
-
     pub fn from_hex_bytes(bytes: &str) -> CompactedBlock {
         let bytes = hex_simd::decode_to_vec(&bytes).unwrap_or(vec![]);
         let value = serde_cbor::from_slice(&bytes[..]).unwrap_or(CompactedBlock::empty());
         value
-    }
-
-    pub fn from_cbor_bytes(bytes: &[u8]) -> CompactedBlock {
-        serde_cbor::from_slice(&bytes[..]).unwrap()
-    }
-
-    fn serialize<W: Write>(&self, fd: &mut W) -> std::io::Result<()> {
-        fd.write_all(&self.0 .0 .0)?;
-        fd.write(&self.0 .0 .1.to_be_bytes())?;
-        fd.write(&self.0 .1.len().to_be_bytes())?;
-        for (id, inputs, outputs) in self.0 .1.iter() {
-            fd.write_all(id)?;
-            fd.write(&inputs.len().to_be_bytes())?;
-            for (txid, block, vout, value) in inputs.iter() {
-                fd.write_all(txid)?;
-                fd.write(&block.to_be_bytes())?;
-                fd.write(&vout.to_be_bytes())?;
-                fd.write(&value.to_be_bytes())?;
-            }
-            fd.write(&outputs.len().to_be_bytes())?;
-            for value in outputs.iter() {
-                fd.write(&value.to_be_bytes())?;
-            }
-        }
-        Ok(())
     }
 
     pub fn serialize_to_lazy_format<W: Write>(&self, fd: &mut W) -> std::io::Result<()> {
@@ -478,46 +336,7 @@ pub fn archive_hord_db_conn_rocks_db(base_dir: &PathBuf, _ctx: &Context) {
     let _ = std::fs::rename(from, to);
 }
 
-// Legacy - to remove after migrations
-pub fn find_block_at_block_height_sqlite(
-    block_height: u32,
-    hord_db_conn: &Connection,
-) -> Option<CompactedBlock> {
-    let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
-    let mut stmt = hord_db_conn
-        .prepare("SELECT compacted_bytes FROM blocks WHERE id = ?")
-        .unwrap();
-    let result_iter = stmt
-        .query_map(args, |row| {
-            let hex_bytes: String = row.get(0).unwrap();
-            Ok(CompactedBlock::from_hex_bytes(&hex_bytes))
-        })
-        .unwrap();
-
-    for result in result_iter {
-        return Some(result.unwrap());
-    }
-    return None;
-}
-
 pub fn insert_entry_in_blocks(
-    block_height: u32,
-    compacted_block: &CompactedBlock,
-    blocks_db_rw: &DB,
-    _ctx: &Context,
-) {
-    let mut bytes = vec![];
-    let _ = compacted_block.serialize(&mut bytes);
-    let block_height_bytes = block_height.to_be_bytes();
-    blocks_db_rw
-        .put(&block_height_bytes, bytes)
-        .expect("unable to insert blocks");
-    blocks_db_rw
-        .put(b"metadata::last_insert", block_height_bytes)
-        .expect("unable to insert metadata");
-}
-
-pub fn insert_entry_in_blocks_lazy_block(
     block_height: u32,
     lazy_block: &LazyBlock,
     blocks_db_rw: &DB,
@@ -570,9 +389,21 @@ pub fn find_lazy_block_at_block_height(
     retry: u8,
     blocks_db: &DB,
 ) -> Option<LazyBlock> {
-    match blocks_db.get(block_height.to_be_bytes()) {
-        Ok(Some(res)) => Some(LazyBlock::new(res)),
-        _ => None,
+    let mut attempt = 0;
+    // let mut read_options = rocksdb::ReadOptions::default();
+    // read_options.fill_cache(true);
+    // read_options.set_verify_checksums(false);
+    loop {
+        match blocks_db.get(block_height.to_be_bytes()) {
+            Ok(Some(res)) => return Some(LazyBlock::new(res)),
+            _ => {
+                attempt += 1;
+                std::thread::sleep(std::time::Duration::from_secs(1));
+                if attempt > retry {
+                    return None;
+                }
+            }
+        }
     }
 }
 
@@ -595,20 +426,6 @@ pub fn delete_blocks_in_block_range(
     blocks_db_rw
         .put(b"metadata::last_insert", start_block_bytes)
         .expect("unable to insert metadata");
-}
-
-pub fn delete_blocks_in_block_range_sqlite(
-    start_block: u32,
-    end_block: u32,
-    rw_hord_db_conn: &Connection,
-    ctx: &Context,
-) {
-    if let Err(e) = rw_hord_db_conn.execute(
-        "DELETE FROM blocks WHERE id >= ?1 AND id <= ?2",
-        rusqlite::params![&start_block, &end_block],
-    ) {
-        ctx.try_log(|logger| slog::error!(logger, "{}", e.to_string()));
-    }
 }
 
 pub fn store_new_inscription(
@@ -988,7 +805,8 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
                 let block_compressed_tx_moved = block_compressed_tx.clone();
                 let block_height = block_data.height as u64;
                 compress_block_data_pool.execute(move || {
-                    let compressed_block = CompactedBlock::from_full_block(&block_data);
+                    let compressed_block =
+                        LazyBlock::from_full_block(&block_data).expect("unable to serialize block");
                     let block_index = block_data.height as u32;
                     let _ = block_compressed_tx_moved.send(Some((
                         block_index,
@@ -1009,7 +827,7 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
     let mut cursor = start_block as usize;
     let mut inbox = HashMap::new();
     let mut num_writes = 0;
-    let traversals_cache = Arc::new(new_traversals_cache());
+    let traversals_cache = Arc::new(new_traversals_lazy_cache());
 
     while let Ok(Some((block_height, compacted_block, raw_block))) = block_compressed_rx.recv() {
         insert_entry_in_blocks(block_height, &compacted_block, &blocks_db_rw, &ctx);
@@ -1423,7 +1241,7 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
         hops += 1;
         if hops as u64 > block_identifier.index {
             return Err(format!(
-                "Unable to process transaction {}, manual investigation required",
+                "Unable to process transaction {} detected after {hops} iterations. Manual investigation required",
                 transaction_identifier.hash
             ));
         }
@@ -1436,37 +1254,17 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
                 if index == tx_cursor.1 {
                     break;
                 }
-                // ctx.try_log(|logger| {
-                //     slog::info!(logger, "Adding {} from output #{}", output_value, index)
-                // });
                 sats_out += output_value;
             }
             sats_out += ordinal_offset;
-            // ctx.try_log(|logger| {
-            //     slog::info!(
-            //         logger,
-            //         "Adding offset {ordinal_offset} to sats_out {sats_out}"
-            //     )
-            // });
 
             let mut sats_in = 0;
             for input in tx.inputs.iter() {
                 sats_in += input.txin_value;
-                // ctx.try_log(|logger| {
-                //     slog::info!(
-                //         logger,
-                //         "Adding txin_value {txin_value} to sats_in {sats_in} (txin: {})",
-                //         hex::encode(&txin)
-                //     )
-                // });
 
                 if sats_out < sats_in {
                     ordinal_offset = sats_out - (sats_in - input.txin_value);
                     ordinal_block_number = input.block_height;
-
-                    // ctx.try_log(|logger| slog::info!(logger, "Block {ordinal_block_number} / Tx {} / [in:{sats_in}, out:{sats_out}]: {block_height} -> {ordinal_block_number}:{ordinal_offset} -> {}:{vout}",
-                    // hex::encode(&txid_n),
-                    // hex::encode(&txin)));
                     tx_cursor = (input.txin.clone(), input.vout as usize);
                     next_found_in_cache = true;
                     break;
@@ -1504,26 +1302,16 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
         let coinbase_txid = lazy_block.get_coinbase_txid();
         let txid = tx_cursor.0;
 
-        // ctx.try_log(|logger| {
-        //     slog::info!(
-        //         logger,
-        //         "{ordinal_block_number}:{:?}:{:?}",
-        //         hex::encode(&coinbase_txid),
-        //         hex::encode(&txid)
-        //     )
-        // });
-
         // evaluate exit condition: did we reach the **final** coinbase transaction
         if coinbase_txid.eq(&txid) {
-            let coinbase_value = &lazy_block.get_coinbase_sats();
-            if ordinal_offset.lt(coinbase_value) {
+            let subsidy = Height(ordinal_block_number.into()).subsidy();
+            if ordinal_offset.lt(&subsidy) {
                 // Great!
                 break;
             }
 
             // loop over the transaction fees to detect the right range
-            let cut_off = ordinal_offset - coinbase_value;
-            let mut accumulated_fees = 0;
+            let mut accumulated_fees = subsidy;
 
             for tx in lazy_block.iter_tx() {
                 let mut total_in = 0;
@@ -1537,13 +1325,16 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
                 }
 
                 let fee = total_in - total_out;
-                accumulated_fees += fee;
-                if accumulated_fees > cut_off {
+                if accumulated_fees + fee > ordinal_offset {
                     // We are looking at the right transaction
                     // Retraverse the inputs to select the index to be picked
+                    let offset_within_fee = ordinal_offset - accumulated_fees;
+                    total_out += offset_within_fee;
                     let mut sats_in = 0;
+
                     for input in tx.inputs.into_iter() {
                         sats_in += input.txin_value;
+
                         if sats_in >= total_out {
                             ordinal_offset = total_out - (sats_in - input.txin_value);
                             ordinal_block_number = input.block_height;
@@ -1552,6 +1343,8 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
                         }
                     }
                     break;
+                } else {
+                    accumulated_fees += fee;
                 }
             }
         } else {
@@ -1566,9 +1359,6 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
                 if index == tx_cursor.1 {
                     break;
                 }
-                // ctx.try_log(|logger| {
-                //     slog::info!(logger, "Adding {} from output #{}", output_value, index)
-                // });
                 sats_out += output_value;
             }
             sats_out += ordinal_offset;
@@ -1576,27 +1366,15 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
             let mut sats_in = 0;
             for input in lazy_tx.inputs.iter() {
                 sats_in += input.txin_value;
-                // ctx.try_log(|logger| {
-                //     slog::info!(
-                //         logger,
-                //         "Adding txin_value {txin_value} to sats_in {sats_in} (txin: {})",
-                //         hex::encode(&txin)
-                //     )
-                // });
 
                 if sats_out < sats_in {
+                    traversals_cache.insert((ordinal_block_number, tx_cursor.0), lazy_tx.clone());
                     ordinal_offset = sats_out - (sats_in - input.txin_value);
                     ordinal_block_number = input.block_height;
-
-                    // ctx.try_log(|logger| slog::info!(logger, "Block {ordinal_block_number} / Tx {} / [in:{sats_in}, out:{sats_out}]: {block_height} -> {ordinal_block_number}:{ordinal_offset} -> {}:{vout}",
-                    // hex::encode(&txid_n),
-                    // hex::encode(&txin)));
                     tx_cursor = (input.txin.clone(), input.vout as usize);
                     break;
                 }
             }
-
-            traversals_cache.insert((ordinal_block_number, tx_cursor.0), lazy_tx);
 
             if sats_in == 0 {
                 ctx.try_log(|logger| {
@@ -1631,14 +1409,14 @@ pub struct LazyBlock {
     pub tx_len: u16,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LazyBlockTransaction {
     pub txid: [u8; 8],
     pub inputs: Vec<LazyBlockTransactionInput>,
     pub outputs: Vec<u64>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LazyBlockTransactionInput {
     pub txin: [u8; 8],
     pub block_height: u32,
@@ -1743,6 +1521,7 @@ impl LazyBlock {
         &self,
         searched_txid: &[u8],
     ) -> Option<LazyBlockTransaction> {
+        // println!("{:?}", hex::encode(searched_txid));
         let mut entry = None;
         let mut cursor = Cursor::new(&self.bytes);
         let mut cumulated_offset = 0;
@@ -1750,9 +1529,11 @@ impl LazyBlock {
         while entry.is_none() {
             let pos = self.get_transactions_data_pos() + cumulated_offset;
             let (inputs_len, outputs_len, size) = self.get_transaction_format(i);
+            // println!("{inputs_len} / {outputs_len} / {size}");
             cursor.set_position(pos as u64);
             let mut txid = [0u8; 8];
             let _ = cursor.read_exact(&mut txid);
+            // println!("-> {}", hex::encode(txid));
             if searched_txid.eq(&txid) {
                 entry = Some(self.get_lazy_transaction_at_pos(
                     &mut cursor,
@@ -1773,6 +1554,141 @@ impl LazyBlock {
 
     pub fn iter_tx(&self) -> LazyBlockTransactionIterator {
         LazyBlockTransactionIterator::new(&self)
+    }
+
+    pub fn from_full_block(block: &BitcoinBlockFullBreakdown) -> std::io::Result<LazyBlock> {
+        let mut buffer = vec![];
+        // Number of transactions in the block (not including coinbase)
+        let tx_len = block.tx.len() as u16 - 1;
+        buffer.write(&tx_len.to_be_bytes())?;
+        // For each transaction:
+        for tx in block.tx.iter().skip(1) {
+            let inputs_len = tx.vin.len() as u16;
+            let outputs_len = tx.vout.len() as u16;
+            // Number of inputs
+            buffer.write(&inputs_len.to_be_bytes())?;
+            // Number of outputs
+            buffer.write(&outputs_len.to_be_bytes())?;
+        }
+        // Coinbase transaction txid -  8 first bytes
+        let coinbase_txid = {
+            let txid = hex::decode(block.tx[0].txid.to_string()).unwrap();
+            [
+                txid[0], txid[1], txid[2], txid[3], txid[4], txid[5], txid[6], txid[7],
+            ]
+        };
+        buffer.write_all(&coinbase_txid)?;
+        // Coinbase transaction value
+        let mut coinbase_value = 0;
+        for coinbase_output in block.tx[0].vout.iter() {
+            coinbase_value += coinbase_output.value.to_sat();
+        }
+        buffer.write(&coinbase_value.to_be_bytes())?;
+        // For each transaction:
+        for tx in block.tx.iter().skip(1) {
+            // txid - 8 first bytes
+            let txid = {
+                let txid = hex::decode(tx.txid.to_string()).unwrap();
+                [
+                    txid[0], txid[1], txid[2], txid[3], txid[4], txid[5], txid[6], txid[7],
+                ]
+            };
+            buffer.write_all(&txid)?;
+            // For each transaction input:
+            for input in tx.vin.iter() {
+                // txin - 8 first bytes
+                let txin = {
+                    let txid = hex::decode(input.txid.unwrap().to_string()).unwrap();
+                    [
+                        txid[0], txid[1], txid[2], txid[3], txid[4], txid[5], txid[6], txid[7],
+                    ]
+                };
+                buffer.write_all(&txin)?;
+                // txin's block height
+                let block_height = input.prevout.as_ref().unwrap().height as u32;
+                buffer.write(&block_height.to_be_bytes())?;
+                // txin's vout index
+                let vout = input.vout.unwrap() as u16;
+                buffer.write(&vout.to_be_bytes())?;
+                // txin's sats value
+                let sats = input.prevout.as_ref().unwrap().value.to_sat();
+                buffer.write(&sats.to_be_bytes())?;
+            }
+            // For each transaction output:
+            for output in tx.vout.iter() {
+                let sats = output.value.to_sat();
+                buffer.write(&sats.to_be_bytes())?;
+            }
+        }
+        Ok(Self::new(buffer))
+    }
+
+    pub fn from_standardized_block(block: &BitcoinBlockData) -> std::io::Result<LazyBlock> {
+        let mut buffer = vec![];
+        // Number of transactions in the block (not including coinbase)
+        let tx_len = block.transactions.len() as u16 - 1;
+        buffer.write(&tx_len.to_be_bytes())?;
+        // For each transaction:
+        for tx in block.transactions.iter().skip(1) {
+            let inputs_len = tx.metadata.inputs.len() as u16;
+            let outputs_len = tx.metadata.outputs.len() as u16;
+            // Number of inputs
+            buffer.write(&inputs_len.to_be_bytes())?;
+            // Number of outputs
+            buffer.write(&outputs_len.to_be_bytes())?;
+        }
+        // Coinbase transaction txid -  8 first bytes
+        let coinbase_txid = {
+            let txid =
+                hex::decode(&block.transactions[0].transaction_identifier.hash[2..]).unwrap();
+            [
+                txid[0], txid[1], txid[2], txid[3], txid[4], txid[5], txid[6], txid[7],
+            ]
+        };
+        buffer.write_all(&coinbase_txid)?;
+        // Coinbase transaction value
+        let mut coinbase_value = 0;
+        for coinbase_output in block.transactions[0].metadata.outputs.iter() {
+            coinbase_value += coinbase_output.value;
+        }
+        buffer.write(&coinbase_value.to_be_bytes())?;
+        // For each transaction:
+        for tx in block.transactions.iter().skip(1) {
+            // txid - 8 first bytes
+            let txid = {
+                let txid = hex::decode(&tx.transaction_identifier.hash[2..]).unwrap();
+                [
+                    txid[0], txid[1], txid[2], txid[3], txid[4], txid[5], txid[6], txid[7],
+                ]
+            };
+            buffer.write_all(&txid)?;
+            // For each transaction input:
+            for input in tx.metadata.inputs.iter() {
+                // txin - 8 first bytes
+                let txin = {
+                    let txid = hex::decode(&input.previous_output.txid[2..]).unwrap();
+                    [
+                        txid[0], txid[1], txid[2], txid[3], txid[4], txid[5], txid[6], txid[7],
+                    ]
+                };
+                buffer.write_all(&txin)?;
+                // txin's block height
+                let block_height = input.previous_output.block_height as u32;
+                buffer.write(&block_height.to_be_bytes())?;
+                // txin's vout index
+                let vout = input.previous_output.vout as u16;
+                buffer.write(&vout.to_be_bytes())?;
+                // txin's sats value
+                let sats = input.previous_output.value;
+                buffer.write(&sats.to_be_bytes())?;
+            }
+            // For each transaction output:
+            for output in tx.metadata.outputs.iter() {
+                let sats = output.value;
+                buffer.write(&sats.to_be_bytes())?;
+            }
+        }
+        Ok(Self::new(buffer))
     }
 }
 
@@ -1801,6 +1717,7 @@ impl<'a> Iterator for LazyBlockTransactionIterator<'a> {
         }
         let pos = self.lazy_block.get_transactions_data_pos() + self.cumulated_offset;
         let (inputs_len, outputs_len, size) = self.lazy_block.get_transaction_format(self.tx_index);
+        // println!("{inputs_len} / {outputs_len} / {size}");
         let mut cursor = Cursor::new(&self.lazy_block.bytes);
         cursor.set_position(pos as u64);
         let mut txid = [0u8; 8];

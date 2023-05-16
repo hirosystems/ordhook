@@ -13,15 +13,14 @@ use chainhook_event_observer::chainhooks::types::{
     StacksPrintEventBasedPredicate,
 };
 use chainhook_event_observer::hord::db::{
-    delete_blocks_in_block_range_sqlite, delete_data_in_hord_db, fetch_and_cache_blocks_in_hord_db,
-    find_block_at_block_height, find_block_at_block_height_sqlite,
-    find_inscriptions_at_wached_outpoint, find_last_block_inserted,
-    find_watched_satpoint_for_inscription, initialize_hord_db, insert_entry_in_blocks,
-    open_readonly_hord_db_conn, open_readonly_hord_db_conn_rocks_db, open_readwrite_hord_db_conn,
-    open_readwrite_hord_db_conn_rocks_db, retrieve_satoshi_point_using_local_storage,
+    delete_data_in_hord_db, fetch_and_cache_blocks_in_hord_db, find_block_at_block_height,
+    find_last_block_inserted, find_watched_satpoint_for_inscription, initialize_hord_db,
+    insert_entry_in_blocks, open_readonly_hord_db_conn, open_readonly_hord_db_conn_rocks_db,
+    open_readwrite_hord_db_conn, open_readwrite_hord_db_conn_rocks_db,
+    retrieve_satoshi_point_using_lazy_storage, LazyBlock,
 };
 use chainhook_event_observer::hord::{
-    new_traversals_cache, retrieve_inscribed_satoshi_points_from_block,
+    new_traversals_lazy_cache, retrieve_inscribed_satoshi_points_from_block,
     update_storage_and_augment_bitcoin_block_with_inscription_transfer_data, Storage,
 };
 use chainhook_event_observer::indexer;
@@ -211,15 +210,15 @@ enum DbCommand {
     /// Rebuild inscriptions entries for a given block
     #[clap(name = "drop", bin_name = "drop")]
     Drop(DropHordDbCommand),
-    /// Patch DB
-    #[clap(name = "patch", bin_name = "patch")]
-    Patch(PatchHordDbCommand),
     /// Check integrity
     #[clap(name = "check", bin_name = "check")]
     Check(CheckHordDbCommand),
-    /// Legacy command
-    #[clap(name = "init", bin_name = "init")]
-    Init(InitHordDbCommand),
+    /// Patch DB
+    #[clap(name = "patch", bin_name = "patch")]
+    Patch(PatchHordDbCommand),
+    /// Migrate
+    #[clap(name = "migrate", bin_name = "migrate")]
+    Migrate(MigrateHordDbCommand),
 }
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
@@ -341,6 +340,13 @@ struct DropHordDbCommand {
 
 #[derive(Parser, PartialEq, Clone, Debug)]
 struct PatchHordDbCommand {
+    /// Load config file path
+    #[clap(long = "config-path")]
+    pub config_path: Option<String>,
+}
+
+#[derive(Parser, PartialEq, Clone, Debug)]
+struct MigrateHordDbCommand {
     /// Load config file path
     #[clap(long = "config-path")]
     pub config_path: Option<String>,
@@ -631,8 +637,8 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                         };
 
                         let transaction_identifier = TransactionIdentifier { hash: txid.clone() };
-                        let traversals_cache = new_traversals_cache();
-                        let traversal = retrieve_satoshi_point_using_local_storage(
+                        let traversals_cache = new_traversals_lazy_cache();
+                        let traversal = retrieve_satoshi_point_using_lazy_storage(
                             &hord_db_conn,
                             &block_identifier,
                             &transaction_identifier,
@@ -652,7 +658,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                         let block =
                             fetch_and_standardize_block(cmd.block_height, &bitcoin_config, &ctx)
                                 .await?;
-                        let traversals_cache = Arc::new(new_traversals_cache());
+                        let traversals_cache = Arc::new(new_traversals_lazy_cache());
 
                         let _traversals = retrieve_inscribed_satoshi_points_from_block(
                             &block,
@@ -731,84 +737,6 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
             }
         },
         Command::Hord(HordCommand::Db(subcmd)) => match subcmd {
-            DbCommand::Init(cmd) => {
-                let config = Config::default(false, false, false, &cmd.config_path)?;
-
-                let sqlite_db_conn_rw =
-                    open_readwrite_hord_db_conn(&config.expected_cache_path(), &ctx)?;
-
-                // Migrate if required
-                if find_block_at_block_height_sqlite(1, &sqlite_db_conn_rw).is_some() {
-                    let blocks_db =
-                        open_readwrite_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
-
-                    for i in 0..=300000 {
-                        match find_block_at_block_height_sqlite(i, &sqlite_db_conn_rw) {
-                            Some(block) => {
-                                insert_entry_in_blocks(i, &block, &blocks_db, &ctx);
-                                info!(ctx.expect_logger(), "Block #{} inserted", i);
-                            }
-                            None => {
-                                error!(ctx.expect_logger(), "Block #{} missing", i);
-                            }
-                        }
-                    }
-                    let _ = blocks_db.flush();
-                    delete_blocks_in_block_range_sqlite(0, 300000, &sqlite_db_conn_rw, &ctx);
-
-                    for i in 300001..=500000 {
-                        match find_block_at_block_height_sqlite(i, &sqlite_db_conn_rw) {
-                            Some(block) => {
-                                insert_entry_in_blocks(i, &block, &blocks_db, &ctx);
-                                info!(ctx.expect_logger(), "Block #{} inserted", i);
-                            }
-                            None => {
-                                info!(ctx.expect_logger(), "Block #{} missing", i);
-                            }
-                        }
-                    }
-                    let _ = blocks_db.flush();
-                    delete_blocks_in_block_range_sqlite(300001, 500000, &sqlite_db_conn_rw, &ctx);
-
-                    for i in 500001..=783986 {
-                        match find_block_at_block_height_sqlite(i, &sqlite_db_conn_rw) {
-                            Some(block) => {
-                                insert_entry_in_blocks(i, &block, &blocks_db, &ctx);
-                                info!(ctx.expect_logger(), "Block #{} inserted", i);
-                            }
-                            None => {
-                                info!(ctx.expect_logger(), "Block #{} missing", i);
-                            }
-                        }
-                    }
-                    let _ = blocks_db.flush();
-                    delete_blocks_in_block_range_sqlite(500001, 783986, &sqlite_db_conn_rw, &ctx);
-                }
-
-                // Sync
-                for _ in 0..5 {
-                    if let Some((start_block, end_block)) = should_sync_hord_db(&config, &ctx)? {
-                        if start_block == 0 {
-                            info!(
-                                ctx.expect_logger(),
-                                "Initializing hord indexing from block #{}", start_block
-                            );
-                        } else {
-                            info!(
-                                ctx.expect_logger(),
-                                "Resuming hord indexing from block #{}", start_block
-                            );
-                        }
-                        perform_hord_db_update(start_block, end_block, 10, &config, &ctx).await?;
-                    } else {
-                        info!(ctx.expect_logger(), "Database hord up to date");
-                    }
-                }
-
-                // Start node
-                let mut service = Service::new(config, ctx);
-                return service.run(vec![]).await;
-            }
             DbCommand::Sync(cmd) => {
                 let config = Config::default(false, false, false, &cmd.config_path)?;
                 if let Some((start_block, end_block)) = should_sync_hord_db(&config, &ctx)? {
@@ -900,18 +828,26 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                 );
             }
             DbCommand::Patch(cmd) => {
+                unimplemented!()
+            }
+            DbCommand::Migrate(cmd) => {
                 let config = Config::default(false, false, false, &cmd.config_path)?;
-                let sqlite_db_conn =
-                    open_readonly_hord_db_conn(&config.expected_cache_path(), &ctx)?;
 
-                let blocks_db =
+                let blocks_db_rw =
                     open_readwrite_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
 
-                for i in 0..774940 {
-                    match find_block_at_block_height_sqlite(i, &sqlite_db_conn) {
+                let tip = find_last_block_inserted(&blocks_db_rw);
+
+                for i in 0..=tip {
+                    match find_block_at_block_height(i, 5, &blocks_db_rw) {
                         Some(block) => {
-                            insert_entry_in_blocks(i, &block, &blocks_db, &ctx);
-                            println!("Block #{} inserted", i);
+                            let mut bytes = vec![];
+                            block
+                                .serialize_to_lazy_format(&mut bytes)
+                                .expect("unable to convert to lazy block");
+                            let lazy_block = LazyBlock::new(bytes);
+                            insert_entry_in_blocks(i, &lazy_block, &blocks_db_rw, &ctx);
+                            println!("Block #{} migrated to lazy block", i);
                         }
                         None => {
                             println!("Block #{} missing", i)

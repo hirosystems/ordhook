@@ -27,8 +27,8 @@ use crate::{
     hord::{
         db::{
             find_inscription_with_ordinal_number, find_inscriptions_at_wached_outpoint,
-            insert_entry_in_blocks, retrieve_satoshi_point_using_local_storage,
-            store_new_inscription, update_transfered_inscription, CompactedBlock,
+            insert_entry_in_blocks, retrieve_satoshi_point_using_lazy_storage,
+            store_new_inscription, update_transfered_inscription,
         },
         ord::height::Height,
     },
@@ -38,7 +38,7 @@ use crate::{
 use self::db::{
     find_inscription_with_id, find_latest_inscription_number_at_block_height,
     open_readonly_hord_db_conn_rocks_db, remove_entry_from_blocks, remove_entry_from_inscriptions,
-    TraversalResult, WatchedSatpoint,
+    LazyBlock, LazyBlockTransaction, TraversalResult, WatchedSatpoint,
 };
 use self::inscription::InscriptionParser;
 use self::ord::inscription_id::InscriptionId;
@@ -171,16 +171,18 @@ pub fn new_traversals_cache(
     DashMap::with_hasher(hasher)
 }
 
+pub fn new_traversals_lazy_cache(
+) -> DashMap<(u32, [u8; 8]), LazyBlockTransaction, BuildHasherDefault<FxHasher>> {
+    let hasher = FxBuildHasher::default();
+    DashMap::with_hasher(hasher)
+}
+
 pub fn retrieve_inscribed_satoshi_points_from_block(
     block: &BitcoinBlockData,
     inscriptions_db_conn: Option<&Connection>,
     hord_db_path: &PathBuf,
     traversals_cache: &Arc<
-        DashMap<
-            (u32, [u8; 8]),
-            (Vec<([u8; 8], u32, u16, u64)>, Vec<u64>),
-            BuildHasherDefault<FxHasher>,
-        >,
+        DashMap<(u32, [u8; 8]), LazyBlockTransaction, BuildHasherDefault<FxHasher>>,
     >,
     ctx: &Context,
 ) -> HashMap<TransactionIdentifier, TraversalResult> {
@@ -227,7 +229,7 @@ pub fn retrieve_inscribed_satoshi_points_from_block(
             traversal_data_pool.execute(move || loop {
                 match open_readonly_hord_db_conn_rocks_db(&moved_hord_db_path, &moved_ctx) {
                     Ok(blocks_db) => {
-                        let traversal = retrieve_satoshi_point_using_local_storage(
+                        let traversal = retrieve_satoshi_point_using_lazy_storage(
                             &blocks_db,
                             &block_identifier,
                             &transaction_id,
@@ -240,11 +242,9 @@ pub fn retrieve_inscribed_satoshi_points_from_block(
                     }
                     Err(e) => {
                         moved_ctx.try_log(|logger| {
-                            slog::error!(
+                            slog::warn!(
                                 logger,
-                                "Unable to retrieve satoshi point in {} ({}): {e}",
-                                transaction_id.hash,
-                                block_identifier.index
+                                "Unable to open db: {e}",
                             );
                         });
                     }
@@ -293,11 +293,7 @@ pub fn update_hord_db_and_augment_bitcoin_block(
     write_block: bool,
     hord_db_path: &PathBuf,
     traversals_cache: &Arc<
-        DashMap<
-            (u32, [u8; 8]),
-            (Vec<([u8; 8], u32, u16, u64)>, Vec<u64>),
-            BuildHasherDefault<FxHasher>,
-        >,
+        DashMap<(u32, [u8; 8]), LazyBlockTransaction, BuildHasherDefault<FxHasher>>,
     >,
     ctx: &Context,
 ) -> Result<(), String> {
@@ -310,7 +306,13 @@ pub fn update_hord_db_and_augment_bitcoin_block(
             )
         });
 
-        let compacted_block = CompactedBlock::from_standardized_block(&new_block);
+        let compacted_block = LazyBlock::from_standardized_block(&new_block).map_err(|e| {
+            format!(
+                "unable to serialize block {}: {}",
+                new_block.block_identifier.index,
+                e.to_string()
+            )
+        })?;
         insert_entry_in_blocks(
             new_block.block_identifier.index as u32,
             &compacted_block,
