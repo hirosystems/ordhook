@@ -30,7 +30,7 @@ impl Service {
         Self { config, ctx }
     }
 
-    pub async fn run(&mut self, predicates: Vec<ChainhookFullSpecification>) -> Result<(), String> {
+    pub async fn run(&mut self, predicates: Vec<ChainhookFullSpecification>, hord_disabled: bool) -> Result<(), String> {
         let mut chainhook_config = ChainhookConfig::new();
 
         if predicates.is_empty() {
@@ -87,6 +87,7 @@ impl Service {
 
         let mut event_observer_config = self.config.get_event_observer_config();
         event_observer_config.chainhook_config = Some(chainhook_config);
+        event_observer_config.ordinals_enabled = !hord_disabled;
 
         info!(
             self.ctx.expect_logger(),
