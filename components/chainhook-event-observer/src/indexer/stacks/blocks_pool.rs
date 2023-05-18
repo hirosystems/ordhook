@@ -13,6 +13,7 @@ use std::collections::{hash_map::Entry, BTreeMap, BTreeSet, HashMap, HashSet};
 
 pub struct StacksBlockPool {
     canonical_fork_id: usize,
+    number_of_blocks_since_last_reorg: u16,
     orphans: BTreeSet<BlockIdentifier>,
     block_store: HashMap<BlockIdentifier, StacksBlockData>,
     forks: BTreeMap<usize, ChainSegment>,
@@ -28,6 +29,7 @@ impl StacksBlockPool {
         forks.insert(0, ChainSegment::new());
         StacksBlockPool {
             canonical_fork_id: 0,
+            number_of_blocks_since_last_reorg: 0,
             block_store: HashMap::new(),
             orphans: BTreeSet::new(),
             forks,
@@ -214,7 +216,9 @@ impl StacksBlockPool {
             _ => return Ok(None),
         };
 
-        self.collect_and_prune_confirmed_blocks(&mut chain_event, ctx);
+        if self.number_of_blocks_since_last_reorg > 4 {
+            self.collect_and_prune_confirmed_blocks(&mut chain_event, ctx);
+        }
 
         Ok(Some(chain_event))
     }
@@ -844,6 +848,8 @@ impl StacksBlockPool {
         if let Ok(divergence) = canonical_segment.try_identify_divergence(other_segment, false, ctx)
         {
             if divergence.block_ids_to_rollback.is_empty() {
+                self.number_of_blocks_since_last_reorg =
+                    self.number_of_blocks_since_last_reorg.saturating_add(1);
                 let mut new_blocks = vec![];
                 for i in 0..divergence.block_ids_to_apply.len() {
                     let block_identifier = &divergence.block_ids_to_apply[i];
@@ -893,6 +899,7 @@ impl StacksBlockPool {
                     },
                 ));
             } else {
+                self.number_of_blocks_since_last_reorg = 0;
                 let blocks_to_rollback = divergence
                     .block_ids_to_rollback
                     .iter()
