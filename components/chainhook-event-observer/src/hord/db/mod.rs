@@ -315,6 +315,15 @@ pub fn open_readonly_hord_db_conn_rocks_db(
     Ok(db)
 }
 
+pub fn open_readwrite_hord_dbs(
+    base_dir: &PathBuf,
+    ctx: &Context,
+) -> Result<(DB, Connection), String> {
+    let blocks_db = open_readwrite_hord_db_conn_rocks_db(&base_dir, &ctx)?;
+    let inscriptions_db = open_readwrite_hord_db_conn(&base_dir, &ctx)?;
+    Ok((blocks_db, inscriptions_db))
+}
+
 pub fn open_readwrite_hord_db_conn_rocks_db(
     base_dir: &PathBuf,
     _ctx: &Context,

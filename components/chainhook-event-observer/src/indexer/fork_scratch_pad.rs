@@ -34,9 +34,7 @@ impl ForkScratchPad {
         header: BlockHeader,
         ctx: &Context,
     ) -> Result<Option<BlockchainEvent>, String> {
-        ctx.try_log(|logger| {
-            slog::info!(logger, "Start processing Block {}", header.block_identifier)
-        });
+        ctx.try_log(|logger| slog::info!(logger, "Start processing {}", header.block_identifier));
 
         // Keep block data in memory
         let entry_exists = self
