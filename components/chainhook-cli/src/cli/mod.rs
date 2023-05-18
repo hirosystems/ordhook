@@ -827,7 +827,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     cmd.end_block - cmd.start_block + 1
                 );
             }
-            DbCommand::Patch(cmd) => {
+            DbCommand::Patch(_cmd) => {
                 unimplemented!()
             }
             DbCommand::Migrate(cmd) => {
