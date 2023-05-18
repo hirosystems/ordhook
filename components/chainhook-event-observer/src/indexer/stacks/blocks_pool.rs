@@ -310,65 +310,6 @@ impl StacksBlockPool {
             confirmed_blocks.push(block);
         }
 
-        // for mut block in blocks.into_iter() {
-        //     println!("Zip {} {:?}", block.get_identifier(), trail);
-        //     if let Some(trail_tip) = trail {
-        //         // The subsequent block was confirming a trail of microblock
-        //         let canonical_micro_fork_id =
-        //             match self.canonical_micro_fork_id.remove(&block.block_identifier) {
-        //                 None => {
-        //                     println!(
-        //                         "unable to retrieve canonical_micro_fork_id for {}",
-        //                         block.block_identifier
-        //                     );
-        //                     return;
-        //                 }
-        //                 Some(id) => id,
-        //             };
-        //         let mut segment = match self.micro_forks.remove(&block.block_identifier) {
-        //             None => {
-        //                 println!(
-        //                     "unable to retrieve canonical_micro_fork_id for {}",
-        //                     block.block_identifier
-        //                 );
-        //                 return;
-        //             }
-        //             Some(mut microforks) => microforks.remove(canonical_micro_fork_id),
-        //         };
-        //         // Sanity check
-        //         let tip = match segment.block_ids.pop_front() {
-        //             None => {
-        //                 println!("canonical micro fork empty {}", block.block_identifier);
-        //                 return;
-        //             }
-        //             Some(id) => id,
-        //         };
-        //         if !tip.eq(&trail_tip) {
-        //             println!(
-        //                 "canonical micro fork mismatch for {}",
-        //                 block.block_identifier
-        //             );
-        //             return;
-        //         }
-        //         // Replace the tip
-        //         segment.block_ids.push_front(tip);
-        //         while let Some(entry) = segment.block_ids.pop_back() {
-        //             let mut microblock = match self
-        //                 .microblock_store
-        //                 .remove(&(block.block_identifier.clone(), entry.clone()))
-        //             {
-        //                 None => {
-        //                     println!("unable to retrieve microblock data for {}", entry);
-        //                     return;
-        //                 }
-        //                 Some(microblock) => microblock,
-        //             };
-        //             block.transactions.append(&mut microblock.transactions);
-        //         }
-        //     }
-        //     confirmed_blocks.push(block);
-        // }
-
         // Prune data
         for block_to_prune in blocks_to_prune {
             self.block_store.remove(&block_to_prune);
