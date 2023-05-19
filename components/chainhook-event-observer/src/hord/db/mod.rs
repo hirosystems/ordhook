@@ -15,6 +15,7 @@ use hiro_system_kit::slog;
 use rocksdb::DB;
 use rusqlite::{Connection, OpenFlags, ToSql};
 use std::io::Cursor;
+use std::io::{Read, Write};
 use threadpool::ThreadPool;
 
 use crate::{
@@ -167,119 +168,6 @@ fn open_existing_readonly_db(path: &PathBuf, ctx: &Context) -> Connection {
     return conn;
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-#[repr(C)]
-pub struct CompactedBlock(
-    pub  (
-        ([u8; 8], u64),
-        Vec<([u8; 8], Vec<([u8; 8], u32, u16, u64)>, Vec<u64>)>,
-    ),
-);
-
-use std::io::{Read, Write};
-
-impl CompactedBlock {
-    fn empty() -> CompactedBlock {
-        CompactedBlock((([0, 0, 0, 0, 0, 0, 0, 0], 0), vec![]))
-    }
-    pub fn from_hex_bytes(bytes: &str) -> CompactedBlock {
-        let bytes = hex_simd::decode_to_vec(&bytes).unwrap_or(vec![]);
-        let value = serde_cbor::from_slice(&bytes[..]).unwrap_or(CompactedBlock::empty());
-        value
-    }
-
-    pub fn serialize_to_lazy_format<W: Write>(&self, fd: &mut W) -> std::io::Result<()> {
-        // Number of transactions in the block (not including coinbase)
-        let tx_len = self.0 .1.len() as u16;
-        fd.write(&tx_len.to_be_bytes())?;
-        // For each transaction:
-        for (_, inputs, outputs) in self.0 .1.iter() {
-            let inputs_len = inputs.len() as u16;
-            let outputs_len = outputs.len() as u16;
-            // Number of inputs
-            fd.write(&inputs_len.to_be_bytes())?;
-            // Number of outputs
-            fd.write(&outputs_len.to_be_bytes())?;
-        }
-        // Coinbase transaction
-        fd.write_all(&self.0 .0 .0)?;
-        //
-        fd.write(&self.0 .0 .1.to_be_bytes())?;
-        // For each transaction
-        for (id, inputs, outputs) in self.0 .1.iter() {
-            // Transaction id
-            fd.write_all(id)?;
-            // For each input
-            for (txid, block, vout, value) in inputs.iter() {
-                // Txin id
-                fd.write_all(txid)?;
-                // Block height
-                fd.write(&block.to_be_bytes())?;
-                // Vout
-                fd.write(&vout.to_be_bytes())?;
-                // Value
-                fd.write(&value.to_be_bytes())?;
-            }
-            for value in outputs.iter() {
-                fd.write(&value.to_be_bytes())?;
-            }
-        }
-        Ok(())
-    }
-
-    fn deserialize<R: Read>(fd: &mut R) -> std::io::Result<CompactedBlock> {
-        let mut ci = [0u8; 8];
-        fd.read_exact(&mut ci)?;
-        let mut cv = [0u8; 8];
-        fd.read_exact(&mut cv)?;
-        let tx_len = {
-            let mut bytes = [0u8; 8];
-            fd.read_exact(&mut bytes).expect("corrupted data");
-            usize::from_be_bytes(bytes)
-        };
-        let mut txs = Vec::with_capacity(tx_len);
-        for _ in 0..tx_len {
-            let mut txid = [0u8; 8];
-            fd.read_exact(&mut txid)?;
-            let inputs_len = {
-                let mut bytes = [0u8; 8];
-                fd.read_exact(&mut bytes).expect("corrupted data");
-                usize::from_be_bytes(bytes)
-            };
-            let mut inputs = Vec::with_capacity(inputs_len);
-            for _ in 0..inputs_len {
-                let mut txin = [0u8; 8];
-                fd.read_exact(&mut txin)?;
-                let mut block = [0u8; 4];
-                fd.read_exact(&mut block)?;
-                let mut vout = [0u8; 2];
-                fd.read_exact(&mut vout)?;
-                let mut value = [0u8; 8];
-                fd.read_exact(&mut value)?;
-                inputs.push((
-                    txin,
-                    u32::from_be_bytes(block),
-                    u16::from_be_bytes(vout),
-                    u64::from_be_bytes(value),
-                ))
-            }
-            let outputs_len = {
-                let mut bytes = [0u8; 8];
-                fd.read_exact(&mut bytes).expect("corrupted data");
-                usize::from_be_bytes(bytes)
-            };
-            let mut outputs = Vec::with_capacity(outputs_len);
-            for _ in 0..outputs_len {
-                let mut v = [0u8; 8];
-                fd.read_exact(&mut v)?;
-                outputs.push(u64::from_be_bytes(v))
-            }
-            txs.push((txid, inputs, outputs));
-        }
-        Ok(CompactedBlock(((ci, u64::from_be_bytes(cv)), txs)))
-    }
-}
-
 fn get_default_hord_db_file_path_rocks_db(base_dir: &PathBuf) -> PathBuf {
     let mut destination_path = base_dir.clone();
     destination_path.push("hord.rocksdb");
@@ -364,32 +252,6 @@ pub fn find_last_block_inserted(blocks_db: &DB) -> u32 {
     match blocks_db.get(b"metadata::last_insert") {
         Ok(Some(bytes)) => u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]),
         _ => 0,
-    }
-}
-
-pub fn find_block_at_block_height(
-    block_height: u32,
-    retry: u8,
-    blocks_db: &DB,
-) -> Option<CompactedBlock> {
-    let mut attempt = 0;
-    let mut read_options = rocksdb::ReadOptions::default();
-    read_options.fill_cache(true);
-    read_options.set_verify_checksums(false);
-    loop {
-        match blocks_db.get_pinned_opt(block_height.to_be_bytes(), &read_options) {
-            Ok(Some(ref res)) => {
-                let res = CompactedBlock::deserialize(&mut std::io::Cursor::new(&res)).unwrap();
-                return Some(res);
-            }
-            _ => {
-                attempt += 1;
-                std::thread::sleep(std::time::Duration::from_secs(1));
-                if attempt > retry {
-                    return None;
-                }
-            }
-        }
     }
 }
 
@@ -925,7 +787,7 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
             traversals_cache.clear();
         }
 
-        if num_writes % 4096 == 0 {
+        if num_writes % 128 == 0 {
             ctx.try_log(|logger| {
                 slog::info!(logger, "Flushing DB to disk ({num_writes} inserts)");
             });
@@ -966,255 +828,6 @@ impl TraversalResult {
         let sat = Sat(self.ordinal_number);
         self.ordinal_number - sat.height().starting_sat().n()
     }
-}
-
-pub fn retrieve_satoshi_point_using_local_storage(
-    blocks_db: &DB,
-    block_identifier: &BlockIdentifier,
-    transaction_identifier: &TransactionIdentifier,
-    inscription_number: u64,
-    traversals_cache: Arc<
-        DashMap<
-            (u32, [u8; 8]),
-            (Vec<([u8; 8], u32, u16, u64)>, Vec<u64>),
-            BuildHasherDefault<FxHasher>,
-        >,
-    >,
-    ctx: &Context,
-) -> Result<TraversalResult, String> {
-    ctx.try_log(|logger| {
-        slog::info!(
-            logger,
-            "Computing ordinal number for Satoshi point {}:0:0 (block #{})",
-            transaction_identifier.hash,
-            block_identifier.index
-        )
-    });
-
-    let mut ordinal_offset = 0;
-    let mut ordinal_block_number = block_identifier.index as u32;
-    let txid = {
-        let bytes = hex::decode(&transaction_identifier.hash[2..]).unwrap();
-        [
-            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-        ]
-    };
-    let mut tx_cursor = (txid, 0);
-    let mut hops: u32 = 0;
-    loop {
-        hops += 1;
-        if hops as u64 > block_identifier.index {
-            return Err(format!(
-                "Unable to process transaction {}, manual investigation required",
-                transaction_identifier.hash
-            ));
-        }
-
-        if let Some(cached_tx) = traversals_cache.get(&(ordinal_block_number, tx_cursor.0)) {
-            let (inputs, outputs) = cached_tx.value();
-            let mut next_found_in_cache = false;
-
-            let mut sats_out = 0;
-            for (index, output_value) in outputs.iter().enumerate() {
-                if index == tx_cursor.1 {
-                    break;
-                }
-                // ctx.try_log(|logger| {
-                //     slog::info!(logger, "Adding {} from output #{}", output_value, index)
-                // });
-                sats_out += output_value;
-            }
-            sats_out += ordinal_offset;
-            // ctx.try_log(|logger| {
-            //     slog::info!(
-            //         logger,
-            //         "Adding offset {ordinal_offset} to sats_out {sats_out}"
-            //     )
-            // });
-
-            let mut sats_in = 0;
-            for (txin, block_height, vout, txin_value) in inputs.into_iter() {
-                sats_in += txin_value;
-                // ctx.try_log(|logger| {
-                //     slog::info!(
-                //         logger,
-                //         "Adding txin_value {txin_value} to sats_in {sats_in} (txin: {})",
-                //         hex::encode(&txin)
-                //     )
-                // });
-
-                if sats_out < sats_in {
-                    ordinal_offset = sats_out - (sats_in - txin_value);
-                    ordinal_block_number = *block_height;
-
-                    // ctx.try_log(|logger| slog::info!(logger, "Block {ordinal_block_number} / Tx {} / [in:{sats_in}, out:{sats_out}]: {block_height} -> {ordinal_block_number}:{ordinal_offset} -> {}:{vout}",
-                    // hex::encode(&txid_n),
-                    // hex::encode(&txin)));
-                    tx_cursor = (txin.clone(), *vout as usize);
-                    next_found_in_cache = true;
-                    break;
-                }
-            }
-
-            if next_found_in_cache {
-                continue;
-            }
-
-            if sats_in == 0 {
-                ctx.try_log(|logger| {
-                    slog::error!(
-                        logger,
-                        "Transaction {} is originating from a non spending transaction",
-                        transaction_identifier.hash
-                    )
-                });
-                return Ok(TraversalResult {
-                    inscription_number: 0,
-                    ordinal_number: 0,
-                    transfers: 0,
-                });
-            }
-        }
-
-        let block = match find_block_at_block_height(ordinal_block_number, 3, &blocks_db) {
-            Some(block) => block,
-            None => {
-                return Err(format!("block #{ordinal_block_number} not in database"));
-            }
-        };
-
-        let coinbase_txid = &block.0 .0 .0;
-        let txid = tx_cursor.0;
-
-        // ctx.try_log(|logger| {
-        //     slog::info!(
-        //         logger,
-        //         "{ordinal_block_number}:{:?}:{:?}",
-        //         hex::encode(&coinbase_txid),
-        //         hex::encode(&txid)
-        //     )
-        // });
-
-        // evaluate exit condition: did we reach the **final** coinbase transaction
-        if coinbase_txid.eq(&txid) {
-            let coinbase_value = &block.0 .0 .1;
-            if ordinal_offset.lt(coinbase_value) {
-                break;
-            }
-
-            // loop over the transaction fees to detect the right range
-            let cut_off = ordinal_offset - coinbase_value;
-            let mut accumulated_fees = 0;
-            for (_, inputs, outputs) in block.0 .1.iter() {
-                let mut total_in = 0;
-                for (_, _, _, input_value) in inputs.iter() {
-                    total_in += input_value;
-                }
-
-                let mut total_out = 0;
-                for output_value in outputs.iter() {
-                    total_out += output_value;
-                }
-
-                let fee = total_in - total_out;
-                accumulated_fees += fee;
-                if accumulated_fees > cut_off {
-                    // We are looking at the right transaction
-                    // Retraverse the inputs to select the index to be picked
-                    let mut sats_in = 0;
-                    for (txin, block_height, vout, txin_value) in inputs.into_iter() {
-                        sats_in += txin_value;
-                        if sats_in >= total_out {
-                            ordinal_offset = total_out - (sats_in - txin_value);
-                            ordinal_block_number = *block_height;
-                            tx_cursor = (txin.clone(), *vout as usize);
-                            break;
-                        }
-                    }
-                    break;
-                }
-            }
-        } else {
-            // isolate the target transaction
-            for (txid_n, inputs, outputs) in block.0 .1.into_iter() {
-                // we iterate over the transactions, looking for the transaction target
-                if !txid_n.eq(&txid) {
-                    continue;
-                }
-
-                // ctx.try_log(|logger| {
-                //     slog::info!(logger, "Evaluating {}: {:?}", hex::encode(&txid_n), outputs)
-                // });
-
-                let mut sats_out = 0;
-                for (index, output_value) in outputs.iter().enumerate() {
-                    if index == tx_cursor.1 {
-                        break;
-                    }
-                    // ctx.try_log(|logger| {
-                    //     slog::info!(logger, "Adding {} from output #{}", output_value, index)
-                    // });
-                    sats_out += output_value;
-                }
-                sats_out += ordinal_offset;
-                // ctx.try_log(|logger| {
-                //     slog::info!(
-                //         logger,
-                //         "Adding offset {ordinal_offset} to sats_out {sats_out}"
-                //     )
-                // });
-
-                let mut sats_in = 0;
-                for (txin, block_height, vout, txin_value) in inputs.iter() {
-                    sats_in += txin_value;
-                    // ctx.try_log(|logger| {
-                    //     slog::info!(
-                    //         logger,
-                    //         "Adding txin_value {txin_value} to sats_in {sats_in} (txin: {})",
-                    //         hex::encode(&txin)
-                    //     )
-                    // });
-
-                    if sats_out < sats_in {
-                        traversals_cache
-                            .insert((ordinal_block_number, txid_n), (inputs.clone(), outputs));
-                        ordinal_offset = sats_out - (sats_in - txin_value);
-                        ordinal_block_number = *block_height;
-
-                        // ctx.try_log(|logger| slog::info!(logger, "Block {ordinal_block_number} / Tx {} / [in:{sats_in}, out:{sats_out}]: {block_height} -> {ordinal_block_number}:{ordinal_offset} -> {}:{vout}",
-                        // hex::encode(&txid_n),
-                        // hex::encode(&txin)));
-                        tx_cursor = (txin.clone(), *vout as usize);
-                        break;
-                    }
-                }
-
-                if sats_in == 0 {
-                    ctx.try_log(|logger| {
-                        slog::error!(
-                            logger,
-                            "Transaction {} is originating from a non spending transaction",
-                            transaction_identifier.hash
-                        )
-                    });
-                    return Ok(TraversalResult {
-                        inscription_number: 0,
-                        ordinal_number: 0,
-                        transfers: 0,
-                    });
-                }
-            }
-        }
-    }
-
-    let height = Height(ordinal_block_number.into());
-    let ordinal_number = height.starting_sat().0 + ordinal_offset;
-
-    Ok(TraversalResult {
-        inscription_number,
-        ordinal_number,
-        transfers: hops,
-    })
 }
 
 pub fn retrieve_satoshi_point_using_lazy_storage(
@@ -1540,7 +1153,7 @@ impl LazyBlock {
             let (inputs_len, outputs_len, size) = self.get_transaction_format(i);
             // println!("{inputs_len} / {outputs_len} / {size}");
             cursor.set_position(pos as u64);
-            let mut txid = [0u8; 8];
+            let mut txid = [0u8; 8]; // todo 20 bytes
             let _ = cursor.read_exact(&mut txid);
             // println!("-> {}", hex::encode(txid));
             if searched_txid.eq(&txid) {

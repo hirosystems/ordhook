@@ -13,8 +13,8 @@ use chainhook_event_observer::chainhooks::types::{
     StacksPrintEventBasedPredicate,
 };
 use chainhook_event_observer::hord::db::{
-    delete_data_in_hord_db, fetch_and_cache_blocks_in_hord_db, find_block_at_block_height,
-    find_last_block_inserted, find_watched_satpoint_for_inscription, initialize_hord_db,
+    delete_data_in_hord_db, fetch_and_cache_blocks_in_hord_db, find_last_block_inserted,
+    find_lazy_block_at_block_height, find_watched_satpoint_for_inscription, initialize_hord_db,
     insert_entry_in_blocks, open_readonly_hord_db_conn, open_readonly_hord_db_conn_rocks_db,
     open_readwrite_hord_db_conn, open_readwrite_hord_db_conn_rocks_db,
     retrieve_satoshi_point_using_lazy_storage, LazyBlock,
@@ -799,7 +799,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
 
                     let mut missing_blocks = vec![];
                     for i in 1..=780000 {
-                        if find_block_at_block_height(i, 3, &blocks_db_rw).is_none() {
+                        if find_lazy_block_at_block_height(i, 3, &blocks_db_rw).is_none() {
                             println!("Missing block {i}");
                             missing_blocks.push(i);
                         }
@@ -830,30 +830,8 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
             DbCommand::Patch(_cmd) => {
                 unimplemented!()
             }
-            DbCommand::Migrate(cmd) => {
-                let config = Config::default(false, false, false, &cmd.config_path)?;
-
-                let blocks_db_rw =
-                    open_readwrite_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
-
-                let tip = find_last_block_inserted(&blocks_db_rw);
-
-                for i in 0..=tip {
-                    match find_block_at_block_height(i, 5, &blocks_db_rw) {
-                        Some(block) => {
-                            let mut bytes = vec![];
-                            block
-                                .serialize_to_lazy_format(&mut bytes)
-                                .expect("unable to convert to lazy block");
-                            let lazy_block = LazyBlock::new(bytes);
-                            insert_entry_in_blocks(i, &lazy_block, &blocks_db_rw, &ctx);
-                            println!("Block #{} migrated to lazy block", i);
-                        }
-                        None => {
-                            println!("Block #{} missing", i)
-                        }
-                    }
-                }
+            DbCommand::Migrate(_cmd) => {
+                unimplemented!()
             }
         },
     }

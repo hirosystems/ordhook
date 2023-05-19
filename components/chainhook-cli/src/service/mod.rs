@@ -30,7 +30,11 @@ impl Service {
         Self { config, ctx }
     }
 
-    pub async fn run(&mut self, predicates: Vec<ChainhookFullSpecification>, hord_disabled: bool) -> Result<(), String> {
+    pub async fn run(
+        &mut self,
+        predicates: Vec<ChainhookFullSpecification>,
+        hord_disabled: bool,
+    ) -> Result<(), String> {
         let mut chainhook_config = ChainhookConfig::new();
 
         if predicates.is_empty() {
