@@ -38,7 +38,17 @@ impl Service {
         let mut chainhook_config = ChainhookConfig::new();
 
         if predicates.is_empty() {
-            let registered_predicates = load_predicates_from_redis(&self.config, &self.ctx)?;
+            let registered_predicates = match load_predicates_from_redis(&self.config, &self.ctx) {
+                Ok(predicates) => predicates,
+                Err(e) => {
+                    error!(
+                        self.ctx.expect_logger(),
+                        "Failed loading predicate from storage: {}",
+                        e.to_string()
+                    );
+                    vec![]
+                }
+            };
             for predicate in registered_predicates.into_iter() {
                 let predicate_uuid = predicate.uuid().to_string();
                 match chainhook_config.register_specification(predicate, true) {
