@@ -363,20 +363,11 @@ fn load_predicates_from_redis(
     ctx: &Context,
 ) -> Result<Vec<ChainhookSpecification>, String> {
     let redis_config = config.expected_redis_config();
-    let client = redis::Client::open(redis_config.uri.clone()).unwrap();
-    let mut redis_con = match client.get_connection() {
-        Ok(con) => con,
-        Err(message) => {
-            error!(
-                ctx.expect_logger(),
-                "Unable to connect to redis server: {}",
-                message.to_string()
-            );
-            std::thread::sleep(std::time::Duration::from_secs(1));
-            std::process::exit(1);
-        }
-    };
-
+    let client = redis::Client::open(redis_config.uri.clone())
+        .map_err(|e| format!("unable to connect to redis: {}", e.to_string()))?;
+    let mut redis_con = client
+        .get_connection()
+        .map_err(|e| format!("unable to connect to redis: {}", e.to_string()))?;
     let chainhooks_to_load: Vec<String> = redis_con
         .scan_match("chainhook:*:*:*")
         .map_err(|e| format!("unable to connect to redis: {}", e.to_string()))?
