@@ -379,7 +379,7 @@ fn load_predicates_from_redis(
 
     let chainhooks_to_load: Vec<String> = redis_con
         .scan_match("chainhook:*:*:*")
-        .expect("unable to retrieve prunable entries")
+        .map_err(|e| format!("unable to connect to redis: {}", e.to_string()))?
         .into_iter()
         .collect();
 
