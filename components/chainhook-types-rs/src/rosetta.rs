@@ -404,6 +404,23 @@ pub struct TransactionIdentifier {
     pub hash: String,
 }
 
+impl TransactionIdentifier {
+    pub fn get_hash_bytes_str(&self) -> &str {
+        &self.hash[2..]
+    }
+
+    pub fn get_hash_bytes(&self) -> Vec<u8> {
+        hex::decode(&self.get_hash_bytes_str()).unwrap()
+    }
+
+    pub fn get_8_hash_bytes(&self) -> [u8; 8] {
+        let bytes = self.get_hash_bytes();
+        [
+            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+        ]
+    }
+}
+
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, strum::EnumIter, strum::IntoStaticStr,
 )]

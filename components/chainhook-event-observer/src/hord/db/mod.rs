@@ -1378,13 +1378,9 @@ impl LazyBlock {
             buffer.write(&outputs_len.to_be_bytes())?;
         }
         // Coinbase transaction txid -  8 first bytes
-        let coinbase_txid = {
-            let txid =
-                hex::decode(&block.transactions[0].transaction_identifier.hash[2..]).unwrap();
-            [
-                txid[0], txid[1], txid[2], txid[3], txid[4], txid[5], txid[6], txid[7],
-            ]
-        };
+        let coinbase_txid = block.transactions[0]
+            .transaction_identifier
+            .get_8_hash_bytes();
         buffer.write_all(&coinbase_txid)?;
         // Coinbase transaction value
         let mut coinbase_value = 0;
@@ -1395,12 +1391,7 @@ impl LazyBlock {
         // For each transaction:
         for tx in block.transactions.iter().skip(1) {
             // txid - 8 first bytes
-            let txid = {
-                let txid = hex::decode(&tx.transaction_identifier.hash[2..]).unwrap();
-                [
-                    txid[0], txid[1], txid[2], txid[3], txid[4], txid[5], txid[6], txid[7],
-                ]
-            };
+            let txid = tx.transaction_identifier.get_8_hash_bytes();
             buffer.write_all(&txid)?;
             // For each transaction input:
             for input in tx.metadata.inputs.iter() {
