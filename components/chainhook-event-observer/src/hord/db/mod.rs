@@ -362,7 +362,7 @@ pub fn find_latest_inscription_number_at_block_height(
     block_height: &u64,
     inscriptions_db_conn: &Connection,
     _ctx: &Context,
-) -> Result<Option<u64>, String> {
+) -> Result<Option<i64>, String> {
     let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
     let mut stmt = inscriptions_db_conn
         .prepare(
@@ -373,25 +373,28 @@ pub fn find_latest_inscription_number_at_block_height(
         .query(args)
         .map_err(|e| format!("unable to query inscriptions: {}", e.to_string()))?;
     while let Ok(Some(row)) = rows.next() {
-        let inscription_number: u64 = row.get(0).unwrap();
+        let inscription_number: i64 = row.get(0).unwrap();
         return Ok(Some(inscription_number));
     }
     Ok(None)
 }
 
-pub fn find_latest_inscription_number(
+pub fn find_latest_cursed_inscription_number_at_block_height(
+    block_height: &u64,
     inscriptions_db_conn: &Connection,
     _ctx: &Context,
-) -> Result<Option<u64>, String> {
-    let args: &[&dyn ToSql] = &[];
+) -> Result<Option<i64>, String> {
+    let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
     let mut stmt = inscriptions_db_conn
         .prepare(
-            "SELECT inscription_number FROM inscriptions ORDER BY inscription_number DESC LIMIT 1",
+            "SELECT inscription_number FROM inscriptions WHERE block_height < ? ORDER BY inscription_number ASC LIMIT 1",
         )
-        .unwrap();
-    let mut rows = stmt.query(args).unwrap();
+        .map_err(|e| format!("unable to query inscriptions: {}", e.to_string()))?;
+    let mut rows = stmt
+        .query(args)
+        .map_err(|e| format!("unable to query inscriptions: {}", e.to_string()))?;
     while let Ok(Some(row)) = rows.next() {
-        let inscription_number: u64 = row.get(0).unwrap();
+        let inscription_number: i64 = row.get(0).unwrap();
         return Ok(Some(inscription_number));
     }
     Ok(None)
@@ -428,7 +431,7 @@ pub fn find_inscription_with_id(
     while let Ok(Some(row)) = rows.next() {
         let inscription_block_hash: String = row.get(2).unwrap();
         if block_hash.eq(&inscription_block_hash) {
-            let inscription_number: u64 = row.get(0).unwrap();
+            let inscription_number: i64 = row.get(0).unwrap();
             let ordinal_number: u64 = row.get(1).unwrap();
             let traversal = TraversalResult {
                 inscription_number,
@@ -451,7 +454,7 @@ pub fn find_all_inscriptions(
     let mut results: BTreeMap<u64, Vec<(TransactionIdentifier, TraversalResult)>> = BTreeMap::new();
     let mut rows = stmt.query(args).unwrap();
     while let Ok(Some(row)) = rows.next() {
-        let inscription_number: u64 = row.get(0).unwrap();
+        let inscription_number: i64 = row.get(0).unwrap();
         let ordinal_number: u64 = row.get(1).unwrap();
         let block_height: u64 = row.get(2).unwrap();
         let transaction_id = {
@@ -476,7 +479,7 @@ pub fn find_all_inscriptions(
 #[derive(Clone, Debug)]
 pub struct WatchedSatpoint {
     pub inscription_id: String,
-    pub inscription_number: u64,
+    pub inscription_number: i64,
     pub ordinal_number: u64,
     pub offset: u64,
 }
@@ -503,7 +506,7 @@ pub fn find_watched_satpoint_for_inscription(
         .map_err(|e| format!("unable to query inscriptions table: {}", e.to_string()))?;
     while let Ok(Some(row)) = rows.next() {
         let inscription_id: String = row.get(0).unwrap();
-        let inscription_number: u64 = row.get(1).unwrap();
+        let inscription_number: i64 = row.get(1).unwrap();
         let ordinal_number: u64 = row.get(2).unwrap();
         let offset: u64 = row.get(3).unwrap();
         let block_height: u64 = row.get(4).unwrap();
@@ -537,7 +540,7 @@ pub fn find_inscriptions_at_wached_outpoint(
         .map_err(|e| format!("unable to query inscriptions table: {}", e.to_string()))?;
     while let Ok(Some(row)) = rows.next() {
         let inscription_id: String = row.get(0).unwrap();
-        let inscription_number: u64 = row.get(1).unwrap();
+        let inscription_number: i64 = row.get(1).unwrap();
         let ordinal_number: u64 = row.get(2).unwrap();
         let offset: u64 = row.get(3).unwrap();
         results.push(WatchedSatpoint {
@@ -813,7 +816,7 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
 
 #[derive(Clone, Debug)]
 pub struct TraversalResult {
-    pub inscription_number: u64,
+    pub inscription_number: i64,
     pub ordinal_number: u64,
     pub transfers: u32,
 }
@@ -834,7 +837,7 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
     blocks_db: &DB,
     block_identifier: &BlockIdentifier,
     transaction_identifier: &TransactionIdentifier,
-    inscription_number: u64,
+    inscription_number: i64,
     traversals_cache: Arc<
         DashMap<(u32, [u8; 8]), LazyBlockTransaction, BuildHasherDefault<FxHasher>>,
     >,

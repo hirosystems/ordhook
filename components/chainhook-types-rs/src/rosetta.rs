@@ -303,12 +303,13 @@ pub struct BitcoinTransactionMetadata {
 #[serde(rename_all = "snake_case")]
 pub enum OrdinalOperation {
     InscriptionRevealed(OrdinalInscriptionRevealData),
+    CursedInscriptionRevealed(OrdinalInscriptionRevealData),
     InscriptionTransferred(OrdinalInscriptionTransferData),
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct OrdinalInscriptionTransferData {
-    pub inscription_number: u64,
+    pub inscription_number: i64,
     pub inscription_id: String,
     pub ordinal_number: u64,
     pub updated_address: Option<String>,
@@ -322,7 +323,7 @@ pub struct OrdinalInscriptionRevealData {
     pub content_bytes: String,
     pub content_type: String,
     pub content_length: usize,
-    pub inscription_number: u64,
+    pub inscription_number: i64,
     pub inscription_fee: u64,
     pub inscription_output_value: u64,
     pub inscription_id: String,
