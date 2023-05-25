@@ -28,8 +28,8 @@ use crate::{
     hord::{
         db::{
             find_inscription_with_ordinal_number, find_inscriptions_at_wached_outpoint,
-            insert_entry_in_blocks, retrieve_satoshi_point_using_lazy_storage,
-            store_new_inscription, update_transfered_inscription,
+            insert_entry_in_blocks, insert_entry_in_inscriptions, insert_entry_in_transfers,
+            retrieve_satoshi_point_using_lazy_storage, update_transfered_inscription,
         },
         ord::height::Height,
     },
@@ -39,8 +39,8 @@ use crate::{
 use self::db::{
     find_inscription_with_id, find_latest_cursed_inscription_number_at_block_height,
     find_latest_inscription_number_at_block_height, open_readonly_hord_db_conn_rocks_db,
-    remove_entry_from_blocks, remove_entry_from_inscriptions, LazyBlock, LazyBlockTransaction,
-    TraversalResult, WatchedSatpoint,
+    parse_satpoint_to_watch, remove_entry_from_blocks, remove_entry_from_inscriptions, LazyBlock,
+    LazyBlockTransaction, TraversalResult, WatchedSatpoint,
 };
 use self::inscription::InscriptionParser;
 use self::ord::inscription_id::InscriptionId;
@@ -353,20 +353,31 @@ pub fn update_hord_db_and_augment_bitcoin_block(
     );
 
     let mut storage = Storage::Sqlite(inscriptions_db_conn_rw);
-    update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
-        new_block,
-        &mut storage,
-        &traversals,
-        &inscriptions_db_conn_rw,
-        &ctx,
-    );
+    let any_inscription_revealed =
+        update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
+            new_block,
+            &mut storage,
+            &traversals,
+            &inscriptions_db_conn_rw,
+            &ctx,
+        )?;
 
     // Have inscriptions been transfered?
-    update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
-        new_block,
-        &mut storage,
-        &ctx,
-    )?;
+    let any_inscription_transferred =
+        update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
+            new_block,
+            &mut storage,
+            &ctx,
+        )?;
+
+    if any_inscription_revealed || any_inscription_transferred {
+        insert_entry_in_transfers(
+            new_block.block_identifier.index as u32,
+            inscriptions_db_conn_rw,
+            ctx,
+        )
+    }
+
     Ok(())
 }
 
@@ -382,24 +393,16 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
     traversals: &HashMap<TransactionIdentifier, TraversalResult>,
     inscription_db_conn: &Connection,
     ctx: &Context,
-) {
+) -> Result<bool, String> {
+    let mut storage_updated = false;
+
     let mut latest_inscription_number = match find_latest_inscription_number_at_block_height(
         &block.block_identifier.index,
         &inscription_db_conn,
         &ctx,
-    ) {
-        Ok(None) => 0,
-        Ok(Some(inscription_number)) => inscription_number + 1,
-        Err(e) => {
-            ctx.try_log(|logger| {
-                slog::error!(
-                    logger,
-                    "unable to retrieve inscription number: {}",
-                    e.to_string()
-                );
-            });
-            return;
-        }
+    )? {
+        None => 0,
+        Some(inscription_number) => inscription_number + 1,
     };
 
     let mut latest_cursed_inscription_number =
@@ -407,19 +410,9 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
             &block.block_identifier.index,
             &inscription_db_conn,
             &ctx,
-        ) {
-            Ok(None) => -1,
-            Ok(Some(inscription_number)) => inscription_number + 1,
-            Err(e) => {
-                ctx.try_log(|logger| {
-                    slog::error!(
-                        logger,
-                        "unable to retrieve inscription number: {}",
-                        e.to_string()
-                    );
-                });
-                return;
-            }
+        )? {
+            None => -1,
+            Some(inscription_number) => inscription_number - 1,
         };
 
     let mut sats_overflow = vec![];
@@ -513,7 +506,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
                             inscription.transfers_pre_inscription,
                         );
                     });
-                    store_new_inscription(
+                    insert_entry_in_inscriptions(
                         &inscription,
                         &block.block_identifier,
                         &rw_hord_db_conn,
@@ -521,20 +514,21 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
                     );
                 }
                 Storage::Memory(map) => {
-                    let outpoint = inscription.satpoint_post_inscription
-                        [0..inscription.satpoint_post_inscription.len() - 2]
-                        .to_string();
+                    let (tx, output_index, offset) =
+                        parse_satpoint_to_watch(&inscription.satpoint_post_inscription);
+                    let outpoint = format_outpoint_to_watch(&tx, output_index);
                     map.insert(
                         outpoint,
                         vec![WatchedSatpoint {
                             inscription_id: inscription.inscription_id.clone(),
                             inscription_number: inscription.inscription_number,
                             ordinal_number: inscription.ordinal_number,
-                            offset: 0,
+                            offset,
                         }],
                     );
                 }
             }
+            storage_updated = true;
         }
 
         for index in ordinals_events_indexes_to_discard.into_iter() {
@@ -558,16 +552,19 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
                         inscription.transfers_pre_inscription,
                     );
                 });
-                store_new_inscription(
+                insert_entry_in_inscriptions(
                     &inscription,
                     &block.block_identifier,
                     &rw_hord_db_conn,
                     &ctx,
                 );
+                storage_updated = true;
             }
             _ => {}
         }
     }
+
+    Ok(storage_updated)
 }
 
 /// For each input of each transaction in the block, we retrieve the UTXO spent (outpoint_pre_transfer)
@@ -581,7 +578,8 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
     block: &mut BitcoinBlockData,
     storage: &mut Storage,
     ctx: &Context,
-) -> Result<(), String> {
+) -> Result<bool, String> {
+    let mut storage_updated = false;
     let mut cumulated_fees = 0;
     let first_sat_post_subsidy = Height(block.block_identifier.index).starting_sat().0;
     let coinbase_txid = &block.transactions[0].transaction_identifier.hash.clone();
@@ -720,6 +718,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
                             .or_insert(vec![watched_satpoint.clone()]);
                     }
                 };
+                storage_updated = true;
 
                 let satpoint_post_transfer =
                     format!("{}:{}", outpoint_post_transfer, offset_post_transfer);
@@ -744,5 +743,5 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
         }
         cumulated_fees += new_tx.metadata.fee;
     }
-    Ok(())
+    Ok(storage_updated)
 }

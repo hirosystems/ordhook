@@ -299,15 +299,31 @@ pub fn delete_blocks_in_block_range(
         .expect("unable to insert metadata");
 }
 
-pub fn store_new_inscription(
+pub fn insert_entry_in_inscriptions(
     inscription_data: &OrdinalInscriptionRevealData,
     block_identifier: &BlockIdentifier,
-    hord_db_conn: &Connection,
+    inscriptions_db_conn_rw: &Connection,
     ctx: &Context,
 ) {
-    if let Err(e) = hord_db_conn.execute(
+    let (tx, output_index, offset) =
+        parse_satpoint_to_watch(&inscription_data.satpoint_post_inscription);
+    let outpoint_to_watch = format_outpoint_to_watch(&tx, output_index);
+    if let Err(e) = inscriptions_db_conn_rw.execute(
         "INSERT INTO inscriptions (inscription_id, outpoint_to_watch, ordinal_number, inscription_number, offset, block_height, block_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        rusqlite::params![&inscription_data.inscription_id, &inscription_data.satpoint_post_inscription[0..inscription_data.satpoint_post_inscription.len()-2], &inscription_data.ordinal_number, &inscription_data.inscription_number, 0, &block_identifier.index, &block_identifier.hash],
+        rusqlite::params![&inscription_data.inscription_id, &outpoint_to_watch, &inscription_data.ordinal_number, &inscription_data.inscription_number, offset, &block_identifier.index, &block_identifier.hash],
+    ) {
+        ctx.try_log(|logger| slog::error!(logger, "{}", e.to_string()));
+    }
+}
+
+pub fn insert_entry_in_transfers(
+    block_height: u32,
+    inscriptions_db_conn_rw: &Connection,
+    ctx: &Context,
+) {
+    if let Err(e) = inscriptions_db_conn_rw.execute(
+        "INSERT INTO transfers (block_height) VALUES (?1)",
+        rusqlite::params![&block_height],
     ) {
         ctx.try_log(|logger| slog::error!(logger, "{}", e.to_string()));
     }
