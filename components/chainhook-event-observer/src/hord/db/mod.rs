@@ -833,6 +833,49 @@ impl TraversalResult {
     }
 }
 
+pub fn format_satpoint_to_watch(
+    transaction_identifier: &TransactionIdentifier,
+    output_index: usize,
+    offset: u64,
+) -> String {
+    format!(
+        "{}:{}:{}",
+        transaction_identifier.get_hash_bytes_str(),
+        output_index,
+        offset
+    )
+}
+
+pub fn parse_satpoint_to_watch(outpoint_to_watch: &str) -> (TransactionIdentifier, usize, u64) {
+    let comps: Vec<&str> = outpoint_to_watch.split(":").collect();
+    let tx = TransactionIdentifier {
+        hash: format!("0x{}", comps[0]),
+    };
+    let output_index = comps[1].to_string().parse::<usize>().unwrap();
+    let offset = comps[2].to_string().parse::<u64>().unwrap();
+    (tx, output_index, offset)
+}
+
+pub fn format_outpoint_to_watch(
+    transaction_identifier: &TransactionIdentifier,
+    output_index: usize,
+) -> String {
+    format!(
+        "{}:{}",
+        transaction_identifier.get_hash_bytes_str(),
+        output_index
+    )
+}
+
+pub fn parse_outpoint_to_watch(outpoint_to_watch: &str) -> (TransactionIdentifier, usize) {
+    let comps: Vec<&str> = outpoint_to_watch.split(":").collect();
+    let tx = TransactionIdentifier {
+        hash: format!("0x{}", comps[0]),
+    };
+    let output_index = comps[1].to_string().parse::<usize>().unwrap();
+    (tx, output_index)
+}
+
 pub fn retrieve_satoshi_point_using_lazy_storage(
     blocks_db: &DB,
     block_identifier: &BlockIdentifier,
