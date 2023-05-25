@@ -22,6 +22,7 @@ use std::sync::mpsc::channel;
 use std::sync::Arc;
 use threadpool::ThreadPool;
 
+use crate::hord::db::format_outpoint_to_watch;
 use crate::indexer::bitcoin::BitcoinTransactionFullBreakdown;
 use crate::{
     hord::{
@@ -87,48 +88,27 @@ pub fn parse_ordinal_operations(
                     None
                 };
 
+                let payload = OrdinalInscriptionRevealData {
+                    content_type: inscription.content_type().unwrap_or("unknown").to_string(),
+                    content_bytes: format!("0x{}", hex::encode(&inscription_content_bytes)),
+                    content_length: inscription_content_bytes.len(),
+                    inscription_id: inscription_id.to_string(),
+                    inscriber_address,
+                    inscription_output_value,
+                    inscription_fee: 0,
+                    inscription_input_index: input_index,
+                    inscription_number: 0,
+                    ordinal_number: 0,
+                    ordinal_block_height: 0,
+                    ordinal_offset: 0,
+                    transfers_pre_inscription: 0,
+                    satpoint_post_inscription: format!("{}:0:0", tx.txid.clone()),
+                };
+
                 if input_index == 0 {
-                    operations.push(OrdinalOperation::InscriptionRevealed(
-                        OrdinalInscriptionRevealData {
-                            content_type: inscription
-                                .content_type()
-                                .unwrap_or("unknown")
-                                .to_string(),
-                            content_bytes: format!("0x{}", hex::encode(&inscription_content_bytes)),
-                            content_length: inscription_content_bytes.len(),
-                            inscription_id: inscription_id.to_string(),
-                            inscriber_address,
-                            inscription_output_value,
-                            inscription_fee: 0,
-                            inscription_number: 0,
-                            ordinal_number: 0,
-                            ordinal_block_height: 0,
-                            ordinal_offset: 0,
-                            transfers_pre_inscription: 0,
-                            satpoint_post_inscription: format!("{}:0:0", tx.txid.clone()),
-                        },
-                    ))
+                    operations.push(OrdinalOperation::InscriptionRevealed(payload));
                 } else {
-                    operations.push(OrdinalOperation::CursedInscriptionRevealed(
-                        OrdinalInscriptionRevealData {
-                            content_type: inscription
-                                .content_type()
-                                .unwrap_or("unknown")
-                                .to_string(),
-                            content_bytes: format!("0x{}", hex::encode(&inscription_content_bytes)),
-                            content_length: inscription_content_bytes.len(),
-                            inscription_id: inscription_id.to_string(),
-                            inscriber_address,
-                            inscription_output_value,
-                            inscription_fee: 0,
-                            inscription_number: 0,
-                            ordinal_number: 0,
-                            ordinal_block_height: 0,
-                            ordinal_offset: 0,
-                            transfers_pre_inscription: 0,
-                            satpoint_post_inscription: format!("{}:0:0", tx.txid.clone()),
-                        },
-                    ))
+                    operations.push(OrdinalOperation::CursedInscriptionRevealed(payload));
                 }
             }
         }
@@ -221,23 +201,38 @@ pub fn retrieve_inscribed_satoshi_points_from_block(
     for tx in block.transactions.iter().skip(1) {
         // Have a new inscription been revealed, if so, are looking at a re-inscription
         for ordinal_event in tx.metadata.ordinal_operations.iter() {
-            if let OrdinalOperation::InscriptionRevealed(inscription_data) = ordinal_event {
-                if let Some(inscriptions_db_conn) = inscriptions_db_conn {
-                    if let Some(traversal) = find_inscription_with_id(
-                        &inscription_data.inscription_id,
-                        &block.block_identifier.hash,
-                        inscriptions_db_conn,
-                        ctx,
-                    ) {
-                        traversals.insert(tx.transaction_identifier.clone(), traversal);
-                    } else {
-                        // Enqueue for traversals
-                        transactions_ids.push(tx.transaction_identifier.clone());
-                    }
+            let (inscription_data, _is_cursed) = match ordinal_event {
+                OrdinalOperation::InscriptionRevealed(inscription_data) => {
+                    (inscription_data, false)
+                }
+                OrdinalOperation::CursedInscriptionRevealed(inscription_data) => {
+                    (inscription_data, false)
+                }
+                OrdinalOperation::InscriptionTransferred(_) => {
+                    continue;
+                }
+            };
+            if let Some(inscriptions_db_conn) = inscriptions_db_conn {
+                if let Some(traversal) = find_inscription_with_id(
+                    &inscription_data.inscription_id,
+                    &block.block_identifier.hash,
+                    inscriptions_db_conn,
+                    ctx,
+                ) {
+                    traversals.insert(tx.transaction_identifier.clone(), traversal);
                 } else {
                     // Enqueue for traversals
-                    transactions_ids.push(tx.transaction_identifier.clone());
+                    transactions_ids.push((
+                        tx.transaction_identifier.clone(),
+                        inscription_data.inscription_input_index,
+                    ));
                 }
+            } else {
+                // Enqueue for traversals
+                transactions_ids.push((
+                    tx.transaction_identifier.clone(),
+                    inscription_data.inscription_input_index,
+                ));
             }
         }
     }
@@ -249,7 +244,7 @@ pub fn retrieve_inscribed_satoshi_points_from_block(
 
         let mut rng = thread_rng();
         transactions_ids.shuffle(&mut rng);
-        for transaction_id in transactions_ids.into_iter() {
+        for (transaction_id, input_index) in transactions_ids.into_iter() {
             let moved_traversal_tx = traversal_tx.clone();
             let moved_ctx = ctx.clone();
             let block_identifier = block.block_identifier.clone();
@@ -262,6 +257,7 @@ pub fn retrieve_inscribed_satoshi_points_from_block(
                             &blocks_db,
                             &block_identifier,
                             &transaction_id,
+                            input_index,
                             0,
                             local_cache,
                             &moved_ctx,
@@ -466,6 +462,10 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
             inscription.inscription_number = traversal.inscription_number;
             inscription.transfers_pre_inscription = traversal.transfers;
             inscription.inscription_fee = new_tx.metadata.fee;
+            inscription.satpoint_post_inscription = format!(
+                "{}:{}",
+                traversal.outpoint_to_watch, traversal.inscription_offset
+            );
 
             match storage {
                 Storage::Sqlite(rw_hord_db_conn) => {
@@ -644,7 +644,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
                 ) = match post_transfer_output {
                     Some(index) => {
                         let outpoint =
-                            format!("{}:{}", &new_tx.transaction_identifier.hash[2..], index);
+                            format_outpoint_to_watch(&new_tx.transaction_identifier, index);
                         let offset = (sats_in_offset + watched_satpoint.offset) - sats_out_offset;
                         let script_pub_key_hex =
                             new_tx.metadata.outputs[index].get_script_pubkey_hex();

@@ -425,7 +425,7 @@ pub fn find_inscription_with_id(
 ) -> Option<TraversalResult> {
     let args: &[&dyn ToSql] = &[&inscription_id.to_sql().unwrap()];
     let mut stmt = inscriptions_db_conn
-        .prepare("SELECT inscription_number, ordinal_number, block_hash FROM inscriptions WHERE inscription_id = ?")
+        .prepare("SELECT inscription_number, ordinal_number, block_hash, offset, outpoint_to_watch FROM inscriptions WHERE inscription_id = ?")
         .unwrap();
     let mut rows = stmt.query(args).unwrap();
     while let Ok(Some(row)) = rows.next() {
@@ -433,9 +433,13 @@ pub fn find_inscription_with_id(
         if block_hash.eq(&inscription_block_hash) {
             let inscription_number: i64 = row.get(0).unwrap();
             let ordinal_number: u64 = row.get(1).unwrap();
+            let inscription_offset: u64 = row.get(3).unwrap();
+            let outpoint_to_watch: String = row.get(4).unwrap();
             let traversal = TraversalResult {
                 inscription_number,
                 ordinal_number,
+                inscription_offset,
+                outpoint_to_watch,
                 transfers: 0,
             };
             return Some(traversal);
@@ -449,7 +453,7 @@ pub fn find_all_inscriptions(
 ) -> BTreeMap<u64, Vec<(TransactionIdentifier, TraversalResult)>> {
     let args: &[&dyn ToSql] = &[];
     let mut stmt = inscriptions_db_conn
-        .prepare("SELECT inscription_number, ordinal_number, block_height, inscription_id FROM inscriptions ORDER BY inscription_number ASC")
+        .prepare("SELECT inscription_number, ordinal_number, block_height, inscription_id, offset, outpoint_to_watch FROM inscriptions ORDER BY inscription_number ASC")
         .unwrap();
     let mut results: BTreeMap<u64, Vec<(TransactionIdentifier, TraversalResult)>> = BTreeMap::new();
     let mut rows = stmt.query(args).unwrap();
@@ -463,10 +467,14 @@ pub fn find_all_inscriptions(
                 hash: format!("0x{}", &inscription_id[0..inscription_id.len() - 2]),
             }
         };
+        let inscription_offset: u64 = row.get(4).unwrap();
+        let outpoint_to_watch: String = row.get(5).unwrap();
         let traversal = TraversalResult {
             inscription_number,
             ordinal_number,
             transfers: 0,
+            inscription_offset,
+            outpoint_to_watch,
         };
         results
             .entry(block_height)
@@ -817,6 +825,8 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
 #[derive(Clone, Debug)]
 pub struct TraversalResult {
     pub inscription_number: i64,
+    pub inscription_offset: u64,
+    pub outpoint_to_watch: String,
     pub ordinal_number: u64,
     pub transfers: u32,
 }
@@ -880,6 +890,7 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
     blocks_db: &DB,
     block_identifier: &BlockIdentifier,
     transaction_identifier: &TransactionIdentifier,
+    input_index: usize,
     inscription_number: i64,
     traversals_cache: Arc<
         DashMap<(u32, [u8; 8]), LazyBlockTransaction, BuildHasherDefault<FxHasher>>,
@@ -894,16 +905,13 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
             block_identifier.index
         )
     });
-
+    let mut inscription_localized = false;
+    let mut inscription_offset = 0;
+    let mut inscription_output_index: usize = 0;
     let mut ordinal_offset = 0;
     let mut ordinal_block_number = block_identifier.index as u32;
-    let txid = {
-        let bytes = hex::decode(&transaction_identifier.hash[2..]).unwrap();
-        [
-            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-        ]
-    };
-    let mut tx_cursor = (txid, 0);
+    let txid = transaction_identifier.get_8_hash_bytes();
+    let mut tx_cursor = (txid, input_index);
     let mut hops: u32 = 0;
     loop {
         hops += 1;
@@ -916,6 +924,31 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
 
         if let Some(cached_tx) = traversals_cache.get(&(ordinal_block_number, tx_cursor.0)) {
             let tx = cached_tx.value();
+
+            if !inscription_localized {
+                inscription_localized = true;
+                let mut sats_ranges = vec![];
+                let mut bound = 0;
+                for output_value in tx.outputs.iter() {
+                    sats_ranges.push((bound, bound + output_value));
+                    bound += output_value;
+                }
+                let mut input_offset = 0;
+                for (i, input) in tx.inputs.iter().enumerate() {
+                    if i == input_index {
+                        break;
+                    }
+                    input_offset += input.txin_value;
+                }
+
+                for (i, (min, max)) in sats_ranges.into_iter().enumerate() {
+                    if input_offset >= min && input_offset < max {
+                        inscription_output_index = i;
+                        inscription_offset = input_offset - min;
+                    }
+                }
+            }
+
             let mut next_found_in_cache = false;
             let mut sats_out = 0;
             for (index, output_value) in tx.outputs.iter().enumerate() {
@@ -955,6 +988,11 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
                     inscription_number: 0,
                     ordinal_number: 0,
                     transfers: 0,
+                    inscription_offset,
+                    outpoint_to_watch: format_outpoint_to_watch(
+                        &transaction_identifier,
+                        inscription_output_index,
+                    ),
                 });
             }
         }
@@ -1022,6 +1060,30 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
                 None => unreachable!(),
             };
 
+            if !inscription_localized {
+                inscription_localized = true;
+                let mut sats_ranges = vec![];
+                let mut bound = 0;
+                for output_value in lazy_tx.outputs.iter() {
+                    sats_ranges.push((bound, bound + output_value));
+                    bound += output_value;
+                }
+                let mut input_offset = 0;
+                for (i, input) in lazy_tx.inputs.iter().enumerate() {
+                    if i == input_index {
+                        break;
+                    }
+                    input_offset += input.txin_value;
+                }
+
+                for (i, (min, max)) in sats_ranges.into_iter().enumerate() {
+                    if input_offset >= min && input_offset < max {
+                        inscription_output_index = i;
+                        inscription_offset = input_offset - min;
+                    }
+                }
+            }
+
             let mut sats_out = 0;
             for (index, output_value) in lazy_tx.outputs.iter().enumerate() {
                 if index == tx_cursor.1 {
@@ -1056,6 +1118,11 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
                     inscription_number: 0,
                     ordinal_number: 0,
                     transfers: 0,
+                    inscription_offset,
+                    outpoint_to_watch: format_outpoint_to_watch(
+                        &transaction_identifier,
+                        inscription_output_index,
+                    ),
                 });
             }
         }
@@ -1068,6 +1135,11 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
         inscription_number,
         ordinal_number,
         transfers: hops,
+        inscription_offset,
+        outpoint_to_watch: format_outpoint_to_watch(
+            &transaction_identifier,
+            inscription_output_index,
+        ),
     })
 }
 

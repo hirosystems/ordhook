@@ -327,6 +327,7 @@ pub struct OrdinalInscriptionRevealData {
     pub inscription_fee: u64,
     pub inscription_output_value: u64,
     pub inscription_id: String,
+    pub inscription_input_index: usize,
     pub inscriber_address: Option<String>,
     pub ordinal_number: u64,
     pub ordinal_block_height: u64,
