@@ -13,6 +13,7 @@ use std::collections::{hash_map::Entry, BTreeMap, BTreeSet, HashMap, HashSet};
 
 pub struct StacksBlockPool {
     canonical_fork_id: usize,
+    number_of_blocks_since_last_reorg: u16,
     orphans: BTreeSet<BlockIdentifier>,
     block_store: HashMap<BlockIdentifier, StacksBlockData>,
     forks: BTreeMap<usize, ChainSegment>,
@@ -28,6 +29,7 @@ impl StacksBlockPool {
         forks.insert(0, ChainSegment::new());
         StacksBlockPool {
             canonical_fork_id: 0,
+            number_of_blocks_since_last_reorg: 0,
             block_store: HashMap::new(),
             orphans: BTreeSet::new(),
             forks,
@@ -214,7 +216,9 @@ impl StacksBlockPool {
             _ => return Ok(None),
         };
 
-        self.collect_and_prune_confirmed_blocks(&mut chain_event, ctx);
+        if self.number_of_blocks_since_last_reorg > 4 {
+            self.collect_and_prune_confirmed_blocks(&mut chain_event, ctx);
+        }
 
         Ok(Some(chain_event))
     }
@@ -305,65 +309,6 @@ impl StacksBlockPool {
             };
             confirmed_blocks.push(block);
         }
-
-        // for mut block in blocks.into_iter() {
-        //     println!("Zip {} {:?}", block.get_identifier(), trail);
-        //     if let Some(trail_tip) = trail {
-        //         // The subsequent block was confirming a trail of microblock
-        //         let canonical_micro_fork_id =
-        //             match self.canonical_micro_fork_id.remove(&block.block_identifier) {
-        //                 None => {
-        //                     println!(
-        //                         "unable to retrieve canonical_micro_fork_id for {}",
-        //                         block.block_identifier
-        //                     );
-        //                     return;
-        //                 }
-        //                 Some(id) => id,
-        //             };
-        //         let mut segment = match self.micro_forks.remove(&block.block_identifier) {
-        //             None => {
-        //                 println!(
-        //                     "unable to retrieve canonical_micro_fork_id for {}",
-        //                     block.block_identifier
-        //                 );
-        //                 return;
-        //             }
-        //             Some(mut microforks) => microforks.remove(canonical_micro_fork_id),
-        //         };
-        //         // Sanity check
-        //         let tip = match segment.block_ids.pop_front() {
-        //             None => {
-        //                 println!("canonical micro fork empty {}", block.block_identifier);
-        //                 return;
-        //             }
-        //             Some(id) => id,
-        //         };
-        //         if !tip.eq(&trail_tip) {
-        //             println!(
-        //                 "canonical micro fork mismatch for {}",
-        //                 block.block_identifier
-        //             );
-        //             return;
-        //         }
-        //         // Replace the tip
-        //         segment.block_ids.push_front(tip);
-        //         while let Some(entry) = segment.block_ids.pop_back() {
-        //             let mut microblock = match self
-        //                 .microblock_store
-        //                 .remove(&(block.block_identifier.clone(), entry.clone()))
-        //             {
-        //                 None => {
-        //                     println!("unable to retrieve microblock data for {}", entry);
-        //                     return;
-        //                 }
-        //                 Some(microblock) => microblock,
-        //             };
-        //             block.transactions.append(&mut microblock.transactions);
-        //         }
-        //     }
-        //     confirmed_blocks.push(block);
-        // }
 
         // Prune data
         for block_to_prune in blocks_to_prune {
@@ -844,6 +789,8 @@ impl StacksBlockPool {
         if let Ok(divergence) = canonical_segment.try_identify_divergence(other_segment, false, ctx)
         {
             if divergence.block_ids_to_rollback.is_empty() {
+                self.number_of_blocks_since_last_reorg =
+                    self.number_of_blocks_since_last_reorg.saturating_add(1);
                 let mut new_blocks = vec![];
                 for i in 0..divergence.block_ids_to_apply.len() {
                     let block_identifier = &divergence.block_ids_to_apply[i];
@@ -893,6 +840,7 @@ impl StacksBlockPool {
                     },
                 ));
             } else {
+                self.number_of_blocks_since_last_reorg = 0;
                 let blocks_to_rollback = divergence
                     .block_ids_to_rollback
                     .iter()

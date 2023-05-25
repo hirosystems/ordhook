@@ -10,10 +10,10 @@ use crate::chainhooks::types::{
     ChainhookConfig, ChainhookFullSpecification, ChainhookSpecification,
 };
 
+use crate::hord::db::open_readwrite_hord_dbs;
 use crate::hord::new_traversals_lazy_cache;
 #[cfg(feature = "ordinals")]
 use crate::hord::{
-    db::{open_readwrite_hord_db_conn, open_readwrite_hord_db_conn_rocks_db},
     revert_hord_db_with_augmented_bitcoin_block, update_hord_db_and_augment_bitcoin_block,
 };
 use crate::indexer::bitcoin::{
@@ -145,6 +145,7 @@ pub struct EventObserverConfig {
     pub cache_path: String,
     pub bitcoin_network: BitcoinNetwork,
     pub stacks_network: StacksNetwork,
+    pub ordinals_enabled: bool,
 }
 
 impl EventObserverConfig {
@@ -651,72 +652,9 @@ pub async fn start_observer_commands_handler(
                     BlockchainEvent::BlockchainUpdatedWithHeaders(data) => {
                         let mut new_blocks = vec![];
 
-                        #[cfg(feature = "ordinals")]
-                        let blocks_db = match open_readwrite_hord_db_conn_rocks_db(
-                            &config.get_cache_path_buf(),
-                            &ctx,
-                        ) {
-                            Ok(conn) => conn,
-                            Err(e) => {
-                                if let Some(ref tx) = observer_events_tx {
-                                    let _ = tx.send(ObserverEvent::Error(format!(
-                                        "Channel error: {:?}",
-                                        e
-                                    )));
-                                } else {
-                                    ctx.try_log(|logger| {
-                                        slog::error!(logger, "Unable to open readwtite connection",)
-                                    });
-                                }
-                                continue;
-                            }
-                        };
-
-                        #[cfg(feature = "ordinals")]
-                        let inscriptions_db_conn_rw =
-                            match open_readwrite_hord_db_conn(&config.get_cache_path_buf(), &ctx) {
-                                Ok(conn) => conn,
-                                Err(e) => {
-                                    if let Some(ref tx) = observer_events_tx {
-                                        let _ = tx.send(ObserverEvent::Error(format!(
-                                            "Channel error: {:?}",
-                                            e
-                                        )));
-                                    } else {
-                                        ctx.try_log(|logger| {
-                                            slog::error!(
-                                                logger,
-                                                "Unable to open readwtite connection",
-                                            )
-                                        });
-                                    }
-                                    continue;
-                                }
-                            };
-
                         for header in data.new_headers.iter() {
-                            match bitcoin_block_store.get_mut(&header.block_identifier) {
+                            match bitcoin_block_store.get(&header.block_identifier) {
                                 Some(block) => {
-                                    #[cfg(feature = "ordinals")]
-                                    {
-                                        if let Err(e) = update_hord_db_and_augment_bitcoin_block(
-                                            block,
-                                            &blocks_db,
-                                            &inscriptions_db_conn_rw,
-                                            true,
-                                            &config.get_cache_path_buf(),
-                                            &traversals_cache,
-                                            &ctx,
-                                        ) {
-                                            ctx.try_log(|logger| {
-                                                slog::error!(
-                                                logger,
-                                                "Unable to insert bitcoin block {} in hord_db: {e}",
-                                                block.block_identifier.index
-                                            )
-                                            });
-                                        }
-                                    }
                                     new_blocks.push(block.clone());
                                 }
                                 None => {
@@ -730,6 +668,55 @@ pub async fn start_observer_commands_handler(
                                 }
                             }
                         }
+
+                        #[cfg(feature = "ordinals")]
+                        {
+                            if config.ordinals_enabled {
+                                let (blocks_db, inscriptions_db_conn_rw) =
+                                    match open_readwrite_hord_dbs(
+                                        &config.get_cache_path_buf(),
+                                        &ctx,
+                                    ) {
+                                        Ok(dbs) => dbs,
+                                        Err(e) => {
+                                            if let Some(ref tx) = observer_events_tx {
+                                                let _ = tx.send(ObserverEvent::Error(format!(
+                                                    "Channel error: {:?}",
+                                                    e
+                                                )));
+                                            } else {
+                                                ctx.try_log(|logger| {
+                                                    slog::error!(
+                                                        logger,
+                                                        "Unable to open readwtite connection",
+                                                    )
+                                                });
+                                            }
+                                            continue;
+                                        }
+                                    };
+
+                                for block in new_blocks.iter_mut() {
+                                    if let Err(e) = update_hord_db_and_augment_bitcoin_block(
+                                        block,
+                                        &blocks_db,
+                                        &inscriptions_db_conn_rw,
+                                        true,
+                                        &config.get_cache_path_buf(),
+                                        &traversals_cache,
+                                        &ctx,
+                                    ) {
+                                        ctx.try_log(|logger| {
+                                            slog::error!(
+                                                logger,
+                                                "Unable to insert bitcoin block {} in hord_db: {e}",
+                                                block.block_identifier.index
+                                            )
+                                        });
+                                    }
+                                }
+                            }
+                        };
 
                         for header in data.confirmed_headers.iter() {
                             match bitcoin_block_store.remove(&header.block_identifier) {
@@ -784,30 +771,9 @@ pub async fn start_observer_commands_handler(
                         traversals_cache.clear();
 
                         #[cfg(feature = "ordinals")]
-                        let blocks_db = match open_readwrite_hord_db_conn_rocks_db(
-                            &config.get_cache_path_buf(),
-                            &ctx,
-                        ) {
-                            Ok(conn) => conn,
-                            Err(e) => {
-                                if let Some(ref tx) = observer_events_tx {
-                                    let _ = tx.send(ObserverEvent::Error(format!(
-                                        "Channel error: {:?}",
-                                        e
-                                    )));
-                                } else {
-                                    ctx.try_log(|logger| {
-                                        slog::error!(logger, "Unable to open readwtite connection",)
-                                    });
-                                }
-                                continue;
-                            }
-                        };
-
-                        #[cfg(feature = "ordinals")]
-                        let inscriptions_db_conn_rw =
-                            match open_readwrite_hord_db_conn(&config.get_cache_path_buf(), &ctx) {
-                                Ok(conn) => conn,
+                        let (blocks_db, inscriptions_db_conn_rw) =
+                            match open_readwrite_hord_dbs(&config.get_cache_path_buf(), &ctx) {
+                                Ok(dbs) => dbs,
                                 Err(e) => {
                                     if let Some(ref tx) = observer_events_tx {
                                         let _ = tx.send(ObserverEvent::Error(format!(
@@ -829,20 +795,22 @@ pub async fn start_observer_commands_handler(
                         for header in data.headers_to_rollback.iter() {
                             match bitcoin_block_store.get(&header.block_identifier) {
                                 Some(block) => {
-                                    #[cfg(feature = "ordinals")]
-                                    if let Err(e) = revert_hord_db_with_augmented_bitcoin_block(
-                                        block,
-                                        &blocks_db,
-                                        &inscriptions_db_conn_rw,
-                                        &ctx,
-                                    ) {
-                                        ctx.try_log(|logger| {
-                                            slog::error!(
-                                                logger,
-                                                "Unable to rollback bitcoin block {}: {e}",
-                                                header.block_identifier
-                                            )
-                                        });
+                                    if config.ordinals_enabled {
+                                        #[cfg(feature = "ordinals")]
+                                        if let Err(e) = revert_hord_db_with_augmented_bitcoin_block(
+                                            block,
+                                            &blocks_db,
+                                            &inscriptions_db_conn_rw,
+                                            &ctx,
+                                        ) {
+                                            ctx.try_log(|logger| {
+                                                slog::error!(
+                                                    logger,
+                                                    "Unable to rollback bitcoin block {}: {e}",
+                                                    header.block_identifier
+                                                )
+                                            });
+                                        }
                                     }
                                     blocks_to_rollback.push(block.clone());
                                 }
@@ -861,23 +829,25 @@ pub async fn start_observer_commands_handler(
                         for header in data.headers_to_apply.iter() {
                             match bitcoin_block_store.get_mut(&header.block_identifier) {
                                 Some(block) => {
-                                    #[cfg(feature = "ordinals")]
-                                    {
-                                        if let Err(e) = update_hord_db_and_augment_bitcoin_block(
-                                            block,
-                                            &blocks_db,
-                                            &inscriptions_db_conn_rw,
-                                            true,
-                                            &config.get_cache_path_buf(),
-                                            &traversals_cache,
-                                            &ctx,
-                                        ) {
-                                            ctx.try_log(|logger| {
-                                                slog::error!(
-                                                    logger,
-                                                    "Unable to apply bitcoin block {} with hord_db: {e}", block.block_identifier.index
-                                                )
-                                            });
+                                    if config.ordinals_enabled {
+                                        #[cfg(feature = "ordinals")]
+                                        {
+                                            if let Err(e) = update_hord_db_and_augment_bitcoin_block(
+                                                block,
+                                                &blocks_db,
+                                                &inscriptions_db_conn_rw,
+                                                true,
+                                                &config.get_cache_path_buf(),
+                                                &traversals_cache,
+                                                &ctx,
+                                            ) {
+                                                ctx.try_log(|logger| {
+                                                    slog::error!(
+                                                        logger,
+                                                        "Unable to apply bitcoin block {} with hord_db: {e}", block.block_identifier.index
+                                                    )
+                                                });
+                                            }
                                         }
                                     }
                                     blocks_to_apply.push(block.clone());

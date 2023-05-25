@@ -30,11 +30,25 @@ impl Service {
         Self { config, ctx }
     }
 
-    pub async fn run(&mut self, predicates: Vec<ChainhookFullSpecification>) -> Result<(), String> {
+    pub async fn run(
+        &mut self,
+        predicates: Vec<ChainhookFullSpecification>,
+        hord_disabled: bool,
+    ) -> Result<(), String> {
         let mut chainhook_config = ChainhookConfig::new();
 
         if predicates.is_empty() {
-            let registered_predicates = load_predicates_from_redis(&self.config, &self.ctx)?;
+            let registered_predicates = match load_predicates_from_redis(&self.config, &self.ctx) {
+                Ok(predicates) => predicates,
+                Err(e) => {
+                    error!(
+                        self.ctx.expect_logger(),
+                        "Failed loading predicate from storage: {}",
+                        e.to_string()
+                    );
+                    vec![]
+                }
+            };
             for predicate in registered_predicates.into_iter() {
                 let predicate_uuid = predicate.uuid().to_string();
                 match chainhook_config.register_specification(predicate, true) {
@@ -87,6 +101,7 @@ impl Service {
 
         let mut event_observer_config = self.config.get_event_observer_config();
         event_observer_config.chainhook_config = Some(chainhook_config);
+        event_observer_config.ordinals_enabled = !hord_disabled;
 
         info!(
             self.ctx.expect_logger(),
@@ -358,23 +373,14 @@ fn load_predicates_from_redis(
     ctx: &Context,
 ) -> Result<Vec<ChainhookSpecification>, String> {
     let redis_config = config.expected_redis_config();
-    let client = redis::Client::open(redis_config.uri.clone()).unwrap();
-    let mut redis_con = match client.get_connection() {
-        Ok(con) => con,
-        Err(message) => {
-            error!(
-                ctx.expect_logger(),
-                "Unable to connect to redis server: {}",
-                message.to_string()
-            );
-            std::thread::sleep(std::time::Duration::from_secs(1));
-            std::process::exit(1);
-        }
-    };
-
+    let client = redis::Client::open(redis_config.uri.clone())
+        .map_err(|e| format!("unable to connect to redis: {}", e.to_string()))?;
+    let mut redis_con = client
+        .get_connection()
+        .map_err(|e| format!("unable to connect to redis: {}", e.to_string()))?;
     let chainhooks_to_load: Vec<String> = redis_con
         .scan_match("chainhook:*:*:*")
-        .expect("unable to retrieve prunable entries")
+        .map_err(|e| format!("unable to connect to redis: {}", e.to_string()))?
         .into_iter()
         .collect();
 

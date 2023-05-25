@@ -10,9 +10,10 @@ use chainhook_event_observer::chainhooks::types::{
     BitcoinChainhookSpecification, BitcoinPredicateType,
 };
 use chainhook_event_observer::hord::db::{
-    fetch_and_cache_blocks_in_hord_db, find_all_inscriptions, find_block_at_block_height,
-    find_last_block_inserted, open_readonly_hord_db_conn, open_readonly_hord_db_conn_rocks_db,
-    open_readwrite_hord_db_conn, open_readwrite_hord_db_conn_rocks_db,
+    fetch_and_cache_blocks_in_hord_db, find_all_inscriptions, find_last_block_inserted,
+    find_lazy_block_at_block_height, open_readonly_hord_db_conn,
+    open_readonly_hord_db_conn_rocks_db, open_readwrite_hord_db_conn,
+    open_readwrite_hord_db_conn_rocks_db,
 };
 use chainhook_event_observer::hord::{
     get_inscriptions_revealed_in_block,
@@ -86,7 +87,7 @@ pub async fn scan_bitcoin_chainstate_via_http_using_predicate(
             if let Ok(blocks_db) =
                 open_readonly_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx)
             {
-                if find_block_at_block_height(end_block as u32, 3, &blocks_db).is_none() {
+                if find_lazy_block_at_block_height(end_block as u32, 3, &blocks_db).is_none() {
                     hord_blocks_requires_update = true;
                 }
             }

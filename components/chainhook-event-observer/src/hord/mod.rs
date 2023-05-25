@@ -242,10 +242,7 @@ pub fn retrieve_inscribed_satoshi_points_from_block(
                     }
                     Err(e) => {
                         moved_ctx.try_log(|logger| {
-                            slog::warn!(
-                                logger,
-                                "Unable to open db: {e}",
-                            );
+                            slog::warn!(logger, "Unable to open db: {e}",);
                         });
                     }
                 }
@@ -379,6 +376,8 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
             return;
         }
     };
+    let mut sats_overflow = vec![];
+
     for new_tx in block.transactions.iter_mut().skip(1) {
         let mut ordinals_events_indexes_to_discard = VecDeque::new();
         // Have a new inscription been revealed, if so, are looking at a re-inscription
@@ -431,7 +430,9 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
                         } else {
                             // If the satoshi inscribed correspond to a sat overflow, we will store the inscription
                             // but exclude it from the block data
+                            sats_overflow.push(inscription.clone());
                             ordinals_events_indexes_to_discard.push_front(ordinal_event_index);
+                            continue;
                         }
                         latest_inscription_number += 1;
                         inscription.inscription_number = inscription_number;
@@ -473,6 +474,33 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
 
         for index in ordinals_events_indexes_to_discard.into_iter() {
             new_tx.metadata.ordinal_operations.remove(index);
+        }
+    }
+
+    for inscription in sats_overflow.iter_mut() {
+        match storage {
+            Storage::Sqlite(rw_hord_db_conn) => {
+                latest_inscription_number += 1;
+                inscription.inscription_number = latest_inscription_number;
+                ctx.try_log(|logger| {
+                            slog::info!(
+                        logger,
+                        "Inscription {} (#{}) detected on Satoshi overflow {} (block {}, {} transfers)",
+                        inscription.inscription_id,
+                        inscription.inscription_number,
+                        inscription.ordinal_number,
+                        block.block_identifier.index,
+                        inscription.transfers_pre_inscription,
+                    );
+                });
+                store_new_inscription(
+                    &inscription,
+                    &block.block_identifier,
+                    &rw_hord_db_conn,
+                    &ctx,
+                );
+            }
+            _ => {}
         }
     }
 }
