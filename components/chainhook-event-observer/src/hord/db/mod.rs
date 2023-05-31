@@ -423,7 +423,7 @@ pub fn find_inscription_with_ordinal_number(
 ) -> Option<String> {
     let args: &[&dyn ToSql] = &[&ordinal_number.to_sql().unwrap()];
     let mut stmt = inscriptions_db_conn
-        .prepare("SELECT inscription_id FROM inscriptions WHERE ordinal_number = ?")
+        .prepare("SELECT inscription_id FROM inscriptions WHERE ordinal_number = ? AND inscription_number > 0")
         .unwrap();
     let mut rows = stmt.query(args).unwrap();
     while let Ok(Some(row)) = rows.next() {
