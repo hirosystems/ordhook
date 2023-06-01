@@ -4,6 +4,7 @@ pub mod ord;
 
 use bitcoincore_rpc::bitcoin::hashes::hex::FromHex;
 use bitcoincore_rpc::bitcoin::{Address, Network, Script};
+use bitcoincore_rpc_json::bitcoin::Witness;
 use chainhook_types::{
     BitcoinBlockData, OrdinalInscriptionRevealData, OrdinalInscriptionTransferData,
     OrdinalOperation, TransactionIdentifier,
@@ -47,69 +48,73 @@ use self::ord::inscription_id::InscriptionId;
 
 pub fn parse_ordinal_operations(
     tx: &BitcoinTransactionFullBreakdown,
-    _block_height: u64,
-    _ctx: &Context,
+    block_height: u64,
+    ctx: &Context,
 ) -> Vec<OrdinalOperation> {
     // This should eventually become a loop once/if there is settlement on https://github.com/casey/ord/issues/2000.
     let mut operations = vec![];
     for (input_index, input) in tx.vin.iter().enumerate() {
-        if let Some(ref witnesses) = input.txinwitness {
-            for bytes in witnesses.iter() {
-                let script = Script::from(bytes.to_vec());
-                let parser = InscriptionParser {
-                    instructions: script.instructions().peekable(),
-                };
-
-                let inscription = match parser.parse_script() {
-                    Ok(inscription) => inscription,
-                    Err(_) => continue,
-                };
-
-                let inscription_id = InscriptionId {
-                    txid: tx.txid.clone(),
-                    index: input_index as u32,
-                };
-
-                let inscription_output_value = tx
-                    .vout
-                    .get(0)
-                    .and_then(|o| Some(o.value.to_sat()))
-                    .unwrap_or(0);
-
-                let no_content_bytes = vec![];
-                let inscription_content_bytes = inscription.body().unwrap_or(&no_content_bytes);
-
-                let inscriber_address = if let Ok(authors) = Address::from_script(
-                    &tx.vout[0].script_pub_key.script().unwrap(),
-                    bitcoincore_rpc::bitcoin::Network::Bitcoin,
-                ) {
-                    Some(authors.to_string())
-                } else {
-                    None
-                };
-
-                let payload = OrdinalInscriptionRevealData {
-                    content_type: inscription.content_type().unwrap_or("unknown").to_string(),
-                    content_bytes: format!("0x{}", hex::encode(&inscription_content_bytes)),
-                    content_length: inscription_content_bytes.len(),
-                    inscription_id: inscription_id.to_string(),
-                    inscriber_address,
-                    inscription_output_value,
-                    inscription_fee: 0,
-                    inscription_input_index: input_index,
-                    inscription_number: 0,
-                    ordinal_number: 0,
-                    ordinal_block_height: 0,
-                    ordinal_offset: 0,
-                    transfers_pre_inscription: 0,
-                    satpoint_post_inscription: format!("{}:0:0", tx.txid.clone()),
-                };
-
-                if input_index == 0 {
-                    operations.push(OrdinalOperation::InscriptionRevealed(payload));
-                } else {
-                    operations.push(OrdinalOperation::CursedInscriptionRevealed(payload));
+        if let Some(ref witness_data) = input.txinwitness {
+            let witness = Witness::from_vec(witness_data.clone());
+            let inscription = match InscriptionParser::parse(&witness) {
+                Ok(inscription) => inscription,
+                Err(e) => {
+                    ctx.try_log(|logger| {
+                        slog::warn!(
+                            logger,
+                            "Inscription parsing error at block {}: #{:?}",
+                            block_height,
+                            e
+                        )
+                    });
+                    continue;
                 }
+            };
+
+            let inscription_id = InscriptionId {
+                txid: tx.txid.clone(),
+                index: input_index as u32,
+            };
+
+            let inscription_output_value = tx
+                .vout
+                .get(0)
+                .and_then(|o| Some(o.value.to_sat()))
+                .unwrap_or(0);
+
+            let no_content_bytes = vec![];
+            let inscription_content_bytes = inscription.body().unwrap_or(&no_content_bytes);
+
+            let inscriber_address = if let Ok(authors) = Address::from_script(
+                &tx.vout[0].script_pub_key.script().unwrap(),
+                bitcoincore_rpc::bitcoin::Network::Bitcoin,
+            ) {
+                Some(authors.to_string())
+            } else {
+                None
+            };
+
+            let payload = OrdinalInscriptionRevealData {
+                content_type: inscription.content_type().unwrap_or("unknown").to_string(),
+                content_bytes: format!("0x{}", hex::encode(&inscription_content_bytes)),
+                content_length: inscription_content_bytes.len(),
+                inscription_id: inscription_id.to_string(),
+                inscriber_address,
+                inscription_output_value,
+                inscription_fee: 0,
+                inscription_input_index: input_index,
+                inscription_number: 0,
+                ordinal_number: 0,
+                ordinal_block_height: 0,
+                ordinal_offset: 0,
+                transfers_pre_inscription: 0,
+                satpoint_post_inscription: format!("{}:0:0", tx.txid.clone()),
+            };
+
+            if input_index == 0 {
+                operations.push(OrdinalOperation::InscriptionRevealed(payload));
+            } else {
+                operations.push(OrdinalOperation::CursedInscriptionRevealed(payload));
             }
         }
     }
