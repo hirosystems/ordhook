@@ -6,8 +6,8 @@ use bitcoincore_rpc::bitcoin::hashes::hex::FromHex;
 use bitcoincore_rpc::bitcoin::{Address, Network, Script};
 use bitcoincore_rpc_json::bitcoin::Witness;
 use chainhook_types::{
-    BitcoinBlockData, OrdinalInscriptionRevealData, OrdinalInscriptionTransferData,
-    OrdinalOperation, TransactionIdentifier,
+    BitcoinBlockData, OrdinalInscriptionCurseType, OrdinalInscriptionRevealData,
+    OrdinalInscriptionTransferData, OrdinalOperation, TransactionIdentifier,
 };
 use dashmap::DashMap;
 use fxhash::{FxBuildHasher, FxHasher};
@@ -56,18 +56,28 @@ pub fn parse_ordinal_operations(
     for (input_index, input) in tx.vin.iter().enumerate() {
         if let Some(ref witness_data) = input.txinwitness {
             let witness = Witness::from_vec(witness_data.clone());
-            let inscription = match InscriptionParser::parse(&witness) {
+            let mut inscription = match InscriptionParser::parse(&witness) {
                 Ok(inscription) => inscription,
-                Err(e) => {
-                    ctx.try_log(|logger| {
-                        slog::warn!(
-                            logger,
-                            "Inscription parsing error at block {}: #{:?}",
-                            block_height,
-                            e
-                        )
-                    });
-                    continue;
+                Err(_e) => {
+                    let mut cursed_inscription = None;
+                    for bytes in witness_data.iter() {
+                        let script = Script::from(bytes.to_vec());
+                        let parser = InscriptionParser {
+                            instructions: script.instructions().peekable(),
+                        };
+
+                        let mut inscription = match parser.parse_script() {
+                            Ok(inscription) => inscription,
+                            Err(_) => continue,
+                        };
+                        inscription.curse = Some(OrdinalInscriptionCurseType::P2wsh);
+                        cursed_inscription = Some(inscription);
+                        break;
+                    }
+                    match cursed_inscription {
+                        Some(inscription) => inscription,
+                        None => continue,
+                    }
                 }
             };
 
@@ -82,9 +92,6 @@ pub fn parse_ordinal_operations(
                 .and_then(|o| Some(o.value.to_sat()))
                 .unwrap_or(0);
 
-            let no_content_bytes = vec![];
-            let inscription_content_bytes = inscription.body().unwrap_or(&no_content_bytes);
-
             let inscriber_address = if let Ok(authors) = Address::from_script(
                 &tx.vout[0].script_pub_key.script().unwrap(),
                 bitcoincore_rpc::bitcoin::Network::Bitcoin,
@@ -93,6 +100,13 @@ pub fn parse_ordinal_operations(
             } else {
                 None
             };
+
+            if input_index > 0 {
+                inscription.curse = Some(OrdinalInscriptionCurseType::Batch);
+            }
+
+            let no_content_bytes = vec![];
+            let inscription_content_bytes = inscription.body().take().unwrap_or(&no_content_bytes);
 
             let payload = OrdinalInscriptionRevealData {
                 content_type: inscription.content_type().unwrap_or("unknown").to_string(),
@@ -109,13 +123,13 @@ pub fn parse_ordinal_operations(
                 ordinal_offset: 0,
                 transfers_pre_inscription: 0,
                 satpoint_post_inscription: format!("{}:0:0", tx.txid.clone()),
+                curse_type: inscription.curse.take(),
             };
 
-            if input_index == 0 {
-                operations.push(OrdinalOperation::InscriptionRevealed(payload));
-            } else {
-                operations.push(OrdinalOperation::CursedInscriptionRevealed(payload));
-            }
+            operations.push(match &payload.curse_type {
+                Some(_) => OrdinalOperation::CursedInscriptionRevealed(payload),
+                None => OrdinalOperation::InscriptionRevealed(payload),
+            });
         }
     }
     operations

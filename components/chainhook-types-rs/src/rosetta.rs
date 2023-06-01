@@ -319,6 +319,13 @@ pub struct OrdinalInscriptionTransferData {
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub enum OrdinalInscriptionCurseType {
+    Tag(u8),
+    Batch,
+    P2wsh,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct OrdinalInscriptionRevealData {
     pub content_bytes: String,
     pub content_type: String,
@@ -334,6 +341,7 @@ pub struct OrdinalInscriptionRevealData {
     pub ordinal_offset: u64,
     pub transfers_pre_inscription: u32,
     pub satpoint_post_inscription: String,
+    pub curse_type: Option<OrdinalInscriptionCurseType>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
