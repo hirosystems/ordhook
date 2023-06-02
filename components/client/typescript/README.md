@@ -16,7 +16,7 @@ server helpers to handle all node interactions transparently.
 1. Create a `Predicate` object for every Chainhook event you're interested in. See the Chainhook
    [README](https://github.com/hirosystems/chainhook#readme) for more examples.
     ```typescript
-    import { ServerPredicate } from "@hirosystems/chainhook-client/dist/server";
+    import { ServerPredicate } from "@hirosystems/chainhook-client";
     import { randomUUID } from "crypto";
 
     const uuid = randomUUID();
@@ -60,7 +60,7 @@ server helpers to handle all node interactions transparently.
 
 1. Declare and start the event server
     ```typescript
-    import { Payload } from "@hirosystems/chainhook-client/dist/schemas";
+    import { Payload } from "@hirosystems/chainhook-client";
 
     const server = new ChainhookEventObserver(opts, chainhook);
     server.start(

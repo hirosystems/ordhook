@@ -6,15 +6,22 @@
   "typings": "./dist/index.d.ts",
   "scripts": {
     "build": "rimraf ./dist && tsc --project tsconfig.build.json",
-    "test": "jest"
+    "test": "jest",
+    "prepublishOnly": "npm run build"
   },
+  "files": [
+    "dist/"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/hirosystems/chainhook.git"
   },
   "keywords": [
+    "chainhook",
     "client",
-    "types"
+    "stacks",
+    "bitcoin",
+    "ordinals"
   ],
   "author": "Hiro Systems PBC <engineering@hiro.so> (https://hiro.so)",
   "license": "Apache 2.0",
