@@ -156,7 +156,7 @@ pub async fn download_and_parse_block_with_retry(
             Err(e) => {
                 errors_count += 1;
                 ctx.try_log(|logger| {
-                    slog::error!(
+                    slog::warn!(
                         logger,
                         "unable to retrieve block #{block_hash} (attempt #{errors_count}): {}",
                         e.to_string()
@@ -182,7 +182,7 @@ pub async fn download_block_with_retry(
                 Err(e) => {
                     errors_count += 1;
                     ctx.try_log(|logger| {
-                        slog::error!(
+                        slog::warn!(
                             logger,
                             "unable to retrieve block #{block_hash} (attempt #{errors_count}): {}",
                             e.to_string()
@@ -199,7 +199,7 @@ pub async fn download_block_with_retry(
             Err(e) => {
                 errors_count += 1;
                 ctx.try_log(|logger| {
-                    slog::error!(
+                    slog::warn!(
                         logger,
                         "unable to retrieve block #{block_hash} (attempt #{errors_count}): {}",
                         e.to_string()
@@ -498,7 +498,7 @@ fn try_parse_stacks_operation(
         }
         StacksOpcodes::TransferStx => {
             let res = try_parse_transfer_stx_op(&op_return_output[6..])?;
-            StacksBaseChainOperation::StxTransfered(res)
+            StacksBaseChainOperation::StxTransferred(res)
         }
         StacksOpcodes::StackStx => {
             let res = try_parse_stacks_stx_op(&op_return_output[6..])?;

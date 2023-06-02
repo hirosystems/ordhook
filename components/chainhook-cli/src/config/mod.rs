@@ -113,6 +113,7 @@ impl Config {
             cache_path: self.storage.cache_path.clone(),
             bitcoin_network: self.network.bitcoin_network.clone(),
             stacks_network: self.network.stacks_network.clone(),
+            ordinals_enabled: true,
         }
     }
 

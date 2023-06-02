@@ -147,7 +147,7 @@ The current `bitcoin` predicates supports the following `if_this` constructs:
 {
     "if_this": {
         "scope": "stacks_protocol",
-        "operation": "stx_transfered"
+        "operation": "stx_transferred"
     }
 }
 
