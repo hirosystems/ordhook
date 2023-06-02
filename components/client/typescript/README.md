@@ -40,7 +40,7 @@ server helpers to handle all node interactions transparently.
 1. Create configuration objects for the local server and the Chainhook node you'll be interacting
    with
     ```typescript
-    import { ServerOptions, ChainhookNodeOptions } from "@hirosystems/chainhook-client/dist/server";
+    import { ServerOptions, ChainhookNodeOptions } from "@hirosystems/chainhook-client";
 
     // Local server options
     const opts: ServerOptions = {
@@ -54,8 +54,7 @@ server helpers to handle all node interactions transparently.
 
     // Chainhook node options
     const chainhook: ChainhookNodeOptions = {
-        hostname: "<node_hostname>",
-        port: 20456
+        base_url: "<node_base_url>"
     };
     ```
 

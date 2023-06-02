@@ -47,3 +47,6 @@ export class ChainhookEventObserver {
     this.fastify = undefined;
   }
 }
+
+export * from './server';
+export * from './schemas/payload';
