@@ -481,28 +481,28 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
 
             match storage {
                 Storage::Sqlite(rw_hord_db_conn) => {
-                    if traversal.ordinal_number > 0 {
-                        if let Some(_entry) = find_inscription_with_ordinal_number(
-                            &traversal.ordinal_number,
-                            &inscription_db_conn,
-                            &ctx,
-                        ) {
-                            ctx.try_log(|logger| {
-                                    slog::warn!(
-                                        logger,
-                                        "Transaction {} in block {} is overriding an existing inscription {}",
-                                        new_tx.transaction_identifier.hash,
-                                        block.block_identifier.index,
-                                        traversal.ordinal_number
-                                    );
-                                });
-                            ordinals_events_indexes_to_discard.push_front(ordinal_event_index);
-                            continue;
-                        }
-                    } else {
+                    if traversal.ordinal_number == 0 {
                         // If the satoshi inscribed correspond to a sat overflow, we will store the inscription
-                        // but exclude it from the block data
+                        // and assign an inscription number after the other inscriptions, to mimick the 
+                        // bug in ord.
                         sats_overflow.push(inscription.clone());
+                        continue;
+                    }
+
+                    if let Some(_entry) = find_inscription_with_ordinal_number(
+                        &traversal.ordinal_number,
+                        &inscription_db_conn,
+                        &ctx,
+                    ) {
+                        ctx.try_log(|logger| {
+                                slog::warn!(
+                                    logger,
+                                    "Transaction {} in block {} is overriding an existing inscription {}",
+                                    new_tx.transaction_identifier.hash,
+                                    block.block_identifier.index,
+                                    traversal.ordinal_number
+                                );
+                            });
                         ordinals_events_indexes_to_discard.push_front(ordinal_event_index);
                         continue;
                     }
@@ -558,7 +558,6 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
     for inscription in sats_overflow.iter_mut() {
         match storage {
             Storage::Sqlite(rw_hord_db_conn) => {
-                latest_inscription_number += 1;
                 inscription.inscription_number = latest_inscription_number;
                 ctx.try_log(|logger| {
                             slog::info!(
@@ -577,6 +576,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
                     &rw_hord_db_conn,
                     &ctx,
                 );
+                latest_inscription_number += 1;
                 storage_updated = true;
             }
             _ => {}
