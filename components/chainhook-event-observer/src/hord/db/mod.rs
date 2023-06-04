@@ -269,7 +269,7 @@ pub fn find_lazy_block_at_block_height(
             Ok(Some(res)) => return Some(LazyBlock::new(res)),
             _ => {
                 attempt += 1;
-                std::thread::sleep(std::time::Duration::from_secs(1));
+                std::thread::sleep(std::time::Duration::from_secs(2));
                 if attempt > retry {
                     return None;
                 }
@@ -1013,7 +1013,7 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
             }
         }
 
-        let lazy_block = match find_lazy_block_at_block_height(ordinal_block_number, 3, &blocks_db)
+        let lazy_block = match find_lazy_block_at_block_height(ordinal_block_number, 10, &blocks_db)
         {
             Some(block) => block,
             None => {
