@@ -4,9 +4,10 @@ pub mod ord;
 
 use bitcoincore_rpc::bitcoin::hashes::hex::FromHex;
 use bitcoincore_rpc::bitcoin::{Address, Network, Script};
+use bitcoincore_rpc_json::bitcoin::Witness;
 use chainhook_types::{
-    BitcoinBlockData, OrdinalInscriptionRevealData, OrdinalInscriptionTransferData,
-    OrdinalOperation, TransactionIdentifier,
+    BitcoinBlockData, OrdinalInscriptionCurseType, OrdinalInscriptionRevealData,
+    OrdinalInscriptionTransferData, OrdinalOperation, TransactionIdentifier,
 };
 use dashmap::DashMap;
 use fxhash::{FxBuildHasher, FxHasher};
@@ -22,13 +23,14 @@ use std::sync::mpsc::channel;
 use std::sync::Arc;
 use threadpool::ThreadPool;
 
+use crate::hord::db::format_outpoint_to_watch;
 use crate::indexer::bitcoin::BitcoinTransactionFullBreakdown;
 use crate::{
     hord::{
         db::{
             find_inscription_with_ordinal_number, find_inscriptions_at_wached_outpoint,
-            insert_entry_in_blocks, retrieve_satoshi_point_using_lazy_storage,
-            store_new_inscription, update_transfered_inscription,
+            insert_entry_in_blocks, insert_entry_in_inscriptions, insert_entry_in_transfers,
+            retrieve_satoshi_point_using_lazy_storage, update_transfered_inscription,
         },
         ord::height::Height,
     },
@@ -36,76 +38,101 @@ use crate::{
 };
 
 use self::db::{
-    find_inscription_with_id, find_latest_inscription_number_at_block_height,
-    open_readonly_hord_db_conn_rocks_db, remove_entry_from_blocks, remove_entry_from_inscriptions,
-    LazyBlock, LazyBlockTransaction, TraversalResult, WatchedSatpoint,
+    find_inscription_with_id, find_latest_cursed_inscription_number_at_block_height,
+    find_latest_inscription_number_at_block_height, open_readonly_hord_db_conn_rocks_db,
+    parse_satpoint_to_watch, remove_entry_from_blocks, remove_entry_from_inscriptions, LazyBlock,
+    LazyBlockTransaction, TraversalResult, WatchedSatpoint,
 };
 use self::inscription::InscriptionParser;
 use self::ord::inscription_id::InscriptionId;
 
-pub fn try_parse_ordinal_operation(
+pub fn parse_ordinal_operations(
     tx: &BitcoinTransactionFullBreakdown,
-    _block_height: u64,
-    _ctx: &Context,
-) -> Option<OrdinalOperation> {
+    block_height: u64,
+    ctx: &Context,
+) -> Vec<OrdinalOperation> {
     // This should eventually become a loop once/if there is settlement on https://github.com/casey/ord/issues/2000.
-    if let Some(first_input) = tx.vin.get(0) {
-        if let Some(ref witnesses) = first_input.txinwitness {
-            for bytes in witnesses.iter() {
-                let script = Script::from(bytes.to_vec());
-                let parser = InscriptionParser {
-                    instructions: script.instructions().peekable(),
-                };
+    let mut operations = vec![];
+    for (input_index, input) in tx.vin.iter().enumerate() {
+        if let Some(ref witness_data) = input.txinwitness {
+            let witness = Witness::from_vec(witness_data.clone());
+            let mut inscription = match InscriptionParser::parse(&witness) {
+                Ok(inscription) => inscription,
+                Err(_e) => {
+                    let mut cursed_inscription = None;
+                    for bytes in witness_data.iter() {
+                        let script = Script::from(bytes.to_vec());
+                        let parser = InscriptionParser {
+                            instructions: script.instructions().peekable(),
+                        };
 
-                let inscription = match parser.parse_script() {
-                    Ok(inscription) => inscription,
-                    Err(_) => continue,
-                };
+                        let mut inscription = match parser.parse_script() {
+                            Ok(inscription) => inscription,
+                            Err(_) => continue,
+                        };
+                        inscription.curse = Some(OrdinalInscriptionCurseType::P2wsh);
+                        cursed_inscription = Some(inscription);
+                        break;
+                    }
+                    match cursed_inscription {
+                        Some(inscription) => inscription,
+                        None => continue,
+                    }
+                }
+            };
 
-                let inscription_id = InscriptionId {
-                    txid: tx.txid.clone(),
-                    index: 0,
-                };
+            let inscription_id = InscriptionId {
+                txid: tx.txid.clone(),
+                index: input_index as u32,
+            };
 
-                let inscription_output_value = tx
-                    .vout
-                    .get(0)
-                    .and_then(|o| Some(o.value.to_sat()))
-                    .unwrap_or(0);
+            let inscription_output_value = tx
+                .vout
+                .get(0)
+                .and_then(|o| Some(o.value.to_sat()))
+                .unwrap_or(0);
 
-                let no_content_bytes = vec![];
-                let inscription_content_bytes = inscription.body().unwrap_or(&no_content_bytes);
+            let inscriber_address = if let Ok(authors) = Address::from_script(
+                &tx.vout[0].script_pub_key.script().unwrap(),
+                bitcoincore_rpc::bitcoin::Network::Bitcoin,
+            ) {
+                Some(authors.to_string())
+            } else {
+                None
+            };
 
-                let inscriber_address = if let Ok(authors) = Address::from_script(
-                    &tx.vout[0].script_pub_key.script().unwrap(),
-                    bitcoincore_rpc::bitcoin::Network::Bitcoin,
-                ) {
-                    Some(authors.to_string())
-                } else {
-                    None
-                };
-
-                return Some(OrdinalOperation::InscriptionRevealed(
-                    OrdinalInscriptionRevealData {
-                        content_type: inscription.content_type().unwrap_or("unknown").to_string(),
-                        content_bytes: format!("0x{}", hex::encode(&inscription_content_bytes)),
-                        content_length: inscription_content_bytes.len(),
-                        inscription_id: inscription_id.to_string(),
-                        inscriber_address,
-                        inscription_output_value,
-                        inscription_fee: 0,
-                        inscription_number: 0,
-                        ordinal_number: 0,
-                        ordinal_block_height: 0,
-                        ordinal_offset: 0,
-                        transfers_pre_inscription: 0,
-                        satpoint_post_inscription: format!("{}:0:0", tx.txid.clone()),
-                    },
-                ));
+            if input_index > 0 {
+                inscription.curse = Some(OrdinalInscriptionCurseType::Batch);
             }
+
+            let no_content_bytes = vec![];
+            let inscription_content_bytes = inscription.body().take().unwrap_or(&no_content_bytes);
+
+            let payload = OrdinalInscriptionRevealData {
+                content_type: inscription.content_type().unwrap_or("unknown").to_string(),
+                content_bytes: format!("0x{}", hex::encode(&inscription_content_bytes)),
+                content_length: inscription_content_bytes.len(),
+                inscription_id: inscription_id.to_string(),
+                inscriber_address,
+                inscription_output_value,
+                inscription_fee: 0,
+                inscription_input_index: input_index,
+                inscription_number: 0,
+                ordinal_number: 0,
+                ordinal_block_height: 0,
+                ordinal_offset: 0,
+                transfers_pre_inscription: 0,
+                satpoint_post_inscription: format!("{}:0:0", tx.txid.clone()),
+                curse_type: inscription.curse.take(),
+            };
+
+            operations.push(match &payload.curse_type {
+                Some(_) => OrdinalOperation::CursedInscriptionRevealed(payload),
+                None => OrdinalOperation::InscriptionRevealed(payload),
+            });
         }
     }
-    None
+    operations
 }
 
 pub fn get_inscriptions_revealed_in_block(
@@ -135,7 +162,8 @@ pub fn revert_hord_db_with_augmented_bitcoin_block(
         let tx = &block.transactions[block.transactions.len() - tx_index];
         for ordinal_event in tx.metadata.ordinal_operations.iter() {
             match ordinal_event {
-                OrdinalOperation::InscriptionRevealed(data) => {
+                OrdinalOperation::InscriptionRevealed(data)
+                | OrdinalOperation::CursedInscriptionRevealed(data) => {
                     // We remove any new inscription created
                     remove_entry_from_inscriptions(
                         &data.inscription_id,
@@ -192,23 +220,38 @@ pub fn retrieve_inscribed_satoshi_points_from_block(
     for tx in block.transactions.iter().skip(1) {
         // Have a new inscription been revealed, if so, are looking at a re-inscription
         for ordinal_event in tx.metadata.ordinal_operations.iter() {
-            if let OrdinalOperation::InscriptionRevealed(inscription_data) = ordinal_event {
-                if let Some(inscriptions_db_conn) = inscriptions_db_conn {
-                    if let Some(traversal) = find_inscription_with_id(
-                        &inscription_data.inscription_id,
-                        &block.block_identifier.hash,
-                        inscriptions_db_conn,
-                        ctx,
-                    ) {
-                        traversals.insert(tx.transaction_identifier.clone(), traversal);
-                    } else {
-                        // Enqueue for traversals
-                        transactions_ids.push(tx.transaction_identifier.clone());
-                    }
+            let (inscription_data, _is_cursed) = match ordinal_event {
+                OrdinalOperation::InscriptionRevealed(inscription_data) => {
+                    (inscription_data, false)
+                }
+                OrdinalOperation::CursedInscriptionRevealed(inscription_data) => {
+                    (inscription_data, false)
+                }
+                OrdinalOperation::InscriptionTransferred(_) => {
+                    continue;
+                }
+            };
+            if let Some(inscriptions_db_conn) = inscriptions_db_conn {
+                if let Some(traversal) = find_inscription_with_id(
+                    &inscription_data.inscription_id,
+                    &block.block_identifier.hash,
+                    inscriptions_db_conn,
+                    ctx,
+                ) {
+                    traversals.insert(tx.transaction_identifier.clone(), traversal);
                 } else {
                     // Enqueue for traversals
-                    transactions_ids.push(tx.transaction_identifier.clone());
+                    transactions_ids.push((
+                        tx.transaction_identifier.clone(),
+                        inscription_data.inscription_input_index,
+                    ));
                 }
+            } else {
+                // Enqueue for traversals
+                transactions_ids.push((
+                    tx.transaction_identifier.clone(),
+                    inscription_data.inscription_input_index,
+                ));
             }
         }
     }
@@ -220,7 +263,7 @@ pub fn retrieve_inscribed_satoshi_points_from_block(
 
         let mut rng = thread_rng();
         transactions_ids.shuffle(&mut rng);
-        for transaction_id in transactions_ids.into_iter() {
+        for (transaction_id, input_index) in transactions_ids.into_iter() {
             let moved_traversal_tx = traversal_tx.clone();
             let moved_ctx = ctx.clone();
             let block_identifier = block.block_identifier.clone();
@@ -233,6 +276,7 @@ pub fn retrieve_inscribed_satoshi_points_from_block(
                             &blocks_db,
                             &block_identifier,
                             &transaction_id,
+                            input_index,
                             0,
                             local_cache,
                             &moved_ctx,
@@ -328,20 +372,31 @@ pub fn update_hord_db_and_augment_bitcoin_block(
     );
 
     let mut storage = Storage::Sqlite(inscriptions_db_conn_rw);
-    update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
-        new_block,
-        &mut storage,
-        &traversals,
-        &inscriptions_db_conn_rw,
-        &ctx,
-    );
+    let any_inscription_revealed =
+        update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
+            new_block,
+            &mut storage,
+            &traversals,
+            &inscriptions_db_conn_rw,
+            &ctx,
+        )?;
 
     // Have inscriptions been transfered?
-    update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
-        new_block,
-        &mut storage,
-        &ctx,
-    )?;
+    let any_inscription_transferred =
+        update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
+            new_block,
+            &mut storage,
+            &ctx,
+        )?;
+
+    if any_inscription_revealed || any_inscription_transferred {
+        insert_entry_in_transfers(
+            new_block.block_identifier.index as u32,
+            inscriptions_db_conn_rw,
+            ctx,
+        )
+    }
+
     Ok(())
 }
 
@@ -357,25 +412,28 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
     traversals: &HashMap<TransactionIdentifier, TraversalResult>,
     inscription_db_conn: &Connection,
     ctx: &Context,
-) {
+) -> Result<bool, String> {
+    let mut storage_updated = false;
+
     let mut latest_inscription_number = match find_latest_inscription_number_at_block_height(
         &block.block_identifier.index,
         &inscription_db_conn,
         &ctx,
-    ) {
-        Ok(None) => 0,
-        Ok(Some(inscription_number)) => inscription_number + 1,
-        Err(e) => {
-            ctx.try_log(|logger| {
-                slog::error!(
-                    logger,
-                    "unable to retrieve inscription number: {}",
-                    e.to_string()
-                );
-            });
-            return;
-        }
+    )? {
+        None => 0,
+        Some(inscription_number) => inscription_number + 1,
     };
+
+    let mut latest_cursed_inscription_number =
+        match find_latest_cursed_inscription_number_at_block_height(
+            &block.block_identifier.index,
+            &inscription_db_conn,
+            &ctx,
+        )? {
+            None => -1,
+            Some(inscription_number) => inscription_number - 1,
+        };
+
     let mut sats_overflow = vec![];
 
     for new_tx in block.transactions.iter_mut().skip(1) {
@@ -384,92 +442,112 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
         for (ordinal_event_index, ordinal_event) in
             new_tx.metadata.ordinal_operations.iter_mut().enumerate()
         {
-            if let OrdinalOperation::InscriptionRevealed(inscription) = ordinal_event {
-                let inscription_number = latest_inscription_number;
-                let traversal = match traversals.get(&new_tx.transaction_identifier) {
-                    Some(traversal) => traversal,
-                    None => {
+            let (inscription, is_cursed) = match ordinal_event {
+                OrdinalOperation::InscriptionRevealed(inscription) => (inscription, false),
+                OrdinalOperation::CursedInscriptionRevealed(inscription) => (inscription, true),
+                OrdinalOperation::InscriptionTransferred(_) => continue,
+            };
+
+            let inscription_number = if is_cursed {
+                latest_cursed_inscription_number
+            } else {
+                latest_inscription_number
+            };
+
+            let traversal = match traversals.get(&new_tx.transaction_identifier) {
+                Some(traversal) => traversal,
+                None => {
+                    ctx.try_log(|logger| {
+                        slog::info!(
+                            logger,
+                            "Unable to retrieve cached inscription data for inscription {}",
+                            new_tx.transaction_identifier.hash
+                        );
+                    });
+                    ordinals_events_indexes_to_discard.push_front(ordinal_event_index);
+                    continue;
+                }
+            };
+            inscription.ordinal_offset = traversal.get_ordinal_coinbase_offset();
+            inscription.ordinal_block_height = traversal.get_ordinal_coinbase_height();
+            inscription.ordinal_number = traversal.ordinal_number;
+            inscription.inscription_number = traversal.inscription_number;
+            inscription.transfers_pre_inscription = traversal.transfers;
+            inscription.inscription_fee = new_tx.metadata.fee;
+            inscription.satpoint_post_inscription = format!(
+                "{}:{}",
+                traversal.outpoint_to_watch, traversal.inscription_offset
+            );
+
+            match storage {
+                Storage::Sqlite(rw_hord_db_conn) => {
+                    if traversal.ordinal_number == 0 {
+                        // If the satoshi inscribed correspond to a sat overflow, we will store the inscription
+                        // and assign an inscription number after the other inscriptions, to mimick the 
+                        // bug in ord.
+                        sats_overflow.push(inscription.clone());
+                        continue;
+                    }
+
+                    if let Some(_entry) = find_inscription_with_ordinal_number(
+                        &traversal.ordinal_number,
+                        &inscription_db_conn,
+                        &ctx,
+                    ) {
                         ctx.try_log(|logger| {
-                            slog::info!(
-                                logger,
-                                "Unable to retrieve cached inscription data for inscription {}",
-                                new_tx.transaction_identifier.hash
-                            );
-                        });
+                                slog::warn!(
+                                    logger,
+                                    "Transaction {} in block {} is overriding an existing inscription {}",
+                                    new_tx.transaction_identifier.hash,
+                                    block.block_identifier.index,
+                                    traversal.ordinal_number
+                                );
+                            });
                         ordinals_events_indexes_to_discard.push_front(ordinal_event_index);
                         continue;
                     }
-                };
-                inscription.ordinal_offset = traversal.get_ordinal_coinbase_offset();
-                inscription.ordinal_block_height = traversal.get_ordinal_coinbase_height();
-                inscription.ordinal_number = traversal.ordinal_number;
-                inscription.inscription_number = traversal.inscription_number;
-                inscription.transfers_pre_inscription = traversal.transfers;
-                inscription.inscription_fee = new_tx.metadata.fee;
 
-                match storage {
-                    Storage::Sqlite(rw_hord_db_conn) => {
-                        if traversal.ordinal_number > 0 {
-                            if let Some(_entry) = find_inscription_with_ordinal_number(
-                                &traversal.ordinal_number,
-                                &inscription_db_conn,
-                                &ctx,
-                            ) {
-                                ctx.try_log(|logger| {
-                                        slog::warn!(
-                                            logger,
-                                            "Transaction {} in block {} is overriding an existing inscription {}",
-                                            new_tx.transaction_identifier.hash,
-                                            block.block_identifier.index,
-                                            traversal.ordinal_number
-                                        );
-                                    });
-                                ordinals_events_indexes_to_discard.push_front(ordinal_event_index);
-                                continue;
-                            }
-                        } else {
-                            // If the satoshi inscribed correspond to a sat overflow, we will store the inscription
-                            // but exclude it from the block data
-                            sats_overflow.push(inscription.clone());
-                            ordinals_events_indexes_to_discard.push_front(ordinal_event_index);
-                            continue;
-                        }
+                    if is_cursed {
+                        latest_cursed_inscription_number -= 1;
+                    } else {
                         latest_inscription_number += 1;
-                        inscription.inscription_number = inscription_number;
-                        ctx.try_log(|logger| {
-                                    slog::info!(
-                                logger,
-                                "Inscription {} (#{}) detected on Satoshi {} (block {}, {} transfers)",
-                                inscription.inscription_id,
-                                inscription.inscription_number,
-                                inscription.ordinal_number,
-                                block.block_identifier.index,
-                                inscription.transfers_pre_inscription,
-                            );
-                                });
-                        store_new_inscription(
-                            &inscription,
-                            &block.block_identifier,
-                            &rw_hord_db_conn,
-                            &ctx,
+                    };
+
+                    inscription.inscription_number = inscription_number;
+                    ctx.try_log(|logger| {
+                        slog::info!(
+                            logger,
+                            "Inscription {} (#{}) detected on Satoshi {} (block {}, {} transfers)",
+                            inscription.inscription_id,
+                            inscription.inscription_number,
+                            inscription.ordinal_number,
+                            block.block_identifier.index,
+                            inscription.transfers_pre_inscription,
                         );
-                    }
-                    Storage::Memory(map) => {
-                        let outpoint = inscription.satpoint_post_inscription
-                            [0..inscription.satpoint_post_inscription.len() - 2]
-                            .to_string();
-                        map.insert(
-                            outpoint,
-                            vec![WatchedSatpoint {
-                                inscription_id: inscription.inscription_id.clone(),
-                                inscription_number: inscription.inscription_number,
-                                ordinal_number: inscription.ordinal_number,
-                                offset: 0,
-                            }],
-                        );
-                    }
+                    });
+                    insert_entry_in_inscriptions(
+                        &inscription,
+                        &block.block_identifier,
+                        &rw_hord_db_conn,
+                        &ctx,
+                    );
+                }
+                Storage::Memory(map) => {
+                    let (tx, output_index, offset) =
+                        parse_satpoint_to_watch(&inscription.satpoint_post_inscription);
+                    let outpoint = format_outpoint_to_watch(&tx, output_index);
+                    map.insert(
+                        outpoint,
+                        vec![WatchedSatpoint {
+                            inscription_id: inscription.inscription_id.clone(),
+                            inscription_number: inscription.inscription_number,
+                            ordinal_number: inscription.ordinal_number,
+                            offset,
+                        }],
+                    );
                 }
             }
+            storage_updated = true;
         }
 
         for index in ordinals_events_indexes_to_discard.into_iter() {
@@ -480,7 +558,6 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
     for inscription in sats_overflow.iter_mut() {
         match storage {
             Storage::Sqlite(rw_hord_db_conn) => {
-                latest_inscription_number += 1;
                 inscription.inscription_number = latest_inscription_number;
                 ctx.try_log(|logger| {
                             slog::info!(
@@ -493,16 +570,20 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
                         inscription.transfers_pre_inscription,
                     );
                 });
-                store_new_inscription(
+                insert_entry_in_inscriptions(
                     &inscription,
                     &block.block_identifier,
                     &rw_hord_db_conn,
                     &ctx,
                 );
+                latest_inscription_number += 1;
+                storage_updated = true;
             }
             _ => {}
         }
     }
+
+    Ok(storage_updated)
 }
 
 /// For each input of each transaction in the block, we retrieve the UTXO spent (outpoint_pre_transfer)
@@ -516,7 +597,8 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
     block: &mut BitcoinBlockData,
     storage: &mut Storage,
     ctx: &Context,
-) -> Result<(), String> {
+) -> Result<bool, String> {
+    let mut storage_updated = false;
     let mut cumulated_fees = 0;
     let first_sat_post_subsidy = Height(block.block_identifier.index).starting_sat().0;
     let coinbase_txid = &block.transactions[0].transaction_identifier.hash.clone();
@@ -579,7 +661,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
                 ) = match post_transfer_output {
                     Some(index) => {
                         let outpoint =
-                            format!("{}:{}", &new_tx.transaction_identifier.hash[2..], index);
+                            format_outpoint_to_watch(&new_tx.transaction_identifier, index);
                         let offset = (sats_in_offset + watched_satpoint.offset) - sats_out_offset;
                         let script_pub_key_hex =
                             new_tx.metadata.outputs[index].get_script_pubkey_hex();
@@ -655,6 +737,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
                             .or_insert(vec![watched_satpoint.clone()]);
                     }
                 };
+                storage_updated = true;
 
                 let satpoint_post_transfer =
                     format!("{}:{}", outpoint_post_transfer, offset_post_transfer);
@@ -679,5 +762,5 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
         }
         cumulated_fees += new_tx.metadata.fee;
     }
-    Ok(())
+    Ok(storage_updated)
 }

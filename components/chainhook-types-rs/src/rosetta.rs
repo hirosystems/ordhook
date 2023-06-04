@@ -303,12 +303,13 @@ pub struct BitcoinTransactionMetadata {
 #[serde(rename_all = "snake_case")]
 pub enum OrdinalOperation {
     InscriptionRevealed(OrdinalInscriptionRevealData),
+    CursedInscriptionRevealed(OrdinalInscriptionRevealData),
     InscriptionTransferred(OrdinalInscriptionTransferData),
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct OrdinalInscriptionTransferData {
-    pub inscription_number: u64,
+    pub inscription_number: i64,
     pub inscription_id: String,
     pub ordinal_number: u64,
     pub updated_address: Option<String>,
@@ -318,20 +319,29 @@ pub struct OrdinalInscriptionTransferData {
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub enum OrdinalInscriptionCurseType {
+    Tag(u8),
+    Batch,
+    P2wsh,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct OrdinalInscriptionRevealData {
     pub content_bytes: String,
     pub content_type: String,
     pub content_length: usize,
-    pub inscription_number: u64,
+    pub inscription_number: i64,
     pub inscription_fee: u64,
     pub inscription_output_value: u64,
     pub inscription_id: String,
+    pub inscription_input_index: usize,
     pub inscriber_address: Option<String>,
     pub ordinal_number: u64,
     pub ordinal_block_height: u64,
     pub ordinal_offset: u64,
     pub transfers_pre_inscription: u32,
     pub satpoint_post_inscription: String,
+    pub curse_type: Option<OrdinalInscriptionCurseType>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
@@ -400,6 +410,23 @@ pub struct TransactionIdentifier {
     /// Any transactions that are attributable only to a block (ex: a block
     /// event) should use the hash of the block as the identifier.
     pub hash: String,
+}
+
+impl TransactionIdentifier {
+    pub fn get_hash_bytes_str(&self) -> &str {
+        &self.hash[2..]
+    }
+
+    pub fn get_hash_bytes(&self) -> Vec<u8> {
+        hex::decode(&self.get_hash_bytes_str()).unwrap()
+    }
+
+    pub fn get_8_hash_bytes(&self) -> [u8; 8] {
+        let bytes = self.get_hash_bytes();
+        [
+            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+        ]
+    }
 }
 
 #[derive(

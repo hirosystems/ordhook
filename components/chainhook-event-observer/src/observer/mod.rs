@@ -521,7 +521,8 @@ pub fn get_bitcoin_proof(
     transaction_identifier: &TransactionIdentifier,
     block_identifier: &BlockIdentifier,
 ) -> Result<String, String> {
-    let txid = Txid::from_str(&transaction_identifier.hash[2..]).expect("unable to build txid");
+    let txid =
+        Txid::from_str(&transaction_identifier.get_hash_bytes_str()).expect("unable to build txid");
     let block_hash =
         BlockHash::from_str(&block_identifier.hash[2..]).expect("unable to build block_hash");
 

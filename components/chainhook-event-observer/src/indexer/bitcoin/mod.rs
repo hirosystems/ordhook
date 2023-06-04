@@ -6,6 +6,7 @@ use crate::chainhooks::types::{
     get_canonical_pox_config, get_stacks_canonical_magic_bytes, PoxConfig, StacksOpcodes,
 };
 
+use crate::hord;
 use crate::observer::BitcoinConfig;
 use crate::utils::Context;
 use bitcoincore_rpc::bitcoin::hashes::hex::FromHex;
@@ -23,7 +24,6 @@ use chainhook_types::{
     StacksBlockCommitmentData, TransactionIdentifier, TransferSTXData,
 };
 use hiro_system_kit::slog;
-
 use serde::Deserialize;
 
 #[derive(Clone, PartialEq, Debug, Deserialize, Serialize)]
@@ -355,9 +355,7 @@ pub fn standardize_bitcoin_block(
         let mut ordinal_operations = vec![];
 
         #[cfg(feature = "ordinals")]
-        if let Some(op) = crate::hord::try_parse_ordinal_operation(&tx, block_height, ctx) {
-            ordinal_operations.push(op);
-        }
+        ordinal_operations.append(&mut hord::parse_ordinal_operations(&tx, block_height, ctx));
 
         let mut inputs = vec![];
         let mut sats_in = 0;

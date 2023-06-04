@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::str::FromStr;
 
 use bitcoincore_rpc::bitcoin::Transaction;
+use chainhook_types::OrdinalInscriptionCurseType;
 use {
     bitcoincore_rpc::bitcoin::{
         blockdata::{
@@ -21,8 +22,9 @@ const CONTENT_TYPE_TAG: &[u8] = &[1];
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Inscription {
-    body: Option<Vec<u8>>,
-    content_type: Option<Vec<u8>>,
+    pub body: Option<Vec<u8>>,
+    pub content_type: Option<Vec<u8>>,
+    pub curse: Option<OrdinalInscriptionCurseType>,
 }
 
 impl Inscription {
@@ -143,12 +145,20 @@ impl<'a> InscriptionParser<'a> {
             for tag in fields.keys() {
                 if let Some(lsb) = tag.first() {
                     if lsb % 2 == 0 {
-                        return Err(InscriptionError::UnrecognizedEvenField);
+                        return Ok(Some(Inscription {
+                            body,
+                            content_type,
+                            curse: Some(OrdinalInscriptionCurseType::Tag(*lsb)),
+                        }));
                     }
                 }
             }
 
-            return Ok(Some(Inscription { body, content_type }));
+            return Ok(Some(Inscription {
+                body,
+                content_type,
+                curse: None,
+            }));
         }
 
         Ok(None)

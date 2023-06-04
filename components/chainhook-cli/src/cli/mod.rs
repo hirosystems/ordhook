@@ -15,9 +15,8 @@ use chainhook_event_observer::chainhooks::types::{
 use chainhook_event_observer::hord::db::{
     delete_data_in_hord_db, fetch_and_cache_blocks_in_hord_db, find_last_block_inserted,
     find_lazy_block_at_block_height, find_watched_satpoint_for_inscription, initialize_hord_db,
-    insert_entry_in_blocks, open_readonly_hord_db_conn, open_readonly_hord_db_conn_rocks_db,
-    open_readwrite_hord_db_conn, open_readwrite_hord_db_conn_rocks_db,
-    retrieve_satoshi_point_using_lazy_storage, LazyBlock,
+    open_readonly_hord_db_conn, open_readonly_hord_db_conn_rocks_db, open_readwrite_hord_db_conn,
+    open_readwrite_hord_db_conn_rocks_db, retrieve_satoshi_point_using_lazy_storage,
 };
 use chainhook_event_observer::hord::{
     new_traversals_lazy_cache, retrieve_inscribed_satoshi_points_from_block,
@@ -642,6 +641,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                             &hord_db_conn,
                             &block_identifier,
                             &transaction_identifier,
+                            0,
                             0,
                             Arc::new(traversals_cache),
                             &ctx,

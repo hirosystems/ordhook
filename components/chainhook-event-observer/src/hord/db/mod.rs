@@ -269,7 +269,7 @@ pub fn find_lazy_block_at_block_height(
             Ok(Some(res)) => return Some(LazyBlock::new(res)),
             _ => {
                 attempt += 1;
-                std::thread::sleep(std::time::Duration::from_secs(1));
+                std::thread::sleep(std::time::Duration::from_secs(2));
                 if attempt > retry {
                     return None;
                 }
@@ -299,15 +299,31 @@ pub fn delete_blocks_in_block_range(
         .expect("unable to insert metadata");
 }
 
-pub fn store_new_inscription(
+pub fn insert_entry_in_inscriptions(
     inscription_data: &OrdinalInscriptionRevealData,
     block_identifier: &BlockIdentifier,
-    hord_db_conn: &Connection,
+    inscriptions_db_conn_rw: &Connection,
     ctx: &Context,
 ) {
-    if let Err(e) = hord_db_conn.execute(
+    let (tx, output_index, offset) =
+        parse_satpoint_to_watch(&inscription_data.satpoint_post_inscription);
+    let outpoint_to_watch = format_outpoint_to_watch(&tx, output_index);
+    if let Err(e) = inscriptions_db_conn_rw.execute(
         "INSERT INTO inscriptions (inscription_id, outpoint_to_watch, ordinal_number, inscription_number, offset, block_height, block_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        rusqlite::params![&inscription_data.inscription_id, &inscription_data.satpoint_post_inscription[0..inscription_data.satpoint_post_inscription.len()-2], &inscription_data.ordinal_number, &inscription_data.inscription_number, 0, &block_identifier.index, &block_identifier.hash],
+        rusqlite::params![&inscription_data.inscription_id, &outpoint_to_watch, &inscription_data.ordinal_number, &inscription_data.inscription_number, offset, &block_identifier.index, &block_identifier.hash],
+    ) {
+        ctx.try_log(|logger| slog::error!(logger, "{}", e.to_string()));
+    }
+}
+
+pub fn insert_entry_in_transfers(
+    block_height: u32,
+    inscriptions_db_conn_rw: &Connection,
+    ctx: &Context,
+) {
+    if let Err(e) = inscriptions_db_conn_rw.execute(
+        "INSERT INTO transfers (block_height) VALUES (?1)",
+        rusqlite::params![&block_height],
     ) {
         ctx.try_log(|logger| slog::error!(logger, "{}", e.to_string()));
     }
@@ -362,7 +378,7 @@ pub fn find_latest_inscription_number_at_block_height(
     block_height: &u64,
     inscriptions_db_conn: &Connection,
     _ctx: &Context,
-) -> Result<Option<u64>, String> {
+) -> Result<Option<i64>, String> {
     let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
     let mut stmt = inscriptions_db_conn
         .prepare(
@@ -373,25 +389,28 @@ pub fn find_latest_inscription_number_at_block_height(
         .query(args)
         .map_err(|e| format!("unable to query inscriptions: {}", e.to_string()))?;
     while let Ok(Some(row)) = rows.next() {
-        let inscription_number: u64 = row.get(0).unwrap();
+        let inscription_number: i64 = row.get(0).unwrap();
         return Ok(Some(inscription_number));
     }
     Ok(None)
 }
 
-pub fn find_latest_inscription_number(
+pub fn find_latest_cursed_inscription_number_at_block_height(
+    block_height: &u64,
     inscriptions_db_conn: &Connection,
     _ctx: &Context,
-) -> Result<Option<u64>, String> {
-    let args: &[&dyn ToSql] = &[];
+) -> Result<Option<i64>, String> {
+    let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
     let mut stmt = inscriptions_db_conn
         .prepare(
-            "SELECT inscription_number FROM inscriptions ORDER BY inscription_number DESC LIMIT 1",
+            "SELECT inscription_number FROM inscriptions WHERE block_height < ? ORDER BY inscription_number ASC LIMIT 1",
         )
-        .unwrap();
-    let mut rows = stmt.query(args).unwrap();
+        .map_err(|e| format!("unable to query inscriptions: {}", e.to_string()))?;
+    let mut rows = stmt
+        .query(args)
+        .map_err(|e| format!("unable to query inscriptions: {}", e.to_string()))?;
     while let Ok(Some(row)) = rows.next() {
-        let inscription_number: u64 = row.get(0).unwrap();
+        let inscription_number: i64 = row.get(0).unwrap();
         return Ok(Some(inscription_number));
     }
     Ok(None)
@@ -404,7 +423,7 @@ pub fn find_inscription_with_ordinal_number(
 ) -> Option<String> {
     let args: &[&dyn ToSql] = &[&ordinal_number.to_sql().unwrap()];
     let mut stmt = inscriptions_db_conn
-        .prepare("SELECT inscription_id FROM inscriptions WHERE ordinal_number = ?")
+        .prepare("SELECT inscription_id FROM inscriptions WHERE ordinal_number = ? AND inscription_number > 0")
         .unwrap();
     let mut rows = stmt.query(args).unwrap();
     while let Ok(Some(row)) = rows.next() {
@@ -422,17 +441,21 @@ pub fn find_inscription_with_id(
 ) -> Option<TraversalResult> {
     let args: &[&dyn ToSql] = &[&inscription_id.to_sql().unwrap()];
     let mut stmt = inscriptions_db_conn
-        .prepare("SELECT inscription_number, ordinal_number, block_hash FROM inscriptions WHERE inscription_id = ?")
+        .prepare("SELECT inscription_number, ordinal_number, block_hash, offset, outpoint_to_watch FROM inscriptions WHERE inscription_id = ?")
         .unwrap();
     let mut rows = stmt.query(args).unwrap();
     while let Ok(Some(row)) = rows.next() {
         let inscription_block_hash: String = row.get(2).unwrap();
         if block_hash.eq(&inscription_block_hash) {
-            let inscription_number: u64 = row.get(0).unwrap();
+            let inscription_number: i64 = row.get(0).unwrap();
             let ordinal_number: u64 = row.get(1).unwrap();
+            let inscription_offset: u64 = row.get(3).unwrap();
+            let outpoint_to_watch: String = row.get(4).unwrap();
             let traversal = TraversalResult {
                 inscription_number,
                 ordinal_number,
+                inscription_offset,
+                outpoint_to_watch,
                 transfers: 0,
             };
             return Some(traversal);
@@ -446,12 +469,12 @@ pub fn find_all_inscriptions(
 ) -> BTreeMap<u64, Vec<(TransactionIdentifier, TraversalResult)>> {
     let args: &[&dyn ToSql] = &[];
     let mut stmt = inscriptions_db_conn
-        .prepare("SELECT inscription_number, ordinal_number, block_height, inscription_id FROM inscriptions ORDER BY inscription_number ASC")
+        .prepare("SELECT inscription_number, ordinal_number, block_height, inscription_id, offset, outpoint_to_watch FROM inscriptions ORDER BY inscription_number ASC")
         .unwrap();
     let mut results: BTreeMap<u64, Vec<(TransactionIdentifier, TraversalResult)>> = BTreeMap::new();
     let mut rows = stmt.query(args).unwrap();
     while let Ok(Some(row)) = rows.next() {
-        let inscription_number: u64 = row.get(0).unwrap();
+        let inscription_number: i64 = row.get(0).unwrap();
         let ordinal_number: u64 = row.get(1).unwrap();
         let block_height: u64 = row.get(2).unwrap();
         let transaction_id = {
@@ -460,10 +483,14 @@ pub fn find_all_inscriptions(
                 hash: format!("0x{}", &inscription_id[0..inscription_id.len() - 2]),
             }
         };
+        let inscription_offset: u64 = row.get(4).unwrap();
+        let outpoint_to_watch: String = row.get(5).unwrap();
         let traversal = TraversalResult {
             inscription_number,
             ordinal_number,
             transfers: 0,
+            inscription_offset,
+            outpoint_to_watch,
         };
         results
             .entry(block_height)
@@ -476,7 +503,7 @@ pub fn find_all_inscriptions(
 #[derive(Clone, Debug)]
 pub struct WatchedSatpoint {
     pub inscription_id: String,
-    pub inscription_number: u64,
+    pub inscription_number: i64,
     pub ordinal_number: u64,
     pub offset: u64,
 }
@@ -503,7 +530,7 @@ pub fn find_watched_satpoint_for_inscription(
         .map_err(|e| format!("unable to query inscriptions table: {}", e.to_string()))?;
     while let Ok(Some(row)) = rows.next() {
         let inscription_id: String = row.get(0).unwrap();
-        let inscription_number: u64 = row.get(1).unwrap();
+        let inscription_number: i64 = row.get(1).unwrap();
         let ordinal_number: u64 = row.get(2).unwrap();
         let offset: u64 = row.get(3).unwrap();
         let block_height: u64 = row.get(4).unwrap();
@@ -537,7 +564,7 @@ pub fn find_inscriptions_at_wached_outpoint(
         .map_err(|e| format!("unable to query inscriptions table: {}", e.to_string()))?;
     while let Ok(Some(row)) = rows.next() {
         let inscription_id: String = row.get(0).unwrap();
-        let inscription_number: u64 = row.get(1).unwrap();
+        let inscription_number: i64 = row.get(1).unwrap();
         let ordinal_number: u64 = row.get(2).unwrap();
         let offset: u64 = row.get(3).unwrap();
         results.push(WatchedSatpoint {
@@ -813,7 +840,9 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
 
 #[derive(Clone, Debug)]
 pub struct TraversalResult {
-    pub inscription_number: u64,
+    pub inscription_number: i64,
+    pub inscription_offset: u64,
+    pub outpoint_to_watch: String,
     pub ordinal_number: u64,
     pub transfers: u32,
 }
@@ -830,11 +859,55 @@ impl TraversalResult {
     }
 }
 
+pub fn format_satpoint_to_watch(
+    transaction_identifier: &TransactionIdentifier,
+    output_index: usize,
+    offset: u64,
+) -> String {
+    format!(
+        "{}:{}:{}",
+        transaction_identifier.get_hash_bytes_str(),
+        output_index,
+        offset
+    )
+}
+
+pub fn parse_satpoint_to_watch(outpoint_to_watch: &str) -> (TransactionIdentifier, usize, u64) {
+    let comps: Vec<&str> = outpoint_to_watch.split(":").collect();
+    let tx = TransactionIdentifier {
+        hash: format!("0x{}", comps[0]),
+    };
+    let output_index = comps[1].to_string().parse::<usize>().unwrap();
+    let offset = comps[2].to_string().parse::<u64>().unwrap();
+    (tx, output_index, offset)
+}
+
+pub fn format_outpoint_to_watch(
+    transaction_identifier: &TransactionIdentifier,
+    output_index: usize,
+) -> String {
+    format!(
+        "{}:{}",
+        transaction_identifier.get_hash_bytes_str(),
+        output_index
+    )
+}
+
+pub fn parse_outpoint_to_watch(outpoint_to_watch: &str) -> (TransactionIdentifier, usize) {
+    let comps: Vec<&str> = outpoint_to_watch.split(":").collect();
+    let tx = TransactionIdentifier {
+        hash: format!("0x{}", comps[0]),
+    };
+    let output_index = comps[1].to_string().parse::<usize>().unwrap();
+    (tx, output_index)
+}
+
 pub fn retrieve_satoshi_point_using_lazy_storage(
     blocks_db: &DB,
     block_identifier: &BlockIdentifier,
     transaction_identifier: &TransactionIdentifier,
-    inscription_number: u64,
+    input_index: usize,
+    inscription_number: i64,
     traversals_cache: Arc<
         DashMap<(u32, [u8; 8]), LazyBlockTransaction, BuildHasherDefault<FxHasher>>,
     >,
@@ -848,16 +921,13 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
             block_identifier.index
         )
     });
-
+    let mut inscription_localized = false;
+    let mut inscription_offset = 0;
+    let mut inscription_output_index: usize = 0;
     let mut ordinal_offset = 0;
     let mut ordinal_block_number = block_identifier.index as u32;
-    let txid = {
-        let bytes = hex::decode(&transaction_identifier.hash[2..]).unwrap();
-        [
-            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-        ]
-    };
-    let mut tx_cursor = (txid, 0);
+    let txid = transaction_identifier.get_8_hash_bytes();
+    let mut tx_cursor = (txid, input_index);
     let mut hops: u32 = 0;
     loop {
         hops += 1;
@@ -870,6 +940,31 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
 
         if let Some(cached_tx) = traversals_cache.get(&(ordinal_block_number, tx_cursor.0)) {
             let tx = cached_tx.value();
+
+            if !inscription_localized {
+                inscription_localized = true;
+                let mut sats_ranges = vec![];
+                let mut bound = 0;
+                for output_value in tx.outputs.iter() {
+                    sats_ranges.push((bound, bound + output_value));
+                    bound += output_value;
+                }
+                let mut input_offset = 0;
+                for (i, input) in tx.inputs.iter().enumerate() {
+                    if i == input_index {
+                        break;
+                    }
+                    input_offset += input.txin_value;
+                }
+
+                for (i, (min, max)) in sats_ranges.into_iter().enumerate() {
+                    if input_offset >= min && input_offset < max {
+                        inscription_output_index = i;
+                        inscription_offset = input_offset - min;
+                    }
+                }
+            }
+
             let mut next_found_in_cache = false;
             let mut sats_out = 0;
             for (index, output_value) in tx.outputs.iter().enumerate() {
@@ -909,11 +1004,16 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
                     inscription_number: 0,
                     ordinal_number: 0,
                     transfers: 0,
+                    inscription_offset,
+                    outpoint_to_watch: format_outpoint_to_watch(
+                        &transaction_identifier,
+                        inscription_output_index,
+                    ),
                 });
             }
         }
 
-        let lazy_block = match find_lazy_block_at_block_height(ordinal_block_number, 3, &blocks_db)
+        let lazy_block = match find_lazy_block_at_block_height(ordinal_block_number, 10, &blocks_db)
         {
             Some(block) => block,
             None => {
@@ -976,6 +1076,30 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
                 None => unreachable!(),
             };
 
+            if !inscription_localized {
+                inscription_localized = true;
+                let mut sats_ranges = vec![];
+                let mut bound = 0;
+                for output_value in lazy_tx.outputs.iter() {
+                    sats_ranges.push((bound, bound + output_value));
+                    bound += output_value;
+                }
+                let mut input_offset = 0;
+                for (i, input) in lazy_tx.inputs.iter().enumerate() {
+                    if i == input_index {
+                        break;
+                    }
+                    input_offset += input.txin_value;
+                }
+
+                for (i, (min, max)) in sats_ranges.into_iter().enumerate() {
+                    if input_offset >= min && input_offset < max {
+                        inscription_output_index = i;
+                        inscription_offset = input_offset - min;
+                    }
+                }
+            }
+
             let mut sats_out = 0;
             for (index, output_value) in lazy_tx.outputs.iter().enumerate() {
                 if index == tx_cursor.1 {
@@ -1010,6 +1134,11 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
                     inscription_number: 0,
                     ordinal_number: 0,
                     transfers: 0,
+                    inscription_offset,
+                    outpoint_to_watch: format_outpoint_to_watch(
+                        &transaction_identifier,
+                        inscription_output_index,
+                    ),
                 });
             }
         }
@@ -1022,6 +1151,11 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
         inscription_number,
         ordinal_number,
         transfers: hops,
+        inscription_offset,
+        outpoint_to_watch: format_outpoint_to_watch(
+            &transaction_identifier,
+            inscription_output_index,
+        ),
     })
 }
 
@@ -1260,13 +1394,9 @@ impl LazyBlock {
             buffer.write(&outputs_len.to_be_bytes())?;
         }
         // Coinbase transaction txid -  8 first bytes
-        let coinbase_txid = {
-            let txid =
-                hex::decode(&block.transactions[0].transaction_identifier.hash[2..]).unwrap();
-            [
-                txid[0], txid[1], txid[2], txid[3], txid[4], txid[5], txid[6], txid[7],
-            ]
-        };
+        let coinbase_txid = block.transactions[0]
+            .transaction_identifier
+            .get_8_hash_bytes();
         buffer.write_all(&coinbase_txid)?;
         // Coinbase transaction value
         let mut coinbase_value = 0;
@@ -1277,12 +1407,7 @@ impl LazyBlock {
         // For each transaction:
         for tx in block.transactions.iter().skip(1) {
             // txid - 8 first bytes
-            let txid = {
-                let txid = hex::decode(&tx.transaction_identifier.hash[2..]).unwrap();
-                [
-                    txid[0], txid[1], txid[2], txid[3], txid[4], txid[5], txid[6], txid[7],
-                ]
-            };
+            let txid = tx.transaction_identifier.get_8_hash_bytes();
             buffer.write_all(&txid)?;
             // For each transaction input:
             for input in tx.metadata.inputs.iter() {

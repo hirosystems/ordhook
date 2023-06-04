@@ -61,7 +61,7 @@ pub async fn scan_bitcoin_chainstate_via_http_using_predicate(
     let (mut end_block, floating_end_block) = match predicate_spec.end_block {
         Some(end_block) => (end_block, false),
         None => match bitcoin_rpc.get_blockchain_info() {
-            Ok(result) => (result.blocks, true),
+            Ok(result) => (result.blocks - 1, true),
             Err(e) => {
                 return Err(format!(
                     "unable to retrieve Bitcoin chain tip ({})",
@@ -184,19 +184,19 @@ pub async fn scan_bitcoin_chainstate_via_http_using_predicate(
                 }
             };
 
-            update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
+            let _ = update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
                 &mut block,
                 &mut storage,
                 &traversals,
                 &hord_db_conn,
                 &ctx,
-            );
+            )?;
 
             let _ = update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
                 &mut block,
                 &mut storage,
                 &ctx,
-            );
+            )?;
 
             let inscriptions_revealed = get_inscriptions_revealed_in_block(&block)
                 .iter()
@@ -234,7 +234,7 @@ pub async fn scan_bitcoin_chainstate_via_http_using_predicate(
 
             if cursor == end_block && floating_end_block {
                 end_block = match bitcoin_rpc.get_blockchain_info() {
-                    Ok(result) => result.blocks,
+                    Ok(result) => result.blocks - 1,
                     Err(_e) => {
                         continue;
                     }
@@ -294,7 +294,7 @@ pub async fn scan_bitcoin_chainstate_via_http_using_predicate(
 
             if cursor == end_block && floating_end_block {
                 end_block = match bitcoin_rpc.get_blockchain_info() {
-                    Ok(result) => result.blocks,
+                    Ok(result) => result.blocks - 1,
                     Err(_e) => {
                         continue;
                     }
