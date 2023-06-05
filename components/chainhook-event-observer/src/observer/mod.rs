@@ -599,7 +599,11 @@ pub async fn start_observer_commands_handler(
     let mut chainhooks_lookup: HashMap<String, ApiKey> = HashMap::new();
     let networks = (&config.bitcoin_network, &config.stacks_network);
     let mut bitcoin_block_store: HashMap<BlockIdentifier, BitcoinBlockData> = HashMap::new();
-    let traversals_cache = Arc::new(new_traversals_lazy_cache());
+    let cache_size = config
+        .hord_config
+        .and_then(|ref c| Some(c.cache_size))
+        .unwrap_or(0);
+    let traversals_cache = Arc::new(new_traversals_lazy_cache(cache_size));
 
     loop {
         let command = match observer_commands_rx.recv() {

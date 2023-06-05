@@ -644,7 +644,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                         };
 
                         let transaction_identifier = TransactionIdentifier { hash: txid.clone() };
-                        let traversals_cache = new_traversals_lazy_cache();
+                        let traversals_cache = new_traversals_lazy_cache(1024);
                         let traversal = retrieve_satoshi_point_using_lazy_storage(
                             &hord_db_conn,
                             &block_identifier,
@@ -666,7 +666,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                         let block =
                             fetch_and_standardize_block(cmd.block_height, &bitcoin_config, &ctx)
                                 .await?;
-                        let traversals_cache = Arc::new(new_traversals_lazy_cache());
+                        let traversals_cache = Arc::new(new_traversals_lazy_cache(1024));
 
                         let _traversals = retrieve_inscribed_satoshi_points_from_block(
                             &block,
