@@ -2,15 +2,13 @@ use hiro_system_kit::slog;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex, RwLock};
 
-use crate::chainhooks::types::ChainhookFullSpecification;
+use crate::chainhooks::types::{ChainhookFullSpecification, ChainhookSpecification};
 use crate::indexer::bitcoin::{download_and_parse_block_with_retry, NewBitcoinBlock};
 use crate::indexer::{self, Indexer};
 use crate::utils::Context;
-use rocket::http::Status;
-use rocket::request::{self, FromRequest, Outcome, Request};
 use rocket::serde::json::{json, Json, Value as JsonValue};
 use rocket::State;
-use rocket_okapi::{openapi, request::OpenApiFromRequest};
+use rocket_okapi::openapi;
 
 use super::{
     BitcoinConfig, BitcoinRPCRequest, ChainhookStore, MempoolAdmissionData, ObserverCommand,
@@ -465,76 +463,9 @@ pub async fn handle_bitcoin_rpc_call(
     }
 }
 
-// TODO
-// #[openapi(tag = "Chainhooks")]
-// #[get("/v1/chainhooks", format = "application/json")]
-// pub fn handle_get_hooks(
-//     chainhook_store: &State<Arc<RwLock<ChainhookStore>>>,
-//     ctx: &State<Context>,
-//     api_key: ApiKey,
-// ) -> Json<JsonValue> {
-//     ctx.try_log(|logger| slog::info!(logger, "GET /v1/chainhooks"));
-//     if let Ok(chainhook_store_reader) = chainhook_store.inner().read() {
-//         match chainhook_store_reader.entries.get(&api_key) {
-//             None => {
-//                 ctx.try_log(|logger| {
-//                     slog::info!(
-//                         logger,
-//                         "No chainhook registered for api key {:?}",
-//                         api_key.0
-//                     )
-//                 });
-//                 Json(json!({
-//                     "status": 404,
-//                 }))
-//             }
-//             Some(hooks) => {
-//                 let mut predicates = vec![];
-//                 let mut stacks_predicates = hooks
-//                     .get_serialized_stacks_predicates()
-//                     .iter()
-//                     .map(|(uuid, network, predicate)| {
-//                         json!({
-//                             "chain": "stacks",
-//                             "uuid": uuid,
-//                             "network": network,
-//                             "predicate": predicate,
-//                         })
-//                     })
-//                     .collect::<Vec<_>>();
-//                 predicates.append(&mut stacks_predicates);
-//                 let mut bitcoin_predicates = hooks
-//                     .get_serialized_bitcoin_predicates()
-//                     .iter()
-//                     .map(|(uuid, network, predicate)| {
-//                         json!({
-//                             "chain": "bitcoin",
-//                             "uuid": uuid,
-//                             "network": network,
-//                             "predicate": predicate,
-//                         })
-//                     })
-//                     .collect::<Vec<_>>();
-//                 predicates.append(&mut bitcoin_predicates);
-
-//                 Json(json!({
-//                     "status": 200,
-//                     "result": predicates
-//                 }))
-//             }
-//         }
-//     } else {
-//         Json(json!({
-//             "status": 500,
-//             "message": "too many requests",
-//         }))
-//     }
-// }
-
 #[openapi(tag = "Chainhooks")]
-#[get("/v1/chainhooks/<uuid>", format = "application/json")]
-pub fn handle_get_hooks(
-    uuid: String,
+#[get("/v1/chainhooks", format = "application/json")]
+pub fn handle_get_predicates(
     chainhook_store: &State<Arc<RwLock<ChainhookStore>>>,
     ctx: &State<Context>,
 ) -> Json<JsonValue> {
@@ -584,25 +515,38 @@ pub fn handle_get_hooks(
 }
 
 #[openapi(tag = "Chainhooks")]
-#[post("/v1/chainhooks", format = "application/json", data = "<hook>")]
-pub fn handle_create_hook(
-    hook: Json<ChainhookFullSpecification>,
+#[post("/v1/chainhooks", format = "application/json", data = "<predicate>")]
+pub fn handle_create_predicate(
+    predicate: Json<ChainhookFullSpecification>,
+    chainhook_store: &State<Arc<RwLock<ChainhookStore>>>,
     background_job_tx: &State<Arc<Mutex<Sender<ObserverCommand>>>>,
     ctx: &State<Context>,
 ) -> Json<JsonValue> {
     ctx.try_log(|logger| slog::info!(logger, "POST /v1/chainhooks"));
-    let hook = hook.into_inner();
-    if let Err(e) = hook.validate() {
+    let predicate = predicate.into_inner();
+    if let Err(e) = predicate.validate() {
         return Json(json!({
             "status": 422,
             "error": e,
         }));
     }
 
+    if let Ok(chainhook_store_reader) = chainhook_store.inner().read() {
+        if let Some(_) = chainhook_store_reader
+            .predicates
+            .get_spec_with_uuid(predicate.get_uuid())
+        {
+            return Json(json!({
+                "status": 409,
+                "error": "uuid already in use",
+            }));
+        }
+    }
+
     let background_job_tx = background_job_tx.inner();
     match background_job_tx.lock() {
         Ok(tx) => {
-            let _ = tx.send(ObserverCommand::RegisterPredicate(hook));
+            let _ = tx.send(ObserverCommand::RegisterPredicate(predicate));
         }
         _ => {}
     };
@@ -614,9 +558,53 @@ pub fn handle_create_hook(
 }
 
 #[openapi(tag = "Chainhooks")]
-#[delete("/v1/chainhooks/stacks/<hook_uuid>", format = "application/json")]
-pub fn handle_delete_stacks_hook(
-    hook_uuid: String,
+#[get("/v1/chainhooks/<uuid>", format = "application/json")]
+pub fn handle_get_predicate(
+    uuid: String,
+    chainhook_store: &State<Arc<RwLock<ChainhookStore>>>,
+    ctx: &State<Context>,
+) -> Json<JsonValue> {
+    ctx.try_log(|logger| slog::info!(logger, "GET /v1/chainhooks"));
+    if let Ok(chainhook_store_reader) = chainhook_store.inner().read() {
+        let predicate = match chainhook_store_reader.predicates.get_spec_with_uuid(&uuid) {
+            Some(ChainhookSpecification::Stacks(spec)) => {
+                json!({
+                    "chain": "stacks",
+                    "uuid": spec.uuid,
+                    "network": spec.network,
+                    "predicate": spec.predicate,
+                })
+            }
+            Some(ChainhookSpecification::Bitcoin(spec)) => {
+                json!({
+                    "chain": "bitcoin",
+                    "uuid": spec.uuid,
+                    "network": spec.network,
+                    "predicate": spec.predicate,
+                })
+            }
+            None => {
+                return Json(json!({
+                    "status": 404,
+                }))
+            }
+        };
+        return Json(json!({
+            "status": 200,
+            "result": predicate
+        }));
+    } else {
+        Json(json!({
+            "status": 500,
+            "message": "too many requests",
+        }))
+    }
+}
+
+#[openapi(tag = "Chainhooks")]
+#[delete("/v1/chainhooks/stacks/<uuid>", format = "application/json")]
+pub fn handle_delete_stacks_predicate(
+    uuid: String,
     background_job_tx: &State<Arc<Mutex<Sender<ObserverCommand>>>>,
     ctx: &State<Context>,
 ) -> Json<JsonValue> {
@@ -625,7 +613,7 @@ pub fn handle_delete_stacks_hook(
     let background_job_tx = background_job_tx.inner();
     match background_job_tx.lock() {
         Ok(tx) => {
-            let _ = tx.send(ObserverCommand::DeregisterStacksPredicate(hook_uuid));
+            let _ = tx.send(ObserverCommand::DeregisterStacksPredicate(uuid));
         }
         _ => {}
     };
@@ -638,7 +626,7 @@ pub fn handle_delete_stacks_hook(
 
 #[openapi(tag = "Chainhooks")]
 #[delete("/v1/chainhooks/bitcoin/<hook_uuid>", format = "application/json")]
-pub fn handle_delete_bitcoin_hook(
+pub fn handle_delete_bitcoin_predicate(
     hook_uuid: String,
     background_job_tx: &State<Arc<Mutex<Sender<ObserverCommand>>>>,
     ctx: &State<Context>,
@@ -657,50 +645,4 @@ pub fn handle_delete_bitcoin_hook(
         "status": 200,
         "result": "Ok",
     }))
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash, OpenApiFromRequest)]
-pub struct ApiKey(pub Option<String>);
-
-impl ApiKey {
-    pub fn none() -> ApiKey {
-        ApiKey(None)
-    }
-}
-
-#[derive(Debug)]
-pub enum ApiKeyError {
-    Missing,
-    Invalid,
-    InternalError,
-}
-
-#[rocket::async_trait]
-impl<'r> FromRequest<'r> for ApiKey {
-    type Error = ApiKeyError;
-
-    async fn from_request(req: &'r Request<'_>) -> request::Outcome<Self, Self::Error> {
-        let state = req.rocket().state::<Arc<RwLock<ChainhookStore>>>();
-        if let Some(chainhook_store_handle) = state {
-            if let Ok(chainhook_store_reader) = chainhook_store_handle.read() {
-                let key = req.headers().get_one("x-api-key");
-                match key {
-                    Some(key) => {
-                        match chainhook_store_reader.is_authorized(Some(key.to_string())) {
-                            true => Outcome::Success(ApiKey(Some(key.to_string()))),
-                            false => Outcome::Failure((Status::BadRequest, ApiKeyError::Invalid)),
-                        }
-                    }
-                    None => match chainhook_store_reader.is_authorized(None) {
-                        true => Outcome::Success(ApiKey(None)),
-                        false => Outcome::Failure((Status::BadRequest, ApiKeyError::Invalid)),
-                    },
-                }
-            } else {
-                Outcome::Failure((Status::InternalServerError, ApiKeyError::InternalError))
-            }
-        } else {
-            Outcome::Failure((Status::InternalServerError, ApiKeyError::InternalError))
-        }
-    }
 }

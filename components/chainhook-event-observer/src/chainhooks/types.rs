@@ -23,6 +23,27 @@ impl ChainhookConfig {
         }
     }
 
+    pub fn get_spec_with_uuid(&self, uuid: &str) -> Option<ChainhookSpecification> {
+        let res = self
+            .stacks_chainhooks
+            .iter()
+            .filter(|spec| spec.uuid.eq(&uuid))
+            .collect::<Vec<_>>();
+        if let Some(spec) = res.first() {
+            return Some(ChainhookSpecification::Stacks((*spec).clone()));
+        }
+
+        let res = self
+            .bitcoin_chainhooks
+            .iter()
+            .filter(|spec| spec.uuid.eq(&uuid))
+            .collect::<Vec<_>>();
+        if let Some(spec) = res.first() {
+            return Some(ChainhookSpecification::Bitcoin((*spec).clone()));
+        }
+        None
+    }
+
     pub fn get_serialized_stacks_predicates(
         &self,
     ) -> Vec<(&String, &StacksNetwork, &StacksPredicate)> {
@@ -50,12 +71,12 @@ impl ChainhookConfig {
     ) -> Result<ChainhookSpecification, String> {
         let spec = match hook {
             ChainhookFullSpecification::Stacks(hook) => {
-                let mut spec = hook.into_selected_network_specification(networks.1)?;
+                let spec = hook.into_selected_network_specification(networks.1)?;
                 self.stacks_chainhooks.push(spec.clone());
                 ChainhookSpecification::Stacks(spec)
             }
             ChainhookFullSpecification::Bitcoin(hook) => {
-                let mut spec = hook.into_selected_network_specification(networks.0)?;
+                let spec = hook.into_selected_network_specification(networks.0)?;
                 self.bitcoin_chainhooks.push(spec.clone());
                 ChainhookSpecification::Bitcoin(spec)
             }
@@ -259,6 +280,13 @@ impl ChainhookFullSpecification {
             }
         }
         Ok(())
+    }
+
+    pub fn get_uuid(&self) -> &str {
+        match &self {
+            Self::Bitcoin(data) => &data.uuid,
+            Self::Stacks(data) => &data.uuid,
+        }
     }
 
     pub fn deserialize_specification(

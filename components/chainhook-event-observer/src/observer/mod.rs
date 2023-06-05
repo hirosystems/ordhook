@@ -1,4 +1,4 @@
-mod endpoints;
+mod http;
 
 use crate::chainhooks::bitcoin::{
     evaluate_bitcoin_chainhooks_on_chain_event, handle_bitcoin_hook_action,
@@ -256,10 +256,6 @@ impl ChainhookStore {
             },
         }
     }
-
-    pub fn is_authorized(&self, token: Option<String>) -> bool {
-        unreachable!()
-    }
 }
 
 pub async fn start_event_observer(
@@ -339,20 +335,20 @@ pub async fn start_event_observer(
     };
 
     let mut routes = rocket::routes![
-        endpoints::handle_ping,
-        endpoints::handle_new_bitcoin_block,
-        endpoints::handle_new_stacks_block,
-        endpoints::handle_new_microblocks,
-        endpoints::handle_new_mempool_tx,
-        endpoints::handle_drop_mempool_tx,
-        endpoints::handle_new_attachement,
-        endpoints::handle_mined_block,
-        endpoints::handle_mined_microblock,
+        http::handle_ping,
+        http::handle_new_bitcoin_block,
+        http::handle_new_stacks_block,
+        http::handle_new_microblocks,
+        http::handle_new_mempool_tx,
+        http::handle_drop_mempool_tx,
+        http::handle_new_attachement,
+        http::handle_mined_block,
+        http::handle_mined_microblock,
     ];
 
     if bitcoin_rpc_proxy_enabled {
-        routes.append(&mut routes![endpoints::handle_bitcoin_rpc_call]);
-        routes.append(&mut routes![endpoints::handle_bitcoin_wallet_rpc_call]);
+        routes.append(&mut routes![http::handle_bitcoin_rpc_call]);
+        routes.append(&mut routes![http::handle_bitcoin_wallet_rpc_call]);
     }
 
     let ctx_cloned = ctx.clone();
@@ -389,11 +385,12 @@ pub async fn start_event_observer(
     };
 
     let routes = openapi_get_routes![
-        endpoints::handle_ping,
-        endpoints::handle_get_hooks,
-        endpoints::handle_create_hook,
-        endpoints::handle_delete_bitcoin_hook,
-        endpoints::handle_delete_stacks_hook
+        http::handle_ping,
+        http::handle_get_predicates,
+        http::handle_get_predicate,
+        http::handle_create_predicate,
+        http::handle_delete_bitcoin_predicate,
+        http::handle_delete_stacks_predicate
     ];
 
     let background_job_tx_mutex = Arc::new(Mutex::new(observer_commands_tx.clone()));
@@ -414,6 +411,47 @@ pub async fn start_event_observer(
     });
 
     #[cfg(feature = "zeromq")]
+    start_zeromq_runloop(&config, observer_commands_tx, &ctx);
+
+    // This loop is used for handling background jobs, emitted by HTTP calls.
+    start_observer_commands_handler(
+        config,
+        chainhook_store,
+        observer_commands_rx,
+        observer_events_tx,
+        ingestion_shutdown,
+        control_shutdown,
+        ctx,
+    )
+    .await
+}
+
+pub fn get_bitcoin_proof(
+    bitcoin_client_rpc: &Client,
+    transaction_identifier: &TransactionIdentifier,
+    block_identifier: &BlockIdentifier,
+) -> Result<String, String> {
+    let txid =
+        Txid::from_str(&transaction_identifier.get_hash_bytes_str()).expect("unable to build txid");
+    let block_hash =
+        BlockHash::from_str(&block_identifier.hash[2..]).expect("unable to build block_hash");
+
+    let res = bitcoin_client_rpc.get_tx_out_proof(&vec![txid], Some(&block_hash));
+    match res {
+        Ok(proof) => Ok(format!("0x{}", bytes_to_hex(&proof))),
+        Err(e) => Err(format!(
+            "failed collecting proof for transaction {}: {}",
+            transaction_identifier.hash,
+            e.to_string()
+        )),
+    }
+}
+
+pub fn start_zeromq_runloop(
+    config: &EventObserverConfig,
+    observer_commands_tx: Sender<ObserverCommand>,
+    ctx: &Context,
+) {
     if let BitcoinBlockSignaling::ZeroMQ(ref bitcoind_zmq_url) = config.bitcoin_block_signaling {
         let bitcoind_zmq_url = bitcoind_zmq_url.clone();
         let ctx_moved = ctx.clone();
@@ -502,39 +540,6 @@ pub async fn start_event_observer(
                     });
             })
             .expect("unable to spawn thread");
-    }
-
-    // This loop is used for handling background jobs, emitted by HTTP calls.
-    start_observer_commands_handler(
-        config,
-        chainhook_store,
-        observer_commands_rx,
-        observer_events_tx,
-        ingestion_shutdown,
-        control_shutdown,
-        ctx,
-    )
-    .await
-}
-
-pub fn get_bitcoin_proof(
-    bitcoin_client_rpc: &Client,
-    transaction_identifier: &TransactionIdentifier,
-    block_identifier: &BlockIdentifier,
-) -> Result<String, String> {
-    let txid =
-        Txid::from_str(&transaction_identifier.get_hash_bytes_str()).expect("unable to build txid");
-    let block_hash =
-        BlockHash::from_str(&block_identifier.hash[2..]).expect("unable to build block_hash");
-
-    let res = bitcoin_client_rpc.get_tx_out_proof(&vec![txid], Some(&block_hash));
-    match res {
-        Ok(proof) => Ok(format!("0x{}", bytes_to_hex(&proof))),
-        Err(e) => Err(format!(
-            "failed collecting proof for transaction {}: {}",
-            transaction_identifier.hash,
-            e.to_string()
-        )),
     }
 }
 
