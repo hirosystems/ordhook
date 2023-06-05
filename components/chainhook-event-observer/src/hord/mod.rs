@@ -48,8 +48,7 @@ use self::ord::inscription_id::InscriptionId;
 
 pub fn parse_ordinal_operations(
     tx: &BitcoinTransactionFullBreakdown,
-    block_height: u64,
-    ctx: &Context,
+    _ctx: &Context,
 ) -> Vec<OrdinalOperation> {
     // This should eventually become a loop once/if there is settlement on https://github.com/casey/ord/issues/2000.
     let mut operations = vec![];
@@ -483,7 +482,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
                 Storage::Sqlite(rw_hord_db_conn) => {
                     if traversal.ordinal_number == 0 {
                         // If the satoshi inscribed correspond to a sat overflow, we will store the inscription
-                        // and assign an inscription number after the other inscriptions, to mimick the 
+                        // and assign an inscription number after the other inscriptions, to mimick the
                         // bug in ord.
                         sats_overflow.push(inscription.clone());
                         continue;

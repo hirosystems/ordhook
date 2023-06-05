@@ -223,16 +223,6 @@ pub fn open_readwrite_hord_db_conn_rocks_db(
     Ok(db)
 }
 
-pub fn archive_hord_db_conn_rocks_db(base_dir: &PathBuf, _ctx: &Context) {
-    let from = get_default_hord_db_file_path_rocks_db(&base_dir);
-    let to = {
-        let mut destination_path = base_dir.clone();
-        destination_path.push("hord.rocksdb_archive");
-        destination_path
-    };
-    let _ = std::fs::rename(from, to);
-}
-
 pub fn insert_entry_in_blocks(
     block_height: u32,
     lazy_block: &LazyBlock,

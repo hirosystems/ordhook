@@ -355,7 +355,7 @@ pub fn standardize_bitcoin_block(
         let mut ordinal_operations = vec![];
 
         #[cfg(feature = "ordinals")]
-        ordinal_operations.append(&mut hord::parse_ordinal_operations(&tx, block_height, ctx));
+        ordinal_operations.append(&mut hord::parse_ordinal_operations(&tx, ctx));
 
         let mut inputs = vec![];
         let mut sats_in = 0;
