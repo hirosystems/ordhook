@@ -25,8 +25,10 @@ pub struct EventSourceConfigFile {
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct ChainhooksConfigFile {
-    pub max_stacks_registrations: Option<u16>,
-    pub max_bitcoin_registrations: Option<u16>,
+    pub max_stacks_registrations: Option<usize>,
+    pub max_bitcoin_registrations: Option<usize>,
+    pub max_stacks_concurrent_scans: Option<usize>,
+    pub max_bitcoin_concurrent_scans: Option<usize>,
 }
 
 #[derive(Deserialize, Debug, Clone)]

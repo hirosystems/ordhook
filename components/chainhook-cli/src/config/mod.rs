@@ -10,14 +10,19 @@ use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::PathBuf;
 
-use crate::service::{DEFAULT_CONTROL_PORT, DEFAULT_INGESTION_PORT};
-
 const DEFAULT_MAINNET_STACKS_TSV_ARCHIVE: &str =
     "https://archive.hiro.so/mainnet/stacks-blockchain-api/mainnet-stacks-blockchain-api-latest";
 const DEFAULT_TESTNET_STACKS_TSV_ARCHIVE: &str =
     "https://archive.hiro.so/testnet/stacks-blockchain-api/testnet-stacks-blockchain-api-latest";
 const DEFAULT_MAINNET_ORDINALS_SQLITE_ARCHIVE: &str =
     "https://archive.hiro.so/mainnet/chainhooks/hord-latest.sqlite";
+
+pub const DEFAULT_INGESTION_PORT: u16 = 20455;
+pub const DEFAULT_CONTROL_PORT: u16 = 20456;
+pub const STACKS_SCAN_THREAD_POOL_SIZE: usize = 10;
+pub const BITCOIN_SCAN_THREAD_POOL_SIZE: usize = 10;
+pub const STACKS_MAX_PREDICATE_REGISTRATION: usize = 50;
+pub const BITCOIN_MAX_PREDICATE_REGISTRATION: usize = 50;
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -70,8 +75,10 @@ pub struct UrlConfig {
 
 #[derive(Clone, Debug)]
 pub struct ChainhooksConfig {
-    pub max_stacks_registrations: u16,
-    pub max_bitcoin_registrations: u16,
+    pub max_stacks_registrations: usize,
+    pub max_bitcoin_registrations: usize,
+    pub max_stacks_concurrent_scans: usize,
+    pub max_bitcoin_concurrent_scans: usize,
     pub enable_http_api: bool,
 }
 
@@ -151,11 +158,20 @@ impl Config {
                 max_stacks_registrations: config_file
                     .chainhooks
                     .max_stacks_registrations
-                    .unwrap_or(100),
+                    .unwrap_or(STACKS_MAX_PREDICATE_REGISTRATION),
                 max_bitcoin_registrations: config_file
                     .chainhooks
                     .max_bitcoin_registrations
-                    .unwrap_or(100),
+                    .unwrap_or(BITCOIN_MAX_PREDICATE_REGISTRATION),
+                max_stacks_concurrent_scans: config_file
+                    .chainhooks
+                    .max_stacks_registrations
+                    .unwrap_or(STACKS_SCAN_THREAD_POOL_SIZE),
+                max_bitcoin_concurrent_scans: config_file
+                    .chainhooks
+                    .max_bitcoin_registrations
+                    .unwrap_or(BITCOIN_SCAN_THREAD_POOL_SIZE),
+
                 enable_http_api: true,
             },
             network: IndexerConfig {
@@ -344,8 +360,10 @@ impl Config {
             },
             event_sources: vec![],
             chainhooks: ChainhooksConfig {
-                max_stacks_registrations: 50,
-                max_bitcoin_registrations: 50,
+                max_stacks_registrations: STACKS_MAX_PREDICATE_REGISTRATION,
+                max_bitcoin_registrations: BITCOIN_MAX_PREDICATE_REGISTRATION,
+                max_stacks_concurrent_scans: STACKS_SCAN_THREAD_POOL_SIZE,
+                max_bitcoin_concurrent_scans: BITCOIN_SCAN_THREAD_POOL_SIZE,
                 enable_http_api: true,
             },
             network: IndexerConfig {
@@ -374,8 +392,10 @@ impl Config {
                 file_url: DEFAULT_TESTNET_STACKS_TSV_ARCHIVE.into(),
             })],
             chainhooks: ChainhooksConfig {
-                max_stacks_registrations: 10,
-                max_bitcoin_registrations: 10,
+                max_stacks_registrations: STACKS_MAX_PREDICATE_REGISTRATION,
+                max_bitcoin_registrations: BITCOIN_MAX_PREDICATE_REGISTRATION,
+                max_stacks_concurrent_scans: STACKS_SCAN_THREAD_POOL_SIZE,
+                max_bitcoin_concurrent_scans: BITCOIN_SCAN_THREAD_POOL_SIZE,
                 enable_http_api: true,
             },
             network: IndexerConfig {
@@ -409,8 +429,10 @@ impl Config {
                 }),
             ],
             chainhooks: ChainhooksConfig {
-                max_stacks_registrations: 10,
-                max_bitcoin_registrations: 10,
+                max_stacks_registrations: STACKS_MAX_PREDICATE_REGISTRATION,
+                max_bitcoin_registrations: BITCOIN_MAX_PREDICATE_REGISTRATION,
+                max_stacks_concurrent_scans: STACKS_SCAN_THREAD_POOL_SIZE,
+                max_bitcoin_concurrent_scans: BITCOIN_SCAN_THREAD_POOL_SIZE,
                 enable_http_api: true,
             },
             network: IndexerConfig {
