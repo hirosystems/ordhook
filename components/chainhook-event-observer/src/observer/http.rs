@@ -558,15 +558,18 @@ pub fn handle_create_predicate(
 }
 
 #[openapi(tag = "Chainhooks")]
-#[get("/v1/chainhooks/<uuid>", format = "application/json")]
+#[get("/v1/chainhooks/<predicate_uuid>", format = "application/json")]
 pub fn handle_get_predicate(
-    uuid: String,
+    predicate_uuid: String,
     chainhook_store: &State<Arc<RwLock<ChainhookStore>>>,
     ctx: &State<Context>,
 ) -> Json<JsonValue> {
-    ctx.try_log(|logger| slog::info!(logger, "GET /v1/chainhooks"));
+    ctx.try_log(|logger| slog::info!(logger, "GET /v1/chainhooks/<predicate_uuid>"));
     if let Ok(chainhook_store_reader) = chainhook_store.inner().read() {
-        let predicate = match chainhook_store_reader.predicates.get_spec_with_uuid(&uuid) {
+        let predicate = match chainhook_store_reader
+            .predicates
+            .get_spec_with_uuid(&predicate_uuid)
+        {
             Some(ChainhookSpecification::Stacks(spec)) => {
                 json!({
                     "chain": "stacks",
@@ -602,18 +605,18 @@ pub fn handle_get_predicate(
 }
 
 #[openapi(tag = "Chainhooks")]
-#[delete("/v1/chainhooks/stacks/<uuid>", format = "application/json")]
+#[delete("/v1/chainhooks/stacks/<predicate_uuid>", format = "application/json")]
 pub fn handle_delete_stacks_predicate(
-    uuid: String,
+    predicate_uuid: String,
     background_job_tx: &State<Arc<Mutex<Sender<ObserverCommand>>>>,
     ctx: &State<Context>,
 ) -> Json<JsonValue> {
-    ctx.try_log(|logger| slog::info!(logger, "DELETE /v1/chainhooks/stacks/<hook_uuid>"));
+    ctx.try_log(|logger| slog::info!(logger, "DELETE /v1/chainhooks/stacks/<predicate_uuid>"));
 
     let background_job_tx = background_job_tx.inner();
     match background_job_tx.lock() {
         Ok(tx) => {
-            let _ = tx.send(ObserverCommand::DeregisterStacksPredicate(uuid));
+            let _ = tx.send(ObserverCommand::DeregisterStacksPredicate(predicate_uuid));
         }
         _ => {}
     };
@@ -625,18 +628,18 @@ pub fn handle_delete_stacks_predicate(
 }
 
 #[openapi(tag = "Chainhooks")]
-#[delete("/v1/chainhooks/bitcoin/<hook_uuid>", format = "application/json")]
+#[delete("/v1/chainhooks/bitcoin/<predicate_uuid>", format = "application/json")]
 pub fn handle_delete_bitcoin_predicate(
-    hook_uuid: String,
+    predicate_uuid: String,
     background_job_tx: &State<Arc<Mutex<Sender<ObserverCommand>>>>,
     ctx: &State<Context>,
 ) -> Json<JsonValue> {
-    ctx.try_log(|logger| slog::info!(logger, "DELETE /v1/chainhooks/stacks/<hook_uuid>"));
+    ctx.try_log(|logger| slog::info!(logger, "DELETE /v1/chainhooks/stacks/<predicate_uuid>"));
 
     let background_job_tx = background_job_tx.inner();
     match background_job_tx.lock() {
         Ok(tx) => {
-            let _ = tx.send(ObserverCommand::DeregisterBitcoinPredicate(hook_uuid));
+            let _ = tx.send(ObserverCommand::DeregisterBitcoinPredicate(predicate_uuid));
         }
         _ => {}
     };

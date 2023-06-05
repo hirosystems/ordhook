@@ -310,10 +310,10 @@ impl Service {
                     let chainhook_key = chainhook.key();
                     let _: Result<(), redis::RedisError> = redis_con.del(chainhook_key);
                 }
-                ObserverEvent::BitcoinChainEvent(_chain_update) => {
+                ObserverEvent::BitcoinChainEvent((chain_update, report)) => {
                     debug!(self.ctx.expect_logger(), "Bitcoin update not stored");
                 }
-                ObserverEvent::StacksChainEvent(chain_event) => {
+                ObserverEvent::StacksChainEvent((chain_event, report)) => {
                     let stacks_db_conn_rw = match open_readwrite_stacks_db_conn(
                         &self.config.expected_cache_path(),
                         &self.ctx,

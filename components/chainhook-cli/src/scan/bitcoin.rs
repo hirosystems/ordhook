@@ -208,11 +208,12 @@ pub async fn scan_bitcoin_chainstate_via_http_using_predicate(
                     confirmed_blocks: vec![],
                 });
 
-            let hits = evaluate_bitcoin_chainhooks_on_chain_event(
-                &chain_event,
-                vec![&predicate_spec],
-                ctx,
-            );
+            let (predicates_triggered, _predicates_evaluated) =
+                evaluate_bitcoin_chainhooks_on_chain_event(
+                    &chain_event,
+                    vec![&predicate_spec],
+                    ctx,
+                );
 
             info!(
                 ctx.expect_logger(),
@@ -222,7 +223,9 @@ pub async fn scan_bitcoin_chainstate_via_http_using_predicate(
                 inscriptions_revealed.join(", ")
             );
 
-            match execute_predicates_action(hits, &event_observer_config, &ctx).await {
+            match execute_predicates_action(predicates_triggered, &event_observer_config, &ctx)
+                .await
+            {
                 Ok(actions) => actions_triggered += actions,
                 Err(_) => err_count += 1,
             }
@@ -276,13 +279,16 @@ pub async fn scan_bitcoin_chainstate_via_http_using_predicate(
                     confirmed_blocks: vec![],
                 });
 
-            let hits = evaluate_bitcoin_chainhooks_on_chain_event(
-                &chain_event,
-                vec![&predicate_spec],
-                ctx,
-            );
+            let (predicates_triggered, _predicates_evaluated) =
+                evaluate_bitcoin_chainhooks_on_chain_event(
+                    &chain_event,
+                    vec![&predicate_spec],
+                    ctx,
+                );
 
-            match execute_predicates_action(hits, &event_observer_config, &ctx).await {
+            match execute_predicates_action(predicates_triggered, &event_observer_config, &ctx)
+                .await
+            {
                 Ok(actions) => actions_triggered += actions,
                 Err(_) => err_count += 1,
             }

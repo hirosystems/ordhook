@@ -41,7 +41,7 @@ use rocket::config::{self, Config, LogLevel};
 use rocket::data::{Limits, ToByteUnit};
 use rocket::serde::Deserialize;
 use rocket::Shutdown;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::error::Error;
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
@@ -198,12 +198,55 @@ pub struct MempoolAdmissionData {
 }
 
 #[derive(Clone, Debug)]
+pub struct PredicateEvaluationReport {
+    pub predicates_evaluated: BTreeMap<String, BTreeSet<BlockIdentifier>>,
+    pub predicates_triggered: BTreeMap<String, BTreeSet<BlockIdentifier>>,
+}
+
+impl PredicateEvaluationReport {
+    pub fn new() -> PredicateEvaluationReport {
+        PredicateEvaluationReport {
+            predicates_evaluated: BTreeMap::new(),
+            predicates_triggered: BTreeMap::new(),
+        }
+    }
+
+    pub fn track_evaluation(&mut self, uuid: &str, block_identifier: &BlockIdentifier) {
+        self.predicates_evaluated
+            .entry(uuid.to_string())
+            .and_modify(|e| {
+                e.insert(block_identifier.clone());
+            })
+            .or_insert_with(|| {
+                let mut set = BTreeSet::new();
+                set.insert(block_identifier.clone());
+                set
+            });
+    }
+
+    pub fn track_trigger(&mut self, uuid: &str, blocks: &Vec<&BlockIdentifier>) {
+        for block_id in blocks.into_iter() {
+            self.predicates_triggered
+                .entry(uuid.to_string())
+                .and_modify(|e| {
+                    e.insert((*block_id).clone());
+                })
+                .or_insert_with(|| {
+                    let mut set = BTreeSet::new();
+                    set.insert((*block_id).clone());
+                    set
+                });
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 pub enum ObserverEvent {
     Error(String),
     Fatal(String),
     Info(String),
-    BitcoinChainEvent(BitcoinChainEvent),
-    StacksChainEvent(StacksChainEvent),
+    BitcoinChainEvent((BitcoinChainEvent, PredicateEvaluationReport)),
+    StacksChainEvent((StacksChainEvent, PredicateEvaluationReport)),
     NotifyBitcoinTransactionProxied,
     HookRegistered(ChainhookSpecification),
     HookDeregistered(ChainhookSpecification),
@@ -807,7 +850,7 @@ pub async fn start_observer_commands_handler(
                             match bitcoin_block_store.get(&header.block_identifier) {
                                 Some(block) => {
                                     #[cfg(feature = "ordinals")]
-                                    if let Some(ref hord_config) = config.hord_config {
+                                    if let Some(ref _hord_config) = config.hord_config {
                                         if let Err(e) = revert_hord_db_with_augmented_bitcoin_block(
                                             block,
                                             &blocks_db,
@@ -904,6 +947,7 @@ pub async fn start_observer_commands_handler(
                 // process hooks
                 let mut hooks_ids_to_deregister = vec![];
                 let mut requests = vec![];
+                let mut report = PredicateEvaluationReport::new();
 
                 if config.hooks_enabled {
                     match chainhook_store.read() {
@@ -928,23 +972,35 @@ pub async fn start_observer_commands_handler(
                                 )
                             });
 
-                            let chainhooks_candidates = evaluate_bitcoin_chainhooks_on_chain_event(
-                                &chain_event,
-                                bitcoin_chainhooks,
-                                &ctx,
-                            );
+                            let (predicates_triggered, predicates_evaluated) =
+                                evaluate_bitcoin_chainhooks_on_chain_event(
+                                    &chain_event,
+                                    bitcoin_chainhooks,
+                                    &ctx,
+                                );
+                            for (uuid, block_identifier) in predicates_evaluated.into_iter() {
+                                report.track_evaluation(uuid, block_identifier);
+                            }
+                            for entry in predicates_triggered.iter() {
+                                let blocks_ids = entry
+                                    .apply
+                                    .iter()
+                                    .map(|e| &e.1.block_identifier)
+                                    .collect::<Vec<&BlockIdentifier>>();
+                                report.track_trigger(&entry.chainhook.uuid, &blocks_ids);
+                            }
 
                             ctx.try_log(|logger| {
                                 slog::info!(
                                     logger,
                                     "{} bitcoin chainhooks positive evaluations",
-                                    chainhooks_candidates.len()
+                                    predicates_triggered.len()
                                 )
                             });
 
                             let mut chainhooks_to_trigger = vec![];
 
-                            for trigger in chainhooks_candidates.into_iter() {
+                            for trigger in predicates_triggered.into_iter() {
                                 let mut total_occurrences: u64 = *chainhooks_occurrences_tracker
                                     .get(&trigger.chainhook.uuid)
                                     .unwrap_or(&0);
@@ -1058,7 +1114,7 @@ pub async fn start_observer_commands_handler(
                 }
 
                 if let Some(ref tx) = observer_events_tx {
-                    let _ = tx.send(ObserverEvent::BitcoinChainEvent(chain_event));
+                    let _ = tx.send(ObserverEvent::BitcoinChainEvent((chain_event, report)));
                 }
             }
             ObserverCommand::PropagateStacksChainEvent(chain_event) => {
@@ -1070,6 +1126,8 @@ pub async fn start_observer_commands_handler(
                 }
                 let mut hooks_ids_to_deregister = vec![];
                 let mut requests = vec![];
+                let mut report = PredicateEvaluationReport::new();
+
                 if config.hooks_enabled {
                     match chainhook_store.read() {
                         Err(e) => {
@@ -1087,15 +1145,27 @@ pub async fn start_observer_commands_handler(
                                 .collect();
 
                             // process hooks
-                            let chainhooks_candidates = evaluate_stacks_chainhooks_on_chain_event(
-                                &chain_event,
-                                stacks_chainhooks,
-                                &ctx,
-                            );
+                            let (predicates_triggered, predicates_evaluated) =
+                                evaluate_stacks_chainhooks_on_chain_event(
+                                    &chain_event,
+                                    stacks_chainhooks,
+                                    &ctx,
+                                );
+                            for (uuid, block_identifier) in predicates_evaluated.into_iter() {
+                                report.track_evaluation(uuid, block_identifier);
+                            }
+                            for entry in predicates_triggered.iter() {
+                                let blocks_ids = entry
+                                    .apply
+                                    .iter()
+                                    .map(|e| e.1.get_identifier())
+                                    .collect::<Vec<&BlockIdentifier>>();
+                                report.track_trigger(&entry.chainhook.uuid, &blocks_ids);
+                            }
 
                             let mut chainhooks_to_trigger = vec![];
 
-                            for trigger in chainhooks_candidates.into_iter() {
+                            for trigger in predicates_triggered.into_iter() {
                                 let mut total_occurrences: u64 = *chainhooks_occurrences_tracker
                                     .get(&trigger.chainhook.uuid)
                                     .unwrap_or(&0);
@@ -1184,7 +1254,7 @@ pub async fn start_observer_commands_handler(
                 }
 
                 if let Some(ref tx) = observer_events_tx {
-                    let _ = tx.send(ObserverEvent::StacksChainEvent(chain_event));
+                    let _ = tx.send(ObserverEvent::StacksChainEvent((chain_event, report)));
                 }
             }
             ObserverCommand::PropagateStacksMempoolEvent(mempool_event) => {

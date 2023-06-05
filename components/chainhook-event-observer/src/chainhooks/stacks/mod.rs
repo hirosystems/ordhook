@@ -14,7 +14,7 @@ use clarity_repl::clarity::vm::types::{CharType, SequenceData, Value as ClarityV
 use hiro_system_kit::slog;
 use reqwest::{Client, Method};
 use serde_json::Value as JsonValue;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::Cursor;
 
 use reqwest::RequestBuilder;
@@ -64,14 +64,23 @@ pub fn evaluate_stacks_chainhooks_on_chain_event<'a>(
     chain_event: &'a StacksChainEvent,
     active_chainhooks: Vec<&'a StacksChainhookSpecification>,
     ctx: &Context,
-) -> Vec<StacksTriggerChainhook<'a>> {
-    let mut triggered_chainhooks = vec![];
+) -> (
+    Vec<StacksTriggerChainhook<'a>>,
+    BTreeMap<&'a str, &'a BlockIdentifier>,
+) {
+    let mut triggered_predicates = vec![];
+    let mut evaluated_predicates = BTreeMap::new();
     match chain_event {
         StacksChainEvent::ChainUpdatedWithBlocks(update) => {
             for chainhook in active_chainhooks.iter() {
                 let mut apply = vec![];
                 let mut rollback = vec![];
                 for block_update in update.new_blocks.iter() {
+                    evaluated_predicates.insert(
+                        chainhook.uuid.as_str(),
+                        &block_update.block.block_identifier,
+                    );
+
                     for parents_microblock_to_apply in
                         block_update.parent_microblocks_to_apply.iter()
                     {
@@ -97,7 +106,7 @@ pub fn evaluate_stacks_chainhooks_on_chain_event<'a>(
                     ));
                 }
                 if !apply.is_empty() || !rollback.is_empty() {
-                    triggered_chainhooks.push(StacksTriggerChainhook {
+                    triggered_predicates.push(StacksTriggerChainhook {
                         chainhook,
                         apply,
                         rollback,
@@ -111,6 +120,10 @@ pub fn evaluate_stacks_chainhooks_on_chain_event<'a>(
                 let rollback = vec![];
 
                 for microblock_to_apply in update.new_microblocks.iter() {
+                    evaluated_predicates.insert(
+                        chainhook.uuid.as_str(),
+                        &microblock_to_apply.metadata.anchor_block_identifier,
+                    );
                     apply.append(&mut evaluate_stacks_chainhook_on_blocks(
                         vec![microblock_to_apply],
                         chainhook,
@@ -118,7 +131,7 @@ pub fn evaluate_stacks_chainhooks_on_chain_event<'a>(
                     ));
                 }
                 if !apply.is_empty() || !rollback.is_empty() {
-                    triggered_chainhooks.push(StacksTriggerChainhook {
+                    triggered_predicates.push(StacksTriggerChainhook {
                         chainhook,
                         apply,
                         rollback,
@@ -132,6 +145,10 @@ pub fn evaluate_stacks_chainhooks_on_chain_event<'a>(
                 let mut rollback = vec![];
 
                 for microblock_to_apply in update.microblocks_to_apply.iter() {
+                    evaluated_predicates.insert(
+                        chainhook.uuid.as_str(),
+                        &microblock_to_apply.metadata.anchor_block_identifier,
+                    );
                     apply.append(&mut evaluate_stacks_chainhook_on_blocks(
                         vec![microblock_to_apply],
                         chainhook,
@@ -146,7 +163,7 @@ pub fn evaluate_stacks_chainhooks_on_chain_event<'a>(
                     ));
                 }
                 if !apply.is_empty() || !rollback.is_empty() {
-                    triggered_chainhooks.push(StacksTriggerChainhook {
+                    triggered_predicates.push(StacksTriggerChainhook {
                         chainhook,
                         apply,
                         rollback,
@@ -160,6 +177,10 @@ pub fn evaluate_stacks_chainhooks_on_chain_event<'a>(
                 let mut rollback = vec![];
 
                 for block_update in update.blocks_to_apply.iter() {
+                    evaluated_predicates.insert(
+                        chainhook.uuid.as_str(),
+                        &block_update.block.block_identifier,
+                    );
                     for parents_microblock_to_apply in
                         block_update.parent_microblocks_to_apply.iter()
                     {
@@ -192,7 +213,7 @@ pub fn evaluate_stacks_chainhooks_on_chain_event<'a>(
                     ));
                 }
                 if !apply.is_empty() || !rollback.is_empty() {
-                    triggered_chainhooks.push(StacksTriggerChainhook {
+                    triggered_predicates.push(StacksTriggerChainhook {
                         chainhook,
                         apply,
                         rollback,
@@ -201,7 +222,7 @@ pub fn evaluate_stacks_chainhooks_on_chain_event<'a>(
             }
         }
     }
-    triggered_chainhooks
+    (triggered_predicates, evaluated_predicates)
 }
 
 pub fn evaluate_stacks_chainhook_on_blocks<'a>(
