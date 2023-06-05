@@ -15,6 +15,7 @@ pub mod cli;
 pub mod config;
 pub mod scan;
 pub mod service;
+pub mod storage;
 
 fn main() {
     cli::main();
