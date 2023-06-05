@@ -714,7 +714,7 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
     let mut cursor = start_block as usize;
     let mut inbox = HashMap::new();
     let mut num_writes = 0;
-    let traversals_cache = Arc::new(new_traversals_lazy_cache());
+    let traversals_cache = Arc::new(new_traversals_lazy_cache(hord_config.cache_size));
 
     while let Ok(Some((block_height, compacted_block, raw_block))) = block_compressed_rx.recv() {
         insert_entry_in_blocks(block_height, &compacted_block, &blocks_db_rw, &ctx);
@@ -792,18 +792,20 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
             return Ok(());
         }
 
-        if num_writes % 24 == 0 {
-            ctx.try_log(|logger| {
-                slog::info!(
-                    logger,
-                    "Flushing traversals cache (#{} entries)",
-                    traversals_cache.len()
-                );
-            });
-            traversals_cache.clear();
+        if !traversals_cache.is_empty() {
+            if num_writes % 128 == 0 {
+                ctx.try_log(|logger| {
+                    slog::info!(
+                        logger,
+                        "Flushing traversals cache (#{} entries)",
+                        traversals_cache.len()
+                    );
+                });
+                traversals_cache.shrink_to_fit();
+            }
         }
 
-        if num_writes % 128 == 0 {
+        if num_writes % 512 == 0 {
             ctx.try_log(|logger| {
                 slog::info!(logger, "Flushing DB to disk ({num_writes} inserts)");
             });

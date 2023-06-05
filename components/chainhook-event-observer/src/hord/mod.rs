@@ -18,6 +18,7 @@ use rocksdb::DB;
 use rusqlite::Connection;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::hash::BuildHasherDefault;
+use std::ops::Div;
 use std::path::PathBuf;
 use std::sync::mpsc::channel;
 use std::sync::Arc;
@@ -208,9 +209,14 @@ pub fn new_traversals_cache(
 }
 
 pub fn new_traversals_lazy_cache(
+    cache_size: usize,
 ) -> DashMap<(u32, [u8; 8]), LazyBlockTransaction, BuildHasherDefault<FxHasher>> {
     let hasher = FxBuildHasher::default();
-    DashMap::with_hasher(hasher)
+    DashMap::with_capacity_and_hasher(
+        ((cache_size.saturating_sub(500)) * 1000 * 1000)
+            .div(LazyBlockTransaction::get_average_bytes_size()),
+        hasher,
+    )
 }
 
 pub fn retrieve_inscribed_satoshi_points_from_block(
