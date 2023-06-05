@@ -11,9 +11,7 @@ use crate::storage::{
 use chainhook_event_observer::chainhooks::types::{ChainhookConfig, ChainhookFullSpecification};
 
 use chainhook_event_observer::chainhooks::types::ChainhookSpecification;
-use chainhook_event_observer::observer::{
-    start_event_observer, ApiKey, ObserverCommand, ObserverEvent,
-};
+use chainhook_event_observer::observer::{start_event_observer, ObserverCommand, ObserverEvent};
 use chainhook_event_observer::utils::Context;
 use chainhook_types::{BitcoinBlockSignaling, StacksChainEvent};
 use redis::Commands;
@@ -77,7 +75,6 @@ impl Service {
                     &self.config.network.stacks_network,
                 ),
                 predicate,
-                &ApiKey(None),
             ) {
                 Ok(spec) => {
                     info!(
@@ -143,7 +140,7 @@ impl Service {
         let observer_command_tx_moved = observer_command_tx.clone();
         let _ = hiro_system_kit::thread_named("Stacks scan runloop")
             .spawn(move || {
-                while let Ok((mut predicate_spec, api_key)) = stacks_scan_op_rx.recv() {
+                while let Ok(mut predicate_spec) = stacks_scan_op_rx.recv() {
                     let moved_ctx = ctx.clone();
                     let moved_config = config.clone();
                     let observer_command_tx = observer_command_tx_moved.clone();
@@ -187,7 +184,6 @@ impl Service {
                         predicate_spec.end_block = Some(last_block_scanned.index);
                         let _ = observer_command_tx.send(ObserverCommand::EnablePredicate(
                             ChainhookSpecification::Stacks(predicate_spec),
-                            api_key,
                         ));
                     });
                 }
@@ -205,7 +201,7 @@ impl Service {
         let moved_observer_command_tx = observer_command_tx.clone();
         let _ = hiro_system_kit::thread_named("Bitcoin scan runloop")
             .spawn(move || {
-                while let Ok((predicate_spec, api_key)) = bitcoin_scan_op_rx.recv() {
+                while let Ok(predicate_spec) = bitcoin_scan_op_rx.recv() {
                     let moved_ctx = ctx.clone();
                     let moved_config = config.clone();
                     let observer_command_tx = moved_observer_command_tx.clone();
@@ -228,7 +224,6 @@ impl Service {
                         };
                         let _ = observer_command_tx.send(ObserverCommand::EnablePredicate(
                             ChainhookSpecification::Bitcoin(predicate_spec),
-                            api_key,
                         ));
                     });
                 }
@@ -280,7 +275,7 @@ impl Service {
                 }
             };
             match event {
-                ObserverEvent::HookRegistered(chainhook, api_key) => {
+                ObserverEvent::HookRegistered(chainhook) => {
                     // If start block specified, use it.
                     // I no start block specified, depending on the nature the hook, we'd like to retrieve:
                     // - contract-id
@@ -304,10 +299,10 @@ impl Service {
                     }
                     match chainhook {
                         ChainhookSpecification::Stacks(predicate_spec) => {
-                            let _ = stacks_scan_op_tx.send((predicate_spec, api_key));
+                            let _ = stacks_scan_op_tx.send(predicate_spec);
                         }
                         ChainhookSpecification::Bitcoin(predicate_spec) => {
-                            let _ = bitcoin_scan_op_tx.send((predicate_spec, api_key));
+                            let _ = bitcoin_scan_op_tx.send(predicate_spec);
                         }
                     }
                 }

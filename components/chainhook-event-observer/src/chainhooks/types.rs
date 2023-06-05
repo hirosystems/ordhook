@@ -9,8 +9,6 @@ use chainhook_types::{BitcoinNetwork, StacksNetwork};
 
 use schemars::JsonSchema;
 
-use crate::observer::ApiKey;
-
 #[derive(Clone, Debug)]
 pub struct ChainhookConfig {
     pub stacks_chainhooks: Vec<StacksChainhookSpecification>,
@@ -49,18 +47,15 @@ impl ChainhookConfig {
         &mut self,
         networks: (&BitcoinNetwork, &StacksNetwork),
         hook: ChainhookFullSpecification,
-        api_key: &ApiKey,
     ) -> Result<ChainhookSpecification, String> {
         let spec = match hook {
             ChainhookFullSpecification::Stacks(hook) => {
                 let mut spec = hook.into_selected_network_specification(networks.1)?;
-                spec.owner_uuid = api_key.0.clone();
                 self.stacks_chainhooks.push(spec.clone());
                 ChainhookSpecification::Stacks(spec)
             }
             ChainhookFullSpecification::Bitcoin(hook) => {
                 let mut spec = hook.into_selected_network_specification(networks.0)?;
-                spec.owner_uuid = api_key.0.clone();
                 self.bitcoin_chainhooks.push(spec.clone());
                 ChainhookSpecification::Bitcoin(spec)
             }
@@ -172,17 +167,6 @@ impl ChainhookSpecification {
         match &self {
             Self::Bitcoin(data) => &data.name,
             Self::Stacks(data) => &data.name,
-        }
-    }
-
-    pub fn set_owner_uuid(&mut self, api_key: &ApiKey) {
-        match self {
-            Self::Bitcoin(ref mut data) => {
-                data.owner_uuid = api_key.0.clone();
-            }
-            Self::Stacks(ref mut data) => {
-                data.owner_uuid = api_key.0.clone();
-            }
         }
     }
 
