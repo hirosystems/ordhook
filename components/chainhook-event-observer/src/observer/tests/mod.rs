@@ -44,7 +44,7 @@ fn generate_test_config() -> (EventObserverConfig, ChainhookStore) {
         cache_path: "cache".into(),
         bitcoin_network: BitcoinNetwork::Regtest,
         stacks_network: StacksNetwork::Devnet,
-        ordinals_enabled: false,
+        hord_config: None,
     };
     let mut entries = HashMap::new();
     entries.insert(ApiKey(None), ChainhookConfig::new());

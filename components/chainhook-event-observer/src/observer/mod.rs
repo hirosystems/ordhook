@@ -11,7 +11,7 @@ use crate::chainhooks::types::{
 };
 
 use crate::hord::db::open_readwrite_hord_dbs;
-use crate::hord::new_traversals_lazy_cache;
+use crate::hord::{new_traversals_lazy_cache, HordConfig};
 #[cfg(feature = "ordinals")]
 use crate::hord::{
     revert_hord_db_with_augmented_bitcoin_block, update_hord_db_and_augment_bitcoin_block,
@@ -145,7 +145,7 @@ pub struct EventObserverConfig {
     pub cache_path: String,
     pub bitcoin_network: BitcoinNetwork,
     pub stacks_network: StacksNetwork,
-    pub ordinals_enabled: bool,
+    pub hord_config: Option<HordConfig>,
 }
 
 impl EventObserverConfig {
@@ -672,7 +672,7 @@ pub async fn start_observer_commands_handler(
 
                         #[cfg(feature = "ordinals")]
                         {
-                            if config.ordinals_enabled {
+                            if let Some(ref hord_config) = config.hord_config {
                                 let (blocks_db, inscriptions_db_conn_rw) =
                                     match open_readwrite_hord_dbs(
                                         &config.get_cache_path_buf(),
@@ -703,7 +703,7 @@ pub async fn start_observer_commands_handler(
                                         &blocks_db,
                                         &inscriptions_db_conn_rw,
                                         true,
-                                        &config.get_cache_path_buf(),
+                                        &hord_config,
                                         &traversals_cache,
                                         &ctx,
                                     ) {
@@ -796,8 +796,8 @@ pub async fn start_observer_commands_handler(
                         for header in data.headers_to_rollback.iter() {
                             match bitcoin_block_store.get(&header.block_identifier) {
                                 Some(block) => {
-                                    if config.ordinals_enabled {
-                                        #[cfg(feature = "ordinals")]
+                                    #[cfg(feature = "ordinals")]
+                                    if let Some(ref hord_config) = config.hord_config {
                                         if let Err(e) = revert_hord_db_with_augmented_bitcoin_block(
                                             block,
                                             &blocks_db,
@@ -830,25 +830,23 @@ pub async fn start_observer_commands_handler(
                         for header in data.headers_to_apply.iter() {
                             match bitcoin_block_store.get_mut(&header.block_identifier) {
                                 Some(block) => {
-                                    if config.ordinals_enabled {
-                                        #[cfg(feature = "ordinals")]
-                                        {
-                                            if let Err(e) = update_hord_db_and_augment_bitcoin_block(
-                                                block,
-                                                &blocks_db,
-                                                &inscriptions_db_conn_rw,
-                                                true,
-                                                &config.get_cache_path_buf(),
-                                                &traversals_cache,
-                                                &ctx,
-                                            ) {
-                                                ctx.try_log(|logger| {
+                                    #[cfg(feature = "ordinals")]
+                                    if let Some(ref hord_config) = config.hord_config {
+                                        if let Err(e) = update_hord_db_and_augment_bitcoin_block(
+                                            block,
+                                            &blocks_db,
+                                            &inscriptions_db_conn_rw,
+                                            true,
+                                            &hord_config,
+                                            &traversals_cache,
+                                            &ctx,
+                                        ) {
+                                            ctx.try_log(|logger| {
                                                     slog::error!(
                                                         logger,
                                                         "Unable to apply bitcoin block {} with hord_db: {e}", block.block_identifier.index
                                                     )
                                                 });
-                                            }
                                         }
                                     }
                                     blocks_to_apply.push(block.clone());

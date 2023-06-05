@@ -5,13 +5,15 @@ use crate::{
     block::{Record, RecordKind},
     config::Config,
     storage::{
-        insert_entry_in_stacks_blocks, is_stacks_block_present, open_readwrite_stacks_db_conn, get_last_block_height_inserted, get_stacks_block_at_block_height,
+        get_last_block_height_inserted, get_stacks_block_at_block_height,
+        insert_entry_in_stacks_blocks, is_stacks_block_present, open_readwrite_stacks_db_conn,
     },
 };
 use chainhook_event_observer::{
     chainhooks::stacks::evaluate_stacks_chainhook_on_blocks,
     indexer::{self, stacks::standardize_stacks_serialized_block_header, Indexer},
-    utils::Context, rocksdb::DB,
+    rocksdb::DB,
+    utils::Context,
 };
 use chainhook_event_observer::{
     chainhooks::{
@@ -111,7 +113,6 @@ pub async fn scan_stacks_chainstate_via_rocksdb_using_predicate(
     config: &Config,
     ctx: &Context,
 ) -> Result<BlockIdentifier, String> {
-
     let start_block = match predicate_spec.start_block {
         Some(start_block) => start_block,
         None => {
@@ -121,7 +122,7 @@ pub async fn scan_stacks_chainstate_via_rocksdb_using_predicate(
             );
         }
     };
-    
+
     let end_block = match predicate_spec.end_block {
         Some(end_block) => end_block,
         None => match get_last_block_height_inserted(stacks_db_conn, ctx) {
@@ -131,9 +132,8 @@ pub async fn scan_stacks_chainstate_via_rocksdb_using_predicate(
                     "Chainhook specification must include fields 'start_block' when using the scan command"
                         .into(),
                 );
-    
             }
-        }
+        },
     };
 
     let proofs = HashMap::new();
@@ -147,7 +147,6 @@ pub async fn scan_stacks_chainstate_via_rocksdb_using_predicate(
     let mut last_block_scanned = BlockIdentifier::default();
     let mut err_count = 0;
     for cursor in start_block..=end_block {
-        
         let block_data = match get_stacks_block_at_block_height(cursor, 3, stacks_db_conn) {
             Ok(Some(block)) => block,
             Ok(None) => unimplemented!(),
@@ -200,7 +199,6 @@ pub async fn scan_stacks_chainstate_via_rocksdb_using_predicate(
 
     Ok(last_block_scanned)
 }
-
 
 pub async fn scan_stacks_chainstate_via_csv_using_predicate(
     predicate_spec: &StacksChainhookSpecification,

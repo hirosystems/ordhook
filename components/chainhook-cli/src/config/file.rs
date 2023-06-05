@@ -2,7 +2,7 @@
 pub struct ConfigFile {
     pub storage: StorageConfigFile,
     pub event_source: Option<Vec<EventSourceConfigFile>>,
-    pub chainhooks: ChainhooksConfigFile,
+    pub limits: LimitsConfigFile,
     pub network: NetworkConfigFile,
 }
 
@@ -24,11 +24,14 @@ pub struct EventSourceConfigFile {
 }
 
 #[derive(Deserialize, Debug, Clone)]
-pub struct ChainhooksConfigFile {
-    pub max_stacks_registrations: Option<usize>,
-    pub max_bitcoin_registrations: Option<usize>,
-    pub max_stacks_concurrent_scans: Option<usize>,
-    pub max_bitcoin_concurrent_scans: Option<usize>,
+pub struct LimitsConfigFile {
+    pub max_number_of_bitcoin_predicates: Option<usize>,
+    pub max_number_of_concurrent_bitcoin_scans: Option<usize>,
+    pub max_number_of_stacks_predicates: Option<usize>,
+    pub max_number_of_concurrent_stacks_scans: Option<usize>,
+    pub max_number_of_processing_threads: Option<usize>,
+    pub max_number_of_networking_threads: Option<usize>,
+    pub max_caching_memory_size_mb: Option<usize>,
 }
 
 #[derive(Deserialize, Debug, Clone)]

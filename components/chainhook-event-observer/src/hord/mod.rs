@@ -46,6 +46,15 @@ use self::db::{
 use self::inscription::InscriptionParser;
 use self::ord::inscription_id::InscriptionId;
 
+#[derive(Clone, Debug)]
+pub struct HordConfig {
+    pub network_thread_max: usize,
+    pub ingestion_thread_max: usize,
+    pub cache_size: usize,
+    pub db_path: PathBuf,
+    pub first_inscription_height: u64,
+}
+
 pub fn parse_ordinal_operations(
     tx: &BitcoinTransactionFullBreakdown,
     _ctx: &Context,
@@ -207,7 +216,7 @@ pub fn new_traversals_lazy_cache(
 pub fn retrieve_inscribed_satoshi_points_from_block(
     block: &BitcoinBlockData,
     inscriptions_db_conn: Option<&Connection>,
-    hord_db_path: &PathBuf,
+    hord_config: &HordConfig,
     traversals_cache: &Arc<
         DashMap<(u32, [u8; 8]), LazyBlockTransaction, BuildHasherDefault<FxHasher>>,
     >,
@@ -258,7 +267,7 @@ pub fn retrieve_inscribed_satoshi_points_from_block(
     if !transactions_ids.is_empty() {
         let expected_traversals = transactions_ids.len();
         let (traversal_tx, traversal_rx) = channel::<(TransactionIdentifier, _)>();
-        let traversal_data_pool = ThreadPool::new(10);
+        let traversal_data_pool = ThreadPool::new(hord_config.ingestion_thread_max);
 
         let mut rng = thread_rng();
         transactions_ids.shuffle(&mut rng);
@@ -266,7 +275,7 @@ pub fn retrieve_inscribed_satoshi_points_from_block(
             let moved_traversal_tx = traversal_tx.clone();
             let moved_ctx = ctx.clone();
             let block_identifier = block.block_identifier.clone();
-            let moved_hord_db_path = hord_db_path.clone();
+            let moved_hord_db_path = hord_config.db_path.clone();
             let local_cache = traversals_cache.clone();
             traversal_data_pool.execute(move || loop {
                 match open_readonly_hord_db_conn_rocks_db(&moved_hord_db_path, &moved_ctx) {
@@ -331,7 +340,7 @@ pub fn update_hord_db_and_augment_bitcoin_block(
     blocks_db_rw: &DB,
     inscriptions_db_conn_rw: &Connection,
     write_block: bool,
-    hord_db_path: &PathBuf,
+    hord_config: &HordConfig,
     traversals_cache: &Arc<
         DashMap<(u32, [u8; 8]), LazyBlockTransaction, BuildHasherDefault<FxHasher>>,
     >,
@@ -365,7 +374,7 @@ pub fn update_hord_db_and_augment_bitcoin_block(
     let traversals = retrieve_inscribed_satoshi_points_from_block(
         &new_block,
         Some(inscriptions_db_conn_rw),
-        hord_db_path,
+        &hord_config,
         traversals_cache,
         ctx,
     );

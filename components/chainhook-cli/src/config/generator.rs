@@ -5,11 +5,14 @@ driver = "redis"
 redis_uri = "redis://localhost:6379/"
 cache_path = "cache"
 
-[chainhooks]
-max_stacks_registrations = 100
-max_bitcoin_registrations = 100
-max_stacks_concurrent_scans = 10
-max_bitcoin_concurrent_scans = 10
+[limits]
+max_number_of_bitcoin_predicates = 100
+max_number_of_concurrent_bitcoin_scans = 100
+max_number_of_stacks_predicates = 10
+max_number_of_concurrent_stacks_scans = 10
+max_number_of_processing_threads = 16
+max_number_of_networking_threads = 16
+max_caching_memory_size_mb = 32000
 
 [network]
 mode = "mainnet"

@@ -1,6 +1,7 @@
 pub mod file;
 pub mod generator;
 
+use chainhook_event_observer::hord::HordConfig;
 pub use chainhook_event_observer::indexer::IndexerConfig;
 use chainhook_event_observer::observer::EventObserverConfig;
 use chainhook_types::{BitcoinBlockSignaling, BitcoinNetwork, StacksNetwork};
@@ -28,7 +29,7 @@ pub const BITCOIN_MAX_PREDICATE_REGISTRATION: usize = 50;
 pub struct Config {
     pub storage: StorageConfig,
     pub event_sources: Vec<EventSourceConfig>,
-    pub chainhooks: ChainhooksConfig,
+    pub limits: LimitsConfig,
     pub network: IndexerConfig,
 }
 
@@ -74,11 +75,14 @@ pub struct UrlConfig {
 }
 
 #[derive(Clone, Debug)]
-pub struct ChainhooksConfig {
-    pub max_stacks_registrations: usize,
-    pub max_bitcoin_registrations: usize,
-    pub max_stacks_concurrent_scans: usize,
-    pub max_bitcoin_concurrent_scans: usize,
+pub struct LimitsConfig {
+    pub max_number_of_bitcoin_predicates: usize,
+    pub max_number_of_concurrent_bitcoin_scans: usize,
+    pub max_number_of_stacks_predicates: usize,
+    pub max_number_of_concurrent_stacks_scans: usize,
+    pub max_number_of_processing_threads: usize,
+    pub max_number_of_networking_threads: usize,
+    pub max_caching_memory_size_mb: usize,
     pub enable_http_api: bool,
 }
 
@@ -101,6 +105,21 @@ impl Config {
         Config::from_config_file(config_file)
     }
 
+    pub fn get_hord_config(&self) -> HordConfig {
+        HordConfig {
+            network_thread_max: self.limits.max_number_of_networking_threads,
+            ingestion_thread_max: self.limits.max_number_of_processing_threads,
+            cache_size: self.limits.max_caching_memory_size_mb,
+            db_path: self.expected_cache_path(),
+            first_inscription_height: match self.network.bitcoin_network {
+                BitcoinNetwork::Mainnet => 767430,
+                BitcoinNetwork::Regtest => 1,
+                BitcoinNetwork::Testnet => 2413343,
+                // BitcoinNetwork::Signet => 112402,
+            },
+        }
+    }
+
     pub fn get_event_observer_config(&self) -> EventObserverConfig {
         EventObserverConfig {
             hooks_enabled: true,
@@ -109,7 +128,7 @@ impl Config {
             chainhook_config: None,
             ingestion_port: DEFAULT_INGESTION_PORT,
             control_port: DEFAULT_CONTROL_PORT,
-            control_api_enabled: self.chainhooks.enable_http_api,
+            control_api_enabled: self.limits.enable_http_api,
             bitcoind_rpc_username: self.network.bitcoind_rpc_username.clone(),
             bitcoind_rpc_password: self.network.bitcoind_rpc_password.clone(),
             bitcoind_rpc_url: self.network.bitcoind_rpc_url.clone(),
@@ -120,7 +139,7 @@ impl Config {
             cache_path: self.storage.cache_path.clone(),
             bitcoin_network: self.network.bitcoin_network.clone(),
             stacks_network: self.network.stacks_network.clone(),
-            ordinals_enabled: true,
+            hord_config: Some(self.get_hord_config()),
         }
     }
 
@@ -154,23 +173,35 @@ impl Config {
                 cache_path: config_file.storage.cache_path.unwrap_or("cache".into()),
             },
             event_sources,
-            chainhooks: ChainhooksConfig {
-                max_stacks_registrations: config_file
-                    .chainhooks
-                    .max_stacks_registrations
+            limits: LimitsConfig {
+                max_number_of_stacks_predicates: config_file
+                    .limits
+                    .max_number_of_stacks_predicates
                     .unwrap_or(STACKS_MAX_PREDICATE_REGISTRATION),
-                max_bitcoin_registrations: config_file
-                    .chainhooks
-                    .max_bitcoin_registrations
+                max_number_of_bitcoin_predicates: config_file
+                    .limits
+                    .max_number_of_bitcoin_predicates
                     .unwrap_or(BITCOIN_MAX_PREDICATE_REGISTRATION),
-                max_stacks_concurrent_scans: config_file
-                    .chainhooks
-                    .max_stacks_registrations
+                max_number_of_concurrent_stacks_scans: config_file
+                    .limits
+                    .max_number_of_concurrent_stacks_scans
                     .unwrap_or(STACKS_SCAN_THREAD_POOL_SIZE),
-                max_bitcoin_concurrent_scans: config_file
-                    .chainhooks
-                    .max_bitcoin_registrations
+                max_number_of_concurrent_bitcoin_scans: config_file
+                    .limits
+                    .max_number_of_concurrent_bitcoin_scans
                     .unwrap_or(BITCOIN_SCAN_THREAD_POOL_SIZE),
+                max_number_of_processing_threads: config_file
+                    .limits
+                    .max_number_of_processing_threads
+                    .unwrap_or(1.max(num_cpus::get().saturating_sub(1))),
+                max_number_of_networking_threads: config_file
+                    .limits
+                    .max_number_of_networking_threads
+                    .unwrap_or(1.max(num_cpus::get().saturating_sub(1))),
+                max_caching_memory_size_mb: config_file
+                    .limits
+                    .max_caching_memory_size_mb
+                    .unwrap_or(2048),
 
                 enable_http_api: true,
             },
@@ -359,11 +390,14 @@ impl Config {
                 cache_path: default_cache_path(),
             },
             event_sources: vec![],
-            chainhooks: ChainhooksConfig {
-                max_stacks_registrations: STACKS_MAX_PREDICATE_REGISTRATION,
-                max_bitcoin_registrations: BITCOIN_MAX_PREDICATE_REGISTRATION,
-                max_stacks_concurrent_scans: STACKS_SCAN_THREAD_POOL_SIZE,
-                max_bitcoin_concurrent_scans: BITCOIN_SCAN_THREAD_POOL_SIZE,
+            limits: LimitsConfig {
+                max_number_of_bitcoin_predicates: BITCOIN_MAX_PREDICATE_REGISTRATION,
+                max_number_of_concurrent_bitcoin_scans: BITCOIN_SCAN_THREAD_POOL_SIZE,
+                max_number_of_stacks_predicates: STACKS_MAX_PREDICATE_REGISTRATION,
+                max_number_of_concurrent_stacks_scans: STACKS_SCAN_THREAD_POOL_SIZE,
+                max_number_of_processing_threads: 1.max(num_cpus::get().saturating_sub(1)),
+                max_number_of_networking_threads: 1.max(num_cpus::get().saturating_sub(1)),
+                max_caching_memory_size_mb: 2048,
                 enable_http_api: true,
             },
             network: IndexerConfig {
@@ -391,11 +425,14 @@ impl Config {
             event_sources: vec![EventSourceConfig::StacksTsvUrl(UrlConfig {
                 file_url: DEFAULT_TESTNET_STACKS_TSV_ARCHIVE.into(),
             })],
-            chainhooks: ChainhooksConfig {
-                max_stacks_registrations: STACKS_MAX_PREDICATE_REGISTRATION,
-                max_bitcoin_registrations: BITCOIN_MAX_PREDICATE_REGISTRATION,
-                max_stacks_concurrent_scans: STACKS_SCAN_THREAD_POOL_SIZE,
-                max_bitcoin_concurrent_scans: BITCOIN_SCAN_THREAD_POOL_SIZE,
+            limits: LimitsConfig {
+                max_number_of_bitcoin_predicates: BITCOIN_MAX_PREDICATE_REGISTRATION,
+                max_number_of_concurrent_bitcoin_scans: BITCOIN_SCAN_THREAD_POOL_SIZE,
+                max_number_of_stacks_predicates: STACKS_MAX_PREDICATE_REGISTRATION,
+                max_number_of_concurrent_stacks_scans: STACKS_SCAN_THREAD_POOL_SIZE,
+                max_number_of_processing_threads: 1.max(num_cpus::get().saturating_sub(1)),
+                max_number_of_networking_threads: 1.max(num_cpus::get().saturating_sub(1)),
+                max_caching_memory_size_mb: 2048,
                 enable_http_api: true,
             },
             network: IndexerConfig {
@@ -428,11 +465,14 @@ impl Config {
                     file_url: DEFAULT_MAINNET_ORDINALS_SQLITE_ARCHIVE.into(),
                 }),
             ],
-            chainhooks: ChainhooksConfig {
-                max_stacks_registrations: STACKS_MAX_PREDICATE_REGISTRATION,
-                max_bitcoin_registrations: BITCOIN_MAX_PREDICATE_REGISTRATION,
-                max_stacks_concurrent_scans: STACKS_SCAN_THREAD_POOL_SIZE,
-                max_bitcoin_concurrent_scans: BITCOIN_SCAN_THREAD_POOL_SIZE,
+            limits: LimitsConfig {
+                max_number_of_bitcoin_predicates: BITCOIN_MAX_PREDICATE_REGISTRATION,
+                max_number_of_concurrent_bitcoin_scans: BITCOIN_SCAN_THREAD_POOL_SIZE,
+                max_number_of_stacks_predicates: STACKS_MAX_PREDICATE_REGISTRATION,
+                max_number_of_concurrent_stacks_scans: STACKS_SCAN_THREAD_POOL_SIZE,
+                max_number_of_processing_threads: 1.max(num_cpus::get().saturating_sub(1)),
+                max_number_of_networking_threads: 1.max(num_cpus::get().saturating_sub(1)),
+                max_caching_memory_size_mb: 2048,
                 enable_http_api: true,
             },
             network: IndexerConfig {

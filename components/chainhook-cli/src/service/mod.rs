@@ -1,9 +1,12 @@
 use crate::config::Config;
 use crate::scan::bitcoin::scan_bitcoin_chainstate_via_http_using_predicate;
 use crate::scan::stacks::{
-    consolidate_local_stacks_chainstate_using_csv, scan_stacks_chainstate_via_csv_using_predicate, scan_stacks_chainstate_via_rocksdb_using_predicate,
+    consolidate_local_stacks_chainstate_using_csv,
+    scan_stacks_chainstate_via_rocksdb_using_predicate,
 };
-use crate::storage::{insert_entries_in_stacks_blocks, open_readwrite_stacks_db_conn, open_readonly_stacks_db_conn};
+use crate::storage::{
+    insert_entries_in_stacks_blocks, open_readonly_stacks_db_conn, open_readwrite_stacks_db_conn,
+};
 
 use chainhook_event_observer::chainhooks::types::{ChainhookConfig, ChainhookFullSpecification};
 
@@ -99,10 +102,13 @@ impl Service {
 
         let mut event_observer_config = self.config.get_event_observer_config();
         event_observer_config.chainhook_config = Some(chainhook_config);
-        event_observer_config.ordinals_enabled = !hord_disabled;
+        event_observer_config.hord_config = match hord_disabled {
+            true => None,
+            false => Some(self.config.get_hord_config()),
+        };
 
         // Enable HTTP Chainhook API, if required
-        if self.config.chainhooks.enable_http_api {
+        if self.config.limits.enable_http_api {
             info!(
                 self.ctx.expect_logger(),
                 "Listening for chainhook predicate registrations on port {}",
@@ -130,7 +136,8 @@ impl Service {
 
         // Stacks scan operation threadpool
         let (stacks_scan_op_tx, stacks_scan_op_rx) = crossbeam_channel::unbounded();
-        let stacks_scan_pool = ThreadPool::new(self.config.chainhooks.max_stacks_concurrent_scans);
+        let stacks_scan_pool =
+            ThreadPool::new(self.config.limits.max_number_of_concurrent_stacks_scans);
         let ctx = self.ctx.clone();
         let config = self.config.clone();
         let observer_command_tx_moved = observer_command_tx.clone();
@@ -155,7 +162,7 @@ impl Service {
                                 unimplemented!()
                             }
                         };
-                
+
                         let op = scan_stacks_chainstate_via_rocksdb_using_predicate(
                             &predicate_spec,
                             &stacks_db_conn,
@@ -191,7 +198,8 @@ impl Service {
 
         // Bitcoin scan operation threadpool
         let (bitcoin_scan_op_tx, bitcoin_scan_op_rx) = crossbeam_channel::unbounded();
-        let bitcoin_scan_pool = ThreadPool::new(BITCOIN_SCAN_THREAD_POOL_SIZE);
+        let bitcoin_scan_pool =
+            ThreadPool::new(self.config.limits.max_number_of_concurrent_bitcoin_scans);
         let ctx = self.ctx.clone();
         let config = self.config.clone();
         let moved_observer_command_tx = observer_command_tx.clone();

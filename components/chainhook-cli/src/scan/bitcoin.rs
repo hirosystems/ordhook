@@ -124,8 +124,7 @@ pub async fn scan_bitcoin_chainstate_via_http_using_predicate(
                     &inscriptions_db_conn_rw,
                     start_block,
                     end_block,
-                    8,
-                    &config.expected_cache_path(),
+                    &config.get_hord_config(),
                     &ctx,
                 )
                 .await?;

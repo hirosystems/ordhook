@@ -95,7 +95,11 @@ pub fn get_last_block_height_inserted(stacks_db: &DB, _ctx: &Context) -> Option<
     stacks_db
         .get(get_last_insert_key())
         .unwrap_or(None)
-        .and_then(|bytes| Some(u64::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7]])))
+        .and_then(|bytes| {
+            Some(u64::from_be_bytes([
+                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+            ]))
+        })
 }
 
 pub fn insert_entries_in_stacks_blocks(
@@ -115,12 +119,19 @@ pub fn get_stacks_block_at_block_height(
 ) -> Result<Option<StacksBlockData>, String> {
     let mut attempt = 0;
     loop {
-        match stacks_db.get(get_block_key(&BlockIdentifier { hash: "".to_string(), index: block_height })) {
-            Ok(Some(entry)) => return Ok(Some({
-                let spec: StacksBlockData = serde_json::from_slice(&entry[..])
-                    .map_err(|e| format!("unable to deserialize Stacks chainhook {}", e.to_string()))?;
-                spec
-            })),
+        match stacks_db.get(get_block_key(&BlockIdentifier {
+            hash: "".to_string(),
+            index: block_height,
+        })) {
+            Ok(Some(entry)) => {
+                return Ok(Some({
+                    let spec: StacksBlockData =
+                        serde_json::from_slice(&entry[..]).map_err(|e| {
+                            format!("unable to deserialize Stacks chainhook {}", e.to_string())
+                        })?;
+                    spec
+                }))
+            }
             Ok(None) => return Ok(None),
             _ => {
                 attempt += 1;

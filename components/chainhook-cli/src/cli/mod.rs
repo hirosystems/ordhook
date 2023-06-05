@@ -20,7 +20,7 @@ use chainhook_event_observer::hord::db::{
 };
 use chainhook_event_observer::hord::{
     new_traversals_lazy_cache, retrieve_inscribed_satoshi_points_from_block,
-    update_storage_and_augment_bitcoin_block_with_inscription_transfer_data, Storage,
+    update_storage_and_augment_bitcoin_block_with_inscription_transfer_data, HordConfig, Storage,
 };
 use chainhook_event_observer::indexer;
 use chainhook_event_observer::indexer::bitcoin::{
@@ -310,8 +310,6 @@ struct UpdateHordDbCommand {
     pub start_block: u64,
     /// Starting block
     pub end_block: u64,
-    /// # of Networking thread
-    pub network_threads: usize,
     /// Load config file path
     #[clap(long = "config-path")]
     pub config_path: Option<String>,
@@ -319,8 +317,6 @@ struct UpdateHordDbCommand {
 
 #[derive(Parser, PartialEq, Clone, Debug)]
 struct SyncHordDbCommand {
-    /// # of Networking thread
-    pub network_threads: usize,
     /// Load config file path
     #[clap(long = "config-path")]
     pub config_path: Option<String>,
@@ -363,8 +359,6 @@ struct InitHordDbCommand {
     /// Load config file path
     #[clap(long = "config-path")]
     pub config_path: Option<String>,
-    /// # of Networking thread
-    pub network_threads: usize,
 }
 
 pub fn main() {
@@ -400,7 +394,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     Config::default(cmd.devnet, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
                 // We disable the API if a predicate was passed, and the --enable-
                 if cmd.predicates_paths.len() > 0 && !cmd.start_http_api {
-                    config.chainhooks.enable_http_api = false;
+                    config.limits.enable_http_api = false;
                 }
                 let predicates = cmd
                     .predicates_paths
@@ -428,7 +422,14 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                                 "Resuming hord indexing from block #{}", start_block
                             );
                         }
-                        perform_hord_db_update(start_block, end_block, 8, &config, &ctx).await?;
+                        perform_hord_db_update(
+                            start_block,
+                            end_block,
+                            &config.get_hord_config(),
+                            &config,
+                            &ctx,
+                        )
+                        .await?;
                     }
                 }
 
@@ -624,7 +625,14 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
 
                 let tip_height = find_last_block_inserted(&hord_db_conn) as u64;
                 if cmd.block_height > tip_height {
-                    perform_hord_db_update(tip_height, cmd.block_height, 8, &config, &ctx).await?;
+                    perform_hord_db_update(
+                        tip_height,
+                        cmd.block_height,
+                        &config.get_hord_config(),
+                        &config,
+                        &ctx,
+                    )
+                    .await?;
                 }
 
                 match cmd.txid {
@@ -653,8 +661,8 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                         );
                     }
                     None => {
-                        let bitcoin_config =
-                            config.get_event_observer_config().get_bitcoin_config();
+                        let event_observer_config = config.get_event_observer_config();
+                        let bitcoin_config = event_observer_config.get_bitcoin_config();
                         let block =
                             fetch_and_standardize_block(cmd.block_height, &bitcoin_config, &ctx)
                                 .await?;
@@ -663,7 +671,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                         let _traversals = retrieve_inscribed_satoshi_points_from_block(
                             &block,
                             None,
-                            &config.expected_cache_path(),
+                            event_observer_config.hord_config.as_ref().unwrap(),
                             &traversals_cache,
                             &ctx,
                         );
@@ -688,7 +696,14 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                 let tip_height = find_last_block_inserted(&blocks_db_conn) as u64;
                 let end_at = match cmd.block_height {
                     Some(block_height) if block_height > tip_height => {
-                        perform_hord_db_update(tip_height, block_height, 8, &config, &ctx).await?;
+                        perform_hord_db_update(
+                            tip_height,
+                            block_height,
+                            &config.get_hord_config(),
+                            &config,
+                            &ctx,
+                        )
+                        .await?;
                         block_height
                     }
                     _ => tip_height,
@@ -754,7 +769,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     perform_hord_db_update(
                         start_block,
                         end_block,
-                        cmd.network_threads,
+                        &config.get_hord_config(),
                         &config,
                         &ctx,
                     )
@@ -784,7 +799,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                 perform_hord_db_update(
                     cmd.start_block,
                     cmd.end_block,
-                    cmd.network_threads,
+                    &config.get_hord_config(),
                     &config,
                     &ctx,
                 )
@@ -884,13 +899,14 @@ pub fn should_sync_hord_db(config: &Config, ctx: &Context) -> Result<Option<(u64
 pub async fn perform_hord_db_update(
     start_block: u64,
     end_block: u64,
-    network_threads: usize,
+    hord_config: &HordConfig,
     config: &Config,
     ctx: &Context,
 ) -> Result<(), String> {
     info!(
         ctx.expect_logger(),
-        "Syncing hord_db: {} blocks to download ({start_block}: {end_block}), using {network_threads} network threads", end_block - start_block + 1
+        "Syncing hord_db: {} blocks to download ({start_block}: {end_block})",
+        end_block - start_block + 1
     );
 
     let bitcoin_config = BitcoinConfig {
@@ -910,8 +926,7 @@ pub async fn perform_hord_db_update(
         &inscriptions_db_conn_rw,
         start_block,
         end_block,
-        network_threads,
-        &config.expected_cache_path(),
+        hord_config,
         &ctx,
     )
     .await?;
