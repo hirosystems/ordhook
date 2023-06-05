@@ -601,7 +601,8 @@ pub async fn start_observer_commands_handler(
     let mut bitcoin_block_store: HashMap<BlockIdentifier, BitcoinBlockData> = HashMap::new();
     let cache_size = config
         .hord_config
-        .and_then(|ref c| Some(c.cache_size))
+        .as_ref()
+        .and_then(|c| Some(c.cache_size))
         .unwrap_or(0);
     let traversals_cache = Arc::new(new_traversals_lazy_cache(cache_size));
 
