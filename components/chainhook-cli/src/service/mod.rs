@@ -1,6 +1,9 @@
 use crate::config::Config;
 use crate::scan::bitcoin::scan_bitcoin_chainstate_via_http_using_predicate;
-use crate::scan::stacks::scan_stacks_chainstate_via_csv_using_predicate;
+use crate::scan::stacks::{
+    consolidate_local_stacks_chainstate_using_csv, scan_stacks_chainstate_via_csv_using_predicate, scan_stacks_chainstate_via_rocksdb_using_predicate,
+};
+use crate::storage::{insert_entries_in_stacks_blocks, open_readwrite_stacks_db_conn, open_readonly_stacks_db_conn};
 
 use chainhook_event_observer::chainhooks::types::{ChainhookConfig, ChainhookFullSpecification};
 
@@ -9,16 +12,11 @@ use chainhook_event_observer::observer::{
     start_event_observer, ApiKey, ObserverCommand, ObserverEvent,
 };
 use chainhook_event_observer::utils::Context;
-use chainhook_types::{BitcoinBlockSignaling, StacksBlockData, StacksChainEvent};
-use redis::{Commands, Connection};
+use chainhook_types::{BitcoinBlockSignaling, StacksChainEvent};
+use redis::Commands;
 use threadpool::ThreadPool;
 
 use std::sync::mpsc::channel;
-
-pub const DEFAULT_INGESTION_PORT: u16 = 20455;
-pub const DEFAULT_CONTROL_PORT: u16 = 20456;
-pub const STACKS_SCAN_THREAD_POOL_SIZE: usize = 1;
-pub const BITCOIN_SCAN_THREAD_POOL_SIZE: usize = 12;
 
 pub struct Service {
     config: Config,
@@ -103,25 +101,7 @@ impl Service {
         event_observer_config.chainhook_config = Some(chainhook_config);
         event_observer_config.ordinals_enabled = !hord_disabled;
 
-        info!(
-            self.ctx.expect_logger(),
-            "Listening on port {} for Stacks chain events", event_observer_config.ingestion_port
-        );
-        match event_observer_config.bitcoin_block_signaling {
-            BitcoinBlockSignaling::ZeroMQ(ref url) => {
-                info!(
-                    self.ctx.expect_logger(),
-                    "Observing Bitcoin chain events via ZeroMQ: {}", url
-                );
-            }
-            BitcoinBlockSignaling::Stacks(ref _url) => {
-                info!(
-                    self.ctx.expect_logger(),
-                    "Observing Bitcoin chain events via Stacks node"
-                );
-            }
-        }
-
+        // Enable HTTP Chainhook API, if required
         if self.config.chainhooks.enable_http_api {
             info!(
                 self.ctx.expect_logger(),
@@ -130,6 +110,10 @@ impl Service {
             );
         }
 
+        // Download and ingest a Stacks dump
+        let _ = consolidate_local_stacks_chainstate_using_csv(&mut self.config, &self.ctx).await;
+
+        // Start chainhook event observer
         let context_cloned = self.ctx.clone();
         let event_observer_config_moved = event_observer_config.clone();
         let observer_command_tx_moved = observer_command_tx.clone();
@@ -146,24 +130,40 @@ impl Service {
 
         // Stacks scan operation threadpool
         let (stacks_scan_op_tx, stacks_scan_op_rx) = crossbeam_channel::unbounded();
-        let stacks_scan_pool = ThreadPool::new(STACKS_SCAN_THREAD_POOL_SIZE);
+        let stacks_scan_pool = ThreadPool::new(self.config.chainhooks.max_stacks_concurrent_scans);
         let ctx = self.ctx.clone();
         let config = self.config.clone();
         let observer_command_tx_moved = observer_command_tx.clone();
         let _ = hiro_system_kit::thread_named("Stacks scan runloop")
             .spawn(move || {
-                while let Ok((predicate_spec, api_key)) = stacks_scan_op_rx.recv() {
+                while let Ok((mut predicate_spec, api_key)) = stacks_scan_op_rx.recv() {
                     let moved_ctx = ctx.clone();
-                    let mut moved_config = config.clone();
+                    let moved_config = config.clone();
                     let observer_command_tx = observer_command_tx_moved.clone();
                     stacks_scan_pool.execute(move || {
-                        let op = scan_stacks_chainstate_via_csv_using_predicate(
+                        let stacks_db_conn = match open_readonly_stacks_db_conn(
+                            &moved_config.expected_cache_path(),
+                            &moved_ctx,
+                        ) {
+                            Ok(db_conn) => db_conn,
+                            Err(e) => {
+                                error!(
+                                    moved_ctx.expect_logger(),
+                                    "unable to store stacks block: {}",
+                                    e.to_string()
+                                );
+                                unimplemented!()
+                            }
+                        };
+                
+                        let op = scan_stacks_chainstate_via_rocksdb_using_predicate(
                             &predicate_spec,
-                            &mut moved_config,
+                            &stacks_db_conn,
+                            &moved_config,
                             &moved_ctx,
                         );
-                        let last_block_in_csv = match hiro_system_kit::nestable_block_on(op) {
-                            Ok(last_block_in_csv) => last_block_in_csv,
+                        let last_block_scanned = match hiro_system_kit::nestable_block_on(op) {
+                            Ok(last_block_scanned) => last_block_scanned,
                             Err(e) => {
                                 error!(
                                     moved_ctx.expect_logger(),
@@ -175,8 +175,9 @@ impl Service {
                         info!(
                             moved_ctx.expect_logger(),
                             "Stacks chainstate scan completed up to block: {}",
-                            last_block_in_csv.index
+                            last_block_scanned.index
                         );
+                        predicate_spec.end_block = Some(last_block_scanned.index);
                         let _ = observer_command_tx.send(ObserverCommand::EnablePredicate(
                             ChainhookSpecification::Stacks(predicate_spec),
                             api_key,
@@ -228,6 +229,26 @@ impl Service {
             })
             .expect("unable to spawn thread");
 
+        info!(
+            self.ctx.expect_logger(),
+            "Listening on port {} for Stacks chain events", event_observer_config.ingestion_port
+        );
+        match event_observer_config.bitcoin_block_signaling {
+            BitcoinBlockSignaling::ZeroMQ(ref url) => {
+                info!(
+                    self.ctx.expect_logger(),
+                    "Observing Bitcoin chain events via ZeroMQ: {}", url
+                );
+            }
+            BitcoinBlockSignaling::Stacks(ref _url) => {
+                info!(
+                    self.ctx.expect_logger(),
+                    "Observing Bitcoin chain events via Stacks node"
+                );
+            }
+        }
+
+        let mut stacks_event = 0;
         loop {
             let event = match observer_event_rx.recv() {
                 Ok(cmd) => cmd,
@@ -290,24 +311,48 @@ impl Service {
                     debug!(self.ctx.expect_logger(), "Bitcoin update not stored");
                 }
                 ObserverEvent::StacksChainEvent(chain_event) => {
+                    let stacks_db_conn_rw = match open_readwrite_stacks_db_conn(
+                        &self.config.expected_cache_path(),
+                        &self.ctx,
+                    ) {
+                        Ok(db_conn) => db_conn,
+                        Err(e) => {
+                            error!(
+                                self.ctx.expect_logger(),
+                                "unable to store stacks block: {}",
+                                e.to_string()
+                            );
+                            continue;
+                        }
+                    };
                     match &chain_event {
                         StacksChainEvent::ChainUpdatedWithBlocks(data) => {
-                            update_storage_with_confirmed_stacks_blocks(
-                                &mut redis_con,
+                            stacks_event += 1;
+                            insert_entries_in_stacks_blocks(
                                 &data.confirmed_blocks,
+                                &stacks_db_conn_rw,
                                 &self.ctx,
                             );
                         }
                         StacksChainEvent::ChainUpdatedWithReorg(data) => {
-                            update_storage_with_confirmed_stacks_blocks(
-                                &mut redis_con,
+                            insert_entries_in_stacks_blocks(
                                 &data.confirmed_blocks,
+                                &stacks_db_conn_rw,
                                 &self.ctx,
                             );
                         }
                         StacksChainEvent::ChainUpdatedWithMicroblocks(_)
                         | StacksChainEvent::ChainUpdatedWithMicroblocksReorg(_) => {}
                     };
+                    // Every 32 blocks, we will check if there's a new Stacks file archive to ingest
+                    if stacks_event > 32 {
+                        stacks_event = 0;
+                        let _ = consolidate_local_stacks_chainstate_using_csv(
+                            &mut self.config,
+                            &self.ctx,
+                        )
+                        .await;
+                    }
                 }
                 ObserverEvent::Terminate => {
                     info!(self.ctx.expect_logger(), "Terminating runloop");
@@ -317,54 +362,6 @@ impl Service {
             }
         }
         Ok(())
-    }
-}
-
-fn update_storage_with_confirmed_stacks_blocks(
-    redis_con: &mut Connection,
-    blocks: &Vec<StacksBlockData>,
-    ctx: &Context,
-) {
-    let current_tip_height: u64 = redis_con.get(&format!("stx:tip")).unwrap_or(0);
-
-    let mut new_tip = None;
-
-    for block in blocks.iter() {
-        let res: Result<(), redis::RedisError> = redis_con.hset_multiple(
-            &format!("stx:{}", block.block_identifier.index),
-            &[
-                (
-                    "block_identifier",
-                    json!(block.block_identifier).to_string(),
-                ),
-                (
-                    "parent_block_identifier",
-                    json!(block.parent_block_identifier).to_string(),
-                ),
-                ("transactions", json!(block.transactions).to_string()),
-                ("metadata", json!(block.metadata).to_string()),
-            ],
-        );
-        if let Err(error) = res {
-            crit!(
-                ctx.expect_logger(),
-                "unable to archive block {}: {}",
-                block.block_identifier,
-                error.to_string()
-            );
-        }
-        if block.block_identifier.index >= current_tip_height {
-            new_tip = Some(block);
-        }
-    }
-
-    if let Some(block) = new_tip {
-        info!(
-            ctx.expect_logger(),
-            "Archiving confirmed Stacks chain block {}", block.block_identifier
-        );
-        let _: Result<(), redis::RedisError> =
-            redis_con.set(&format!("stx:tip"), block.block_identifier.index);
     }
 }
 

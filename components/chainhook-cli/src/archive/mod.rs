@@ -195,35 +195,41 @@ pub async fn download_stacks_dataset_if_required(config: &mut Config, ctx: &Cont
                 Ok(response) => response.bytes().await,
                 Err(e) => Err(e),
             };
-            match (local_sha_file, remote_sha_file) {
+            let should_download = match (local_sha_file, remote_sha_file) {
                 (Ok(local), Ok(remote_response)) => {
-                    println!("{:?}", local);
-                    println!("{:?}", remote_response);
-                }
-                (Ok(local), _) => {
-                    // println!("Local: {:?}", local)
+                    let cache_invalidated = remote_response.starts_with(&local[0..32]) == false;
+                    if cache_invalidated {
+                        info!(
+                            ctx.expect_logger(),
+                            "More recent Stacks archive file detected"
+                        );
+                    }
+                    cache_invalidated
                 }
                 (_, _) => {
-                    // We will download the latest file
-                    println!("error reading local / remote");
+                    info!(
+                        ctx.expect_logger(),
+                        "Unable to retrieve Stacks archive file locally"
+                    );
+                    true
                 }
-            }
-
-            if !tsv_file_path.exists() {
-                info!(ctx.expect_logger(), "Downloading {}", url);
-                match download_tsv_file(&config).await {
-                    Ok(_) => {}
-                    Err(e) => {
-                        error!(ctx.expect_logger(), "{}", e);
-                        std::process::exit(1);
-                    }
-                }
-            } else {
+            };
+            if !should_download {
                 info!(
                     ctx.expect_logger(),
-                    "Building in-memory chainstate from file {}",
-                    tsv_file_path.display()
+                    "Stacks archive file already up to date"
                 );
+                config.add_local_stacks_tsv_source(&tsv_file_path);
+                return false;
+            }
+
+            info!(ctx.expect_logger(), "Downloading {}", url);
+            match download_tsv_file(&config).await {
+                Ok(_) => {}
+                Err(e) => {
+                    error!(ctx.expect_logger(), "{}", e);
+                    std::process::exit(1);
+                }
             }
             config.add_local_stacks_tsv_source(&tsv_file_path);
         }
