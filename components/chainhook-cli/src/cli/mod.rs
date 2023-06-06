@@ -1,7 +1,7 @@
 use crate::block::DigestingCommand;
 use crate::config::generator::generate_config;
 use crate::config::{Config, PredicatesApi};
-use crate::scan::bitcoin::scan_bitcoin_chainstate_via_http_using_predicate;
+use crate::scan::bitcoin::scan_bitcoin_chainstate_via_rpc_using_predicate;
 use crate::scan::stacks::scan_stacks_chainstate_via_csv_using_predicate;
 use crate::service::Service;
 
@@ -584,7 +584,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                             }
                         };
 
-                        scan_bitcoin_chainstate_via_http_using_predicate(
+                        scan_bitcoin_chainstate_via_rpc_using_predicate(
                             &predicate_spec,
                             &config,
                             &ctx,

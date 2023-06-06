@@ -29,7 +29,7 @@ use chainhook_event_observer::utils::{file_append, send_request, Context};
 use chainhook_types::{BitcoinChainEvent, BitcoinChainUpdatedWithBlocksData};
 use std::collections::{BTreeMap, HashMap};
 
-pub async fn scan_bitcoin_chainstate_via_http_using_predicate(
+pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
     predicate_spec: &BitcoinChainhookSpecification,
     config: &Config,
     ctx: &Context,
