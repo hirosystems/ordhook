@@ -1,21 +1,17 @@
-use hiro_system_kit::slog;
-use std::sync::mpsc::Sender;
-use std::sync::{Arc, Mutex, RwLock};
-
-use crate::chainhooks::types::{ChainhookFullSpecification, ChainhookSpecification};
 use crate::indexer::bitcoin::{download_and_parse_block_with_retry, NewBitcoinBlock};
 use crate::indexer::{self, Indexer};
 use crate::utils::Context;
+use hiro_system_kit::slog;
 use rocket::serde::json::{json, Json, Value as JsonValue};
 use rocket::State;
-use rocket_okapi::openapi;
+use std::sync::mpsc::Sender;
+use std::sync::{Arc, Mutex, RwLock};
 
 use super::{
-    BitcoinConfig, BitcoinRPCRequest, ChainhookStore, MempoolAdmissionData, ObserverCommand,
+    BitcoinConfig, BitcoinRPCRequest, MempoolAdmissionData, ObserverCommand,
     StacksChainMempoolEvent,
 };
 
-#[openapi(skip)]
 #[rocket::get("/ping", format = "application/json")]
 pub fn handle_ping(ctx: &State<Context>) -> Json<JsonValue> {
     ctx.try_log(|logger| slog::info!(logger, "GET /ping"));
@@ -25,7 +21,6 @@ pub fn handle_ping(ctx: &State<Context>) -> Json<JsonValue> {
     }))
 }
 
-#[openapi(skip)]
 #[post("/new_burn_block", format = "json", data = "<bitcoin_block>")]
 pub async fn handle_new_bitcoin_block(
     indexer_rw_lock: &State<Arc<RwLock<Indexer>>>,
@@ -139,7 +134,6 @@ pub async fn handle_new_bitcoin_block(
     }))
 }
 
-#[openapi(skip)]
 #[post("/new_block", format = "application/json", data = "<marshalled_block>")]
 pub fn handle_new_stacks_block(
     indexer_rw_lock: &State<Arc<RwLock<Indexer>>>,
@@ -208,7 +202,6 @@ pub fn handle_new_stacks_block(
     }))
 }
 
-#[openapi(skip)]
 #[post(
     "/new_microblocks",
     format = "application/json",
@@ -282,7 +275,6 @@ pub fn handle_new_microblocks(
     }))
 }
 
-#[openapi(skip)]
 #[post("/new_mempool_tx", format = "application/json", data = "<raw_txs>")]
 pub fn handle_new_mempool_tx(
     raw_txs: Json<Vec<String>>,
@@ -318,7 +310,6 @@ pub fn handle_new_mempool_tx(
     }))
 }
 
-#[openapi(skip)]
 #[post("/drop_mempool_tx", format = "application/json")]
 pub fn handle_drop_mempool_tx(ctx: &State<Context>) -> Json<JsonValue> {
     ctx.try_log(|logger| slog::info!(logger, "POST /drop_mempool_tx"));
@@ -329,7 +320,6 @@ pub fn handle_drop_mempool_tx(ctx: &State<Context>) -> Json<JsonValue> {
     }))
 }
 
-#[openapi(skip)]
 #[post("/attachments/new", format = "application/json")]
 pub fn handle_new_attachement(ctx: &State<Context>) -> Json<JsonValue> {
     ctx.try_log(|logger| slog::info!(logger, "POST /attachments/new"));
@@ -339,7 +329,6 @@ pub fn handle_new_attachement(ctx: &State<Context>) -> Json<JsonValue> {
     }))
 }
 
-#[openapi(skip)]
 #[post("/mined_block", format = "application/json", data = "<payload>")]
 pub fn handle_mined_block(payload: Json<JsonValue>, ctx: &State<Context>) -> Json<JsonValue> {
     ctx.try_log(|logger| slog::info!(logger, "POST /mined_block {:?}", payload));
@@ -349,7 +338,6 @@ pub fn handle_mined_block(payload: Json<JsonValue>, ctx: &State<Context>) -> Jso
     }))
 }
 
-#[openapi(skip)]
 #[post("/mined_microblock", format = "application/json", data = "<payload>")]
 pub fn handle_mined_microblock(payload: Json<JsonValue>, ctx: &State<Context>) -> Json<JsonValue> {
     ctx.try_log(|logger| slog::info!(logger, "POST /mined_microblock {:?}", payload));
@@ -359,7 +347,6 @@ pub fn handle_mined_microblock(payload: Json<JsonValue>, ctx: &State<Context>) -
     }))
 }
 
-#[openapi(skip)]
 #[post("/wallet", format = "application/json", data = "<bitcoin_rpc_call>")]
 pub async fn handle_bitcoin_wallet_rpc_call(
     bitcoin_config: &State<BitcoinConfig>,
@@ -396,7 +383,6 @@ pub async fn handle_bitcoin_wallet_rpc_call(
     }
 }
 
-#[openapi(skip)]
 #[post("/", format = "application/json", data = "<bitcoin_rpc_call>")]
 pub async fn handle_bitcoin_rpc_call(
     bitcoin_config: &State<BitcoinConfig>,
@@ -461,191 +447,4 @@ pub async fn handle_bitcoin_rpc_call(
             "status": 500
         })),
     }
-}
-
-#[openapi(tag = "Chainhooks")]
-#[get("/v1/chainhooks", format = "application/json")]
-pub fn handle_get_predicates(
-    chainhook_store: &State<Arc<RwLock<ChainhookStore>>>,
-    ctx: &State<Context>,
-) -> Json<JsonValue> {
-    ctx.try_log(|logger| slog::info!(logger, "GET /v1/chainhooks"));
-    if let Ok(chainhook_store_reader) = chainhook_store.inner().read() {
-        let mut predicates = vec![];
-        let mut stacks_predicates = chainhook_store_reader
-            .predicates
-            .get_serialized_stacks_predicates()
-            .iter()
-            .map(|(uuid, network, predicate)| {
-                json!({
-                    "chain": "stacks",
-                    "uuid": uuid,
-                    "network": network,
-                    "predicate": predicate,
-                })
-            })
-            .collect::<Vec<_>>();
-        predicates.append(&mut stacks_predicates);
-
-        let mut bitcoin_predicates = chainhook_store_reader
-            .predicates
-            .get_serialized_bitcoin_predicates()
-            .iter()
-            .map(|(uuid, network, predicate)| {
-                json!({
-                    "chain": "bitcoin",
-                    "uuid": uuid,
-                    "network": network,
-                    "predicate": predicate,
-                })
-            })
-            .collect::<Vec<_>>();
-        predicates.append(&mut bitcoin_predicates);
-
-        Json(json!({
-            "status": 200,
-            "result": predicates
-        }))
-    } else {
-        Json(json!({
-            "status": 500,
-            "message": "too many requests",
-        }))
-    }
-}
-
-#[openapi(tag = "Chainhooks")]
-#[post("/v1/chainhooks", format = "application/json", data = "<predicate>")]
-pub fn handle_create_predicate(
-    predicate: Json<ChainhookFullSpecification>,
-    chainhook_store: &State<Arc<RwLock<ChainhookStore>>>,
-    background_job_tx: &State<Arc<Mutex<Sender<ObserverCommand>>>>,
-    ctx: &State<Context>,
-) -> Json<JsonValue> {
-    ctx.try_log(|logger| slog::info!(logger, "POST /v1/chainhooks"));
-    let predicate = predicate.into_inner();
-    if let Err(e) = predicate.validate() {
-        return Json(json!({
-            "status": 422,
-            "error": e,
-        }));
-    }
-
-    if let Ok(chainhook_store_reader) = chainhook_store.inner().read() {
-        if let Some(_) = chainhook_store_reader
-            .predicates
-            .get_spec_with_uuid(predicate.get_uuid())
-        {
-            return Json(json!({
-                "status": 409,
-                "error": "uuid already in use",
-            }));
-        }
-    }
-
-    let background_job_tx = background_job_tx.inner();
-    match background_job_tx.lock() {
-        Ok(tx) => {
-            let _ = tx.send(ObserverCommand::RegisterPredicate(predicate));
-        }
-        _ => {}
-    };
-
-    Json(json!({
-        "status": 200,
-        "result": "Ok",
-    }))
-}
-
-#[openapi(tag = "Chainhooks")]
-#[get("/v1/chainhooks/<predicate_uuid>", format = "application/json")]
-pub fn handle_get_predicate(
-    predicate_uuid: String,
-    chainhook_store: &State<Arc<RwLock<ChainhookStore>>>,
-    ctx: &State<Context>,
-) -> Json<JsonValue> {
-    ctx.try_log(|logger| slog::info!(logger, "GET /v1/chainhooks/<predicate_uuid>"));
-    if let Ok(chainhook_store_reader) = chainhook_store.inner().read() {
-        let predicate = match chainhook_store_reader
-            .predicates
-            .get_spec_with_uuid(&predicate_uuid)
-        {
-            Some(ChainhookSpecification::Stacks(spec)) => {
-                json!({
-                    "chain": "stacks",
-                    "uuid": spec.uuid,
-                    "network": spec.network,
-                    "predicate": spec.predicate,
-                })
-            }
-            Some(ChainhookSpecification::Bitcoin(spec)) => {
-                json!({
-                    "chain": "bitcoin",
-                    "uuid": spec.uuid,
-                    "network": spec.network,
-                    "predicate": spec.predicate,
-                })
-            }
-            None => {
-                return Json(json!({
-                    "status": 404,
-                }))
-            }
-        };
-        return Json(json!({
-            "status": 200,
-            "result": predicate
-        }));
-    } else {
-        Json(json!({
-            "status": 500,
-            "message": "too many requests",
-        }))
-    }
-}
-
-#[openapi(tag = "Chainhooks")]
-#[delete("/v1/chainhooks/stacks/<predicate_uuid>", format = "application/json")]
-pub fn handle_delete_stacks_predicate(
-    predicate_uuid: String,
-    background_job_tx: &State<Arc<Mutex<Sender<ObserverCommand>>>>,
-    ctx: &State<Context>,
-) -> Json<JsonValue> {
-    ctx.try_log(|logger| slog::info!(logger, "DELETE /v1/chainhooks/stacks/<predicate_uuid>"));
-
-    let background_job_tx = background_job_tx.inner();
-    match background_job_tx.lock() {
-        Ok(tx) => {
-            let _ = tx.send(ObserverCommand::DeregisterStacksPredicate(predicate_uuid));
-        }
-        _ => {}
-    };
-
-    Json(json!({
-        "status": 200,
-        "result": "Ok",
-    }))
-}
-
-#[openapi(tag = "Chainhooks")]
-#[delete("/v1/chainhooks/bitcoin/<predicate_uuid>", format = "application/json")]
-pub fn handle_delete_bitcoin_predicate(
-    predicate_uuid: String,
-    background_job_tx: &State<Arc<Mutex<Sender<ObserverCommand>>>>,
-    ctx: &State<Context>,
-) -> Json<JsonValue> {
-    ctx.try_log(|logger| slog::info!(logger, "DELETE /v1/chainhooks/stacks/<predicate_uuid>"));
-
-    let background_job_tx = background_job_tx.inner();
-    match background_job_tx.lock() {
-        Ok(tx) => {
-            let _ = tx.send(ObserverCommand::DeregisterBitcoinPredicate(predicate_uuid));
-        }
-        _ => {}
-    };
-
-    Json(json!({
-        "status": 200,
-        "result": "Ok",
-    }))
 }

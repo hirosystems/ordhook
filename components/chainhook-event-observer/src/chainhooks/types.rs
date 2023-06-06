@@ -191,18 +191,18 @@ impl ChainhookSpecification {
         }
     }
 
+    pub fn stacks_key_prefix() -> &'static str {
+        "predicate:stx:"
+    }
+
+    pub fn bitcoin_key_prefix() -> &'static str {
+        "predicate:btc:"
+    }
+
     pub fn key(&self) -> String {
         match &self {
-            Self::Bitcoin(data) => format!(
-                "chainhook:btc:{}:{}",
-                data.owner_uuid.as_deref().unwrap_or("0".into()),
-                data.uuid
-            ),
-            Self::Stacks(data) => format!(
-                "chainhook:stx:{}:{}",
-                data.owner_uuid.as_deref().unwrap_or("0".into()),
-                data.uuid
-            ),
+            Self::Bitcoin(data) => format!("{}{}", Self::bitcoin_key_prefix(), data.uuid),
+            Self::Stacks(data) => format!("{}{}", Self::stacks_key_prefix(), data.uuid),
         }
     }
 

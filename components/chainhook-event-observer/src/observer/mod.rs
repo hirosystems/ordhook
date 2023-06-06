@@ -24,7 +24,6 @@ use crate::indexer::bitcoin::{
 use crate::indexer::fork_scratch_pad::ForkScratchPad;
 use crate::indexer::{Indexer, IndexerConfig};
 use crate::utils::{send_request, Context};
-use rocket_okapi::openapi_get_routes;
 
 use bitcoincore_rpc::bitcoin::{BlockHash, Txid};
 use bitcoincore_rpc::{Auth, Client, RpcApi};
@@ -41,7 +40,7 @@ use rocket::config::{self, Config, LogLevel};
 use rocket::data::{Limits, ToByteUnit};
 use rocket::serde::Deserialize;
 use rocket::Shutdown;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::error::Error;
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
@@ -125,19 +124,15 @@ impl EventHandler {
 
 #[derive(Clone, Debug)]
 pub struct EventObserverConfig {
-    pub hooks_enabled: bool,
     pub chainhook_config: Option<ChainhookConfig>,
     pub bitcoin_rpc_proxy_enabled: bool,
     pub event_handlers: Vec<EventHandler>,
     pub ingestion_port: u16,
-    pub control_port: u16,
-    pub control_api_enabled: bool,
     pub bitcoind_rpc_username: String,
     pub bitcoind_rpc_password: String,
     pub bitcoind_rpc_url: String,
     pub bitcoin_block_signaling: BitcoinBlockSignaling,
     pub stacks_node_rpc_url: String,
-    pub operators: HashSet<String>,
     pub display_logs: bool,
     pub cache_path: String,
     pub bitcoin_network: BitcoinNetwork,
@@ -331,7 +326,6 @@ pub async fn start_event_observer(
     };
 
     let ingestion_port = config.ingestion_port;
-    let control_port = config.control_port;
     let bitcoin_rpc_proxy_enabled = config.bitcoin_rpc_proxy_enabled;
     let bitcoin_config = config.get_bitcoin_config();
 
@@ -410,49 +404,6 @@ pub async fn start_event_observer(
         let _ = hiro_system_kit::nestable_block_on(ignite.launch());
     });
 
-    let mut shutdown_config = config::Shutdown::default();
-    shutdown_config.ctrlc = false;
-    shutdown_config.grace = 1;
-    shutdown_config.mercy = 1;
-
-    let control_config = Config {
-        port: control_port,
-        workers: 1,
-        address: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
-        keep_alive: 5,
-        temp_dir: std::env::temp_dir().into(),
-        log_level,
-        cli_colors: false,
-        shutdown: shutdown_config,
-        ..Config::default()
-    };
-
-    let routes = openapi_get_routes![
-        http::handle_ping,
-        http::handle_get_predicates,
-        http::handle_get_predicate,
-        http::handle_create_predicate,
-        http::handle_delete_bitcoin_predicate,
-        http::handle_delete_stacks_predicate
-    ];
-
-    let background_job_tx_mutex = Arc::new(Mutex::new(observer_commands_tx.clone()));
-    let managed_chainhook_store = chainhook_store.clone();
-    let ctx_cloned = ctx.clone();
-
-    let ignite = rocket::custom(control_config)
-        .manage(background_job_tx_mutex)
-        .manage(managed_chainhook_store)
-        .manage(ctx_cloned)
-        .mount("/", routes)
-        .ignite()
-        .await?;
-    let control_shutdown = Some(ignite.shutdown());
-
-    let _ = std::thread::spawn(move || {
-        let _ = hiro_system_kit::nestable_block_on(ignite.launch());
-    });
-
     #[cfg(feature = "zeromq")]
     start_zeromq_runloop(&config, observer_commands_tx, &ctx);
 
@@ -463,7 +414,6 @@ pub async fn start_event_observer(
         observer_commands_rx,
         observer_events_tx,
         ingestion_shutdown,
-        control_shutdown,
         ctx,
     )
     .await
@@ -640,7 +590,6 @@ pub async fn start_observer_commands_handler(
     observer_commands_rx: Receiver<ObserverCommand>,
     observer_events_tx: Option<crossbeam_channel::Sender<ObserverEvent>>,
     ingestion_shutdown: Option<Shutdown>,
-    control_shutdown: Option<Shutdown>,
     ctx: Context,
 ) -> Result<(), Box<dyn Error>> {
     let mut chainhooks_occurrences_tracker: HashMap<String, u64> = HashMap::new();
@@ -669,9 +618,6 @@ pub async fn start_observer_commands_handler(
                 ctx.try_log(|logger| slog::info!(logger, "Handling Termination command"));
                 if let Some(ingestion_shutdown) = ingestion_shutdown {
                     ingestion_shutdown.notify();
-                }
-                if let Some(control_shutdown) = control_shutdown {
-                    control_shutdown.notify();
                 }
                 if let Some(ref tx) = observer_events_tx {
                     let _ = tx.send(ObserverEvent::Info("Terminating event observer".into()));
@@ -949,122 +895,118 @@ pub async fn start_observer_commands_handler(
                 let mut requests = vec![];
                 let mut report = PredicateEvaluationReport::new();
 
-                if config.hooks_enabled {
-                    match chainhook_store.read() {
-                        Err(e) => {
-                            ctx.try_log(|logger| {
-                                slog::error!(logger, "unable to obtain lock {:?}", e)
-                            });
-                            continue;
+                match chainhook_store.read() {
+                    Err(e) => {
+                        ctx.try_log(|logger| slog::error!(logger, "unable to obtain lock {:?}", e));
+                        continue;
+                    }
+                    Ok(chainhook_store_reader) => {
+                        let bitcoin_chainhooks = chainhook_store_reader
+                            .predicates
+                            .bitcoin_chainhooks
+                            .iter()
+                            .filter(|p| p.enabled)
+                            .collect::<Vec<_>>();
+                        ctx.try_log(|logger| {
+                            slog::info!(
+                                logger,
+                                "Evaluating {} bitcoin chainhooks registered",
+                                bitcoin_chainhooks.len()
+                            )
+                        });
+
+                        let (predicates_triggered, predicates_evaluated) =
+                            evaluate_bitcoin_chainhooks_on_chain_event(
+                                &chain_event,
+                                bitcoin_chainhooks,
+                                &ctx,
+                            );
+                        for (uuid, block_identifier) in predicates_evaluated.into_iter() {
+                            report.track_evaluation(uuid, block_identifier);
                         }
-                        Ok(chainhook_store_reader) => {
-                            let bitcoin_chainhooks = chainhook_store_reader
-                                .predicates
-                                .bitcoin_chainhooks
+                        for entry in predicates_triggered.iter() {
+                            let blocks_ids = entry
+                                .apply
                                 .iter()
-                                .filter(|p| p.enabled)
-                                .collect::<Vec<_>>();
-                            ctx.try_log(|logger| {
-                                slog::info!(
-                                    logger,
-                                    "Evaluating {} bitcoin chainhooks registered",
-                                    bitcoin_chainhooks.len()
-                                )
-                            });
+                                .map(|e| &e.1.block_identifier)
+                                .collect::<Vec<&BlockIdentifier>>();
+                            report.track_trigger(&entry.chainhook.uuid, &blocks_ids);
+                        }
 
-                            let (predicates_triggered, predicates_evaluated) =
-                                evaluate_bitcoin_chainhooks_on_chain_event(
-                                    &chain_event,
-                                    bitcoin_chainhooks,
-                                    &ctx,
-                                );
-                            for (uuid, block_identifier) in predicates_evaluated.into_iter() {
-                                report.track_evaluation(uuid, block_identifier);
+                        ctx.try_log(|logger| {
+                            slog::info!(
+                                logger,
+                                "{} bitcoin chainhooks positive evaluations",
+                                predicates_triggered.len()
+                            )
+                        });
+
+                        let mut chainhooks_to_trigger = vec![];
+
+                        for trigger in predicates_triggered.into_iter() {
+                            let mut total_occurrences: u64 = *chainhooks_occurrences_tracker
+                                .get(&trigger.chainhook.uuid)
+                                .unwrap_or(&0);
+                            total_occurrences += 1;
+
+                            let limit = trigger.chainhook.expire_after_occurrence.unwrap_or(0);
+                            if limit == 0 || total_occurrences <= limit {
+                                chainhooks_occurrences_tracker
+                                    .insert(trigger.chainhook.uuid.clone(), total_occurrences);
+                                chainhooks_to_trigger.push(trigger);
+                            } else {
+                                hooks_ids_to_deregister.push(trigger.chainhook.uuid.clone());
                             }
-                            for entry in predicates_triggered.iter() {
-                                let blocks_ids = entry
-                                    .apply
-                                    .iter()
-                                    .map(|e| &e.1.block_identifier)
-                                    .collect::<Vec<&BlockIdentifier>>();
-                                report.track_trigger(&entry.chainhook.uuid, &blocks_ids);
+                        }
+
+                        let mut proofs = HashMap::new();
+                        for trigger in chainhooks_to_trigger.iter() {
+                            if trigger.chainhook.include_proof {
+                                gather_proofs(&trigger, &mut proofs, &config, &ctx);
                             }
+                        }
 
-                            ctx.try_log(|logger| {
-                                slog::info!(
-                                    logger,
-                                    "{} bitcoin chainhooks positive evaluations",
-                                    predicates_triggered.len()
-                                )
-                            });
+                        ctx.try_log(|logger| {
+                            slog::info!(
+                                logger,
+                                "{} bitcoin chainhooks will be triggered",
+                                chainhooks_to_trigger.len()
+                            )
+                        });
 
-                            let mut chainhooks_to_trigger = vec![];
-
-                            for trigger in predicates_triggered.into_iter() {
-                                let mut total_occurrences: u64 = *chainhooks_occurrences_tracker
-                                    .get(&trigger.chainhook.uuid)
-                                    .unwrap_or(&0);
-                                total_occurrences += 1;
-
-                                let limit = trigger.chainhook.expire_after_occurrence.unwrap_or(0);
-                                if limit == 0 || total_occurrences <= limit {
-                                    chainhooks_occurrences_tracker
-                                        .insert(trigger.chainhook.uuid.clone(), total_occurrences);
-                                    chainhooks_to_trigger.push(trigger);
-                                } else {
-                                    hooks_ids_to_deregister.push(trigger.chainhook.uuid.clone());
+                        if let Some(ref tx) = observer_events_tx {
+                            let _ =
+                                tx.send(ObserverEvent::HooksTriggered(chainhooks_to_trigger.len()));
+                        }
+                        for chainhook_to_trigger in chainhooks_to_trigger.into_iter() {
+                            match handle_bitcoin_hook_action(chainhook_to_trigger, &proofs) {
+                                Err(e) => {
+                                    ctx.try_log(|logger| {
+                                        slog::error!(logger, "unable to handle action {}", e)
+                                    });
                                 }
-                            }
-
-                            let mut proofs = HashMap::new();
-                            for trigger in chainhooks_to_trigger.iter() {
-                                if trigger.chainhook.include_proof {
-                                    gather_proofs(&trigger, &mut proofs, &config, &ctx);
+                                Ok(BitcoinChainhookOccurrence::Http(request)) => {
+                                    requests.push(request);
                                 }
-                            }
-
-                            ctx.try_log(|logger| {
-                                slog::info!(
-                                    logger,
-                                    "{} bitcoin chainhooks will be triggered",
-                                    chainhooks_to_trigger.len()
-                                )
-                            });
-
-                            if let Some(ref tx) = observer_events_tx {
-                                let _ = tx.send(ObserverEvent::HooksTriggered(
-                                    chainhooks_to_trigger.len(),
-                                ));
-                            }
-                            for chainhook_to_trigger in chainhooks_to_trigger.into_iter() {
-                                match handle_bitcoin_hook_action(chainhook_to_trigger, &proofs) {
-                                    Err(e) => {
-                                        ctx.try_log(|logger| {
-                                            slog::error!(logger, "unable to handle action {}", e)
-                                        });
-                                    }
-                                    Ok(BitcoinChainhookOccurrence::Http(request)) => {
-                                        requests.push(request);
-                                    }
-                                    Ok(BitcoinChainhookOccurrence::File(_path, _bytes)) => ctx
-                                        .try_log(|logger| {
-                                            slog::info!(
-                                                logger,
-                                                "Writing to disk not supported in server mode"
-                                            )
-                                        }),
-                                    Ok(BitcoinChainhookOccurrence::Data(payload)) => {
-                                        if let Some(ref tx) = observer_events_tx {
-                                            let _ = tx.send(
-                                                ObserverEvent::BitcoinChainhookTriggered(payload),
-                                            );
-                                        }
+                                Ok(BitcoinChainhookOccurrence::File(_path, _bytes)) => {
+                                    ctx.try_log(|logger| {
+                                        slog::info!(
+                                            logger,
+                                            "Writing to disk not supported in server mode"
+                                        )
+                                    })
+                                }
+                                Ok(BitcoinChainhookOccurrence::Data(payload)) => {
+                                    if let Some(ref tx) = observer_events_tx {
+                                        let _ = tx.send(ObserverEvent::BitcoinChainhookTriggered(
+                                            payload,
+                                        ));
                                     }
                                 }
                             }
                         }
-                    };
-                }
+                    }
+                };
                 ctx.try_log(|logger| {
                     slog::info!(
                         logger,
@@ -1128,89 +1070,83 @@ pub async fn start_observer_commands_handler(
                 let mut requests = vec![];
                 let mut report = PredicateEvaluationReport::new();
 
-                if config.hooks_enabled {
-                    match chainhook_store.read() {
-                        Err(e) => {
-                            ctx.try_log(|logger| {
-                                slog::error!(logger, "unable to obtain lock {:?}", e)
-                            });
-                            continue;
+                match chainhook_store.read() {
+                    Err(e) => {
+                        ctx.try_log(|logger| slog::error!(logger, "unable to obtain lock {:?}", e));
+                        continue;
+                    }
+                    Ok(chainhook_store_reader) => {
+                        let stacks_chainhooks = chainhook_store_reader
+                            .predicates
+                            .stacks_chainhooks
+                            .iter()
+                            .filter(|p| p.enabled)
+                            .collect();
+
+                        // process hooks
+                        let (predicates_triggered, predicates_evaluated) =
+                            evaluate_stacks_chainhooks_on_chain_event(
+                                &chain_event,
+                                stacks_chainhooks,
+                                &ctx,
+                            );
+                        for (uuid, block_identifier) in predicates_evaluated.into_iter() {
+                            report.track_evaluation(uuid, block_identifier);
                         }
-                        Ok(chainhook_store_reader) => {
-                            let stacks_chainhooks = chainhook_store_reader
-                                .predicates
-                                .stacks_chainhooks
+                        for entry in predicates_triggered.iter() {
+                            let blocks_ids = entry
+                                .apply
                                 .iter()
-                                .filter(|p| p.enabled)
-                                .collect();
+                                .map(|e| e.1.get_identifier())
+                                .collect::<Vec<&BlockIdentifier>>();
+                            report.track_trigger(&entry.chainhook.uuid, &blocks_ids);
+                        }
 
-                            // process hooks
-                            let (predicates_triggered, predicates_evaluated) =
-                                evaluate_stacks_chainhooks_on_chain_event(
-                                    &chain_event,
-                                    stacks_chainhooks,
-                                    &ctx,
-                                );
-                            for (uuid, block_identifier) in predicates_evaluated.into_iter() {
-                                report.track_evaluation(uuid, block_identifier);
+                        let mut chainhooks_to_trigger = vec![];
+
+                        for trigger in predicates_triggered.into_iter() {
+                            let mut total_occurrences: u64 = *chainhooks_occurrences_tracker
+                                .get(&trigger.chainhook.uuid)
+                                .unwrap_or(&0);
+                            total_occurrences += 1;
+
+                            let limit = trigger.chainhook.expire_after_occurrence.unwrap_or(0);
+                            if limit == 0 || total_occurrences <= limit {
+                                chainhooks_occurrences_tracker
+                                    .insert(trigger.chainhook.uuid.clone(), total_occurrences);
+                                chainhooks_to_trigger.push(trigger);
+                            } else {
+                                hooks_ids_to_deregister.push(trigger.chainhook.uuid.clone());
                             }
-                            for entry in predicates_triggered.iter() {
-                                let blocks_ids = entry
-                                    .apply
-                                    .iter()
-                                    .map(|e| e.1.get_identifier())
-                                    .collect::<Vec<&BlockIdentifier>>();
-                                report.track_trigger(&entry.chainhook.uuid, &blocks_ids);
-                            }
+                        }
 
-                            let mut chainhooks_to_trigger = vec![];
-
-                            for trigger in predicates_triggered.into_iter() {
-                                let mut total_occurrences: u64 = *chainhooks_occurrences_tracker
-                                    .get(&trigger.chainhook.uuid)
-                                    .unwrap_or(&0);
-                                total_occurrences += 1;
-
-                                let limit = trigger.chainhook.expire_after_occurrence.unwrap_or(0);
-                                if limit == 0 || total_occurrences <= limit {
-                                    chainhooks_occurrences_tracker
-                                        .insert(trigger.chainhook.uuid.clone(), total_occurrences);
-                                    chainhooks_to_trigger.push(trigger);
-                                } else {
-                                    hooks_ids_to_deregister.push(trigger.chainhook.uuid.clone());
+                        if let Some(ref tx) = observer_events_tx {
+                            let _ =
+                                tx.send(ObserverEvent::HooksTriggered(chainhooks_to_trigger.len()));
+                        }
+                        let proofs = HashMap::new();
+                        for chainhook_to_trigger in chainhooks_to_trigger.into_iter() {
+                            match handle_stacks_hook_action(chainhook_to_trigger, &proofs, &ctx) {
+                                Err(e) => {
+                                    ctx.try_log(|logger| {
+                                        slog::error!(logger, "unable to handle action {}", e)
+                                    });
                                 }
-                            }
-
-                            if let Some(ref tx) = observer_events_tx {
-                                let _ = tx.send(ObserverEvent::HooksTriggered(
-                                    chainhooks_to_trigger.len(),
-                                ));
-                            }
-                            let proofs = HashMap::new();
-                            for chainhook_to_trigger in chainhooks_to_trigger.into_iter() {
-                                match handle_stacks_hook_action(chainhook_to_trigger, &proofs, &ctx)
-                                {
-                                    Err(e) => {
-                                        ctx.try_log(|logger| {
-                                            slog::error!(logger, "unable to handle action {}", e)
-                                        });
-                                    }
-                                    Ok(StacksChainhookOccurrence::Http(request)) => {
-                                        requests.push(request);
-                                    }
-                                    Ok(StacksChainhookOccurrence::File(_path, _bytes)) => ctx
-                                        .try_log(|logger| {
-                                            slog::info!(
-                                                logger,
-                                                "Writing to disk not supported in server mode"
-                                            )
-                                        }),
-                                    Ok(StacksChainhookOccurrence::Data(payload)) => {
-                                        if let Some(ref tx) = observer_events_tx {
-                                            let _ = tx.send(
-                                                ObserverEvent::StacksChainhookTriggered(payload),
-                                            );
-                                        }
+                                Ok(StacksChainhookOccurrence::Http(request)) => {
+                                    requests.push(request);
+                                }
+                                Ok(StacksChainhookOccurrence::File(_path, _bytes)) => {
+                                    ctx.try_log(|logger| {
+                                        slog::info!(
+                                            logger,
+                                            "Writing to disk not supported in server mode"
+                                        )
+                                    })
+                                }
+                                Ok(StacksChainhookOccurrence::Data(payload)) => {
+                                    if let Some(ref tx) = observer_events_tx {
+                                        let _ = tx
+                                            .send(ObserverEvent::StacksChainhookTriggered(payload));
                                     }
                                 }
                             }

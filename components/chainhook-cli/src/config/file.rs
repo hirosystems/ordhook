@@ -1,6 +1,7 @@
 #[derive(Deserialize, Debug, Clone)]
 pub struct ConfigFile {
     pub storage: StorageConfigFile,
+    pub http_api: Option<PredicatesApiConfigFile>,
     pub event_source: Option<Vec<EventSourceConfigFile>>,
     pub limits: LimitsConfigFile,
     pub network: NetworkConfigFile,
@@ -8,9 +9,15 @@ pub struct ConfigFile {
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct StorageConfigFile {
-    pub driver: String,
-    pub redis_uri: String,
-    pub cache_path: Option<String>,
+    pub working_dir: Option<String>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct PredicatesApiConfigFile {
+    pub http_port: Option<u16>,
+    pub database_uri: Option<String>,
+    pub display_logs: Option<bool>,
+    pub disabled: Option<bool>,
 }
 
 #[derive(Deserialize, Debug, Clone)]

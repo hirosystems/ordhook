@@ -1,9 +1,12 @@
-use crate::config::Config;
+mod http_api;
+
+use crate::config::{Config, PredicatesApi};
 use crate::scan::bitcoin::scan_bitcoin_chainstate_via_http_using_predicate;
 use crate::scan::stacks::{
     consolidate_local_stacks_chainstate_using_csv,
     scan_stacks_chainstate_via_rocksdb_using_predicate,
 };
+use crate::service::http_api::{load_predicates_from_redis, start_predicate_api_server};
 use crate::storage::{
     insert_entries_in_stacks_blocks, open_readonly_stacks_db_conn, open_readwrite_stacks_db_conn,
 };
@@ -14,7 +17,7 @@ use chainhook_event_observer::chainhooks::types::ChainhookSpecification;
 use chainhook_event_observer::observer::{start_event_observer, ObserverCommand, ObserverEvent};
 use chainhook_event_observer::utils::Context;
 use chainhook_types::{BitcoinBlockSignaling, StacksChainEvent};
-use redis::Commands;
+use redis::{Commands, Connection};
 use threadpool::ThreadPool;
 
 use std::sync::mpsc::channel;
@@ -36,7 +39,8 @@ impl Service {
     ) -> Result<(), String> {
         let mut chainhook_config = ChainhookConfig::new();
 
-        if predicates.is_empty() {
+        // If no predicates passed at launch, retrieve predicates from Redis
+        if predicates.is_empty() && self.config.is_http_api_enabled() {
             let registered_predicates = match load_predicates_from_redis(&self.config, &self.ctx) {
                 Ok(predicates) => predicates,
                 Err(e) => {
@@ -68,6 +72,7 @@ impl Service {
             }
         }
 
+        // For each predicate found, register in memory.
         for predicate in predicates.into_iter() {
             match chainhook_config.register_full_specification(
                 (
@@ -104,17 +109,14 @@ impl Service {
             false => Some(self.config.get_hord_config()),
         };
 
-        // Enable HTTP Chainhook API, if required
-        if self.config.limits.enable_http_api {
-            info!(
-                self.ctx.expect_logger(),
-                "Listening for chainhook predicate registrations on port {}",
-                event_observer_config.control_port
-            );
-        }
-
         // Download and ingest a Stacks dump
         let _ = consolidate_local_stacks_chainstate_using_csv(&mut self.config, &self.ctx).await;
+
+        // Download and ingest a Ordinal dump, if hord is enabled
+        if !hord_disabled {
+            // TODO: add flag
+            // let _ = download_ordinals_dataset_if_required(&mut self.config, &self.ctx).await;
+        }
 
         // Start chainhook event observer
         let context_cloned = self.ctx.clone();
@@ -250,6 +252,38 @@ impl Service {
                 );
             }
         }
+        // Enable HTTP Chainhook API, if required
+        let mut redis_con = match self.config.http_api {
+            PredicatesApi::On(ref api_config) => {
+                info!(
+                    self.ctx.expect_logger(),
+                    "Listening for chainhook predicate registrations on port {}",
+                    api_config.http_port
+                );
+                let ctx = self.ctx.clone();
+                let api_config = api_config.clone();
+                let moved_observer_command_tx = observer_command_tx.clone();
+
+                let _ = hiro_system_kit::thread_named("HTTP Predicate API").spawn(move || {
+                    let future =
+                        start_predicate_api_server(&api_config, moved_observer_command_tx, ctx);
+                    let _ = hiro_system_kit::nestable_block_on(future);
+                });
+
+                // Test and initialize a database connection
+                let redis_uri = self.config.expected_api_database_uri();
+                let client = redis::Client::open(redis_uri.clone()).unwrap();
+                let redis_con = match client.get_connection() {
+                    Ok(con) => con,
+                    Err(message) => {
+                        error!(self.ctx.expect_logger(), "Redis: {}", message.to_string());
+                        panic!();
+                    }
+                };
+                Some(redis_con)
+            }
+            PredicatesApi::Off => None,
+        };
 
         let mut stacks_event = 0;
         loop {
@@ -264,51 +298,44 @@ impl Service {
                     break;
                 }
             };
-            let redis_config = self.config.expected_redis_config();
 
-            let client = redis::Client::open(redis_config.uri.clone()).unwrap();
-            let mut redis_con = match client.get_connection() {
-                Ok(con) => con,
-                Err(message) => {
-                    error!(self.ctx.expect_logger(), "Redis: {}", message.to_string());
-                    panic!();
-                }
-            };
             match event {
                 ObserverEvent::HookRegistered(chainhook) => {
                     // If start block specified, use it.
                     // I no start block specified, depending on the nature the hook, we'd like to retrieve:
                     // - contract-id
-
-                    let chainhook_key = chainhook.key();
-                    let history: Vec<u64> = vec![];
-                    let res: Result<(), redis::RedisError> = redis_con.hset_multiple(
-                        &chainhook_key,
-                        &[
-                            ("specification", json!(chainhook).to_string()),
-                            ("history", json!(history).to_string()),
-                            ("scan_progress", json!(0).to_string()),
-                        ],
-                    );
-                    if let Err(e) = res {
-                        error!(
-                            self.ctx.expect_logger(),
-                            "unable to store chainhook {chainhook_key}: {}",
-                            e.to_string()
+                    if let Some(ref mut redis_con) = redis_con {
+                        let chainhook_key = chainhook.key();
+                        let res: Result<(), redis::RedisError> = redis_con.hset_multiple(
+                            &chainhook_key,
+                            &[
+                                ("specification", json!(chainhook).to_string()),
+                                ("last_evaluation", json!(0).to_string()),
+                                ("last_trigger", json!(0).to_string()),
+                            ],
                         );
-                    }
-                    match chainhook {
-                        ChainhookSpecification::Stacks(predicate_spec) => {
-                            let _ = stacks_scan_op_tx.send(predicate_spec);
+                        if let Err(e) = res {
+                            error!(
+                                self.ctx.expect_logger(),
+                                "unable to store chainhook {chainhook_key}: {}",
+                                e.to_string()
+                            );
                         }
-                        ChainhookSpecification::Bitcoin(predicate_spec) => {
-                            let _ = bitcoin_scan_op_tx.send(predicate_spec);
+                        match chainhook {
+                            ChainhookSpecification::Stacks(predicate_spec) => {
+                                let _ = stacks_scan_op_tx.send(predicate_spec);
+                            }
+                            ChainhookSpecification::Bitcoin(predicate_spec) => {
+                                let _ = bitcoin_scan_op_tx.send(predicate_spec);
+                            }
                         }
                     }
                 }
                 ObserverEvent::HookDeregistered(chainhook) => {
-                    let chainhook_key = chainhook.key();
-                    let _: Result<(), redis::RedisError> = redis_con.del(chainhook_key);
+                    if let Some(ref mut redis_con) = redis_con {
+                        let chainhook_key = chainhook.key();
+                        let _: Result<(), redis::RedisError> = redis_con.del(chainhook_key);
+                    }
                 }
                 ObserverEvent::BitcoinChainEvent((chain_update, report)) => {
                     debug!(self.ctx.expect_logger(), "Bitcoin update not stored");
@@ -347,6 +374,8 @@ impl Service {
                         StacksChainEvent::ChainUpdatedWithMicroblocks(_)
                         | StacksChainEvent::ChainUpdatedWithMicroblocksReorg(_) => {}
                     };
+                    for (predicate_uuid, blocks_ids) in report.predicates_evaluated.iter() {}
+                    for (predicate_uuid, blocks_ids) in report.predicates_triggered.iter() {}
                     // Every 32 blocks, we will check if there's a new Stacks file archive to ingest
                     if stacks_event > 32 {
                         stacks_event = 0;
@@ -368,48 +397,19 @@ impl Service {
     }
 }
 
-fn load_predicates_from_redis(
-    config: &Config,
-    ctx: &Context,
-) -> Result<Vec<ChainhookSpecification>, String> {
-    let redis_config = config.expected_redis_config();
-    let client = redis::Client::open(redis_config.uri.clone())
-        .map_err(|e| format!("unable to connect to redis: {}", e.to_string()))?;
-    let mut redis_con = client
-        .get_connection()
-        .map_err(|e| format!("unable to connect to redis: {}", e.to_string()))?;
-    let chainhooks_to_load: Vec<String> = redis_con
-        .scan_match("chainhook:*:*:*")
-        .map_err(|e| format!("unable to connect to redis: {}", e.to_string()))?
-        .into_iter()
-        .collect();
+pub enum PredicateStatus {
+    InitialScan(u64, u64, u64),
+    Active(u64),
+    Disabled,
+}
 
-    let mut predicates = vec![];
-    for key in chainhooks_to_load.iter() {
-        let chainhook = match redis_con.hget::<_, _, String>(key, "specification") {
-            Ok(spec) => match ChainhookSpecification::deserialize_specification(&spec, key) {
-                Ok(spec) => spec,
-                Err(e) => {
-                    error!(
-                        ctx.expect_logger(),
-                        "unable to load chainhook associated with key {}: {}",
-                        key,
-                        e.to_string()
-                    );
-                    continue;
-                }
-            },
-            Err(e) => {
-                error!(
-                    ctx.expect_logger(),
-                    "unable to load chainhook associated with key {}: {}",
-                    key,
-                    e.to_string()
-                );
-                continue;
-            }
-        };
-        predicates.push(chainhook);
-    }
-    Ok(predicates)
+pub fn update_predicate(uuid: String, status: PredicateStatus, redis_con: &Connection) {
+    // let res: Result<(), redis::RedisError> = redis_con.hset_multiple(
+    //     &chainhook_key,
+    //     &[
+    //         ("specification", json!(chainhook).to_string()),
+    //         ("last_evaluation", json!(0).to_string()),
+    //         ("last_trigger", json!(0).to_string()),
+    //     ],
+    // );
 }

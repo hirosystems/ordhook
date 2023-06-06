@@ -1,6 +1,6 @@
 use crate::block::DigestingCommand;
 use crate::config::generator::generate_config;
-use crate::config::Config;
+use crate::config::{Config, PredicatesApi};
 use crate::scan::bitcoin::scan_bitcoin_chainstate_via_http_using_predicate;
 use crate::scan::stacks::scan_stacks_chainstate_via_csv_using_predicate;
 use crate::service::Service;
@@ -394,7 +394,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     Config::default(cmd.devnet, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
                 // We disable the API if a predicate was passed, and the --enable-
                 if cmd.predicates_paths.len() > 0 && !cmd.start_http_api {
-                    config.limits.enable_http_api = false;
+                    config.http_api = PredicatesApi::Off;
                 }
                 let predicates = cmd
                     .predicates_paths
