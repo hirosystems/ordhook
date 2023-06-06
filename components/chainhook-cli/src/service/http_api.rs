@@ -96,7 +96,13 @@ fn handle_get_predicates(
     if let Ok(mut predicates_db_conn) = predicate_db.inner().write() {
         let predicates = match get_entries_from_predicates_db(&mut predicates_db_conn, &ctx) {
             Ok(predicates) => predicates,
-            Err(e) => unimplemented!(),
+            Err(e) => {
+                ctx.try_log(|logger| slog::warn!(logger, "unable to retrieve predicates: {e}"));
+                return Json(json!({
+                    "status": 500,
+                    "message": "unable to retrieve predicates",
+                }));
+            }
         };
 
         let serialized_predicates = predicates
