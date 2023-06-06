@@ -82,7 +82,7 @@ fn handle_ping(ctx: &State<Context>) -> Json<JsonValue> {
     ctx.try_log(|logger| slog::info!(logger, "Handling HTTP GET /ping"));
     Json(json!({
         "status": 200,
-        "result": "Ok",
+        "result": "chainhook service up and running",
     }))
 }
 
@@ -133,9 +133,11 @@ fn handle_create_predicate(
         }));
     }
 
+    let predicate_uuid = predicate.get_uuid().to_string();
+
     if let Ok(mut predicates_db_conn) = predicate_db.inner().write() {
         match get_entry_from_predicates_db(
-            &ChainhookSpecification::either_stx_or_btc_key(predicate.get_uuid()),
+            &ChainhookSpecification::either_stx_or_btc_key(&predicate_uuid),
             &mut predicates_db_conn,
             &ctx,
         ) {
@@ -159,7 +161,7 @@ fn handle_create_predicate(
 
     Json(json!({
         "status": 200,
-        "result": "Ok",
+        "result": predicate_uuid,
     }))
 }
 
