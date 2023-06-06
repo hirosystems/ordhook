@@ -147,9 +147,13 @@ pub async fn scan_stacks_chainstate_via_rocksdb_using_predicate(
     let mut last_block_scanned = BlockIdentifier::default();
     let mut err_count = 0;
     for cursor in start_block..=end_block {
-        let block_data = match get_stacks_block_at_block_height(cursor, 3, stacks_db_conn) {
+        let block_data = match get_stacks_block_at_block_height(cursor, true, 3, stacks_db_conn) {
             Ok(Some(block)) => block,
-            Ok(None) => unimplemented!(),
+            Ok(None) => match get_stacks_block_at_block_height(cursor, false, 3, stacks_db_conn) {
+                Ok(Some(block)) => block,
+                Ok(None) => unimplemented!(),
+                Err(_) => unimplemented!(),
+            },
             Err(_) => unimplemented!(),
         };
         last_block_scanned = block_data.block_identifier.clone();

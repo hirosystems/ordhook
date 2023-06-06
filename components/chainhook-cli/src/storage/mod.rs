@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use chainhook_event_observer::{rocksdb::Options, rocksdb::DB, utils::Context};
-use chainhook_types::{BlockIdentifier, StacksBlockData};
+use chainhook_types::{BlockIdentifier, StacksBlockData, StacksBlockUpdate};
 
 fn get_db_default_options() -> Options {
     let mut opts = Options::default();
@@ -73,8 +73,20 @@ fn get_block_key(block_identifier: &BlockIdentifier) -> [u8; 12] {
     key
 }
 
-fn get_last_insert_key() -> [u8; 3] {
+fn get_unconfirmed_block_key(block_identifier: &BlockIdentifier) -> [u8; 12] {
+    let mut key = [0u8; 12];
+    key[..2].copy_from_slice(b"~:");
+    key[2..10].copy_from_slice(&block_identifier.index.to_be_bytes());
+    key[10..].copy_from_slice(b":d");
+    key
+}
+
+fn get_last_confirmed_insert_key() -> [u8; 3] {
     *b"m:t"
+}
+
+fn get_last_unconfirmed_insert_key() -> [u8; 3] {
+    *b"m:~"
 }
 
 pub fn insert_entry_in_stacks_blocks(block: &StacksBlockData, stacks_db_rw: &DB, _ctx: &Context) {
@@ -85,15 +97,42 @@ pub fn insert_entry_in_stacks_blocks(block: &StacksBlockData, stacks_db_rw: &DB,
         .expect("unable to insert blocks");
     stacks_db_rw
         .put(
-            get_last_insert_key(),
+            get_last_confirmed_insert_key(),
             block.block_identifier.index.to_be_bytes(),
         )
         .expect("unable to insert metadata");
 }
 
-pub fn get_last_block_height_inserted(stacks_db: &DB, _ctx: &Context) -> Option<u64> {
+pub fn insert_unconfirmed_entry_in_stacks_blocks(
+    block: &StacksBlockData,
+    stacks_db_rw: &DB,
+    _ctx: &Context,
+) {
+    let key = get_unconfirmed_block_key(&block.block_identifier);
+    let block_bytes = json!(block);
+    stacks_db_rw
+        .put(&key, &block_bytes.to_string().as_bytes())
+        .expect("unable to insert blocks");
+    stacks_db_rw
+        .put(
+            get_last_unconfirmed_insert_key(),
+            block.block_identifier.index.to_be_bytes(),
+        )
+        .expect("unable to insert metadata");
+}
+
+pub fn delete_unconfirmed_entry_from_stacks_blocks(
+    block_identifier: &BlockIdentifier,
+    stacks_db_rw: &DB,
+    _ctx: &Context,
+) {
+    let key = get_unconfirmed_block_key(&block_identifier);
+    stacks_db_rw.delete(&key).expect("unable to delete blocks");
+}
+
+pub fn get_last_unconfirmed_block_height_inserted(stacks_db: &DB, _ctx: &Context) -> Option<u64> {
     stacks_db
-        .get(get_last_insert_key())
+        .get(get_last_unconfirmed_insert_key())
         .unwrap_or(None)
         .and_then(|bytes| {
             Some(u64::from_be_bytes([
@@ -102,27 +141,55 @@ pub fn get_last_block_height_inserted(stacks_db: &DB, _ctx: &Context) -> Option<
         })
 }
 
-pub fn insert_entries_in_stacks_blocks(
+pub fn get_last_block_height_inserted(stacks_db: &DB, _ctx: &Context) -> Option<u64> {
+    stacks_db
+        .get(get_last_confirmed_insert_key())
+        .unwrap_or(None)
+        .and_then(|bytes| {
+            Some(u64::from_be_bytes([
+                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+            ]))
+        })
+}
+
+pub fn confirm_entries_in_stacks_blocks(
     blocks: &Vec<StacksBlockData>,
     stacks_db_rw: &DB,
     ctx: &Context,
 ) {
     for block in blocks.iter() {
         insert_entry_in_stacks_blocks(block, stacks_db_rw, ctx);
+        delete_unconfirmed_entry_from_stacks_blocks(&block.block_identifier, stacks_db_rw, ctx);
+    }
+}
+
+pub fn draft_entries_in_stacks_blocks(
+    block_updates: &Vec<StacksBlockUpdate>,
+    stacks_db_rw: &DB,
+    ctx: &Context,
+) {
+    for update in block_updates.iter() {
+        // TODO: Could be imperfect, from a microblock point of view
+        insert_unconfirmed_entry_in_stacks_blocks(&update.block, stacks_db_rw, ctx);
     }
 }
 
 pub fn get_stacks_block_at_block_height(
     block_height: u64,
+    confirmed: bool,
     retry: u8,
     stacks_db: &DB,
 ) -> Result<Option<StacksBlockData>, String> {
     let mut attempt = 0;
     loop {
-        match stacks_db.get(get_block_key(&BlockIdentifier {
+        let block_identifier = &BlockIdentifier {
             hash: "".to_string(),
             index: block_height,
-        })) {
+        };
+        match stacks_db.get(match confirmed {
+            true => get_block_key(block_identifier),
+            false => get_unconfirmed_block_key(block_identifier),
+        }) {
             Ok(Some(entry)) => {
                 return Ok(Some({
                     let spec: StacksBlockData =
