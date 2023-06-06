@@ -48,5 +48,13 @@ export class ChainhookEventObserver {
   }
 }
 
-export * from './server';
+export * from './schemas/bitcoin/if_this';
+export * from './schemas/bitcoin/payload';
+export * from './schemas/common';
 export * from './schemas/payload';
+export * from './schemas/predicate';
+export * from './schemas/stacks/if_this';
+export * from './schemas/stacks/payload';
+export * from './schemas/stacks/tx_events';
+export * from './schemas/stacks/tx_kind';
+export * from './server';
