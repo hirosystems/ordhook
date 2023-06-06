@@ -5,8 +5,9 @@ use crate::{
     block::{Record, RecordKind},
     config::Config,
     storage::{
-        get_last_block_height_inserted, get_stacks_block_at_block_height,
-        insert_entry_in_stacks_blocks, is_stacks_block_present, open_readwrite_stacks_db_conn,
+        get_last_block_height_inserted, get_last_unconfirmed_block_height_inserted,
+        get_stacks_block_at_block_height, insert_entry_in_stacks_blocks, is_stacks_block_present,
+        open_readwrite_stacks_db_conn,
     },
 };
 use chainhook_event_observer::{
@@ -123,16 +124,19 @@ pub async fn scan_stacks_chainstate_via_rocksdb_using_predicate(
         }
     };
 
-    let end_block = match predicate_spec.end_block {
+    let mut end_block = match predicate_spec.end_block {
         Some(end_block) => end_block,
-        None => match get_last_block_height_inserted(stacks_db_conn, ctx) {
+        None => match get_last_unconfirmed_block_height_inserted(stacks_db_conn, ctx) {
             Some(end_block) => end_block,
-            None => {
-                return Err(
-                    "Chainhook specification must include fields 'start_block' when using the scan command"
-                        .into(),
-                );
-            }
+            None => match get_last_block_height_inserted(stacks_db_conn, ctx) {
+                Some(end_block) => end_block,
+                None => {
+                    return Err(
+                        "Chainhook specification must include fields 'end_block' when using the scan command"
+                            .into(),
+                    );
+                }
+            },
         },
     };
 
@@ -146,7 +150,8 @@ pub async fn scan_stacks_chainstate_via_rocksdb_using_predicate(
     );
     let mut last_block_scanned = BlockIdentifier::default();
     let mut err_count = 0;
-    for cursor in start_block..=end_block {
+    let mut cursor = start_block;
+    while cursor <= end_block {
         let block_data = match get_stacks_block_at_block_height(cursor, true, 3, stacks_db_conn) {
             Ok(Some(block)) => block,
             Ok(None) => match get_stacks_block_at_block_height(cursor, false, 3, stacks_db_conn) {
@@ -163,6 +168,7 @@ pub async fn scan_stacks_chainstate_via_rocksdb_using_predicate(
 
         let hits_per_blocks = evaluate_stacks_chainhook_on_blocks(blocks, &predicate_spec, ctx);
         if hits_per_blocks.is_empty() {
+            cursor += 1;
             continue;
         }
 
@@ -194,6 +200,26 @@ pub async fn scan_stacks_chainstate_via_rocksdb_using_predicate(
         // We abort after 3 consecutive errors
         if err_count >= 3 {
             return Err(format!("Scan aborted (consecutive action errors >= 3)"));
+        }
+
+        cursor += 1;
+        // Update end_block, in case a new block was discovered during the scan
+        if cursor == end_block {
+            end_block = match predicate_spec.end_block {
+                Some(end_block) => end_block,
+                None => match get_last_unconfirmed_block_height_inserted(stacks_db_conn, ctx) {
+                    Some(end_block) => end_block,
+                    None => match get_last_block_height_inserted(stacks_db_conn, ctx) {
+                        Some(end_block) => end_block,
+                        None => {
+                            return Err(
+                                "Chainhook specification must include fields 'end_block' when using the scan command"
+                                    .into(),
+                            );
+                        }
+                    },
+                },
+            };
         }
     }
     info!(
