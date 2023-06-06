@@ -3,9 +3,13 @@ pub fn generate_config() -> String {
         r#"[storage]
 working_dir = "cache"
 
-;; [http-api]
-;; http_port = 20456
-;; database_uri = "redis://localhost:6379/"
+# The Http Api allows you to register / deregister
+# dynamically predicates.
+# Disable by default.
+#
+# [http-api]
+# http_port = 20456
+# database_uri = "redis://localhost:6379/"
 
 [network]
 mode = "mainnet"
