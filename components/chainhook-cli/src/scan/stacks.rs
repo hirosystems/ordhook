@@ -3,7 +3,7 @@ use std::collections::{HashMap, VecDeque};
 use crate::{
     archive::download_stacks_dataset_if_required,
     block::{Record, RecordKind},
-    config::{Config, PredicatesApi, PredicatesApiConfig},
+    config::{Config, PredicatesApi},
     service::{
         open_readwrite_predicates_db_conn_or_panic, update_predicate_status, PredicateStatus,
         ScanningData,
@@ -15,7 +15,7 @@ use crate::{
     },
 };
 use chainhook_event_observer::{
-    chainhooks::{stacks::evaluate_stacks_chainhook_on_blocks, types::ChainhookSpecification},
+    chainhooks::stacks::evaluate_stacks_chainhook_on_blocks,
     indexer::{self, stacks::standardize_stacks_serialized_block_header, Indexer},
     rocksdb::DB,
     utils::Context,

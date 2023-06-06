@@ -49,7 +49,7 @@ impl Service {
                     vec![]
                 }
             };
-            for predicate in registered_predicates.into_iter() {
+            for (predicate, _status) in registered_predicates.into_iter() {
                 let predicate_uuid = predicate.uuid().to_string();
                 match chainhook_config.register_specification(predicate, true) {
                     Ok(_) => {
@@ -327,6 +327,7 @@ impl Service {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum PredicateStatus {
     Scanning(ScanningData),
     Streaming(StreamingData),

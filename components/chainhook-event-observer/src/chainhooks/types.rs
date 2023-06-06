@@ -1,11 +1,11 @@
 use std::collections::BTreeMap;
 
+use chainhook_types::{BitcoinNetwork, StacksNetwork};
 use clarity_repl::clarity::util::hash::hex_bytes;
 use reqwest::Url;
 use serde::ser::{SerializeSeq, Serializer};
 use serde::{Deserialize, Serialize};
-
-use chainhook_types::{BitcoinNetwork, StacksNetwork};
+use serde_json::Value as JsonValue;
 
 use schemars::JsonSchema;
 
@@ -42,26 +42,6 @@ impl ChainhookConfig {
             return Some(ChainhookSpecification::Bitcoin((*spec).clone()));
         }
         None
-    }
-
-    pub fn get_serialized_stacks_predicates(
-        &self,
-    ) -> Vec<(&String, &StacksNetwork, &StacksPredicate)> {
-        let mut stacks = vec![];
-        for chainhook in self.stacks_chainhooks.iter() {
-            stacks.push((&chainhook.uuid, &chainhook.network, &chainhook.predicate));
-        }
-        stacks
-    }
-
-    pub fn get_serialized_bitcoin_predicates(
-        &self,
-    ) -> Vec<(&String, &BitcoinNetwork, &BitcoinPredicateType)> {
-        let mut bitcoin = vec![];
-        for chainhook in self.bitcoin_chainhooks.iter() {
-            bitcoin.push((&chainhook.uuid, &chainhook.network, &chainhook.predicate));
-        }
-        bitcoin
     }
 
     pub fn register_full_specification(
@@ -201,6 +181,23 @@ impl ChainhookSpecification {
 
     pub fn bitcoin_key(uuid: &str) -> String {
         format!("predicate:{}", uuid)
+    }
+
+    pub fn into_serialized_json(&self) -> JsonValue {
+        match &self {
+            Self::Bitcoin(data) => json!({
+                "chain": "stacks",
+                "uuid": data.uuid,
+                "network": data.network,
+                "predicate": data.predicate,
+            }),
+            Self::Stacks(data) => json!({
+                "chain": "bitcoin",
+                "uuid": data.uuid,
+                "network": data.network,
+                "predicate": data.predicate,
+            }),
+        }
     }
 
     pub fn key(&self) -> String {
