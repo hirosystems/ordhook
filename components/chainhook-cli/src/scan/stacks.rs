@@ -3,7 +3,11 @@ use std::collections::{HashMap, VecDeque};
 use crate::{
     archive::download_stacks_dataset_if_required,
     block::{Record, RecordKind},
-    config::Config,
+    config::{Config, PredicatesApi, PredicatesApiConfig},
+    service::{
+        open_readwrite_predicates_db_conn_or_panic, update_predicate_status, PredicateStatus,
+        ScanningData,
+    },
     storage::{
         get_last_block_height_inserted, get_last_unconfirmed_block_height_inserted,
         get_stacks_block_at_block_height, insert_entry_in_stacks_blocks, is_stacks_block_present,
@@ -11,7 +15,7 @@ use crate::{
     },
 };
 use chainhook_event_observer::{
-    chainhooks::stacks::evaluate_stacks_chainhook_on_blocks,
+    chainhooks::{stacks::evaluate_stacks_chainhook_on_blocks, types::ChainhookSpecification},
     indexer::{self, stacks::standardize_stacks_serialized_block_header, Indexer},
     rocksdb::DB,
     utils::Context,
@@ -140,9 +144,15 @@ pub async fn scan_stacks_chainstate_via_rocksdb_using_predicate(
         },
     };
 
-    let proofs = HashMap::new();
+    let mut predicates_db_conn = match config.http_api {
+        PredicatesApi::On(ref api_config) => {
+            Some(open_readwrite_predicates_db_conn_or_panic(api_config, ctx))
+        }
+        PredicatesApi::Off => None,
+    };
 
-    let mut actions_triggered = 0;
+    let proofs = HashMap::new();
+    let mut occurrences_found = 0;
     let mut blocks_scanned = 0;
     info!(
         ctx.expect_logger(),
@@ -182,7 +192,7 @@ pub async fn scan_stacks_chainstate_via_rocksdb_using_predicate(
                 error!(ctx.expect_logger(), "unable to handle action {}", e);
             }
             Ok(action) => {
-                actions_triggered += 1;
+                occurrences_found += 1;
                 let res = match action {
                     StacksChainhookOccurrence::Http(request) => {
                         send_request(request, 3, 1, &ctx).await
@@ -200,6 +210,18 @@ pub async fn scan_stacks_chainstate_via_rocksdb_using_predicate(
         // We abort after 3 consecutive errors
         if err_count >= 3 {
             return Err(format!("Scan aborted (consecutive action errors >= 3)"));
+        }
+
+        if let Some(ref mut predicates_db_conn) = predicates_db_conn {
+            if blocks_scanned % 5000 == 0 {
+                let status = PredicateStatus::Scanning(ScanningData {
+                    start_block,
+                    end_block,
+                    cursor,
+                    occurrences_found,
+                });
+                update_predicate_status(&predicate_spec.key(), status, predicates_db_conn)
+            }
         }
 
         cursor += 1;
@@ -224,9 +246,17 @@ pub async fn scan_stacks_chainstate_via_rocksdb_using_predicate(
     }
     info!(
         ctx.expect_logger(),
-        "{blocks_scanned} blocks scanned, {actions_triggered} actions triggered"
+        "{blocks_scanned} blocks scanned, {occurrences_found} occurrences found"
     );
-
+    let status = PredicateStatus::Scanning(ScanningData {
+        start_block,
+        end_block,
+        cursor,
+        occurrences_found,
+    });
+    if let Some(ref mut predicates_db_conn) = predicates_db_conn {
+        update_predicate_status(&predicate_spec.key(), status, predicates_db_conn)
+    }
     Ok(last_block_scanned)
 }
 
@@ -253,7 +283,7 @@ pub async fn scan_stacks_chainstate_via_csv_using_predicate(
 
     let proofs = HashMap::new();
 
-    let mut actions_triggered = 0;
+    let mut occurrences_found = 0;
     let mut blocks_scanned = 0;
     info!(
         ctx.expect_logger(),
@@ -294,7 +324,7 @@ pub async fn scan_stacks_chainstate_via_csv_using_predicate(
                 error!(ctx.expect_logger(), "unable to handle action {}", e);
             }
             Ok(action) => {
-                actions_triggered += 1;
+                occurrences_found += 1;
                 let res = match action {
                     StacksChainhookOccurrence::Http(request) => {
                         send_request(request, 3, 1, &ctx).await
@@ -316,7 +346,7 @@ pub async fn scan_stacks_chainstate_via_csv_using_predicate(
     }
     info!(
         ctx.expect_logger(),
-        "{blocks_scanned} blocks scanned, {actions_triggered} actions triggered"
+        "{blocks_scanned} blocks scanned, {occurrences_found} occurrences found"
     );
 
     Ok(last_block_scanned)

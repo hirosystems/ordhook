@@ -1,28 +1,21 @@
 mod http_api;
 mod runloops;
 
-use crate::config::{Config, PredicatesApi};
-use crate::scan::bitcoin::scan_bitcoin_chainstate_via_rpc_using_predicate;
-use crate::scan::stacks::{
-    consolidate_local_stacks_chainstate_using_csv,
-    scan_stacks_chainstate_via_rocksdb_using_predicate,
-};
+use crate::config::{Config, PredicatesApi, PredicatesApiConfig};
+use crate::scan::stacks::consolidate_local_stacks_chainstate_using_csv;
 use crate::service::http_api::{load_predicates_from_redis, start_predicate_api_server};
 use crate::service::runloops::{start_bitcoin_scan_runloop, start_stacks_scan_runloop};
 use crate::storage::{
-    confirm_entries_in_stacks_blocks, draft_entries_in_stacks_blocks,
-    insert_unconfirmed_entry_in_stacks_blocks, open_readonly_stacks_db_conn,
-    open_readwrite_stacks_db_conn,
+    confirm_entries_in_stacks_blocks, draft_entries_in_stacks_blocks, open_readwrite_stacks_db_conn,
 };
 
 use chainhook_event_observer::chainhooks::types::{ChainhookConfig, ChainhookFullSpecification};
 
 use chainhook_event_observer::chainhooks::types::ChainhookSpecification;
-use chainhook_event_observer::observer::{start_event_observer, ObserverCommand, ObserverEvent};
+use chainhook_event_observer::observer::{start_event_observer, ObserverEvent};
 use chainhook_event_observer::utils::Context;
 use chainhook_types::{BitcoinBlockSignaling, StacksChainEvent};
 use redis::{Commands, Connection};
-use threadpool::ThreadPool;
 
 use std::sync::mpsc::channel;
 
@@ -198,6 +191,8 @@ impl Service {
                 let ctx = self.ctx.clone();
                 let api_config = api_config.clone();
                 let moved_observer_command_tx = observer_command_tx.clone();
+                // Test and initialize a database connection
+                let redis_con = open_readwrite_predicates_db_conn_or_panic(&api_config, &self.ctx);
 
                 let _ = hiro_system_kit::thread_named("HTTP Predicate API").spawn(move || {
                     let future =
@@ -205,16 +200,6 @@ impl Service {
                     let _ = hiro_system_kit::nestable_block_on(future);
                 });
 
-                // Test and initialize a database connection
-                let redis_uri = self.config.expected_api_database_uri();
-                let client = redis::Client::open(redis_uri.clone()).unwrap();
-                let redis_con = match client.get_connection() {
-                    Ok(con) => con,
-                    Err(message) => {
-                        error!(self.ctx.expect_logger(), "Redis: {}", message.to_string());
-                        panic!();
-                    }
-                };
                 Some(redis_con)
             }
             PredicatesApi::Off => None,
@@ -245,8 +230,7 @@ impl Service {
                             &chainhook_key,
                             &[
                                 ("specification", json!(chainhook).to_string()),
-                                ("last_evaluation", json!(0).to_string()),
-                                ("last_trigger", json!(0).to_string()),
+                                ("status", json!(PredicateStatus::Disabled).to_string()),
                             ],
                         );
                         if let Err(e) = res {
@@ -342,19 +326,62 @@ impl Service {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum PredicateStatus {
-    InitialScan(u64, u64, u64),
-    Active(u64),
+    Scanning(ScanningData),
+    Streaming(StreamingData),
     Disabled,
 }
 
-pub fn update_predicate(uuid: String, status: PredicateStatus, redis_con: &Connection) {
-    // let res: Result<(), redis::RedisError> = redis_con.hset_multiple(
-    //     &chainhook_key,
-    //     &[
-    //         ("specification", json!(chainhook).to_string()),
-    //         ("last_evaluation", json!(0).to_string()),
-    //         ("last_trigger", json!(0).to_string()),
-    //     ],
-    // );
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScanningData {
+    pub start_block: u64,
+    pub cursor: u64,
+    pub end_block: u64,
+    pub occurrences_found: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StreamingData {
+    pub last_occurence: u64,
+    pub last_evaluation: u64,
+}
+
+pub fn update_predicate_status(
+    predicate_key: &str,
+    status: PredicateStatus,
+    predicates_db_conn: &mut Connection,
+) {
+    let res: Result<(), redis::RedisError> =
+        predicates_db_conn.hset_multiple(&predicate_key, &[("status", json!(status).to_string())]);
+}
+
+pub fn retrieve_predicate_status(
+    predicate_key: &str,
+    predicates_db_conn: &mut Connection,
+) -> Option<PredicateStatus> {
+    match predicates_db_conn.hget::<_, _, String>(predicate_key.to_string(), "status") {
+        Ok(ref payload) => match serde_json::from_str(payload) {
+            Ok(data) => Some(data),
+            Err(_) => None,
+        },
+        Err(_) => None,
+    }
+}
+
+pub fn open_readwrite_predicates_db_conn_or_panic(
+    config: &PredicatesApiConfig,
+    ctx: &Context,
+) -> Connection {
+    // Test and initialize a database connection
+    let redis_uri = &config.database_uri;
+    let client = redis::Client::open(redis_uri.clone()).unwrap();
+    let redis_con = match client.get_connection() {
+        Ok(con) => con,
+        Err(message) => {
+            error!(ctx.expect_logger(), "Redis: {}", message.to_string());
+            panic!();
+        }
+    };
+    redis_con
 }

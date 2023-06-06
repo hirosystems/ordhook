@@ -191,25 +191,26 @@ impl ChainhookSpecification {
         }
     }
 
-    pub fn stacks_key_prefix() -> &'static str {
-        "predicate:stx:"
+    pub fn either_stx_or_btc_key(uuid: &str) -> String {
+        format!("predicate:{}", uuid)
     }
 
-    pub fn bitcoin_key_prefix() -> &'static str {
-        "predicate:btc:"
+    pub fn stacks_key(uuid: &str) -> String {
+        format!("predicate:{}", uuid)
+    }
+
+    pub fn bitcoin_key(uuid: &str) -> String {
+        format!("predicate:{}", uuid)
     }
 
     pub fn key(&self) -> String {
         match &self {
-            Self::Bitcoin(data) => format!("{}{}", Self::bitcoin_key_prefix(), data.uuid),
-            Self::Stacks(data) => format!("{}{}", Self::stacks_key_prefix(), data.uuid),
+            Self::Bitcoin(data) => Self::bitcoin_key(&data.uuid),
+            Self::Stacks(data) => Self::stacks_key(&data.uuid),
         }
     }
 
-    pub fn deserialize_specification(
-        spec: &str,
-        _key: &str,
-    ) -> Result<ChainhookSpecification, String> {
+    pub fn deserialize_specification(spec: &str) -> Result<ChainhookSpecification, String> {
         let spec: ChainhookSpecification = serde_json::from_str(spec)
             .map_err(|e| format!("unable to deserialize Stacks chainhook {}", e.to_string()))?;
         Ok(spec)
@@ -714,6 +715,10 @@ pub struct StacksChainhookSpecification {
 }
 
 impl StacksChainhookSpecification {
+    pub fn key(&self) -> String {
+        ChainhookSpecification::stacks_key(&self.uuid)
+    }
+
     pub fn is_predicate_targeting_block_header(&self) -> bool {
         match &self.predicate {
             StacksPredicate::BlockHeight(_)

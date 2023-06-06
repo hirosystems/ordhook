@@ -263,8 +263,12 @@ impl Config {
     }
 
     pub fn expected_api_database_uri(&self) -> &str {
+        &self.expected_api_config().database_uri
+    }
+
+    pub fn expected_api_config(&self) -> &PredicatesApiConfig {
         match self.http_api {
-            PredicatesApi::On(ref config) => config.database_uri.as_str(),
+            PredicatesApi::On(ref config) => config,
             _ => unreachable!(),
         }
     }

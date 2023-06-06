@@ -1,15 +1,16 @@
 use std::{
+    collections::HashMap,
     net::{IpAddr, Ipv4Addr},
     sync::{mpsc::Sender, Arc, Mutex, RwLock},
 };
 
 use chainhook_event_observer::{
     chainhooks::types::{ChainhookFullSpecification, ChainhookSpecification},
-    observer::{ChainhookStore, ObserverCommand},
+    observer::ObserverCommand,
     utils::Context,
 };
 use hiro_system_kit::slog;
-use redis::Commands;
+use redis::{Commands, Connection};
 use rocket::config::{self, Config, LogLevel};
 use rocket::serde::json::{json, Json, Value as JsonValue};
 use rocket::State;
@@ -19,16 +20,14 @@ use std::error::Error;
 
 use crate::config::PredicatesApiConfig;
 
+use super::{open_readwrite_predicates_db_conn_or_panic, PredicateStatus};
+
 pub async fn start_predicate_api_server(
     api_config: &PredicatesApiConfig,
     observer_commands_tx: Sender<ObserverCommand>,
     ctx: Context,
 ) -> Result<(), Box<dyn Error>> {
-    let log_level = if api_config.display_logs {
-        LogLevel::Critical
-    } else {
-        LogLevel::Off
-    };
+    let log_level = LogLevel::Off;
 
     let mut shutdown_config = config::Shutdown::default();
     shutdown_config.ctrlc = false;
@@ -57,11 +56,16 @@ pub async fn start_predicate_api_server(
     ];
 
     let background_job_tx_mutex = Arc::new(Mutex::new(observer_commands_tx.clone()));
+    let redis_con_rw_lock = Arc::new(RwLock::new(open_readwrite_predicates_db_conn_or_panic(
+        api_config, &ctx,
+    )));
+
     let ctx_cloned = ctx.clone();
 
     let ignite = rocket::custom(control_config)
         .manage(background_job_tx_mutex)
         .manage(ctx_cloned)
+        .manage(redis_con_rw_lock)
         .mount("/", routes)
         .ignite()
         .await?;
@@ -85,7 +89,7 @@ fn handle_ping(ctx: &State<Context>) -> Json<JsonValue> {
 #[openapi(tag = "Chainhooks")]
 #[get("/v1/chainhooks", format = "application/json")]
 fn handle_get_predicates(
-    chainhook_store: &State<Arc<RwLock<ChainhookStore>>>,
+    predicate_db: &State<Arc<RwLock<Connection>>>,
     ctx: &State<Context>,
 ) -> Json<JsonValue> {
     ctx.try_log(|logger| slog::info!(logger, "GET /v1/chainhooks"));
@@ -137,7 +141,7 @@ fn handle_get_predicates(
 #[post("/v1/chainhooks", format = "application/json", data = "<predicate>")]
 fn handle_create_predicate(
     predicate: Json<ChainhookFullSpecification>,
-    chainhook_store: &State<Arc<RwLock<ChainhookStore>>>,
+    predicate_db: &State<Arc<RwLock<Connection>>>,
     background_job_tx: &State<Arc<Mutex<Sender<ObserverCommand>>>>,
     ctx: &State<Context>,
 ) -> Json<JsonValue> {
@@ -150,15 +154,15 @@ fn handle_create_predicate(
         }));
     }
 
-    if let Ok(chainhook_store_reader) = chainhook_store.inner().read() {
-        if let Some(_) = chainhook_store_reader
-            .predicates
-            .get_spec_with_uuid(predicate.get_uuid())
-        {
-            return Json(json!({
-                "status": 409,
-                "error": "uuid already in use",
-            }));
+    if let Ok(mut predicates_db_conn) = predicate_db.inner().write() {
+        match get_entry_from_predicates_db(&predicate.get_uuid(), &mut predicates_db_conn, &ctx) {
+            Ok(Some(_)) => {
+                return Json(json!({
+                    "status": 409,
+                    "error": "Predicate uuid already in use",
+                }))
+            }
+            _ => {}
         }
     }
 
@@ -180,41 +184,31 @@ fn handle_create_predicate(
 #[get("/v1/chainhooks/<predicate_uuid>", format = "application/json")]
 fn handle_get_predicate(
     predicate_uuid: String,
-    chainhook_store: &State<Arc<RwLock<ChainhookStore>>>,
+    predicate_db: &State<Arc<RwLock<Connection>>>,
     ctx: &State<Context>,
 ) -> Json<JsonValue> {
-    ctx.try_log(|logger| slog::info!(logger, "GET /v1/chainhooks/<predicate_uuid>"));
-    if let Ok(chainhook_store_reader) = chainhook_store.inner().read() {
-        let predicate = match chainhook_store_reader
-            .predicates
-            .get_spec_with_uuid(&predicate_uuid)
-        {
-            Some(ChainhookSpecification::Stacks(spec)) => {
-                json!({
-                    "chain": "stacks",
-                    "uuid": spec.uuid,
-                    "network": spec.network,
-                    "predicate": spec.predicate,
-                })
-            }
-            Some(ChainhookSpecification::Bitcoin(spec)) => {
-                json!({
-                    "chain": "bitcoin",
-                    "uuid": spec.uuid,
-                    "network": spec.network,
-                    "predicate": spec.predicate,
-                })
-            }
-            None => {
-                return Json(json!({
-                    "status": 404,
-                }))
-            }
-        };
-        return Json(json!({
-            "status": 200,
-            "result": predicate
-        }));
+    ctx.try_log(|logger| slog::info!(logger, "GET /v1/chainhooks/{}", predicate_uuid));
+
+    if let Ok(mut predicates_db_conn) = predicate_db.inner().write() {
+        match get_entry_from_predicates_db(&predicate_uuid, &mut predicates_db_conn, &ctx) {
+            Ok(Some((ChainhookSpecification::Stacks(spec), status))) => Json(json!({
+                "chain": "stacks",
+                "uuid": spec.uuid,
+                "network": spec.network,
+                "predicate": spec.predicate,
+                "status": status
+            })),
+            Ok(Some((ChainhookSpecification::Bitcoin(spec), status))) => Json(json!({
+                "chain": "bitcoin",
+                "uuid": spec.uuid,
+                "network": spec.network,
+                "predicate": spec.predicate,
+                "status": status
+            })),
+            _ => Json(json!({
+                "status": 404,
+            })),
+        }
     } else {
         Json(json!({
             "status": 500,
@@ -230,7 +224,7 @@ fn handle_delete_stacks_predicate(
     background_job_tx: &State<Arc<Mutex<Sender<ObserverCommand>>>>,
     ctx: &State<Context>,
 ) -> Json<JsonValue> {
-    ctx.try_log(|logger| slog::info!(logger, "DELETE /v1/chainhooks/stacks/<predicate_uuid>"));
+    ctx.try_log(|logger| slog::info!(logger, "DELETE /v1/chainhooks/stacks/{}", predicate_uuid));
 
     let background_job_tx = background_job_tx.inner();
     match background_job_tx.lock() {
@@ -253,7 +247,7 @@ fn handle_delete_bitcoin_predicate(
     background_job_tx: &State<Arc<Mutex<Sender<ObserverCommand>>>>,
     ctx: &State<Context>,
 ) -> Json<JsonValue> {
-    ctx.try_log(|logger| slog::info!(logger, "DELETE /v1/chainhooks/stacks/<predicate_uuid>"));
+    ctx.try_log(|logger| slog::info!(logger, "DELETE /v1/chainhooks/bitcoin/{}", predicate_uuid));
 
     let background_job_tx = background_job_tx.inner();
     match background_job_tx.lock() {
@@ -269,26 +263,58 @@ fn handle_delete_bitcoin_predicate(
     }))
 }
 
-pub fn load_predicates_from_redis(
-    config: &crate::config::Config,
+pub fn get_entry_from_predicates_db(
+    uuid: &str,
+    predicate_db_conn: &mut Connection,
+    _ctx: &Context,
+) -> Result<Option<(ChainhookSpecification, PredicateStatus)>, String> {
+    let entry: HashMap<String, String> = predicate_db_conn
+        .hgetall(ChainhookSpecification::either_stx_or_btc_key(uuid))
+        .map_err(|e| {
+            format!(
+                "unable to load chainhook associated with key {}: {}",
+                uuid,
+                e.to_string()
+            )
+        })?;
+
+    let encoded_spec = match entry.get("specification") {
+        None => return Ok(None),
+        Some(payload) => payload,
+    };
+
+    let spec = match ChainhookSpecification::deserialize_specification(&encoded_spec) {
+        Err(e) => unimplemented!(),
+        Ok(spec) => spec,
+    };
+
+    let encoded_status = match entry.get("status") {
+        None => unimplemented!(),
+        Some(payload) => payload,
+    };
+
+    let status = match serde_json::from_str(&encoded_status) {
+        Err(e) => unimplemented!(),
+        Ok(status) => status,
+    };
+
+    Ok(Some((spec, status)))
+}
+
+pub fn get_entries_from_predicates_db(
+    predicate_db_conn: &mut Connection,
     ctx: &Context,
 ) -> Result<Vec<ChainhookSpecification>, String> {
-    let redis_uri = config.expected_api_database_uri();
-    let client = redis::Client::open(redis_uri.clone())
-        .map_err(|e| format!("unable to connect to redis: {}", e.to_string()))?;
-    let mut redis_con = client
-        .get_connection()
-        .map_err(|e| format!("unable to connect to redis: {}", e.to_string()))?;
-    let chainhooks_to_load: Vec<String> = redis_con
-        .scan_match("chainhook:*:*:*")
+    let chainhooks_to_load: Vec<String> = predicate_db_conn
+        .scan_match(ChainhookSpecification::either_stx_or_btc_key("*"))
         .map_err(|e| format!("unable to connect to redis: {}", e.to_string()))?
         .into_iter()
         .collect();
 
     let mut predicates = vec![];
     for key in chainhooks_to_load.iter() {
-        let chainhook = match redis_con.hget::<_, _, String>(key, "specification") {
-            Ok(spec) => match ChainhookSpecification::deserialize_specification(&spec, key) {
+        let chainhook = match predicate_db_conn.hget::<_, _, String>(key, "specification") {
+            Ok(spec) => match ChainhookSpecification::deserialize_specification(&spec) {
                 Ok(spec) => spec,
                 Err(e) => {
                     error!(
@@ -313,4 +339,17 @@ pub fn load_predicates_from_redis(
         predicates.push(chainhook);
     }
     Ok(predicates)
+}
+
+pub fn load_predicates_from_redis(
+    config: &crate::config::Config,
+    ctx: &Context,
+) -> Result<Vec<ChainhookSpecification>, String> {
+    let redis_uri: &str = config.expected_api_database_uri();
+    let client = redis::Client::open(redis_uri.clone())
+        .map_err(|e| format!("unable to connect to redis: {}", e.to_string()))?;
+    let mut predicate_db_conn = client
+        .get_connection()
+        .map_err(|e| format!("unable to connect to redis: {}", e.to_string()))?;
+    get_entries_from_predicates_db(&mut predicate_db_conn, ctx)
 }
