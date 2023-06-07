@@ -181,7 +181,7 @@ impl Service {
             }
         }
         // Enable HTTP Chainhook API, if required
-        let mut redis_con = match self.config.http_api {
+        let mut predicates_db_conn = match self.config.http_api {
             PredicatesApi::On(ref api_config) => {
                 info!(
                     self.ctx.expect_logger(),
@@ -220,13 +220,13 @@ impl Service {
             };
 
             match event {
-                ObserverEvent::HookRegistered(chainhook) => {
+                ObserverEvent::PredicateRegistered(chainhook) => {
                     // If start block specified, use it.
                     // I no start block specified, depending on the nature the hook, we'd like to retrieve:
                     // - contract-id
-                    if let Some(ref mut redis_con) = redis_con {
+                    if let Some(ref mut predicates_db_conn) = predicates_db_conn {
                         let chainhook_key = chainhook.key();
-                        let res: Result<(), redis::RedisError> = redis_con.hset_multiple(
+                        let res: Result<(), redis::RedisError> = predicates_db_conn.hset_multiple(
                             &chainhook_key,
                             &[
                                 ("specification", json!(chainhook).to_string()),
@@ -250,10 +250,16 @@ impl Service {
                         }
                     }
                 }
-                ObserverEvent::HookDeregistered(chainhook) => {
-                    if let Some(ref mut redis_con) = redis_con {
+                ObserverEvent::PredicateEnabled(spec) => {
+                    if let Some(ref mut predicates_db_conn) = predicates_db_conn {
+                        update_predicate_spec(&spec.key(), &spec, predicates_db_conn, &self.ctx);
+                    }
+                }
+                ObserverEvent::PredicateDeregistered(chainhook) => {
+                    if let Some(ref mut predicates_db_conn) = predicates_db_conn {
                         let chainhook_key = chainhook.key();
-                        let _: Result<(), redis::RedisError> = redis_con.del(chainhook_key);
+                        let _: Result<(), redis::RedisError> =
+                            predicates_db_conn.del(chainhook_key);
                     }
                 }
                 ObserverEvent::BitcoinChainEvent((chain_update, report)) => {
@@ -352,9 +358,35 @@ pub fn update_predicate_status(
     predicate_key: &str,
     status: PredicateStatus,
     predicates_db_conn: &mut Connection,
+    ctx: &Context,
 ) {
-    let res: Result<(), redis::RedisError> =
-        predicates_db_conn.hset_multiple(&predicate_key, &[("status", json!(status).to_string())]);
+    if let Err(e) = predicates_db_conn
+        .hset_multiple::<_, _, _, ()>(&predicate_key, &[("status", json!(status).to_string())])
+    {
+        error!(
+            ctx.expect_logger(),
+            "Error updating status: {}",
+            e.to_string()
+        );
+    }
+}
+
+pub fn update_predicate_spec(
+    predicate_key: &str,
+    spec: &ChainhookSpecification,
+    predicates_db_conn: &mut Connection,
+    ctx: &Context,
+) {
+    if let Err(e) = predicates_db_conn.hset_multiple::<_, _, _, ()>(
+        &predicate_key,
+        &[("specification", json!(spec).to_string())],
+    ) {
+        error!(
+            ctx.expect_logger(),
+            "Error updating status: {}",
+            e.to_string()
+        );
+    }
 }
 
 pub fn retrieve_predicate_status(

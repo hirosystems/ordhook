@@ -220,7 +220,7 @@ pub async fn scan_stacks_chainstate_via_rocksdb_using_predicate(
                     cursor,
                     occurrences_found,
                 });
-                update_predicate_status(&predicate_spec.key(), status, predicates_db_conn)
+                update_predicate_status(&predicate_spec.key(), status, predicates_db_conn, &ctx)
             }
         }
 
@@ -255,7 +255,7 @@ pub async fn scan_stacks_chainstate_via_rocksdb_using_predicate(
         occurrences_found,
     });
     if let Some(ref mut predicates_db_conn) = predicates_db_conn {
-        update_predicate_status(&predicate_spec.key(), status, predicates_db_conn)
+        update_predicate_status(&predicate_spec.key(), status, predicates_db_conn, &ctx)
     }
     Ok(last_block_scanned)
 }

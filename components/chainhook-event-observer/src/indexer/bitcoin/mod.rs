@@ -6,6 +6,7 @@ use crate::chainhooks::types::{
     get_canonical_pox_config, get_stacks_canonical_magic_bytes, PoxConfig, StacksOpcodes,
 };
 
+#[cfg(feature = "ordinals")]
 use crate::hord;
 use crate::observer::BitcoinConfig;
 use crate::utils::Context;
