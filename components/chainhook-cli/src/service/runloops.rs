@@ -15,7 +15,10 @@ use crate::{
         bitcoin::scan_bitcoin_chainstate_via_rpc_using_predicate,
         stacks::scan_stacks_chainstate_via_rocksdb_using_predicate,
     },
-    storage::open_readonly_stacks_db_conn, service::{PredicateStatus, update_predicate_status, open_readwrite_predicates_db_conn_or_panic},
+    service::{
+        open_readwrite_predicates_db_conn_or_panic, update_predicate_status, PredicateStatus,
+    },
+    storage::open_readonly_stacks_db_conn,
 };
 
 pub fn start_stacks_scan_runloop(
@@ -61,9 +64,17 @@ pub fn start_stacks_scan_runloop(
 
                     // Update predicate status in redis
                     if let PredicatesApi::On(ref api_config) = moved_config.http_api {
-                        let status = PredicateStatus::Interrupted("Unable to evaluate predicate on Stacks chainstate: {e}".to_string());
-                        let mut predicates_db_conn = open_readwrite_predicates_db_conn_or_panic(api_config, &moved_ctx);
-                        update_predicate_status(&predicate_spec.key(), status, &mut predicates_db_conn, &moved_ctx);
+                        let status = PredicateStatus::Interrupted(format!(
+                            "Unable to evaluate predicate on Stacks chainstate: {e}"
+                        ));
+                        let mut predicates_db_conn =
+                            open_readwrite_predicates_db_conn_or_panic(api_config, &moved_ctx);
+                        update_predicate_status(
+                            &predicate_spec.key(),
+                            status,
+                            &mut predicates_db_conn,
+                            &moved_ctx,
+                        );
                     }
 
                     return;

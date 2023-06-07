@@ -51,7 +51,7 @@ impl Service {
             };
             for (predicate, _status) in registered_predicates.into_iter() {
                 let predicate_uuid = predicate.uuid().to_string();
-                match chainhook_config.register_specification(predicate, true) {
+                match chainhook_config.register_specification(predicate) {
                     Ok(_) => {
                         info!(
                             self.ctx.expect_logger(),
