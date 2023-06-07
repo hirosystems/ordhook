@@ -166,10 +166,10 @@ pub async fn scan_stacks_chainstate_via_rocksdb_using_predicate(
             Ok(Some(block)) => block,
             Ok(None) => match get_stacks_block_at_block_height(cursor, false, 3, stacks_db_conn) {
                 Ok(Some(block)) => block,
-                Ok(None) => unimplemented!(),
-                Err(_) => unimplemented!(),
+                Ok(None) => return Err(format!("Unable to retrieve block {cursor}")),
+                Err(e) => return Err(format!("Unable to retrieve block {cursor}: {e}")),
             },
-            Err(_) => unimplemented!(),
+            Err(e) => return Err(format!("Unable to retrieve block {cursor}: {e}")),
         };
         last_block_scanned = block_data.block_identifier.clone();
         blocks_scanned += 1;
