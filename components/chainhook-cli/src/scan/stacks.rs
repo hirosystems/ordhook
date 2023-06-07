@@ -128,12 +128,12 @@ pub async fn scan_stacks_chainstate_via_rocksdb_using_predicate(
         }
     };
 
-    let mut end_block = match predicate_spec.end_block {
-        Some(end_block) => end_block,
+    let (mut end_block, follow_tip) = match predicate_spec.end_block {
+        Some(end_block) => (end_block, false),
         None => match get_last_unconfirmed_block_height_inserted(stacks_db_conn, ctx) {
-            Some(end_block) => end_block,
+            Some(end_block) => (end_block, true),
             None => match get_last_block_height_inserted(stacks_db_conn, ctx) {
-                Some(end_block) => end_block,
+                Some(end_block) => (end_block, true),
                 None => {
                     return Err(
                         "Chainhook specification must include fields 'end_block' when using the scan command"
@@ -226,7 +226,7 @@ pub async fn scan_stacks_chainstate_via_rocksdb_using_predicate(
 
         cursor += 1;
         // Update end_block, in case a new block was discovered during the scan
-        if cursor == end_block {
+        if cursor == end_block && follow_tip {
             end_block = match predicate_spec.end_block {
                 Some(end_block) => end_block,
                 None => match get_last_unconfirmed_block_height_inserted(stacks_db_conn, ctx) {
