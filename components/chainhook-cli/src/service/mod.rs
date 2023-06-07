@@ -337,6 +337,7 @@ impl Service {
 pub enum PredicateStatus {
     Scanning(ScanningData),
     Streaming(StreamingData),
+    Interrupted(String),
     Disabled,
 }
 
