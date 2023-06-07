@@ -197,14 +197,16 @@ fn handle_get_predicate(
                 "uuid": spec.uuid,
                 "network": spec.network,
                 "predicate": spec.predicate,
-                "status": status
+                "status": status,
+                "enabled": spec.enabled,
             }),
             Ok(Some((ChainhookSpecification::Bitcoin(spec), status))) => json!({
                 "chain": "bitcoin",
                 "uuid": spec.uuid,
                 "network": spec.network,
                 "predicate": spec.predicate,
-                "status": status
+                "status": status,
+                "enabled": spec.enabled,
             }),
             _ => {
                 return Json(json!({
