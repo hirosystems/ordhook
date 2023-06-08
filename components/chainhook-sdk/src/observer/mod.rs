@@ -53,7 +53,6 @@ use std::time::Duration;
 use zeromq::{Socket, SocketRecv};
 
 pub const DEFAULT_INGESTION_PORT: u16 = 20445;
-pub const DEFAULT_CONTROL_PORT: u16 = 20446;
 
 #[derive(Deserialize)]
 pub struct NewTransaction {

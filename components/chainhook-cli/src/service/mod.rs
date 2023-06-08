@@ -309,6 +309,7 @@ impl Service {
                         StacksChainEvent::ChainUpdatedWithMicroblocks(_)
                         | StacksChainEvent::ChainUpdatedWithMicroblocksReorg(_) => {}
                     };
+
                     for (predicate_uuid, blocks_ids) in report.predicates_evaluated.iter() {}
                     for (predicate_uuid, blocks_ids) in report.predicates_triggered.iter() {}
                     // Every 32 blocks, we will check if there's a new Stacks file archive to ingest
@@ -361,8 +362,8 @@ pub fn update_predicate_status(
     predicates_db_conn: &mut Connection,
     ctx: &Context,
 ) {
-    if let Err(e) = predicates_db_conn
-        .hset_multiple::<_, _, _, ()>(&predicate_key, &[("status", json!(status).to_string())])
+    if let Err(e) =
+        predicates_db_conn.hset::<_, _, _, ()>(&predicate_key, "status", json!(status).to_string())
     {
         error!(
             ctx.expect_logger(),
@@ -378,9 +379,10 @@ pub fn update_predicate_spec(
     predicates_db_conn: &mut Connection,
     ctx: &Context,
 ) {
-    if let Err(e) = predicates_db_conn.hset_multiple::<_, _, _, ()>(
+    if let Err(e) = predicates_db_conn.hset::<_, _, _, ()>(
         &predicate_key,
-        &[("specification", json!(spec).to_string())],
+        "specification",
+        json!(spec).to_string(),
     ) {
         error!(
             ctx.expect_logger(),
