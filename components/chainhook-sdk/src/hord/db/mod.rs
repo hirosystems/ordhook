@@ -315,7 +315,7 @@ pub fn insert_entry_in_transfers(
         "INSERT INTO transfers (block_height) VALUES (?1)",
         rusqlite::params![&block_height],
     ) {
-        ctx.try_log(|logger| slog::error!(logger, "{}", e.to_string()));
+        ctx.try_log(|logger| slog::warn!(logger, "{}", e.to_string()));
     }
 }
 
