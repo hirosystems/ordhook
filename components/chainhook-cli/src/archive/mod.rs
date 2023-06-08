@@ -1,5 +1,5 @@
 use crate::config::Config;
-use chainhook_event_observer::utils::Context;
+use chainhook_sdk::utils::Context;
 use chainhook_types::{BitcoinNetwork, StacksNetwork};
 use clarinet_files::FileLocation;
 use flate2::read::GzDecoder;

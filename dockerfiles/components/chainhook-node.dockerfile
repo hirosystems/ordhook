@@ -10,7 +10,7 @@ COPY ./components/chainhook-cli /src/components/chainhook-cli
 
 COPY ./components/chainhook-types-rs /src/components/chainhook-types-rs
 
-COPY ./components/chainhook-event-observer /src/components/chainhook-event-observer
+COPY ./components/chainhook-sdk /src/components/chainhook-sdk
 
 WORKDIR /src/components/chainhook-cli
 

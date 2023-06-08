@@ -1,7 +1,7 @@
 [workspace]
 members = [
-    "components/chainhook-event-observer",
+    "components/chainhook-sdk",
     "components/chainhook-cli",
     "components/chainhook-types-rs",
 ]
-default-members = ["components/chainhook-cli", "components/chainhook-event-observer"]
+default-members = ["components/chainhook-cli", "components/chainhook-sdk"]

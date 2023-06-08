@@ -1,6 +1,6 @@
 use crate::config::Config;
-use chainhook_event_observer::indexer::{self, Indexer};
-use chainhook_event_observer::utils::Context;
+use chainhook_sdk::indexer::{self, Indexer};
+use chainhook_sdk::utils::Context;
 use chainhook_types::BlockIdentifier;
 use redis::Commands;
 use serde::Deserialize;

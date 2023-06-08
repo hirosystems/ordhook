@@ -4,7 +4,7 @@ use std::{
     sync::{mpsc::Sender, Arc, Mutex},
 };
 
-use chainhook_event_observer::{
+use chainhook_sdk::{
     chainhooks::types::{ChainhookFullSpecification, ChainhookSpecification},
     observer::ObserverCommand,
     utils::Context,

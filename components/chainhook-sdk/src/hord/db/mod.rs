@@ -677,6 +677,7 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
                     };
                     let _ = block_data_tx.send(res);
                 });
+                // TODO: remove this join?
                 if block_height >= ordinal_computing_height {
                     let _ = retrieve_block_data_pool.join();
                 }

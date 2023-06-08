@@ -9,11 +9,11 @@ use crate::storage::{
     confirm_entries_in_stacks_blocks, draft_entries_in_stacks_blocks, open_readwrite_stacks_db_conn,
 };
 
-use chainhook_event_observer::chainhooks::types::{ChainhookConfig, ChainhookFullSpecification};
+use chainhook_sdk::chainhooks::types::{ChainhookConfig, ChainhookFullSpecification};
 
-use chainhook_event_observer::chainhooks::types::ChainhookSpecification;
-use chainhook_event_observer::observer::{start_event_observer, ObserverEvent};
-use chainhook_event_observer::utils::Context;
+use chainhook_sdk::chainhooks::types::ChainhookSpecification;
+use chainhook_sdk::observer::{start_event_observer, ObserverEvent};
+use chainhook_sdk::utils::Context;
 use chainhook_types::{BitcoinBlockSignaling, StacksChainEvent};
 use redis::{Commands, Connection};
 

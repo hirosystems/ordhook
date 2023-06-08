@@ -1,9 +1,9 @@
 pub mod file;
 pub mod generator;
 
-use chainhook_event_observer::hord::HordConfig;
-pub use chainhook_event_observer::indexer::IndexerConfig;
-use chainhook_event_observer::observer::EventObserverConfig;
+use chainhook_sdk::hord::HordConfig;
+pub use chainhook_sdk::indexer::IndexerConfig;
+use chainhook_sdk::observer::EventObserverConfig;
 use chainhook_types::{BitcoinBlockSignaling, BitcoinNetwork, StacksNetwork};
 pub use file::ConfigFile;
 use std::fs::File;

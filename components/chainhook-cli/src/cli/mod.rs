@@ -5,29 +5,29 @@ use crate::scan::bitcoin::scan_bitcoin_chainstate_via_rpc_using_predicate;
 use crate::scan::stacks::scan_stacks_chainstate_via_csv_using_predicate;
 use crate::service::Service;
 
-use chainhook_event_observer::bitcoincore_rpc::{Auth, Client, RpcApi};
-use chainhook_event_observer::chainhooks::types::{
+use chainhook_sdk::bitcoincore_rpc::{Auth, Client, RpcApi};
+use chainhook_sdk::chainhooks::types::{
     BitcoinChainhookFullSpecification, BitcoinChainhookNetworkSpecification, BitcoinPredicateType,
     ChainhookFullSpecification, FileHook, HookAction, OrdinalOperations,
     StacksChainhookFullSpecification, StacksChainhookNetworkSpecification, StacksPredicate,
     StacksPrintEventBasedPredicate,
 };
-use chainhook_event_observer::hord::db::{
+use chainhook_sdk::hord::db::{
     delete_data_in_hord_db, fetch_and_cache_blocks_in_hord_db, find_last_block_inserted,
     find_lazy_block_at_block_height, find_watched_satpoint_for_inscription, initialize_hord_db,
     open_readonly_hord_db_conn, open_readonly_hord_db_conn_rocks_db, open_readwrite_hord_db_conn,
     open_readwrite_hord_db_conn_rocks_db, retrieve_satoshi_point_using_lazy_storage,
 };
-use chainhook_event_observer::hord::{
+use chainhook_sdk::hord::{
     new_traversals_lazy_cache, retrieve_inscribed_satoshi_points_from_block,
     update_storage_and_augment_bitcoin_block_with_inscription_transfer_data, HordConfig, Storage,
 };
-use chainhook_event_observer::indexer;
-use chainhook_event_observer::indexer::bitcoin::{
+use chainhook_sdk::indexer;
+use chainhook_sdk::indexer::bitcoin::{
     download_and_parse_block_with_retry, retrieve_block_hash_with_retry,
 };
-use chainhook_event_observer::observer::BitcoinConfig;
-use chainhook_event_observer::utils::Context;
+use chainhook_sdk::observer::BitcoinConfig;
+use chainhook_sdk::utils::Context;
 use chainhook_types::{
     BitcoinBlockData, BitcoinNetwork, BlockIdentifier, StacksNetwork, TransactionIdentifier,
 };

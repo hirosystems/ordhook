@@ -14,13 +14,13 @@ use crate::{
         open_readwrite_stacks_db_conn,
     },
 };
-use chainhook_event_observer::{
+use chainhook_sdk::{
     chainhooks::stacks::evaluate_stacks_chainhook_on_blocks,
     indexer::{self, stacks::standardize_stacks_serialized_block_header, Indexer},
     rocksdb::DB,
     utils::Context,
 };
-use chainhook_event_observer::{
+use chainhook_sdk::{
     chainhooks::{
         stacks::{handle_stacks_hook_action, StacksChainhookOccurrence, StacksTriggerChainhook},
         types::StacksChainhookSpecification,

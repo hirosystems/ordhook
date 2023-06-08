@@ -1,6 +1,6 @@
 [package]
-name = "chainhook-event-observer"
-version = "1.0.7"
+name = "chainhook-sdk"
+version = "0.1.0"
 description = "Stateless Transaction Indexing Engine for Stacks and Bitcoin"
 license = "GPL-3.0"
 edition = "2021"
@@ -48,7 +48,7 @@ threadpool = "1.8.1"
 rand = "0.8.5"
 hex-simd = "0.8.0"
 serde_cbor = "0.11.2"
-zeromq = { version = "*", default-features = false, features = ["tokio-runtime", "tcp-transport"], optional = true }
+zeromq = { version = "0.3.3", default-features = false, features = ["tokio-runtime", "tcp-transport"], optional = true }
 dashmap = "5.4.0"
 fxhash = "0.2.1"
 

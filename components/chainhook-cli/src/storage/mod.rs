@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use chainhook_event_observer::{rocksdb::Options, rocksdb::DB, utils::Context};
+use chainhook_sdk::{rocksdb::Options, rocksdb::DB, utils::Context};
 use chainhook_types::{BlockIdentifier, StacksBlockData, StacksBlockUpdate};
 
 fn get_db_default_options() -> Options {
