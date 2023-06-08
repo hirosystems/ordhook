@@ -196,7 +196,7 @@ impl Service {
 
                 let _ = hiro_system_kit::thread_named("HTTP Predicate API").spawn(move || {
                     let future =
-                        start_predicate_api_server(&api_config, moved_observer_command_tx, ctx);
+                        start_predicate_api_server(api_config, moved_observer_command_tx, ctx);
                     let _ = hiro_system_kit::nestable_block_on(future);
                 });
 
@@ -262,7 +262,7 @@ impl Service {
                             predicates_db_conn.del(chainhook_key);
                     }
                 }
-                ObserverEvent::BitcoinChainEvent((chain_update, report)) => {
+                ObserverEvent::BitcoinChainEvent((_chain_update, _report)) => {
                     debug!(self.ctx.expect_logger(), "Bitcoin update not stored");
                 }
                 ObserverEvent::StacksChainEvent((chain_event, report)) => {
@@ -403,14 +403,21 @@ pub fn retrieve_predicate_status(
     }
 }
 
+pub fn open_readwrite_predicates_db_conn(
+    config: &PredicatesApiConfig,
+) -> Result<Connection, String> {
+    let redis_uri = &config.database_uri;
+    let client = redis::Client::open(redis_uri.clone()).unwrap();
+    client
+        .get_connection()
+        .map_err(|e| format!("unable to connect to db: {}", e.to_string()))
+}
+
 pub fn open_readwrite_predicates_db_conn_or_panic(
     config: &PredicatesApiConfig,
     ctx: &Context,
 ) -> Connection {
-    // Test and initialize a database connection
-    let redis_uri = &config.database_uri;
-    let client = redis::Client::open(redis_uri.clone()).unwrap();
-    let redis_con = match client.get_connection() {
+    let redis_con = match open_readwrite_predicates_db_conn(config) {
         Ok(con) => con,
         Err(message) => {
             error!(ctx.expect_logger(), "Redis: {}", message.to_string());
