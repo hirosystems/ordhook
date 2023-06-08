@@ -1188,7 +1188,7 @@ pub async fn start_observer_commands_handler(
             ObserverCommand::RegisterPredicate(spec) => {
                 ctx.try_log(|logger| slog::info!(logger, "Handling RegisterPredicate command"));
 
-                let spec = match chainhook_store
+                let mut spec = match chainhook_store
                     .predicates
                     .register_full_specification(networks, spec)
                 {
@@ -1209,12 +1209,12 @@ pub async fn start_observer_commands_handler(
                     let _ = tx.send(ObserverEvent::PredicateRegistered(spec));
                 } else {
                     ctx.try_log(|logger| slog::info!(logger, "Enabling Predicate"));
-                    chainhook_store.predicates.enable_specification(&spec);
+                    chainhook_store.predicates.enable_specification(&mut spec);
                 }
             }
-            ObserverCommand::EnablePredicate(spec) => {
+            ObserverCommand::EnablePredicate(mut spec) => {
                 ctx.try_log(|logger| slog::info!(logger, "Enabling Predicate"));
-                chainhook_store.predicates.enable_specification(&spec);
+                chainhook_store.predicates.enable_specification(&mut spec);
                 if let Some(ref tx) = observer_events_tx {
                     let _ = tx.send(ObserverEvent::PredicateEnabled(spec));
                 }
