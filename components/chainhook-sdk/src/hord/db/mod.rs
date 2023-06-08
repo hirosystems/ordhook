@@ -315,7 +315,7 @@ pub fn insert_entry_in_transfers(
         "INSERT INTO transfers (block_height) VALUES (?1)",
         rusqlite::params![&block_height],
     ) {
-        ctx.try_log(|logger| slog::error!(logger, "{}", e.to_string()));
+        ctx.try_log(|logger| slog::warn!(logger, "{}", e.to_string()));
     }
 }
 
@@ -677,6 +677,7 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
                     };
                     let _ = block_data_tx.send(res);
                 });
+                // TODO: remove this join?
                 if block_height >= ordinal_computing_height {
                     let _ = retrieve_block_data_pool.join();
                 }

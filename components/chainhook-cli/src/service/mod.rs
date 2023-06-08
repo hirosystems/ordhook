@@ -9,11 +9,11 @@ use crate::storage::{
     confirm_entries_in_stacks_blocks, draft_entries_in_stacks_blocks, open_readwrite_stacks_db_conn,
 };
 
-use chainhook_event_observer::chainhooks::types::{ChainhookConfig, ChainhookFullSpecification};
+use chainhook_sdk::chainhooks::types::{ChainhookConfig, ChainhookFullSpecification};
 
-use chainhook_event_observer::chainhooks::types::ChainhookSpecification;
-use chainhook_event_observer::observer::{start_event_observer, ObserverEvent};
-use chainhook_event_observer::utils::Context;
+use chainhook_sdk::chainhooks::types::ChainhookSpecification;
+use chainhook_sdk::observer::{start_event_observer, ObserverEvent};
+use chainhook_sdk::utils::Context;
 use chainhook_types::{BitcoinBlockSignaling, StacksChainEvent};
 use redis::{Commands, Connection};
 
@@ -196,7 +196,7 @@ impl Service {
 
                 let _ = hiro_system_kit::thread_named("HTTP Predicate API").spawn(move || {
                     let future =
-                        start_predicate_api_server(&api_config, moved_observer_command_tx, ctx);
+                        start_predicate_api_server(api_config, moved_observer_command_tx, ctx);
                     let _ = hiro_system_kit::nestable_block_on(future);
                 });
 
@@ -253,6 +253,12 @@ impl Service {
                 ObserverEvent::PredicateEnabled(spec) => {
                     if let Some(ref mut predicates_db_conn) = predicates_db_conn {
                         update_predicate_spec(&spec.key(), &spec, predicates_db_conn, &self.ctx);
+                        update_predicate_status(
+                            &spec.key(),
+                            PredicateStatus::InitialScanCompleted,
+                            predicates_db_conn,
+                            &self.ctx,
+                        );
                     }
                 }
                 ObserverEvent::PredicateDeregistered(chainhook) => {
@@ -262,7 +268,7 @@ impl Service {
                             predicates_db_conn.del(chainhook_key);
                     }
                 }
-                ObserverEvent::BitcoinChainEvent((chain_update, report)) => {
+                ObserverEvent::BitcoinChainEvent((_chain_update, _report)) => {
                     debug!(self.ctx.expect_logger(), "Bitcoin update not stored");
                 }
                 ObserverEvent::StacksChainEvent((chain_event, report)) => {
@@ -309,7 +315,9 @@ impl Service {
                         StacksChainEvent::ChainUpdatedWithMicroblocks(_)
                         | StacksChainEvent::ChainUpdatedWithMicroblocksReorg(_) => {}
                     };
+
                     for (predicate_uuid, blocks_ids) in report.predicates_evaluated.iter() {}
+
                     for (predicate_uuid, blocks_ids) in report.predicates_triggered.iter() {}
                     // Every 32 blocks, we will check if there's a new Stacks file archive to ingest
                     if stacks_event > 32 {
@@ -337,6 +345,7 @@ impl Service {
 pub enum PredicateStatus {
     Scanning(ScanningData),
     Streaming(StreamingData),
+    InitialScanCompleted,
     Interrupted(String),
     Disabled,
 }
@@ -361,8 +370,8 @@ pub fn update_predicate_status(
     predicates_db_conn: &mut Connection,
     ctx: &Context,
 ) {
-    if let Err(e) = predicates_db_conn
-        .hset_multiple::<_, _, _, ()>(&predicate_key, &[("status", json!(status).to_string())])
+    if let Err(e) =
+        predicates_db_conn.hset::<_, _, _, ()>(&predicate_key, "status", json!(status).to_string())
     {
         error!(
             ctx.expect_logger(),
@@ -378,9 +387,10 @@ pub fn update_predicate_spec(
     predicates_db_conn: &mut Connection,
     ctx: &Context,
 ) {
-    if let Err(e) = predicates_db_conn.hset_multiple::<_, _, _, ()>(
+    if let Err(e) = predicates_db_conn.hset::<_, _, _, ()>(
         &predicate_key,
-        &[("specification", json!(spec).to_string())],
+        "specification",
+        json!(spec).to_string(),
     ) {
         error!(
             ctx.expect_logger(),
@@ -403,14 +413,21 @@ pub fn retrieve_predicate_status(
     }
 }
 
+pub fn open_readwrite_predicates_db_conn(
+    config: &PredicatesApiConfig,
+) -> Result<Connection, String> {
+    let redis_uri = &config.database_uri;
+    let client = redis::Client::open(redis_uri.clone()).unwrap();
+    client
+        .get_connection()
+        .map_err(|e| format!("unable to connect to db: {}", e.to_string()))
+}
+
 pub fn open_readwrite_predicates_db_conn_or_panic(
     config: &PredicatesApiConfig,
     ctx: &Context,
 ) -> Connection {
-    // Test and initialize a database connection
-    let redis_uri = &config.database_uri;
-    let client = redis::Client::open(redis_uri.clone()).unwrap();
-    let redis_con = match client.get_connection() {
+    let redis_con = match open_readwrite_predicates_db_conn(config) {
         Ok(con) => con,
         Err(message) => {
             error!(ctx.expect_logger(), "Redis: {}", message.to_string());

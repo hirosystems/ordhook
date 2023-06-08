@@ -1,31 +1,29 @@
 use crate::archive::download_ordinals_dataset_if_required;
 use crate::config::Config;
-use chainhook_event_observer::bitcoincore_rpc::RpcApi;
-use chainhook_event_observer::bitcoincore_rpc::{Auth, Client};
-use chainhook_event_observer::chainhooks::bitcoin::{
+use chainhook_sdk::bitcoincore_rpc::RpcApi;
+use chainhook_sdk::bitcoincore_rpc::{Auth, Client};
+use chainhook_sdk::chainhooks::bitcoin::{
     evaluate_bitcoin_chainhooks_on_chain_event, handle_bitcoin_hook_action,
     BitcoinChainhookOccurrence, BitcoinTriggerChainhook,
 };
-use chainhook_event_observer::chainhooks::types::{
-    BitcoinChainhookSpecification, BitcoinPredicateType,
-};
-use chainhook_event_observer::hord::db::{
+use chainhook_sdk::chainhooks::types::{BitcoinChainhookSpecification, BitcoinPredicateType};
+use chainhook_sdk::hord::db::{
     fetch_and_cache_blocks_in_hord_db, find_all_inscriptions, find_last_block_inserted,
     find_lazy_block_at_block_height, open_readonly_hord_db_conn,
     open_readonly_hord_db_conn_rocks_db, open_readwrite_hord_db_conn,
     open_readwrite_hord_db_conn_rocks_db,
 };
-use chainhook_event_observer::hord::{
+use chainhook_sdk::hord::{
     get_inscriptions_revealed_in_block,
     update_storage_and_augment_bitcoin_block_with_inscription_reveal_data,
     update_storage_and_augment_bitcoin_block_with_inscription_transfer_data, Storage,
 };
-use chainhook_event_observer::indexer;
-use chainhook_event_observer::indexer::bitcoin::{
+use chainhook_sdk::indexer;
+use chainhook_sdk::indexer::bitcoin::{
     download_and_parse_block_with_retry, retrieve_block_hash_with_retry,
 };
-use chainhook_event_observer::observer::{gather_proofs, EventObserverConfig};
-use chainhook_event_observer::utils::{file_append, send_request, Context};
+use chainhook_sdk::observer::{gather_proofs, EventObserverConfig};
+use chainhook_sdk::utils::{file_append, send_request, Context};
 use chainhook_types::{BitcoinChainEvent, BitcoinChainUpdatedWithBlocksData};
 use std::collections::{BTreeMap, HashMap};
 

@@ -466,7 +466,7 @@ version = "0.14.0"
 dependencies = [
  "ansi_term",
  "atty",
- "chainhook-event-observer",
+ "chainhook-sdk",
  "chainhook-types 1.0.3",
  "clap 3.2.23",
  "clap_generate",
@@ -499,8 +499,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "chainhook-event-observer"
-version = "1.0.7"
+name = "chainhook-sdk"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "base58 0.2.0",

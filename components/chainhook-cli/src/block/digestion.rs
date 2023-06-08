@@ -1,8 +1,8 @@
 use super::DigestingCommand;
 use crate::config::Config;
-use chainhook_event_observer::indexer;
-use chainhook_event_observer::indexer::Indexer;
-use chainhook_event_observer::utils::Context;
+use chainhook_sdk::indexer;
+use chainhook_sdk::indexer::Indexer;
+use chainhook_sdk::utils::Context;
 use redis::Commands;
 use std::cmp::Ordering;
 use std::{collections::BinaryHeap, process, sync::mpsc::Receiver};

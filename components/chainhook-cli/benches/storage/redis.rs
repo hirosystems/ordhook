@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use chainhook_event_indexer::ingestion::start_ingesting;
-use chainhook_event_observer::indexer::IndexerConfig;
+use chainhook_sdk::indexer::IndexerConfig;
 
 
 fn criterion_benchmark(c: &mut Criterion) {
