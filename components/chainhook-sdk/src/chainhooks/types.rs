@@ -64,12 +64,13 @@ impl ChainhookConfig {
         Ok(spec)
     }
 
-    pub fn enable_specification(&mut self, predicate_spec: &ChainhookSpecification) {
+    pub fn enable_specification(&mut self, predicate_spec: &mut ChainhookSpecification) {
         match predicate_spec {
             ChainhookSpecification::Stacks(spec_to_enable) => {
                 for spec in self.stacks_chainhooks.iter_mut() {
                     if spec.uuid.eq(&spec_to_enable.uuid) {
                         spec.enabled = true;
+                        spec_to_enable.enabled = true;
                         break;
                     }
                 }
@@ -78,6 +79,7 @@ impl ChainhookConfig {
                 for spec in self.bitcoin_chainhooks.iter_mut() {
                     if spec.uuid.eq(&spec_to_enable.uuid) {
                         spec.enabled = true;
+                        spec_to_enable.enabled = true;
                         break;
                     }
                 }
