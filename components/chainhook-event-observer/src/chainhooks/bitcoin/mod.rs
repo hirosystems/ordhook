@@ -7,14 +7,14 @@ use crate::utils::Context;
 use bitcoincore_rpc::bitcoin::util::address::Payload;
 use bitcoincore_rpc::bitcoin::Address;
 use chainhook_types::{
-    BitcoinBlockData, BitcoinChainEvent, BitcoinTransactionData, OrdinalOperation,
+    BitcoinBlockData, BitcoinChainEvent, BitcoinTransactionData, BlockIdentifier, OrdinalOperation,
     StacksBaseChainOperation, TransactionIdentifier,
 };
 use clarity_repl::clarity::util::hash::to_hex;
 
 use reqwest::{Client, Method};
 use serde_json::Value as JsonValue;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::str::FromStr;
 
 use reqwest::RequestBuilder;
@@ -57,8 +57,12 @@ pub fn evaluate_bitcoin_chainhooks_on_chain_event<'a>(
     chain_event: &'a BitcoinChainEvent,
     active_chainhooks: Vec<&'a BitcoinChainhookSpecification>,
     ctx: &Context,
-) -> Vec<BitcoinTriggerChainhook<'a>> {
-    let mut triggered_chainhooks = vec![];
+) -> (
+    Vec<BitcoinTriggerChainhook<'a>>,
+    BTreeMap<&'a str, &'a BlockIdentifier>,
+) {
+    let mut evaluated_predicates = BTreeMap::new();
+    let mut triggered_predicates = vec![];
     match chain_event {
         BitcoinChainEvent::ChainUpdatedWithBlocks(event) => {
             for chainhook in active_chainhooks.iter() {
@@ -66,6 +70,7 @@ pub fn evaluate_bitcoin_chainhooks_on_chain_event<'a>(
                 let rollback = vec![];
 
                 for block in event.new_blocks.iter() {
+                    evaluated_predicates.insert(chainhook.uuid.as_str(), &block.block_identifier);
                     let mut hits = vec![];
                     for tx in block.transactions.iter() {
                         if chainhook.predicate.evaluate_transaction_predicate(&tx, ctx) {
@@ -78,7 +83,7 @@ pub fn evaluate_bitcoin_chainhooks_on_chain_event<'a>(
                 }
 
                 if !apply.is_empty() {
-                    triggered_chainhooks.push(BitcoinTriggerChainhook {
+                    triggered_predicates.push(BitcoinTriggerChainhook {
                         chainhook,
                         apply,
                         rollback,
@@ -91,17 +96,6 @@ pub fn evaluate_bitcoin_chainhooks_on_chain_event<'a>(
                 let mut apply = vec![];
                 let mut rollback = vec![];
 
-                for block in event.blocks_to_apply.iter() {
-                    let mut hits = vec![];
-                    for tx in block.transactions.iter() {
-                        if chainhook.predicate.evaluate_transaction_predicate(&tx, ctx) {
-                            hits.push(tx);
-                        }
-                    }
-                    if hits.len() > 0 {
-                        apply.push((hits, block));
-                    }
-                }
                 for block in event.blocks_to_rollback.iter() {
                     let mut hits = vec![];
                     for tx in block.transactions.iter() {
@@ -113,8 +107,20 @@ pub fn evaluate_bitcoin_chainhooks_on_chain_event<'a>(
                         rollback.push((hits, block));
                     }
                 }
+                for block in event.blocks_to_apply.iter() {
+                    evaluated_predicates.insert(chainhook.uuid.as_str(), &block.block_identifier);
+                    let mut hits = vec![];
+                    for tx in block.transactions.iter() {
+                        if chainhook.predicate.evaluate_transaction_predicate(&tx, ctx) {
+                            hits.push(tx);
+                        }
+                    }
+                    if hits.len() > 0 {
+                        apply.push((hits, block));
+                    }
+                }
                 if !apply.is_empty() || !rollback.is_empty() {
-                    triggered_chainhooks.push(BitcoinTriggerChainhook {
+                    triggered_predicates.push(BitcoinTriggerChainhook {
                         chainhook,
                         apply,
                         rollback,
@@ -123,7 +129,7 @@ pub fn evaluate_bitcoin_chainhooks_on_chain_event<'a>(
             }
         }
     }
-    triggered_chainhooks
+    (triggered_predicates, evaluated_predicates)
 }
 
 pub fn serialize_bitcoin_payload_to_json<'a>(

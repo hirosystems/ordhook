@@ -44,7 +44,7 @@ fn generate_test_config() -> (EventObserverConfig, ChainhookStore) {
         cache_path: "cache".into(),
         bitcoin_network: BitcoinNetwork::Regtest,
         stacks_network: StacksNetwork::Devnet,
-        ordinals_enabled: false,
+        hord_config: None,
     };
     let mut entries = HashMap::new();
     entries.insert(ApiKey(None), ChainhookConfig::new());
@@ -140,7 +140,7 @@ fn generate_and_register_new_stacks_chainhook(
         ApiKey(None),
     ));
     assert!(match observer_events_rx.recv() {
-        Ok(ObserverEvent::HookRegistered(registered_chainhook, ApiKey(None))) => {
+        Ok(ObserverEvent::PredicateRegistered(registered_chainhook, ApiKey(None))) => {
             // assert_eq!(
             //     ChainhookSpecification::Stacks(chainhook.clone()),
             //     registered_chainhook
@@ -177,7 +177,7 @@ fn generate_and_register_new_bitcoin_chainhook(
         ApiKey(None),
     ));
     assert!(match observer_events_rx.recv() {
-        Ok(ObserverEvent::HookRegistered(registered_chainhook, ApiKey(None))) => {
+        Ok(ObserverEvent::PredicateRegistered(registered_chainhook, ApiKey(None))) => {
             // assert_eq!(
             //     ChainhookSpecification::Bitcoin(chainhook.clone()),
             //     registered_chainhook
@@ -272,7 +272,7 @@ fn test_stacks_chainhook_register_deregister() {
     });
 
     assert!(match observer_events_rx.recv() {
-        Ok(ObserverEvent::StacksChainhookTriggered(payload)) => {
+        Ok(ObserverEvent::StacksPredicateTriggered(payload)) => {
             assert_eq!(payload.apply.len(), 1);
             assert_eq!(payload.apply[0].transactions.len(), 1);
             true
@@ -329,7 +329,7 @@ fn test_stacks_chainhook_register_deregister() {
     });
 
     assert!(match observer_events_rx.recv() {
-        Ok(ObserverEvent::StacksChainhookTriggered(payload)) => {
+        Ok(ObserverEvent::StacksPredicateTriggered(payload)) => {
             assert_eq!(payload.apply.len(), 1);
             assert_eq!(payload.apply[0].transactions.len(), 2);
             true
@@ -351,7 +351,7 @@ fn test_stacks_chainhook_register_deregister() {
         ApiKey(None),
     ));
     assert!(match observer_events_rx.recv() {
-        Ok(ObserverEvent::HookDeregistered(deregistered_chainhook)) => {
+        Ok(ObserverEvent::PredicateDeregistered(deregistered_chainhook)) => {
             assert_eq!(
                 ChainhookSpecification::Stacks(chainhook),
                 deregistered_chainhook
@@ -461,7 +461,7 @@ fn test_stacks_chainhook_auto_deregister() {
         ApiKey(None),
     ));
     assert!(match observer_events_rx.recv() {
-        Ok(ObserverEvent::HookRegistered(registered_chainhook, ApiKey(None))) => {
+        Ok(ObserverEvent::PredicateRegistered(registered_chainhook, ApiKey(None))) => {
             // assert_eq!(
             //     ChainhookSpecification::Stacks(chainhook.clone()),
             //     registered_chainhook
@@ -527,7 +527,7 @@ fn test_stacks_chainhook_auto_deregister() {
     });
 
     assert!(match observer_events_rx.recv() {
-        Ok(ObserverEvent::StacksChainhookTriggered(_)) => {
+        Ok(ObserverEvent::StacksPredicateTriggered(_)) => {
             true
         }
         _ => false,
@@ -566,7 +566,7 @@ fn test_stacks_chainhook_auto_deregister() {
     });
     // Should signal that a hook was deregistered
     assert!(match observer_events_rx.recv() {
-        Ok(ObserverEvent::HookDeregistered(deregistered_hook)) => {
+        Ok(ObserverEvent::PredicateDeregistered(deregistered_hook)) => {
             assert_eq!(deregistered_hook.uuid(), chainhook.uuid);
             true
         }
@@ -682,7 +682,7 @@ fn test_bitcoin_chainhook_register_deregister() {
     });
 
     assert!(match observer_events_rx.recv() {
-        Ok(ObserverEvent::BitcoinChainhookTriggered(payload)) => {
+        Ok(ObserverEvent::BitcoinPredicateTriggered(payload)) => {
             assert_eq!(payload.apply.len(), 1);
             assert_eq!(payload.apply[0].block.transactions.len(), 1);
             true
@@ -737,7 +737,7 @@ fn test_bitcoin_chainhook_register_deregister() {
     });
 
     assert!(match observer_events_rx.recv() {
-        Ok(ObserverEvent::BitcoinChainhookTriggered(payload)) => {
+        Ok(ObserverEvent::BitcoinPredicateTriggered(payload)) => {
             assert_eq!(payload.apply.len(), 1);
             assert_eq!(payload.apply[0].block.transactions.len(), 2);
             true
@@ -759,7 +759,7 @@ fn test_bitcoin_chainhook_register_deregister() {
         ApiKey(None),
     ));
     assert!(match observer_events_rx.recv() {
-        Ok(ObserverEvent::HookDeregistered(deregistered_chainhook)) => {
+        Ok(ObserverEvent::PredicateDeregistered(deregistered_chainhook)) => {
             assert_eq!(
                 ChainhookSpecification::Bitcoin(chainhook),
                 deregistered_chainhook
@@ -918,7 +918,7 @@ fn test_bitcoin_chainhook_auto_deregister() {
     });
 
     assert!(match observer_events_rx.recv() {
-        Ok(ObserverEvent::BitcoinChainhookTriggered(_)) => {
+        Ok(ObserverEvent::BitcoinPredicateTriggered(_)) => {
             true
         }
         _ => false,
@@ -990,7 +990,7 @@ fn test_bitcoin_chainhook_auto_deregister() {
     });
     // Should signal that a hook was deregistered
     assert!(match observer_events_rx.recv() {
-        Ok(ObserverEvent::HookDeregistered(deregistered_hook)) => {
+        Ok(ObserverEvent::PredicateDeregistered(deregistered_hook)) => {
             assert_eq!(deregistered_hook.uuid(), chainhook.uuid);
             true
         }

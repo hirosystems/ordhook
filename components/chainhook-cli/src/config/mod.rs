@@ -1,16 +1,14 @@
 pub mod file;
 pub mod generator;
 
+use chainhook_event_observer::hord::HordConfig;
 pub use chainhook_event_observer::indexer::IndexerConfig;
 use chainhook_event_observer::observer::EventObserverConfig;
 use chainhook_types::{BitcoinBlockSignaling, BitcoinNetwork, StacksNetwork};
 pub use file::ConfigFile;
-use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::PathBuf;
-
-use crate::service::{DEFAULT_CONTROL_PORT, DEFAULT_INGESTION_PORT};
 
 const DEFAULT_MAINNET_STACKS_TSV_ARCHIVE: &str =
     "https://archive.hiro.so/mainnet/stacks-blockchain-api/mainnet-stacks-blockchain-api-latest";
@@ -18,36 +16,40 @@ const DEFAULT_TESTNET_STACKS_TSV_ARCHIVE: &str =
     "https://archive.hiro.so/testnet/stacks-blockchain-api/testnet-stacks-blockchain-api-latest";
 const DEFAULT_MAINNET_ORDINALS_SQLITE_ARCHIVE: &str =
     "https://archive.hiro.so/mainnet/chainhooks/hord-latest.sqlite";
+const DEFAULT_REDIS_URI: &str = "redis://localhost:6379/";
+
+pub const DEFAULT_INGESTION_PORT: u16 = 20455;
+pub const DEFAULT_CONTROL_PORT: u16 = 20456;
+pub const STACKS_SCAN_THREAD_POOL_SIZE: usize = 10;
+pub const BITCOIN_SCAN_THREAD_POOL_SIZE: usize = 10;
+pub const STACKS_MAX_PREDICATE_REGISTRATION: usize = 50;
+pub const BITCOIN_MAX_PREDICATE_REGISTRATION: usize = 50;
 
 #[derive(Clone, Debug)]
 pub struct Config {
     pub storage: StorageConfig,
+    pub http_api: PredicatesApi,
     pub event_sources: Vec<EventSourceConfig>,
-    pub chainhooks: ChainhooksConfig,
+    pub limits: LimitsConfig,
     pub network: IndexerConfig,
 }
 
 #[derive(Clone, Debug)]
 pub struct StorageConfig {
-    pub driver: StorageDriver,
-    pub cache_path: String,
+    pub working_dir: String,
 }
 
 #[derive(Clone, Debug)]
-pub enum StorageDriver {
-    Redis(RedisConfig),
-    Tikv(TikvConfig),
-    Memory,
+pub enum PredicatesApi {
+    Off,
+    On(PredicatesApiConfig),
 }
 
 #[derive(Clone, Debug)]
-pub struct RedisConfig {
-    pub uri: String,
-}
-
-#[derive(Clone, Debug)]
-pub struct TikvConfig {
-    pub uri: String,
+pub struct PredicatesApiConfig {
+    pub http_port: u16,
+    pub database_uri: String,
+    pub display_logs: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -69,10 +71,14 @@ pub struct UrlConfig {
 }
 
 #[derive(Clone, Debug)]
-pub struct ChainhooksConfig {
-    pub max_stacks_registrations: u16,
-    pub max_bitcoin_registrations: u16,
-    pub enable_http_api: bool,
+pub struct LimitsConfig {
+    pub max_number_of_bitcoin_predicates: usize,
+    pub max_number_of_concurrent_bitcoin_scans: usize,
+    pub max_number_of_stacks_predicates: usize,
+    pub max_number_of_concurrent_stacks_scans: usize,
+    pub max_number_of_processing_threads: usize,
+    pub max_number_of_networking_threads: usize,
+    pub max_caching_memory_size_mb: usize,
 }
 
 impl Config {
@@ -94,26 +100,44 @@ impl Config {
         Config::from_config_file(config_file)
     }
 
+    pub fn is_http_api_enabled(&self) -> bool {
+        match self.http_api {
+            PredicatesApi::Off => false,
+            PredicatesApi::On(_) => true,
+        }
+    }
+
+    pub fn get_hord_config(&self) -> HordConfig {
+        HordConfig {
+            network_thread_max: self.limits.max_number_of_networking_threads,
+            ingestion_thread_max: self.limits.max_number_of_processing_threads,
+            cache_size: self.limits.max_caching_memory_size_mb,
+            db_path: self.expected_cache_path(),
+            first_inscription_height: match self.network.bitcoin_network {
+                BitcoinNetwork::Mainnet => 767430,
+                BitcoinNetwork::Regtest => 1,
+                BitcoinNetwork::Testnet => 2413343,
+                // BitcoinNetwork::Signet => 112402,
+            },
+        }
+    }
+
     pub fn get_event_observer_config(&self) -> EventObserverConfig {
         EventObserverConfig {
-            hooks_enabled: true,
             bitcoin_rpc_proxy_enabled: true,
             event_handlers: vec![],
             chainhook_config: None,
             ingestion_port: DEFAULT_INGESTION_PORT,
-            control_port: DEFAULT_CONTROL_PORT,
-            control_api_enabled: self.chainhooks.enable_http_api,
             bitcoind_rpc_username: self.network.bitcoind_rpc_username.clone(),
             bitcoind_rpc_password: self.network.bitcoind_rpc_password.clone(),
             bitcoind_rpc_url: self.network.bitcoind_rpc_url.clone(),
             stacks_node_rpc_url: self.network.stacks_node_rpc_url.clone(),
             bitcoin_block_signaling: self.network.bitcoin_block_signaling.clone(),
-            operators: HashSet::new(),
             display_logs: false,
-            cache_path: self.storage.cache_path.clone(),
+            cache_path: self.storage.working_dir.clone(),
             bitcoin_network: self.network.bitcoin_network.clone(),
             stacks_network: self.network.stacks_network.clone(),
-            ordinals_enabled: true,
+            hord_config: Some(self.get_hord_config()),
         }
     }
 
@@ -141,22 +165,51 @@ impl Config {
 
         let config = Config {
             storage: StorageConfig {
-                driver: StorageDriver::Redis(RedisConfig {
-                    uri: config_file.storage.redis_uri.to_string(),
-                }),
-                cache_path: config_file.storage.cache_path.unwrap_or("cache".into()),
+                working_dir: config_file.storage.working_dir.unwrap_or("cache".into()),
+            },
+            http_api: match config_file.http_api {
+                None => PredicatesApi::Off,
+                Some(http_api) => match http_api.disabled {
+                    Some(false) => PredicatesApi::Off,
+                    _ => PredicatesApi::On(PredicatesApiConfig {
+                        http_port: http_api.http_port.unwrap_or(DEFAULT_CONTROL_PORT),
+                        display_logs: http_api.display_logs.unwrap_or(true),
+                        database_uri: http_api
+                            .database_uri
+                            .unwrap_or(DEFAULT_REDIS_URI.to_string()),
+                    }),
+                },
             },
             event_sources,
-            chainhooks: ChainhooksConfig {
-                max_stacks_registrations: config_file
-                    .chainhooks
-                    .max_stacks_registrations
-                    .unwrap_or(100),
-                max_bitcoin_registrations: config_file
-                    .chainhooks
-                    .max_bitcoin_registrations
-                    .unwrap_or(100),
-                enable_http_api: true,
+            limits: LimitsConfig {
+                max_number_of_stacks_predicates: config_file
+                    .limits
+                    .max_number_of_stacks_predicates
+                    .unwrap_or(STACKS_MAX_PREDICATE_REGISTRATION),
+                max_number_of_bitcoin_predicates: config_file
+                    .limits
+                    .max_number_of_bitcoin_predicates
+                    .unwrap_or(BITCOIN_MAX_PREDICATE_REGISTRATION),
+                max_number_of_concurrent_stacks_scans: config_file
+                    .limits
+                    .max_number_of_concurrent_stacks_scans
+                    .unwrap_or(STACKS_SCAN_THREAD_POOL_SIZE),
+                max_number_of_concurrent_bitcoin_scans: config_file
+                    .limits
+                    .max_number_of_concurrent_bitcoin_scans
+                    .unwrap_or(BITCOIN_SCAN_THREAD_POOL_SIZE),
+                max_number_of_processing_threads: config_file
+                    .limits
+                    .max_number_of_processing_threads
+                    .unwrap_or(1.max(num_cpus::get().saturating_sub(1))),
+                max_number_of_networking_threads: config_file
+                    .limits
+                    .max_number_of_networking_threads
+                    .unwrap_or(1.max(num_cpus::get().saturating_sub(1))),
+                max_caching_memory_size_mb: config_file
+                    .limits
+                    .max_caching_memory_size_mb
+                    .unwrap_or(2048),
             },
             network: IndexerConfig {
                 stacks_node_rpc_url: config_file.network.stacks_node_rpc_url.to_string(),
@@ -209,16 +262,13 @@ impl Config {
             }));
     }
 
-    pub fn expected_tikv_config(&self) -> &TikvConfig {
-        match self.storage.driver {
-            StorageDriver::Tikv(ref conf) => conf,
-            _ => unreachable!(),
-        }
+    pub fn expected_api_database_uri(&self) -> &str {
+        &self.expected_api_config().database_uri
     }
 
-    pub fn expected_redis_config(&self) -> &RedisConfig {
-        match self.storage.driver {
-            StorageDriver::Redis(ref conf) => conf,
+    pub fn expected_api_config(&self) -> &PredicatesApiConfig {
+        match self.http_api {
+            PredicatesApi::On(ref config) => config,
             _ => unreachable!(),
         }
     }
@@ -234,7 +284,7 @@ impl Config {
 
     pub fn expected_cache_path(&self) -> PathBuf {
         let mut destination_path = PathBuf::new();
-        destination_path.push(&self.storage.cache_path);
+        destination_path.push(&self.storage.working_dir);
         destination_path
     }
 
@@ -337,16 +387,18 @@ impl Config {
     pub fn devnet_default() -> Config {
         Config {
             storage: StorageConfig {
-                driver: StorageDriver::Redis(RedisConfig {
-                    uri: "redis://localhost:6379/".into(),
-                }),
-                cache_path: default_cache_path(),
+                working_dir: default_cache_path(),
             },
+            http_api: PredicatesApi::Off,
             event_sources: vec![],
-            chainhooks: ChainhooksConfig {
-                max_stacks_registrations: 50,
-                max_bitcoin_registrations: 50,
-                enable_http_api: true,
+            limits: LimitsConfig {
+                max_number_of_bitcoin_predicates: BITCOIN_MAX_PREDICATE_REGISTRATION,
+                max_number_of_concurrent_bitcoin_scans: BITCOIN_SCAN_THREAD_POOL_SIZE,
+                max_number_of_stacks_predicates: STACKS_MAX_PREDICATE_REGISTRATION,
+                max_number_of_concurrent_stacks_scans: STACKS_SCAN_THREAD_POOL_SIZE,
+                max_number_of_processing_threads: 1.max(num_cpus::get().saturating_sub(1)),
+                max_number_of_networking_threads: 1.max(num_cpus::get().saturating_sub(1)),
+                max_caching_memory_size_mb: 2048,
             },
             network: IndexerConfig {
                 stacks_node_rpc_url: "http://0.0.0.0:20443".into(),
@@ -365,18 +417,20 @@ impl Config {
     pub fn testnet_default() -> Config {
         Config {
             storage: StorageConfig {
-                driver: StorageDriver::Redis(RedisConfig {
-                    uri: "redis://localhost:6379/".into(),
-                }),
-                cache_path: default_cache_path(),
+                working_dir: default_cache_path(),
             },
+            http_api: PredicatesApi::Off,
             event_sources: vec![EventSourceConfig::StacksTsvUrl(UrlConfig {
                 file_url: DEFAULT_TESTNET_STACKS_TSV_ARCHIVE.into(),
             })],
-            chainhooks: ChainhooksConfig {
-                max_stacks_registrations: 10,
-                max_bitcoin_registrations: 10,
-                enable_http_api: true,
+            limits: LimitsConfig {
+                max_number_of_bitcoin_predicates: BITCOIN_MAX_PREDICATE_REGISTRATION,
+                max_number_of_concurrent_bitcoin_scans: BITCOIN_SCAN_THREAD_POOL_SIZE,
+                max_number_of_stacks_predicates: STACKS_MAX_PREDICATE_REGISTRATION,
+                max_number_of_concurrent_stacks_scans: STACKS_SCAN_THREAD_POOL_SIZE,
+                max_number_of_processing_threads: 1.max(num_cpus::get().saturating_sub(1)),
+                max_number_of_networking_threads: 1.max(num_cpus::get().saturating_sub(1)),
+                max_caching_memory_size_mb: 2048,
             },
             network: IndexerConfig {
                 stacks_node_rpc_url: "http://0.0.0.0:20443".into(),
@@ -395,11 +449,9 @@ impl Config {
     pub fn mainnet_default() -> Config {
         Config {
             storage: StorageConfig {
-                driver: StorageDriver::Redis(RedisConfig {
-                    uri: "redis://localhost:6379/".into(),
-                }),
-                cache_path: default_cache_path(),
+                working_dir: default_cache_path(),
             },
+            http_api: PredicatesApi::Off,
             event_sources: vec![
                 EventSourceConfig::StacksTsvUrl(UrlConfig {
                     file_url: DEFAULT_MAINNET_STACKS_TSV_ARCHIVE.into(),
@@ -408,10 +460,14 @@ impl Config {
                     file_url: DEFAULT_MAINNET_ORDINALS_SQLITE_ARCHIVE.into(),
                 }),
             ],
-            chainhooks: ChainhooksConfig {
-                max_stacks_registrations: 10,
-                max_bitcoin_registrations: 10,
-                enable_http_api: true,
+            limits: LimitsConfig {
+                max_number_of_bitcoin_predicates: BITCOIN_MAX_PREDICATE_REGISTRATION,
+                max_number_of_concurrent_bitcoin_scans: BITCOIN_SCAN_THREAD_POOL_SIZE,
+                max_number_of_stacks_predicates: STACKS_MAX_PREDICATE_REGISTRATION,
+                max_number_of_concurrent_stacks_scans: STACKS_SCAN_THREAD_POOL_SIZE,
+                max_number_of_processing_threads: 1.max(num_cpus::get().saturating_sub(1)),
+                max_number_of_networking_threads: 1.max(num_cpus::get().saturating_sub(1)),
+                max_caching_memory_size_mb: 2048,
             },
             network: IndexerConfig {
                 stacks_node_rpc_url: "http://0.0.0.0:20443".into(),

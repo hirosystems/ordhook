@@ -30,7 +30,7 @@ use crate::{
 use super::{
     new_traversals_lazy_cache,
     ord::{height::Height, sat::Sat},
-    update_hord_db_and_augment_bitcoin_block,
+    update_hord_db_and_augment_bitcoin_block, HordConfig,
 };
 
 fn get_default_hord_db_file_path(base_dir: &PathBuf) -> PathBuf {
@@ -221,16 +221,6 @@ pub fn open_readwrite_hord_db_conn_rocks_db(
     let db = DB::open(&opts, path)
         .map_err(|e| format!("unable to open blocks_db: {}", e.to_string()))?;
     Ok(db)
-}
-
-pub fn archive_hord_db_conn_rocks_db(base_dir: &PathBuf, _ctx: &Context) {
-    let from = get_default_hord_db_file_path_rocks_db(&base_dir);
-    let to = {
-        let mut destination_path = base_dir.clone();
-        destination_path.push("hord.rocksdb_archive");
-        destination_path
-    };
-    let _ = std::fs::rename(from, to);
 }
 
 pub fn insert_entry_in_blocks(
@@ -627,23 +617,22 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
     inscriptions_db_conn_rw: &Connection,
     start_block: u64,
     end_block: u64,
-    network_thread: usize,
-    hord_db_path: &PathBuf,
+    hord_config: &HordConfig,
     ctx: &Context,
 ) -> Result<(), String> {
-    let ordinal_computing_height: u64 = 765000;
+    let ordinal_computing_height = hord_config.first_inscription_height;
     let number_of_blocks_to_process = end_block - start_block + 1;
-    let (block_hash_req_lim, block_req_lim, block_process_lim, processing_thread) =
+    let (block_hash_req_lim, block_req_lim, block_process_lim) =
         if start_block >= ordinal_computing_height {
-            (8, 8, 8, 4)
+            (32, 24, 24)
         } else {
-            (256, 128, 128, 16)
+            (256, 128, 128)
         };
-    let retrieve_block_hash_pool = ThreadPool::new(network_thread);
+    let retrieve_block_hash_pool = ThreadPool::new(hord_config.network_thread_max);
     let (block_hash_tx, block_hash_rx) = crossbeam_channel::bounded(block_hash_req_lim);
-    let retrieve_block_data_pool = ThreadPool::new(network_thread);
+    let retrieve_block_data_pool = ThreadPool::new(hord_config.network_thread_max);
     let (block_data_tx, block_data_rx) = crossbeam_channel::bounded(block_req_lim);
-    let compress_block_data_pool = ThreadPool::new(processing_thread);
+    let compress_block_data_pool = ThreadPool::new(hord_config.ingestion_thread_max);
     let (block_compressed_tx, block_compressed_rx) = crossbeam_channel::bounded(block_process_lim);
 
     // Thread pool #1: given a block height, retrieve the block hash
@@ -725,7 +714,7 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
     let mut cursor = start_block as usize;
     let mut inbox = HashMap::new();
     let mut num_writes = 0;
-    let traversals_cache = Arc::new(new_traversals_lazy_cache());
+    let traversals_cache = Arc::new(new_traversals_lazy_cache(hord_config.cache_size));
 
     while let Ok(Some((block_height, compacted_block, raw_block))) = block_compressed_rx.recv() {
         insert_entry_in_blocks(block_height, &compacted_block, &blocks_db_rw, &ctx);
@@ -772,7 +761,7 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
                     blocks_db_rw,
                     &inscriptions_db_conn_rw,
                     false,
-                    &hord_db_path,
+                    &hord_config,
                     &traversals_cache,
                     &ctx,
                 ) {
@@ -803,18 +792,20 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
             return Ok(());
         }
 
-        if num_writes % 24 == 0 {
-            ctx.try_log(|logger| {
-                slog::info!(
-                    logger,
-                    "Flushing traversals cache (#{} entries)",
-                    traversals_cache.len()
-                );
-            });
-            traversals_cache.clear();
+        if !traversals_cache.is_empty() {
+            if num_writes % 128 == 0 {
+                ctx.try_log(|logger| {
+                    slog::info!(
+                        logger,
+                        "Flushing traversals cache (#{} entries)",
+                        traversals_cache.len()
+                    );
+                });
+                traversals_cache.shrink_to_fit();
+            }
         }
 
-        if num_writes % 128 == 0 {
+        if num_writes % 512 == 0 {
             ctx.try_log(|logger| {
                 slog::info!(logger, "Flushing DB to disk ({num_writes} inserts)");
             });
@@ -1172,12 +1163,24 @@ pub struct LazyBlockTransaction {
     pub outputs: Vec<u64>,
 }
 
+impl LazyBlockTransaction {
+    pub fn get_average_bytes_size() -> usize {
+        TXID_LEN + 3 * LazyBlockTransactionInput::get_average_bytes_size() + 3 * SATS_LEN
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct LazyBlockTransactionInput {
     pub txin: [u8; 8],
     pub block_height: u32,
     pub vout: u16,
     pub txin_value: u64,
+}
+
+impl LazyBlockTransactionInput {
+    pub fn get_average_bytes_size() -> usize {
+        TXID_LEN + SATS_LEN + 4 + 2
+    }
 }
 
 const TXID_LEN: usize = 8;

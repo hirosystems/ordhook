@@ -1,24 +1,23 @@
-use crate::config::Config;
-use crate::scan::bitcoin::scan_bitcoin_chainstate_via_http_using_predicate;
-use crate::scan::stacks::scan_stacks_chainstate_via_csv_using_predicate;
+mod http_api;
+mod runloops;
+
+use crate::config::{Config, PredicatesApi, PredicatesApiConfig};
+use crate::scan::stacks::consolidate_local_stacks_chainstate_using_csv;
+use crate::service::http_api::{load_predicates_from_redis, start_predicate_api_server};
+use crate::service::runloops::{start_bitcoin_scan_runloop, start_stacks_scan_runloop};
+use crate::storage::{
+    confirm_entries_in_stacks_blocks, draft_entries_in_stacks_blocks, open_readwrite_stacks_db_conn,
+};
 
 use chainhook_event_observer::chainhooks::types::{ChainhookConfig, ChainhookFullSpecification};
 
 use chainhook_event_observer::chainhooks::types::ChainhookSpecification;
-use chainhook_event_observer::observer::{
-    start_event_observer, ApiKey, ObserverCommand, ObserverEvent,
-};
+use chainhook_event_observer::observer::{start_event_observer, ObserverEvent};
 use chainhook_event_observer::utils::Context;
-use chainhook_types::{BitcoinBlockSignaling, StacksBlockData, StacksChainEvent};
+use chainhook_types::{BitcoinBlockSignaling, StacksChainEvent};
 use redis::{Commands, Connection};
-use threadpool::ThreadPool;
 
 use std::sync::mpsc::channel;
-
-pub const DEFAULT_INGESTION_PORT: u16 = 20455;
-pub const DEFAULT_CONTROL_PORT: u16 = 20456;
-pub const STACKS_SCAN_THREAD_POOL_SIZE: usize = 1;
-pub const BITCOIN_SCAN_THREAD_POOL_SIZE: usize = 12;
 
 pub struct Service {
     config: Config,
@@ -37,7 +36,8 @@ impl Service {
     ) -> Result<(), String> {
         let mut chainhook_config = ChainhookConfig::new();
 
-        if predicates.is_empty() {
+        // If no predicates passed at launch, retrieve predicates from Redis
+        if predicates.is_empty() && self.config.is_http_api_enabled() {
             let registered_predicates = match load_predicates_from_redis(&self.config, &self.ctx) {
                 Ok(predicates) => predicates,
                 Err(e) => {
@@ -49,9 +49,9 @@ impl Service {
                     vec![]
                 }
             };
-            for predicate in registered_predicates.into_iter() {
+            for (predicate, _status) in registered_predicates.into_iter() {
                 let predicate_uuid = predicate.uuid().to_string();
-                match chainhook_config.register_specification(predicate, true) {
+                match chainhook_config.register_specification(predicate) {
                     Ok(_) => {
                         info!(
                             self.ctx.expect_logger(),
@@ -69,6 +69,7 @@ impl Service {
             }
         }
 
+        // For each predicate found, register in memory.
         for predicate in predicates.into_iter() {
             match chainhook_config.register_full_specification(
                 (
@@ -76,7 +77,6 @@ impl Service {
                     &self.config.network.stacks_network,
                 ),
                 predicate,
-                &ApiKey(None),
             ) {
                 Ok(spec) => {
                     info!(
@@ -101,7 +101,66 @@ impl Service {
 
         let mut event_observer_config = self.config.get_event_observer_config();
         event_observer_config.chainhook_config = Some(chainhook_config);
-        event_observer_config.ordinals_enabled = !hord_disabled;
+        event_observer_config.hord_config = match hord_disabled {
+            true => None,
+            false => Some(self.config.get_hord_config()),
+        };
+
+        // Download and ingest a Stacks dump
+        let _ = consolidate_local_stacks_chainstate_using_csv(&mut self.config, &self.ctx).await;
+
+        // Download and ingest a Ordinal dump, if hord is enabled
+        if !hord_disabled {
+            // TODO: add flag
+            // let _ = download_ordinals_dataset_if_required(&mut self.config, &self.ctx).await;
+        }
+
+        // Start chainhook event observer
+        let context_cloned = self.ctx.clone();
+        let event_observer_config_moved = event_observer_config.clone();
+        let observer_command_tx_moved = observer_command_tx.clone();
+        let _ = std::thread::spawn(move || {
+            let future = start_event_observer(
+                event_observer_config_moved,
+                observer_command_tx_moved,
+                observer_command_rx,
+                Some(observer_event_tx),
+                context_cloned,
+            );
+            let _ = hiro_system_kit::nestable_block_on(future);
+        });
+
+        // Stacks scan operation threadpool
+        let (stacks_scan_op_tx, stacks_scan_op_rx) = crossbeam_channel::unbounded();
+        let ctx = self.ctx.clone();
+        let config = self.config.clone();
+        let observer_command_tx_moved = observer_command_tx.clone();
+        let _ = hiro_system_kit::thread_named("Stacks scan runloop")
+            .spawn(move || {
+                start_stacks_scan_runloop(
+                    &config,
+                    stacks_scan_op_rx,
+                    observer_command_tx_moved,
+                    &ctx,
+                );
+            })
+            .expect("unable to spawn thread");
+
+        // Bitcoin scan operation threadpool
+        let (bitcoin_scan_op_tx, bitcoin_scan_op_rx) = crossbeam_channel::unbounded();
+        let ctx = self.ctx.clone();
+        let config = self.config.clone();
+        let observer_command_tx_moved = observer_command_tx.clone();
+        let _ = hiro_system_kit::thread_named("Bitcoin scan runloop")
+            .spawn(move || {
+                start_bitcoin_scan_runloop(
+                    &config,
+                    bitcoin_scan_op_rx,
+                    observer_command_tx_moved,
+                    &ctx,
+                );
+            })
+            .expect("unable to spawn thread");
 
         info!(
             self.ctx.expect_logger(),
@@ -121,113 +180,32 @@ impl Service {
                 );
             }
         }
+        // Enable HTTP Chainhook API, if required
+        let mut predicates_db_conn = match self.config.http_api {
+            PredicatesApi::On(ref api_config) => {
+                info!(
+                    self.ctx.expect_logger(),
+                    "Listening for chainhook predicate registrations on port {}",
+                    api_config.http_port
+                );
+                let ctx = self.ctx.clone();
+                let api_config = api_config.clone();
+                let moved_observer_command_tx = observer_command_tx.clone();
+                // Test and initialize a database connection
+                let redis_con = open_readwrite_predicates_db_conn_or_panic(&api_config, &self.ctx);
 
-        if self.config.chainhooks.enable_http_api {
-            info!(
-                self.ctx.expect_logger(),
-                "Listening for chainhook predicate registrations on port {}",
-                event_observer_config.control_port
-            );
-        }
+                let _ = hiro_system_kit::thread_named("HTTP Predicate API").spawn(move || {
+                    let future =
+                        start_predicate_api_server(&api_config, moved_observer_command_tx, ctx);
+                    let _ = hiro_system_kit::nestable_block_on(future);
+                });
 
-        let context_cloned = self.ctx.clone();
-        let event_observer_config_moved = event_observer_config.clone();
-        let observer_command_tx_moved = observer_command_tx.clone();
-        let _ = std::thread::spawn(move || {
-            let future = start_event_observer(
-                event_observer_config_moved,
-                observer_command_tx_moved,
-                observer_command_rx,
-                Some(observer_event_tx),
-                context_cloned,
-            );
-            let _ = hiro_system_kit::nestable_block_on(future);
-        });
+                Some(redis_con)
+            }
+            PredicatesApi::Off => None,
+        };
 
-        // Stacks scan operation threadpool
-        let (stacks_scan_op_tx, stacks_scan_op_rx) = crossbeam_channel::unbounded();
-        let stacks_scan_pool = ThreadPool::new(STACKS_SCAN_THREAD_POOL_SIZE);
-        let ctx = self.ctx.clone();
-        let config = self.config.clone();
-        let observer_command_tx_moved = observer_command_tx.clone();
-        let _ = hiro_system_kit::thread_named("Stacks scan runloop")
-            .spawn(move || {
-                while let Ok((predicate_spec, api_key)) = stacks_scan_op_rx.recv() {
-                    let moved_ctx = ctx.clone();
-                    let mut moved_config = config.clone();
-                    let observer_command_tx = observer_command_tx_moved.clone();
-                    stacks_scan_pool.execute(move || {
-                        let op = scan_stacks_chainstate_via_csv_using_predicate(
-                            &predicate_spec,
-                            &mut moved_config,
-                            &moved_ctx,
-                        );
-                        let last_block_in_csv = match hiro_system_kit::nestable_block_on(op) {
-                            Ok(last_block_in_csv) => last_block_in_csv,
-                            Err(e) => {
-                                error!(
-                                    moved_ctx.expect_logger(),
-                                    "Unable to evaluate predicate on Stacks chainstate: {e}",
-                                );
-                                return;
-                            }
-                        };
-                        info!(
-                            moved_ctx.expect_logger(),
-                            "Stacks chainstate scan completed up to block: {}",
-                            last_block_in_csv.index
-                        );
-                        let _ = observer_command_tx.send(ObserverCommand::EnablePredicate(
-                            ChainhookSpecification::Stacks(predicate_spec),
-                            api_key,
-                        ));
-                    });
-                }
-                let res = stacks_scan_pool.join();
-                res
-            })
-            .expect("unable to spawn thread");
-
-        // Bitcoin scan operation threadpool
-        let (bitcoin_scan_op_tx, bitcoin_scan_op_rx) = crossbeam_channel::unbounded();
-        let bitcoin_scan_pool = ThreadPool::new(BITCOIN_SCAN_THREAD_POOL_SIZE);
-        let ctx = self.ctx.clone();
-        let config = self.config.clone();
-        let moved_observer_command_tx = observer_command_tx.clone();
-        let _ = hiro_system_kit::thread_named("Bitcoin scan runloop")
-            .spawn(move || {
-                while let Ok((predicate_spec, api_key)) = bitcoin_scan_op_rx.recv() {
-                    let moved_ctx = ctx.clone();
-                    let moved_config = config.clone();
-                    let observer_command_tx = moved_observer_command_tx.clone();
-                    bitcoin_scan_pool.execute(move || {
-                        let op = scan_bitcoin_chainstate_via_http_using_predicate(
-                            &predicate_spec,
-                            &moved_config,
-                            &moved_ctx,
-                        );
-
-                        match hiro_system_kit::nestable_block_on(op) {
-                            Ok(_) => {}
-                            Err(e) => {
-                                error!(
-                                    moved_ctx.expect_logger(),
-                                    "Unable to evaluate predicate on Bitcoin chainstate: {e}",
-                                );
-                                return;
-                            }
-                        };
-                        let _ = observer_command_tx.send(ObserverCommand::EnablePredicate(
-                            ChainhookSpecification::Bitcoin(predicate_spec),
-                            api_key,
-                        ));
-                    });
-                }
-                let res = bitcoin_scan_pool.join();
-                res
-            })
-            .expect("unable to spawn thread");
-
+        let mut stacks_event = 0;
         loop {
             let event = match observer_event_rx.recv() {
                 Ok(cmd) => cmd,
@@ -240,74 +218,108 @@ impl Service {
                     break;
                 }
             };
-            let redis_config = self.config.expected_redis_config();
 
-            let client = redis::Client::open(redis_config.uri.clone()).unwrap();
-            let mut redis_con = match client.get_connection() {
-                Ok(con) => con,
-                Err(message) => {
-                    error!(self.ctx.expect_logger(), "Redis: {}", message.to_string());
-                    panic!();
-                }
-            };
             match event {
-                ObserverEvent::HookRegistered(chainhook, api_key) => {
+                ObserverEvent::PredicateRegistered(chainhook) => {
                     // If start block specified, use it.
                     // I no start block specified, depending on the nature the hook, we'd like to retrieve:
                     // - contract-id
-
-                    let chainhook_key = chainhook.key();
-                    let history: Vec<u64> = vec![];
-                    let res: Result<(), redis::RedisError> = redis_con.hset_multiple(
-                        &chainhook_key,
-                        &[
-                            ("specification", json!(chainhook).to_string()),
-                            ("history", json!(history).to_string()),
-                            ("scan_progress", json!(0).to_string()),
-                        ],
-                    );
-                    if let Err(e) = res {
-                        error!(
-                            self.ctx.expect_logger(),
-                            "unable to store chainhook {chainhook_key}: {}",
-                            e.to_string()
+                    if let Some(ref mut predicates_db_conn) = predicates_db_conn {
+                        let chainhook_key = chainhook.key();
+                        let res: Result<(), redis::RedisError> = predicates_db_conn.hset_multiple(
+                            &chainhook_key,
+                            &[
+                                ("specification", json!(chainhook).to_string()),
+                                ("status", json!(PredicateStatus::Disabled).to_string()),
+                            ],
                         );
-                    }
-                    match chainhook {
-                        ChainhookSpecification::Stacks(predicate_spec) => {
-                            let _ = stacks_scan_op_tx.send((predicate_spec, api_key));
+                        if let Err(e) = res {
+                            error!(
+                                self.ctx.expect_logger(),
+                                "unable to store chainhook {chainhook_key}: {}",
+                                e.to_string()
+                            );
                         }
-                        ChainhookSpecification::Bitcoin(predicate_spec) => {
-                            let _ = bitcoin_scan_op_tx.send((predicate_spec, api_key));
+                        match chainhook {
+                            ChainhookSpecification::Stacks(predicate_spec) => {
+                                let _ = stacks_scan_op_tx.send(predicate_spec);
+                            }
+                            ChainhookSpecification::Bitcoin(predicate_spec) => {
+                                let _ = bitcoin_scan_op_tx.send(predicate_spec);
+                            }
                         }
                     }
                 }
-                ObserverEvent::HookDeregistered(chainhook) => {
-                    let chainhook_key = chainhook.key();
-                    let _: Result<(), redis::RedisError> = redis_con.del(chainhook_key);
+                ObserverEvent::PredicateEnabled(spec) => {
+                    if let Some(ref mut predicates_db_conn) = predicates_db_conn {
+                        update_predicate_spec(&spec.key(), &spec, predicates_db_conn, &self.ctx);
+                    }
                 }
-                ObserverEvent::BitcoinChainEvent(_chain_update) => {
+                ObserverEvent::PredicateDeregistered(chainhook) => {
+                    if let Some(ref mut predicates_db_conn) = predicates_db_conn {
+                        let chainhook_key = chainhook.key();
+                        let _: Result<(), redis::RedisError> =
+                            predicates_db_conn.del(chainhook_key);
+                    }
+                }
+                ObserverEvent::BitcoinChainEvent((chain_update, report)) => {
                     debug!(self.ctx.expect_logger(), "Bitcoin update not stored");
                 }
-                ObserverEvent::StacksChainEvent(chain_event) => {
+                ObserverEvent::StacksChainEvent((chain_event, report)) => {
+                    let stacks_db_conn_rw = match open_readwrite_stacks_db_conn(
+                        &self.config.expected_cache_path(),
+                        &self.ctx,
+                    ) {
+                        Ok(db_conn) => db_conn,
+                        Err(e) => {
+                            error!(
+                                self.ctx.expect_logger(),
+                                "unable to store stacks block: {}",
+                                e.to_string()
+                            );
+                            continue;
+                        }
+                    };
                     match &chain_event {
                         StacksChainEvent::ChainUpdatedWithBlocks(data) => {
-                            update_storage_with_confirmed_stacks_blocks(
-                                &mut redis_con,
+                            stacks_event += 1;
+                            confirm_entries_in_stacks_blocks(
                                 &data.confirmed_blocks,
+                                &stacks_db_conn_rw,
                                 &self.ctx,
                             );
+                            draft_entries_in_stacks_blocks(
+                                &data.new_blocks,
+                                &stacks_db_conn_rw,
+                                &self.ctx,
+                            )
                         }
                         StacksChainEvent::ChainUpdatedWithReorg(data) => {
-                            update_storage_with_confirmed_stacks_blocks(
-                                &mut redis_con,
+                            confirm_entries_in_stacks_blocks(
                                 &data.confirmed_blocks,
+                                &stacks_db_conn_rw,
                                 &self.ctx,
                             );
+                            draft_entries_in_stacks_blocks(
+                                &data.blocks_to_apply,
+                                &stacks_db_conn_rw,
+                                &self.ctx,
+                            )
                         }
                         StacksChainEvent::ChainUpdatedWithMicroblocks(_)
                         | StacksChainEvent::ChainUpdatedWithMicroblocksReorg(_) => {}
                     };
+                    for (predicate_uuid, blocks_ids) in report.predicates_evaluated.iter() {}
+                    for (predicate_uuid, blocks_ids) in report.predicates_triggered.iter() {}
+                    // Every 32 blocks, we will check if there's a new Stacks file archive to ingest
+                    if stacks_event > 32 {
+                        stacks_event = 0;
+                        let _ = consolidate_local_stacks_chainstate_using_csv(
+                            &mut self.config,
+                            &self.ctx,
+                        )
+                        .await;
+                    }
                 }
                 ObserverEvent::Terminate => {
                     info!(self.ctx.expect_logger(), "Terminating runloop");
@@ -320,96 +332,90 @@ impl Service {
     }
 }
 
-fn update_storage_with_confirmed_stacks_blocks(
-    redis_con: &mut Connection,
-    blocks: &Vec<StacksBlockData>,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PredicateStatus {
+    Scanning(ScanningData),
+    Streaming(StreamingData),
+    Interrupted(String),
+    Disabled,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScanningData {
+    pub start_block: u64,
+    pub cursor: u64,
+    pub end_block: u64,
+    pub occurrences_found: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StreamingData {
+    pub last_occurence: u64,
+    pub last_evaluation: u64,
+}
+
+pub fn update_predicate_status(
+    predicate_key: &str,
+    status: PredicateStatus,
+    predicates_db_conn: &mut Connection,
     ctx: &Context,
 ) {
-    let current_tip_height: u64 = redis_con.get(&format!("stx:tip")).unwrap_or(0);
-
-    let mut new_tip = None;
-
-    for block in blocks.iter() {
-        let res: Result<(), redis::RedisError> = redis_con.hset_multiple(
-            &format!("stx:{}", block.block_identifier.index),
-            &[
-                (
-                    "block_identifier",
-                    json!(block.block_identifier).to_string(),
-                ),
-                (
-                    "parent_block_identifier",
-                    json!(block.parent_block_identifier).to_string(),
-                ),
-                ("transactions", json!(block.transactions).to_string()),
-                ("metadata", json!(block.metadata).to_string()),
-            ],
-        );
-        if let Err(error) = res {
-            crit!(
-                ctx.expect_logger(),
-                "unable to archive block {}: {}",
-                block.block_identifier,
-                error.to_string()
-            );
-        }
-        if block.block_identifier.index >= current_tip_height {
-            new_tip = Some(block);
-        }
-    }
-
-    if let Some(block) = new_tip {
-        info!(
+    if let Err(e) = predicates_db_conn
+        .hset_multiple::<_, _, _, ()>(&predicate_key, &[("status", json!(status).to_string())])
+    {
+        error!(
             ctx.expect_logger(),
-            "Archiving confirmed Stacks chain block {}", block.block_identifier
+            "Error updating status: {}",
+            e.to_string()
         );
-        let _: Result<(), redis::RedisError> =
-            redis_con.set(&format!("stx:tip"), block.block_identifier.index);
     }
 }
 
-fn load_predicates_from_redis(
-    config: &Config,
+pub fn update_predicate_spec(
+    predicate_key: &str,
+    spec: &ChainhookSpecification,
+    predicates_db_conn: &mut Connection,
     ctx: &Context,
-) -> Result<Vec<ChainhookSpecification>, String> {
-    let redis_config = config.expected_redis_config();
-    let client = redis::Client::open(redis_config.uri.clone())
-        .map_err(|e| format!("unable to connect to redis: {}", e.to_string()))?;
-    let mut redis_con = client
-        .get_connection()
-        .map_err(|e| format!("unable to connect to redis: {}", e.to_string()))?;
-    let chainhooks_to_load: Vec<String> = redis_con
-        .scan_match("chainhook:*:*:*")
-        .map_err(|e| format!("unable to connect to redis: {}", e.to_string()))?
-        .into_iter()
-        .collect();
-
-    let mut predicates = vec![];
-    for key in chainhooks_to_load.iter() {
-        let chainhook = match redis_con.hget::<_, _, String>(key, "specification") {
-            Ok(spec) => match ChainhookSpecification::deserialize_specification(&spec, key) {
-                Ok(spec) => spec,
-                Err(e) => {
-                    error!(
-                        ctx.expect_logger(),
-                        "unable to load chainhook associated with key {}: {}",
-                        key,
-                        e.to_string()
-                    );
-                    continue;
-                }
-            },
-            Err(e) => {
-                error!(
-                    ctx.expect_logger(),
-                    "unable to load chainhook associated with key {}: {}",
-                    key,
-                    e.to_string()
-                );
-                continue;
-            }
-        };
-        predicates.push(chainhook);
+) {
+    if let Err(e) = predicates_db_conn.hset_multiple::<_, _, _, ()>(
+        &predicate_key,
+        &[("specification", json!(spec).to_string())],
+    ) {
+        error!(
+            ctx.expect_logger(),
+            "Error updating status: {}",
+            e.to_string()
+        );
     }
-    Ok(predicates)
+}
+
+pub fn retrieve_predicate_status(
+    predicate_key: &str,
+    predicates_db_conn: &mut Connection,
+) -> Option<PredicateStatus> {
+    match predicates_db_conn.hget::<_, _, String>(predicate_key.to_string(), "status") {
+        Ok(ref payload) => match serde_json::from_str(payload) {
+            Ok(data) => Some(data),
+            Err(_) => None,
+        },
+        Err(_) => None,
+    }
+}
+
+pub fn open_readwrite_predicates_db_conn_or_panic(
+    config: &PredicatesApiConfig,
+    ctx: &Context,
+) -> Connection {
+    // Test and initialize a database connection
+    let redis_uri = &config.database_uri;
+    let client = redis::Client::open(redis_uri.clone()).unwrap();
+    let redis_con = match client.get_connection() {
+        Ok(con) => con,
+        Err(message) => {
+            error!(ctx.expect_logger(), "Redis: {}", message.to_string());
+            panic!();
+        }
+    };
+    redis_con
 }

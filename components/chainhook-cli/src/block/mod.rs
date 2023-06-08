@@ -15,7 +15,7 @@ pub struct Record {
     pub id: u64,
     pub created_at: String,
     pub kind: RecordKind,
-    pub raw_log: String,
+    pub blob: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
