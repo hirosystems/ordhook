@@ -794,7 +794,7 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
         }
 
         if !traversals_cache.is_empty() {
-            if num_writes % 128 == 0 {
+            if num_writes % 16 == 0 {
                 ctx.try_log(|logger| {
                     slog::info!(
                         logger,
@@ -802,7 +802,7 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
                         traversals_cache.len()
                     );
                 });
-                traversals_cache.shrink_to_fit();
+                traversals_cache.clear();
             }
         }
 
