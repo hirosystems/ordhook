@@ -6,7 +6,8 @@ use crate::scan::bitcoin::scan_bitcoin_chainstate_via_rpc_using_predicate;
 use crate::scan::stacks::scan_stacks_chainstate_via_csv_using_predicate;
 use crate::service::Service;
 use crate::storage::{
-    get_last_block_height_inserted, is_stacks_block_present, open_readonly_stacks_db_conn,
+    get_last_block_height_inserted, get_stacks_block_at_block_height, is_stacks_block_present,
+    open_readonly_stacks_db_conn,
 };
 
 use chainhook_sdk::bitcoincore_rpc::{Auth, Client, RpcApi};
@@ -242,6 +243,9 @@ enum StacksDbCommand {
     /// Update database using latest Stacks archive file
     #[clap(name = "update", bin_name = "update")]
     Update(UpdateDbCommand),
+    /// Retrieve a block from the Stacks db
+    #[clap(name = "get", bin_name = "get")]
+    GetBlock(GetBlockDbCommand),
 }
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
@@ -380,6 +384,16 @@ struct CheckDbCommand {
 
 #[derive(Parser, PartialEq, Clone, Debug)]
 struct UpdateDbCommand {
+    /// Load config file path
+    #[clap(long = "config-path")]
+    pub config_path: Option<String>,
+}
+
+#[derive(Parser, PartialEq, Clone, Debug)]
+struct GetBlockDbCommand {
+    /// Block index to retrieve
+    #[clap(long = "block-height")]
+    pub block_height: u64,
     /// Load config file path
     #[clap(long = "config-path")]
     pub config_path: Option<String>,
@@ -880,46 +894,68 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                 unimplemented!()
             }
         },
-        Command::Stacks(StacksCommand::Db(StacksDbCommand::Update(cmd))) => {
-            let mut config = Config::default(false, false, false, &cmd.config_path)?;
-            download_stacks_dataset_if_required(&mut config, &ctx).await;
-        }
-        Command::Stacks(StacksCommand::Db(StacksDbCommand::Check(cmd))) => {
-            let config = Config::default(false, false, false, &cmd.config_path)?;
-            // Delete data, if any
-            {
-                let stacks_db = open_readonly_stacks_db_conn(&config.expected_cache_path(), &ctx)?;
-                let mut missing_blocks = vec![];
-                let mut min = 0;
-                let mut max = 0;
-                if let Some(tip) = get_last_block_height_inserted(&stacks_db, &ctx) {
-                    min = 1;
-                    max = tip;
-                    for index in 1..=tip {
-                        let block_identifier = BlockIdentifier {
-                            index,
-                            hash: "".into(),
-                        };
-                        if !is_stacks_block_present(&block_identifier, 3, &stacks_db) {
-                            missing_blocks.push(index);
-                        }
+        Command::Stacks(subcmd) => match subcmd {
+            StacksCommand::Db(StacksDbCommand::GetBlock(cmd)) => {
+                let mut config = Config::default(false, false, false, &cmd.config_path)?;
+                let stacks_db = open_readonly_stacks_db_conn(&config.expected_cache_path(), &ctx)
+                    .expect("unable to read stacks_db");
+                match get_stacks_block_at_block_height(cmd.block_height, true, 10, &stacks_db) {
+                    Ok(Some(block)) => {
+                        info!(ctx.expect_logger(), "{}", json!(block));
+                    }
+                    Ok(None) => {
+                        warn!(
+                            ctx.expect_logger(),
+                            "Block {} not present in database", cmd.block_height
+                        );
+                    }
+                    Err(e) => {
+                        error!(ctx.expect_logger(), "{e}",);
                     }
                 }
-                if missing_blocks.is_empty() {
-                    info!(
-                        ctx.expect_logger(),
-                        "Stacks db successfully checked ({min}, {max})"
-                    );
-                } else {
-                    warn!(
-                        ctx.expect_logger(),
-                        "Stacks db includes {} missing entries ({min}, {max}): {:?}",
-                        missing_blocks.len(),
-                        missing_blocks
-                    );
+            }
+            StacksCommand::Db(StacksDbCommand::Update(cmd)) => {
+                let mut config = Config::default(false, false, false, &cmd.config_path)?;
+                download_stacks_dataset_if_required(&mut config, &ctx).await;
+            }
+            StacksCommand::Db(StacksDbCommand::Check(cmd)) => {
+                let config = Config::default(false, false, false, &cmd.config_path)?;
+                // Delete data, if any
+                {
+                    let stacks_db =
+                        open_readonly_stacks_db_conn(&config.expected_cache_path(), &ctx)?;
+                    let mut missing_blocks = vec![];
+                    let mut min = 0;
+                    let mut max = 0;
+                    if let Some(tip) = get_last_block_height_inserted(&stacks_db, &ctx) {
+                        min = 1;
+                        max = tip;
+                        for index in 1..=tip {
+                            let block_identifier = BlockIdentifier {
+                                index,
+                                hash: "".into(),
+                            };
+                            if !is_stacks_block_present(&block_identifier, 3, &stacks_db) {
+                                missing_blocks.push(index);
+                            }
+                        }
+                    }
+                    if missing_blocks.is_empty() {
+                        info!(
+                            ctx.expect_logger(),
+                            "Stacks db successfully checked ({min}, {max})"
+                        );
+                    } else {
+                        warn!(
+                            ctx.expect_logger(),
+                            "Stacks db includes {} missing entries ({min}, {max}): {:?}",
+                            missing_blocks.len(),
+                            missing_blocks
+                        );
+                    }
                 }
             }
-        }
+        },
     }
     Ok(())
 }
