@@ -875,7 +875,11 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
             {
                 let stacks_db = open_readonly_stacks_db_conn(&config.expected_cache_path(), &ctx)?;
                 let mut missing_blocks = vec![];
+                let mut min = 0;
+                let mut max = 0;
                 if let Some(tip) = get_last_block_height_inserted(&stacks_db, &ctx) {
+                    min = 1;
+                    max = tip;
                     for index in 1..=tip {
                         let block_identifier = BlockIdentifier {
                             index,
@@ -887,11 +891,11 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     }
                 }
                 if missing_blocks.is_empty() {
-                    info!(ctx.expect_logger(), "Stacks db successfully checked");
+                    info!(ctx.expect_logger(), "Stacks db successfully checked ({min}, {max})");
                 } else {
                     warn!(
                         ctx.expect_logger(),
-                        "Stacks db includes {} missing entries: {:?}",
+                        "Stacks db includes {} missing entries ({min}, {max}): {:?}",
                         missing_blocks.len(),
                         missing_blocks
                     );
