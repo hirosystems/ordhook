@@ -181,13 +181,13 @@ impl ChainhookSpecification {
 
     pub fn into_serialized_json(&self) -> JsonValue {
         match &self {
-            Self::Bitcoin(data) => json!({
+            Self::Stacks(data) => json!({
                 "chain": "stacks",
                 "uuid": data.uuid,
                 "network": data.network,
                 "predicate": data.predicate,
             }),
-            Self::Stacks(data) => json!({
+            Self::Bitcoin(data) => json!({
                 "chain": "bitcoin",
                 "uuid": data.uuid,
                 "network": data.network,

@@ -1208,12 +1208,12 @@ pub async fn start_observer_commands_handler(
                 if let Some(ref tx) = observer_events_tx {
                     let _ = tx.send(ObserverEvent::PredicateRegistered(spec));
                 } else {
-                    ctx.try_log(|logger| slog::info!(logger, "Enabling Predicate"));
+                    ctx.try_log(|logger| slog::info!(logger, "Enabling Predicate {}", spec.uuid()));
                     chainhook_store.predicates.enable_specification(&mut spec);
                 }
             }
             ObserverCommand::EnablePredicate(mut spec) => {
-                ctx.try_log(|logger| slog::info!(logger, "Enabling Predicate"));
+                ctx.try_log(|logger| slog::info!(logger, "Enabling Predicate {}", spec.uuid()));
                 chainhook_store.predicates.enable_specification(&mut spec);
                 if let Some(ref tx) = observer_events_tx {
                     let _ = tx.send(ObserverEvent::PredicateEnabled(spec));
