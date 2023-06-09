@@ -370,13 +370,19 @@ pub fn update_predicate_status(
     predicates_db_conn: &mut Connection,
     ctx: &Context,
 ) {
+    let serialized_status = json!(status).to_string();
     if let Err(e) =
-        predicates_db_conn.hset::<_, _, _, ()>(&predicate_key, "status", json!(status).to_string())
+        predicates_db_conn.hset::<_, _, _, ()>(&predicate_key, "status", &serialized_status)
     {
         error!(
             ctx.expect_logger(),
             "Error updating status: {}",
             e.to_string()
+        );
+    } else {
+        info!(
+            ctx.expect_logger(),
+            "Updating predicate {predicate_key} status: {serialized_status}"
         );
     }
 }
@@ -387,15 +393,19 @@ pub fn update_predicate_spec(
     predicates_db_conn: &mut Connection,
     ctx: &Context,
 ) {
-    if let Err(e) = predicates_db_conn.hset::<_, _, _, ()>(
-        &predicate_key,
-        "specification",
-        json!(spec).to_string(),
-    ) {
+    let serialized_spec = json!(spec).to_string();
+    if let Err(e) =
+        predicates_db_conn.hset::<_, _, _, ()>(&predicate_key, "specification", &serialized_spec)
+    {
         error!(
             ctx.expect_logger(),
             "Error updating status: {}",
             e.to_string()
+        );
+    } else {
+        info!(
+            ctx.expect_logger(),
+            "Updating predicate {predicate_key} with spec: {serialized_spec}"
         );
     }
 }

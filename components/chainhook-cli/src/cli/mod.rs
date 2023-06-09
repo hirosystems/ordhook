@@ -1,3 +1,4 @@
+use crate::archive::download_stacks_dataset_if_required;
 use crate::block::DigestingCommand;
 use crate::config::generator::generate_config;
 use crate::config::{Config, PredicatesApi};
@@ -238,6 +239,9 @@ enum StacksDbCommand {
     /// Check integrity
     #[clap(name = "check", bin_name = "check")]
     Check(CheckDbCommand),
+    /// Update database using latest Stacks archive file
+    #[clap(name = "update", bin_name = "update")]
+    Update(UpdateDbCommand),
 }
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
@@ -369,6 +373,13 @@ struct MigrateHordDbCommand {
 
 #[derive(Parser, PartialEq, Clone, Debug)]
 struct CheckDbCommand {
+    /// Load config file path
+    #[clap(long = "config-path")]
+    pub config_path: Option<String>,
+}
+
+#[derive(Parser, PartialEq, Clone, Debug)]
+struct UpdateDbCommand {
     /// Load config file path
     #[clap(long = "config-path")]
     pub config_path: Option<String>,
@@ -869,6 +880,10 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                 unimplemented!()
             }
         },
+        Command::Stacks(StacksCommand::Db(StacksDbCommand::Update(cmd))) => {
+            let mut config = Config::default(false, false, false, &cmd.config_path)?;
+            download_stacks_dataset_if_required(&mut config, &ctx).await;
+        }
         Command::Stacks(StacksCommand::Db(StacksDbCommand::Check(cmd))) => {
             let config = Config::default(false, false, false, &cmd.config_path)?;
             // Delete data, if any
@@ -891,7 +906,10 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     }
                 }
                 if missing_blocks.is_empty() {
-                    info!(ctx.expect_logger(), "Stacks db successfully checked ({min}, {max})");
+                    info!(
+                        ctx.expect_logger(),
+                        "Stacks db successfully checked ({min}, {max})"
+                    );
                 } else {
                     warn!(
                         ctx.expect_logger(),
