@@ -19,9 +19,8 @@ use crate::hord::{
     HordConfig,
 };
 use crate::indexer::bitcoin::{
-    download_and_parse_block_with_retry, standardize_bitcoin_block, BitcoinBlockFullBreakdown,
+    standardize_bitcoin_block, BitcoinBlockFullBreakdown,
 };
-use crate::indexer::fork_scratch_pad::ForkScratchPad;
 use crate::indexer::{Indexer, IndexerConfig};
 use crate::utils::{send_request, Context};
 
@@ -440,6 +439,7 @@ pub fn get_bitcoin_proof(
     }
 }
 
+#[allow(unused_variables)]
 pub fn start_zeromq_runloop(
     config: &EventObserverConfig,
     observer_commands_tx: Sender<ObserverCommand>,
@@ -447,6 +447,9 @@ pub fn start_zeromq_runloop(
 ) {
     #[cfg(feature = "zeromq")]
     {
+        use crate::indexer::fork_scratch_pad::ForkScratchPad;
+        use crate::indexer::bitcoin::download_and_parse_block_with_retry;
+
         if let BitcoinBlockSignaling::ZeroMQ(ref bitcoind_zmq_url) = config.bitcoin_block_signaling
         {
             let bitcoind_zmq_url = bitcoind_zmq_url.clone();
