@@ -878,11 +878,11 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                 if let Some(tip) = get_last_block_height_inserted(&stacks_db, &ctx) {
                     for index in 1..=tip {
                         let block_identifier = BlockIdentifier {
-                            index: i,
+                            index,
                             hash: "".into(),
                         };
                         if !is_stacks_block_present(&block_identifier, 3, &stacks_db) {
-                            missing_blocks.push(i);
+                            missing_blocks.push(index);
                         }
                     }
                 }
