@@ -701,12 +701,24 @@ impl StacksChainEvent {
         }
     }
 
-    pub fn new_block(&self) -> Option<&StacksBlockData> {
+    pub fn get_latest_block_identifier(&self) -> Option<&BlockIdentifier> {
         match self {
-            StacksChainEvent::ChainUpdatedWithBlocks(event) => {
-                event.new_blocks.first().and_then(|b| Some(&b.block))
-            }
-            _ => None,
+            StacksChainEvent::ChainUpdatedWithBlocks(event) => event
+                .new_blocks
+                .last()
+                .and_then(|b| Some(&b.block.block_identifier)),
+            StacksChainEvent::ChainUpdatedWithReorg(event) => event
+                .blocks_to_apply
+                .last()
+                .and_then(|b| Some(&b.block.block_identifier)),
+            StacksChainEvent::ChainUpdatedWithMicroblocks(event) => event
+                .new_microblocks
+                .first()
+                .and_then(|b| Some(&b.metadata.anchor_block_identifier)),
+            StacksChainEvent::ChainUpdatedWithMicroblocksReorg(event) => event
+                .microblocks_to_apply
+                .first()
+                .and_then(|b| Some(&b.metadata.anchor_block_identifier)),
         }
     }
 }
@@ -764,6 +776,21 @@ pub enum StacksNetwork {
 }
 
 impl StacksNetwork {
+    pub fn from_str(network: &str) -> Result<StacksNetwork, String> {
+        let value = match network {
+            "devnet" => StacksNetwork::Devnet,
+            "testnet" => StacksNetwork::Testnet,
+            "mainnet" => StacksNetwork::Mainnet,
+            _ => {
+                return Err(format!(
+                    "network '{}' unsupported (mainnet, testnet, devnet, simnet)",
+                    network
+                ))
+            }
+        };
+        Ok(value)
+    }
+
     pub fn is_simnet(&self) -> bool {
         match self {
             StacksNetwork::Simnet => true,
@@ -827,7 +854,24 @@ pub enum BitcoinNetwork {
     Mainnet,
 }
 
-#[derive(Debug, Clone)]
+impl BitcoinNetwork {
+    pub fn from_str(network: &str) -> Result<BitcoinNetwork, String> {
+        let value = match network {
+            "regtest" => BitcoinNetwork::Regtest,
+            "testnet" => BitcoinNetwork::Testnet,
+            "mainnet" => BitcoinNetwork::Mainnet,
+            _ => {
+                return Err(format!(
+                    "network '{}' unsupported (mainnet, testnet, regtest)",
+                    network
+                ))
+            }
+        };
+        Ok(value)
+    }
+}
+
+#[derive(Deserialize, Debug, Clone)]
 pub enum BitcoinBlockSignaling {
     Stacks(String),
     ZeroMQ(String),
