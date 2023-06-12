@@ -157,7 +157,9 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
         };
 
         if let Some(ref inscriptions_db_conn) = inscriptions_db_conn {
-            if !get_any_entry_in_ordinal_activities(&cursor, &inscriptions_db_conn, &ctx) {}
+            if !get_any_entry_in_ordinal_activities(&cursor, &inscriptions_db_conn, &ctx) {
+                continue;
+            }
 
             // Evaluating every single block is required for also keeping track of transfers.
             let local_traverals = match find_all_inscriptions_in_block(
