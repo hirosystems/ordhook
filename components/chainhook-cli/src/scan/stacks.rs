@@ -248,13 +248,14 @@ pub async fn scan_stacks_chainstate_via_rocksdb_using_predicate(
         ctx.expect_logger(),
         "{blocks_scanned} blocks scanned, {occurrences_found} occurrences found"
     );
-    let status = PredicateStatus::Scanning(ScanningData {
-        start_block,
-        end_block,
-        cursor,
-        occurrences_found,
-    });
+
     if let Some(ref mut predicates_db_conn) = predicates_db_conn {
+        let status = PredicateStatus::Scanning(ScanningData {
+            start_block,
+            end_block,
+            cursor,
+            occurrences_found,
+        });
         update_predicate_status(&predicate_spec.key(), status, predicates_db_conn, &ctx)
     }
     Ok(last_block_scanned)
@@ -292,6 +293,10 @@ pub async fn scan_stacks_chainstate_via_csv_using_predicate(
     let mut last_block_scanned = BlockIdentifier::default();
     let mut err_count = 0;
     for (block_identifier, _parent_block_identifier, blob) in canonical_fork.drain(..) {
+        if block_identifier.index <= start_block {
+            continue
+        }
+
         last_block_scanned = block_identifier;
         blocks_scanned += 1;
         let block_data = match indexer::stacks::standardize_stacks_serialized_block(

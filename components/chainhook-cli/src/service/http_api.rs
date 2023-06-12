@@ -301,20 +301,15 @@ pub fn get_entry_from_predicates_db(
         Some(payload) => payload,
     };
 
-    let spec = match ChainhookSpecification::deserialize_specification(&encoded_spec) {
-        Err(e) => unimplemented!(),
-        Ok(spec) => spec,
-    };
+    let spec = ChainhookSpecification::deserialize_specification(&encoded_spec)?;
 
     let encoded_status = match entry.get("status") {
         None => unimplemented!(),
         Some(payload) => payload,
     };
 
-    let status = match serde_json::from_str(&encoded_status) {
-        Err(e) => unimplemented!(), // TODO
-        Ok(status) => status,
-    };
+    let status = serde_json::from_str(&encoded_status)
+        .map_err(|e| format!("{}", e.to_string()))?;
 
     Ok(Some((spec, status)))
 }

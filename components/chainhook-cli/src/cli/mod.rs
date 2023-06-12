@@ -1,9 +1,14 @@
+use crate::archive::download_stacks_dataset_if_required;
 use crate::block::DigestingCommand;
 use crate::config::generator::generate_config;
 use crate::config::{Config, PredicatesApi};
 use crate::scan::bitcoin::scan_bitcoin_chainstate_via_rpc_using_predicate;
 use crate::scan::stacks::scan_stacks_chainstate_via_csv_using_predicate;
 use crate::service::Service;
+use crate::storage::{
+    get_last_block_height_inserted, get_stacks_block_at_block_height, is_stacks_block_present,
+    open_readonly_stacks_db_conn,
+};
 
 use chainhook_sdk::bitcoincore_rpc::{Auth, Client, RpcApi};
 use chainhook_sdk::chainhooks::types::{
@@ -59,9 +64,12 @@ enum Command {
     /// Run a service streaming blocks and evaluating registered predicates
     #[clap(subcommand)]
     Service(ServiceCommand),
-    /// Explore the Ordinal Theory  
+    /// Ordinals related subcommands  
     #[clap(subcommand)]
     Hord(HordCommand),
+    /// Stacks related subcommands  
+    #[clap(subcommand)]
+    Stacks(StacksCommand),
 }
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
@@ -192,14 +200,14 @@ struct StartCommand {
 enum HordCommand {
     /// Db maintenance related commands
     #[clap(subcommand)]
-    Db(DbCommand),
+    Db(HordDbCommand),
     /// Db maintenance related commands
     #[clap(subcommand)]
     Scan(ScanCommand),
 }
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
-enum DbCommand {
+enum HordDbCommand {
     /// Rewrite hord db
     #[clap(name = "rewrite", bin_name = "rewrite")]
     Rewrite(UpdateHordDbCommand),
@@ -211,13 +219,33 @@ enum DbCommand {
     Drop(DropHordDbCommand),
     /// Check integrity
     #[clap(name = "check", bin_name = "check")]
-    Check(CheckHordDbCommand),
+    Check(CheckDbCommand),
     /// Patch DB
     #[clap(name = "patch", bin_name = "patch")]
     Patch(PatchHordDbCommand),
     /// Migrate
     #[clap(name = "migrate", bin_name = "migrate")]
     Migrate(MigrateHordDbCommand),
+}
+
+#[derive(Subcommand, PartialEq, Clone, Debug)]
+enum StacksCommand {
+    /// Db maintenance related commands
+    #[clap(subcommand)]
+    Db(StacksDbCommand),
+}
+
+#[derive(Subcommand, PartialEq, Clone, Debug)]
+enum StacksDbCommand {
+    /// Check integrity
+    #[clap(name = "check", bin_name = "check")]
+    Check(CheckDbCommand),
+    /// Update database using latest Stacks archive file
+    #[clap(name = "update", bin_name = "update")]
+    Update(UpdateDbCommand),
+    /// Retrieve a block from the Stacks db
+    #[clap(name = "get", bin_name = "get")]
+    GetBlock(GetBlockDbCommand),
 }
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
@@ -348,7 +376,24 @@ struct MigrateHordDbCommand {
 }
 
 #[derive(Parser, PartialEq, Clone, Debug)]
-struct CheckHordDbCommand {
+struct CheckDbCommand {
+    /// Load config file path
+    #[clap(long = "config-path")]
+    pub config_path: Option<String>,
+}
+
+#[derive(Parser, PartialEq, Clone, Debug)]
+struct UpdateDbCommand {
+    /// Load config file path
+    #[clap(long = "config-path")]
+    pub config_path: Option<String>,
+}
+
+#[derive(Parser, PartialEq, Clone, Debug)]
+struct GetBlockDbCommand {
+    /// Block index to retrieve
+    #[clap(long = "block-height")]
+    pub block_height: u64,
     /// Load config file path
     #[clap(long = "config-path")]
     pub config_path: Option<String>,
@@ -694,7 +739,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     open_readwrite_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
 
                 let tip_height = find_last_block_inserted(&blocks_db_conn) as u64;
-                let end_at = match cmd.block_height {
+                let _end_at = match cmd.block_height {
                     Some(block_height) if block_height > tip_height => {
                         perform_hord_db_update(
                             tip_height,
@@ -709,7 +754,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     _ => tip_height,
                 };
 
-                let (start_at_height, watched_satpoint) = find_watched_satpoint_for_inscription(
+                let (_start_at_height, watched_satpoint) = find_watched_satpoint_for_inscription(
                     &cmd.inscription_id,
                     &inscriptions_db_conn,
                 )?;
@@ -752,7 +797,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
             }
         },
         Command::Hord(HordCommand::Db(subcmd)) => match subcmd {
-            DbCommand::Sync(cmd) => {
+            HordDbCommand::Sync(cmd) => {
                 let config = Config::default(false, false, false, &cmd.config_path)?;
                 if let Some((start_block, end_block)) = should_sync_hord_db(&config, &ctx)? {
                     if start_block == 0 {
@@ -778,7 +823,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     info!(ctx.expect_logger(), "Database hord up to date");
                 }
             }
-            DbCommand::Rewrite(cmd) => {
+            HordDbCommand::Rewrite(cmd) => {
                 let config = Config::default(false, false, false, &cmd.config_path)?;
                 // Delete data, if any
                 {
@@ -805,7 +850,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                 )
                 .await?;
             }
-            DbCommand::Check(cmd) => {
+            HordDbCommand::Check(cmd) => {
                 let config = Config::default(false, false, false, &cmd.config_path)?;
                 // Delete data, if any
                 {
@@ -813,7 +858,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                         open_readwrite_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
 
                     let mut missing_blocks = vec![];
-                    for i in 1..=780000 {
+                    for i in 1..=790000 {
                         if find_lazy_block_at_block_height(i, 3, &blocks_db_rw).is_none() {
                             println!("Missing block {i}");
                             missing_blocks.push(i);
@@ -822,7 +867,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     println!("{:?}", missing_blocks);
                 }
             }
-            DbCommand::Drop(cmd) => {
+            HordDbCommand::Drop(cmd) => {
                 let config = Config::default(false, false, false, &cmd.config_path)?;
                 let blocks_db =
                     open_readwrite_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
@@ -842,11 +887,73 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     cmd.end_block - cmd.start_block + 1
                 );
             }
-            DbCommand::Patch(_cmd) => {
+            HordDbCommand::Patch(_cmd) => {
                 unimplemented!()
             }
-            DbCommand::Migrate(_cmd) => {
+            HordDbCommand::Migrate(_cmd) => {
                 unimplemented!()
+            }
+        },
+        Command::Stacks(subcmd) => match subcmd {
+            StacksCommand::Db(StacksDbCommand::GetBlock(cmd)) => {
+                let config = Config::default(false, false, false, &cmd.config_path)?;
+                let stacks_db = open_readonly_stacks_db_conn(&config.expected_cache_path(), &ctx)
+                    .expect("unable to read stacks_db");
+                match get_stacks_block_at_block_height(cmd.block_height, true, 10, &stacks_db) {
+                    Ok(Some(block)) => {
+                        info!(ctx.expect_logger(), "{}", json!(block));
+                    }
+                    Ok(None) => {
+                        warn!(
+                            ctx.expect_logger(),
+                            "Block {} not present in database", cmd.block_height
+                        );
+                    }
+                    Err(e) => {
+                        error!(ctx.expect_logger(), "{e}",);
+                    }
+                }
+            }
+            StacksCommand::Db(StacksDbCommand::Update(cmd)) => {
+                let mut config = Config::default(false, false, false, &cmd.config_path)?;
+                download_stacks_dataset_if_required(&mut config, &ctx).await;
+            }
+            StacksCommand::Db(StacksDbCommand::Check(cmd)) => {
+                let config = Config::default(false, false, false, &cmd.config_path)?;
+                // Delete data, if any
+                {
+                    let stacks_db =
+                        open_readonly_stacks_db_conn(&config.expected_cache_path(), &ctx)?;
+                    let mut missing_blocks = vec![];
+                    let mut min = 0;
+                    let mut max = 0;
+                    if let Some(tip) = get_last_block_height_inserted(&stacks_db, &ctx) {
+                        min = 1;
+                        max = tip;
+                        for index in 1..=tip {
+                            let block_identifier = BlockIdentifier {
+                                index,
+                                hash: "".into(),
+                            };
+                            if !is_stacks_block_present(&block_identifier, 3, &stacks_db) {
+                                missing_blocks.push(index);
+                            }
+                        }
+                    }
+                    if missing_blocks.is_empty() {
+                        info!(
+                            ctx.expect_logger(),
+                            "Stacks db successfully checked ({min}, {max})"
+                        );
+                    } else {
+                        warn!(
+                            ctx.expect_logger(),
+                            "Stacks db includes {} missing entries ({min}, {max}): {:?}",
+                            missing_blocks.len(),
+                            missing_blocks
+                        );
+                    }
+                }
             }
         },
     }

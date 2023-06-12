@@ -9,7 +9,7 @@ use serde_json::Value as JsonValue;
 
 use schemars::JsonSchema;
 
-#[derive(Clone, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct ChainhookConfig {
     pub stacks_chainhooks: Vec<StacksChainhookSpecification>,
     pub bitcoin_chainhooks: Vec<BitcoinChainhookSpecification>,
@@ -181,13 +181,13 @@ impl ChainhookSpecification {
 
     pub fn into_serialized_json(&self) -> JsonValue {
         match &self {
-            Self::Bitcoin(data) => json!({
+            Self::Stacks(data) => json!({
                 "chain": "stacks",
                 "uuid": data.uuid,
                 "network": data.network,
                 "predicate": data.predicate,
             }),
-            Self::Stacks(data) => json!({
+            Self::Bitcoin(data) => json!({
                 "chain": "bitcoin",
                 "uuid": data.uuid,
                 "network": data.network,
@@ -250,6 +250,12 @@ pub struct BitcoinChainhookSpecification {
     pub include_outputs: bool,
     pub include_witness: bool,
     pub enabled: bool,
+}
+
+impl BitcoinChainhookSpecification {
+    pub fn key(&self) -> String {
+        ChainhookSpecification::bitcoin_key(&self.uuid)
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]

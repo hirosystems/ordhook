@@ -306,7 +306,7 @@ pub fn insert_entry_in_inscriptions(
     }
 }
 
-pub fn insert_entry_in_transfers(
+pub fn insert_entry_in_ordinal_activities(
     block_height: u32,
     inscriptions_db_conn_rw: &Connection,
     ctx: &Context,
@@ -317,6 +317,22 @@ pub fn insert_entry_in_transfers(
     ) {
         ctx.try_log(|logger| slog::warn!(logger, "{}", e.to_string()));
     }
+}
+
+pub fn get_any_entry_in_ordinal_activities(
+    block_height: &u64,
+    inscriptions_db_conn: &Connection,
+    _ctx: &Context,
+) -> bool {
+    let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
+    let mut stmt = inscriptions_db_conn
+        .prepare("SELECT block_height FROM transfers WHERE block_height = ?")
+        .unwrap();
+    let mut rows = stmt.query(args).unwrap();
+    while let Ok(Some(_)) = rows.next() {
+        return true;
+    }
+    false
 }
 
 pub fn update_transfered_inscription(
@@ -454,12 +470,13 @@ pub fn find_inscription_with_id(
     return None;
 }
 
-pub fn find_all_inscriptions(
+pub fn find_all_inscriptions_in_block(
+    block_height: &u64,
     inscriptions_db_conn: &Connection,
 ) -> BTreeMap<u64, Vec<(TransactionIdentifier, TraversalResult)>> {
-    let args: &[&dyn ToSql] = &[];
+    let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
     let mut stmt = inscriptions_db_conn
-        .prepare("SELECT inscription_number, ordinal_number, block_height, inscription_id, offset, outpoint_to_watch FROM inscriptions ORDER BY inscription_number ASC")
+        .prepare("SELECT inscription_number, ordinal_number, block_height, inscription_id, offset, outpoint_to_watch FROM inscriptions where block_height = ? ORDER BY inscription_number ASC")
         .unwrap();
     let mut results: BTreeMap<u64, Vec<(TransactionIdentifier, TraversalResult)>> = BTreeMap::new();
     let mut rows = stmt.query(args).unwrap();
@@ -467,11 +484,9 @@ pub fn find_all_inscriptions(
         let inscription_number: i64 = row.get(0).unwrap();
         let ordinal_number: u64 = row.get(1).unwrap();
         let block_height: u64 = row.get(2).unwrap();
-        let transaction_id = {
+        let (transaction_id, _) = {
             let inscription_id: String = row.get(3).unwrap();
-            TransactionIdentifier {
-                hash: format!("0x{}", &inscription_id[0..inscription_id.len() - 2]),
-            }
+            parse_inscription_id(&inscription_id)
         };
         let inscription_offset: u64 = row.get(4).unwrap();
         let outpoint_to_watch: String = row.get(5).unwrap();
@@ -500,10 +515,8 @@ pub struct WatchedSatpoint {
 
 impl WatchedSatpoint {
     pub fn get_genesis_satpoint(&self) -> String {
-        format!(
-            "{}:0",
-            &self.inscription_id[0..self.inscription_id.len() - 2]
-        )
+        let (transaction_id, input) = parse_inscription_id(&self.inscription_id);
+        format!("{}:{}", transaction_id.hash, input)
     }
 }
 
@@ -794,7 +807,7 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
         }
 
         if !traversals_cache.is_empty() {
-            if num_writes % 128 == 0 {
+            if num_writes % 16 == 0 {
                 ctx.try_log(|logger| {
                     slog::info!(
                         logger,
@@ -802,7 +815,7 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
                         traversals_cache.len()
                     );
                 });
-                traversals_cache.shrink_to_fit();
+                traversals_cache.clear();
             }
         }
 
@@ -883,6 +896,15 @@ pub fn format_outpoint_to_watch(
         transaction_identifier.get_hash_bytes_str(),
         output_index
     )
+}
+
+pub fn parse_inscription_id(inscription_id: &str) -> (TransactionIdentifier, usize) {
+    let comps: Vec<&str> = inscription_id.split("i").collect();
+    let tx = TransactionIdentifier {
+        hash: format!("0x{}", comps[0]),
+    };
+    let output_index = comps[1].to_string().parse::<usize>().unwrap();
+    (tx, output_index)
 }
 
 pub fn parse_outpoint_to_watch(outpoint_to_watch: &str) -> (TransactionIdentifier, usize) {

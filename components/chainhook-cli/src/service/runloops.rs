@@ -28,7 +28,7 @@ pub fn start_stacks_scan_runloop(
     ctx: &Context,
 ) {
     let stacks_scan_pool = ThreadPool::new(config.limits.max_number_of_concurrent_stacks_scans);
-    while let Ok(mut predicate_spec) = stacks_scan_op_rx.recv() {
+    while let Ok(predicate_spec) = stacks_scan_op_rx.recv() {
         let moved_ctx = ctx.clone();
         let moved_config = config.clone();
         let observer_command_tx = observer_command_tx.clone();
@@ -84,7 +84,6 @@ pub fn start_stacks_scan_runloop(
                 moved_ctx.expect_logger(),
                 "Stacks chainstate scan completed up to block: {}", last_block_scanned.index
             );
-            predicate_spec.end_block = Some(last_block_scanned.index);
             let _ = observer_command_tx.send(ObserverCommand::EnablePredicate(
                 ChainhookSpecification::Stacks(predicate_spec),
             ));
@@ -120,6 +119,21 @@ pub fn start_bitcoin_scan_runloop(
                         moved_ctx.expect_logger(),
                         "Unable to evaluate predicate on Bitcoin chainstate: {e}",
                     );
+
+                    // Update predicate status in redis
+                    if let PredicatesApi::On(ref api_config) = moved_config.http_api {
+                        let status = PredicateStatus::Interrupted(format!(
+                            "Unable to evaluate predicate on Bitcoin chainstate: {e}"
+                        ));
+                        let mut predicates_db_conn =
+                            open_readwrite_predicates_db_conn_or_panic(api_config, &moved_ctx);
+                        update_predicate_status(
+                            &predicate_spec.key(),
+                            status,
+                            &mut predicates_db_conn,
+                            &moved_ctx,
+                        );
+                    }
                     return;
                 }
             };
@@ -128,5 +142,5 @@ pub fn start_bitcoin_scan_runloop(
             ));
         });
     }
-    let res = bitcoin_scan_pool.join();
+    let _ = bitcoin_scan_pool.join();
 }

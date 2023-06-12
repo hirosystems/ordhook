@@ -18,10 +18,7 @@ use crate::hord::{
     revert_hord_db_with_augmented_bitcoin_block, update_hord_db_and_augment_bitcoin_block,
     HordConfig,
 };
-use crate::indexer::bitcoin::{
-    download_and_parse_block_with_retry, standardize_bitcoin_block, BitcoinBlockFullBreakdown,
-};
-use crate::indexer::fork_scratch_pad::ForkScratchPad;
+use crate::indexer::bitcoin::{standardize_bitcoin_block, BitcoinBlockFullBreakdown};
 use crate::indexer::{Indexer, IndexerConfig};
 use crate::utils::{send_request, Context};
 
@@ -69,7 +66,7 @@ pub enum Event {
 }
 
 // TODO(lgalabru): Support for GRPC?
-#[derive(Clone, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub enum EventHandler {
     WebHook(String),
 }
@@ -121,7 +118,7 @@ impl EventHandler {
     async fn notify_bitcoin_transaction_proxied(&self) {}
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug, Clone)]
 pub struct EventObserverConfig {
     pub chainhook_config: Option<ChainhookConfig>,
     pub bitcoin_rpc_proxy_enabled: bool,
@@ -140,6 +137,20 @@ pub struct EventObserverConfig {
     pub hord_config: Option<HordConfig>,
 }
 
+#[derive(Deserialize, Debug, Clone)]
+pub struct EventObserverConfigOverrides {
+    pub ingestion_port: Option<u16>,
+    pub bitcoind_rpc_username: Option<String>,
+    pub bitcoind_rpc_password: Option<String>,
+    pub bitcoind_rpc_url: Option<String>,
+    pub bitcoind_zmq_url: Option<String>,
+    pub stacks_node_rpc_url: Option<String>,
+    pub display_logs: Option<bool>,
+    pub cache_path: Option<String>,
+    pub bitcoin_network: Option<String>,
+    pub stacks_network: Option<String>,
+}
+
 impl EventObserverConfig {
     pub fn get_cache_path_buf(&self) -> PathBuf {
         let mut path_buf = PathBuf::new();
@@ -156,6 +167,61 @@ impl EventObserverConfig {
             bitcoin_block_signaling: self.bitcoin_block_signaling.clone(),
         };
         bitcoin_config
+    }
+
+    pub fn new_using_overrides(
+        overrides: Option<&EventObserverConfigOverrides>,
+    ) -> Result<EventObserverConfig, String> {
+        let stacks_node_rpc_url = overrides
+            .and_then(|c| c.stacks_node_rpc_url.clone())
+            .unwrap_or("http://localhost:20443".to_string());
+
+        let bitcoin_network =
+            if let Some(network) = overrides.and_then(|c| c.bitcoin_network.as_ref()) {
+                BitcoinNetwork::from_str(network)?
+            } else {
+                BitcoinNetwork::Regtest
+            };
+
+        let stacks_network =
+            if let Some(network) = overrides.and_then(|c| c.stacks_network.as_ref()) {
+                StacksNetwork::from_str(network)?
+            } else {
+                StacksNetwork::Devnet
+            };
+
+        let config = EventObserverConfig {
+            bitcoin_rpc_proxy_enabled: false,
+            event_handlers: vec![],
+            chainhook_config: None,
+            ingestion_port: overrides
+                .and_then(|c| c.ingestion_port)
+                .unwrap_or(DEFAULT_INGESTION_PORT),
+            bitcoind_rpc_username: overrides
+                .and_then(|c| c.bitcoind_rpc_username.clone())
+                .unwrap_or("devnet".to_string()),
+            bitcoind_rpc_password: overrides
+                .and_then(|c| c.bitcoind_rpc_password.clone())
+                .unwrap_or("devnet".to_string()),
+            bitcoind_rpc_url: overrides
+                .and_then(|c| c.bitcoind_rpc_url.clone())
+                .unwrap_or("http://localhost:18443".to_string()),
+            bitcoin_block_signaling: overrides
+                .and_then(|c| match c.bitcoind_zmq_url.as_ref() {
+                    Some(url) => Some(BitcoinBlockSignaling::ZeroMQ(url.clone())),
+                    None => Some(BitcoinBlockSignaling::Stacks(stacks_node_rpc_url.clone())),
+                })
+                .unwrap_or(BitcoinBlockSignaling::Stacks(stacks_node_rpc_url.clone())),
+            stacks_node_rpc_url,
+            display_logs: overrides.and_then(|c| c.display_logs).unwrap_or(false),
+            cache_path: overrides
+                .and_then(|c| c.cache_path.clone())
+                .unwrap_or("cache".to_string()),
+            bitcoin_network,
+            stacks_network,
+            hord_config: None,
+        };
+        Ok(config)
     }
 }
 
@@ -440,6 +506,7 @@ pub fn get_bitcoin_proof(
     }
 }
 
+#[allow(unused_variables)]
 pub fn start_zeromq_runloop(
     config: &EventObserverConfig,
     observer_commands_tx: Sender<ObserverCommand>,
@@ -447,6 +514,9 @@ pub fn start_zeromq_runloop(
 ) {
     #[cfg(feature = "zeromq")]
     {
+        use crate::indexer::bitcoin::download_and_parse_block_with_retry;
+        use crate::indexer::fork_scratch_pad::ForkScratchPad;
+
         if let BitcoinBlockSignaling::ZeroMQ(ref bitcoind_zmq_url) = config.bitcoin_block_signaling
         {
             let bitcoind_zmq_url = bitcoind_zmq_url.clone();
@@ -1208,12 +1278,12 @@ pub async fn start_observer_commands_handler(
                 if let Some(ref tx) = observer_events_tx {
                     let _ = tx.send(ObserverEvent::PredicateRegistered(spec));
                 } else {
-                    ctx.try_log(|logger| slog::info!(logger, "Enabling Predicate"));
+                    ctx.try_log(|logger| slog::info!(logger, "Enabling Predicate {}", spec.uuid()));
                     chainhook_store.predicates.enable_specification(&mut spec);
                 }
             }
             ObserverCommand::EnablePredicate(mut spec) => {
-                ctx.try_log(|logger| slog::info!(logger, "Enabling Predicate"));
+                ctx.try_log(|logger| slog::info!(logger, "Enabling Predicate {}", spec.uuid()));
                 chainhook_store.predicates.enable_specification(&mut spec);
                 if let Some(ref tx) = observer_events_tx {
                     let _ = tx.send(ObserverEvent::PredicateEnabled(spec));
@@ -1247,3 +1317,5 @@ pub async fn start_observer_commands_handler(
     }
     Ok(())
 }
+#[cfg(test)]
+pub mod tests;

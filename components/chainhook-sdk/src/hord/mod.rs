@@ -30,8 +30,9 @@ use crate::{
     hord::{
         db::{
             find_inscription_with_ordinal_number, find_inscriptions_at_wached_outpoint,
-            insert_entry_in_blocks, insert_entry_in_inscriptions, insert_entry_in_transfers,
-            retrieve_satoshi_point_using_lazy_storage, update_transfered_inscription,
+            insert_entry_in_blocks, insert_entry_in_inscriptions,
+            insert_entry_in_ordinal_activities, retrieve_satoshi_point_using_lazy_storage,
+            update_transfered_inscription,
         },
         ord::height::Height,
     },
@@ -404,7 +405,7 @@ pub fn update_hord_db_and_augment_bitcoin_block(
         )?;
 
     if any_inscription_revealed || any_inscription_transferred {
-        insert_entry_in_transfers(
+        insert_entry_in_ordinal_activities(
             new_block.block_identifier.index as u32,
             inscriptions_db_conn_rw,
             ctx,
@@ -424,14 +425,14 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
     block: &mut BitcoinBlockData,
     storage: &mut Storage,
     traversals: &HashMap<TransactionIdentifier, TraversalResult>,
-    inscription_db_conn: &Connection,
+    inscriptions_db_conn: &Connection,
     ctx: &Context,
 ) -> Result<bool, String> {
     let mut storage_updated = false;
 
     let mut latest_inscription_number = match find_latest_inscription_number_at_block_height(
         &block.block_identifier.index,
-        &inscription_db_conn,
+        &inscriptions_db_conn,
         &ctx,
     )? {
         None => 0,
@@ -441,7 +442,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
     let mut latest_cursed_inscription_number =
         match find_latest_cursed_inscription_number_at_block_height(
             &block.block_identifier.index,
-            &inscription_db_conn,
+            &inscriptions_db_conn,
             &ctx,
         )? {
             None => -1,
@@ -505,7 +506,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
 
                     if let Some(_entry) = find_inscription_with_ordinal_number(
                         &traversal.ordinal_number,
-                        &inscription_db_conn,
+                        &inscriptions_db_conn,
                         &ctx,
                     ) {
                         ctx.try_log(|logger| {
