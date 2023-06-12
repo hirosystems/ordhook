@@ -9,7 +9,7 @@ use serde_json::Value as JsonValue;
 
 use schemars::JsonSchema;
 
-#[derive(Clone, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct ChainhookConfig {
     pub stacks_chainhooks: Vec<StacksChainhookSpecification>,
     pub bitcoin_chainhooks: Vec<BitcoinChainhookSpecification>,
