@@ -252,6 +252,12 @@ pub struct BitcoinChainhookSpecification {
     pub enabled: bool,
 }
 
+impl BitcoinChainhookSpecification {
+    pub fn key(&self) -> String {
+        ChainhookSpecification::bitcoin_key(&self.uuid)
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case", tag = "chain")]
 pub enum ChainhookFullSpecification {

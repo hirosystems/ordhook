@@ -306,7 +306,7 @@ pub fn insert_entry_in_inscriptions(
     }
 }
 
-pub fn insert_entry_in_transfers(
+pub fn insert_entry_in_ordinal_activities(
     block_height: u32,
     inscriptions_db_conn_rw: &Connection,
     ctx: &Context,
@@ -317,6 +317,22 @@ pub fn insert_entry_in_transfers(
     ) {
         ctx.try_log(|logger| slog::warn!(logger, "{}", e.to_string()));
     }
+}
+
+pub fn get_any_entry_in_ordinal_activities(
+    block_height: &u64,
+    inscriptions_db_conn: &Connection,
+    _ctx: &Context,
+) -> bool {
+    let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
+    let mut stmt = inscriptions_db_conn
+        .prepare("SELECT block_height FROM transfers WHERE block_height = ?")
+        .unwrap();
+    let mut rows = stmt.query(args).unwrap();
+    while let Ok(Some(_)) = rows.next() {
+        return true;
+    }
+    false
 }
 
 pub fn update_transfered_inscription(
@@ -454,12 +470,13 @@ pub fn find_inscription_with_id(
     return None;
 }
 
-pub fn find_all_inscriptions(
+pub fn find_all_inscriptions_in_block(
+    block_height: &u64,
     inscriptions_db_conn: &Connection,
 ) -> BTreeMap<u64, Vec<(TransactionIdentifier, TraversalResult)>> {
-    let args: &[&dyn ToSql] = &[];
+    let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
     let mut stmt = inscriptions_db_conn
-        .prepare("SELECT inscription_number, ordinal_number, block_height, inscription_id, offset, outpoint_to_watch FROM inscriptions ORDER BY inscription_number ASC")
+        .prepare("SELECT inscription_number, ordinal_number, block_height, inscription_id, offset, outpoint_to_watch FROM inscriptions where block_height = ? ORDER BY inscription_number ASC")
         .unwrap();
     let mut results: BTreeMap<u64, Vec<(TransactionIdentifier, TraversalResult)>> = BTreeMap::new();
     let mut rows = stmt.query(args).unwrap();

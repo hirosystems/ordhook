@@ -248,13 +248,14 @@ pub async fn scan_stacks_chainstate_via_rocksdb_using_predicate(
         ctx.expect_logger(),
         "{blocks_scanned} blocks scanned, {occurrences_found} occurrences found"
     );
-    let status = PredicateStatus::Scanning(ScanningData {
-        start_block,
-        end_block,
-        cursor,
-        occurrences_found,
-    });
+
     if let Some(ref mut predicates_db_conn) = predicates_db_conn {
+        let status = PredicateStatus::Scanning(ScanningData {
+            start_block,
+            end_block,
+            cursor,
+            occurrences_found,
+        });
         update_predicate_status(&predicate_spec.key(), status, predicates_db_conn, &ctx)
     }
     Ok(last_block_scanned)

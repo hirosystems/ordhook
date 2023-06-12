@@ -1317,4 +1317,5 @@ pub async fn start_observer_commands_handler(
     }
     Ok(())
 }
-#[cfg(test)]pub mod tests;
+#[cfg(test)]
+pub mod tests;

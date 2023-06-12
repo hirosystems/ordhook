@@ -896,7 +896,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
         },
         Command::Stacks(subcmd) => match subcmd {
             StacksCommand::Db(StacksDbCommand::GetBlock(cmd)) => {
-                let mut config = Config::default(false, false, false, &cmd.config_path)?;
+                let config = Config::default(false, false, false, &cmd.config_path)?;
                 let stacks_db = open_readonly_stacks_db_conn(&config.expected_cache_path(), &ctx)
                     .expect("unable to read stacks_db");
                 match get_stacks_block_at_block_height(cmd.block_height, true, 10, &stacks_db) {

@@ -41,7 +41,7 @@ fn generate_test_config() -> (EventObserverConfig, ChainhookStore) {
         stacks_network: StacksNetwork::Devnet,
         hord_config: None,
     };
-    let predicates =  ChainhookConfig::new();
+    let predicates = ChainhookConfig::new();
     let chainhook_store = ChainhookStore { predicates };
     (config, chainhook_store)
 }
@@ -122,14 +122,14 @@ fn generate_and_register_new_stacks_chainhook(
     let contract_identifier = format!("{}.{}", accounts::deployer_stx_address(), contract_name);
     let chainhook = stacks_chainhook_contract_call(id, &contract_identifier, None, method);
     let _ = observer_commands_tx.send(ObserverCommand::RegisterPredicate(
-        ChainhookFullSpecification::Stacks(chainhook.clone())
+        ChainhookFullSpecification::Stacks(chainhook.clone()),
     ));
     let mut chainhook = chainhook
         .into_selected_network_specification(&StacksNetwork::Devnet)
         .unwrap();
     chainhook.enabled = true;
     let _ = observer_commands_tx.send(ObserverCommand::EnablePredicate(
-        ChainhookSpecification::Stacks(chainhook.clone())
+        ChainhookSpecification::Stacks(chainhook.clone()),
     ));
     assert!(match observer_events_rx.recv() {
         Ok(ObserverEvent::PredicateRegistered(registered_chainhook)) => {
@@ -142,7 +142,7 @@ fn generate_and_register_new_stacks_chainhook(
         _ => false,
     });
     let _ = observer_commands_tx.send(ObserverCommand::EnablePredicate(
-        ChainhookSpecification::Stacks(chainhook.clone())
+        ChainhookSpecification::Stacks(chainhook.clone()),
     ));
     assert!(match observer_events_rx.recv() {
         Ok(ObserverEvent::PredicateEnabled(registered_chainhook)) => {
@@ -166,14 +166,14 @@ fn generate_and_register_new_bitcoin_chainhook(
 ) -> BitcoinChainhookSpecification {
     let chainhook = bitcoin_chainhook_p2pkh(id, &p2pkh_address, expire_after_occurrence);
     let _ = observer_commands_tx.send(ObserverCommand::RegisterPredicate(
-        ChainhookFullSpecification::Bitcoin(chainhook.clone())
+        ChainhookFullSpecification::Bitcoin(chainhook.clone()),
     ));
     let mut chainhook = chainhook
         .into_selected_network_specification(&BitcoinNetwork::Regtest)
         .unwrap();
     chainhook.enabled = true;
     let _ = observer_commands_tx.send(ObserverCommand::EnablePredicate(
-        ChainhookSpecification::Bitcoin(chainhook.clone())
+        ChainhookSpecification::Bitcoin(chainhook.clone()),
     ));
     assert!(match observer_events_rx.recv() {
         Ok(ObserverEvent::PredicateRegistered(registered_chainhook)) => {
@@ -244,7 +244,7 @@ fn test_stacks_chainhook_register_deregister() {
         Ok(ObserverEvent::PredicateEnabled(_)) => true,
         _ => false,
     });
-    
+
     // Should signal that no hook were triggered
     assert!(match observer_events_rx.recv() {
         Ok(ObserverEvent::HooksTriggered(len)) => {
