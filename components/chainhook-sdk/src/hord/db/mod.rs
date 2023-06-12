@@ -484,11 +484,9 @@ pub fn find_all_inscriptions_in_block(
         let inscription_number: i64 = row.get(0).unwrap();
         let ordinal_number: u64 = row.get(1).unwrap();
         let block_height: u64 = row.get(2).unwrap();
-        let transaction_id = {
+        let (transaction_id, _) = {
             let inscription_id: String = row.get(3).unwrap();
-            TransactionIdentifier {
-                hash: format!("0x{}", &inscription_id[0..inscription_id.len() - 2]),
-            }
+            parse_inscription_id(&inscription_id)
         };
         let inscription_offset: u64 = row.get(4).unwrap();
         let outpoint_to_watch: String = row.get(5).unwrap();
@@ -517,10 +515,8 @@ pub struct WatchedSatpoint {
 
 impl WatchedSatpoint {
     pub fn get_genesis_satpoint(&self) -> String {
-        format!(
-            "{}:0",
-            &self.inscription_id[0..self.inscription_id.len() - 2]
-        )
+        let (transaction_id, input) = parse_inscription_id(&self.inscription_id);
+        format!("{}:{}", transaction_id.hash, input)
     }
 }
 
@@ -900,6 +896,15 @@ pub fn format_outpoint_to_watch(
         transaction_identifier.get_hash_bytes_str(),
         output_index
     )
+}
+
+pub fn parse_inscription_id(inscription_id: &str) -> (TransactionIdentifier, usize) {
+    let comps: Vec<&str> = inscription_id.split("i").collect();
+    let tx = TransactionIdentifier {
+        hash: format!("0x{}", comps[0]),
+    };
+    let output_index = comps[1].to_string().parse::<usize>().unwrap();
+    (tx, output_index)
 }
 
 pub fn parse_outpoint_to_watch(outpoint_to_watch: &str) -> (TransactionIdentifier, usize) {

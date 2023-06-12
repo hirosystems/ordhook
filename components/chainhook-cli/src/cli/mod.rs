@@ -739,7 +739,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     open_readwrite_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
 
                 let tip_height = find_last_block_inserted(&blocks_db_conn) as u64;
-                let end_at = match cmd.block_height {
+                let _end_at = match cmd.block_height {
                     Some(block_height) if block_height > tip_height => {
                         perform_hord_db_update(
                             tip_height,
@@ -754,7 +754,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     _ => tip_height,
                 };
 
-                let (start_at_height, watched_satpoint) = find_watched_satpoint_for_inscription(
+                let (_start_at_height, watched_satpoint) = find_watched_satpoint_for_inscription(
                     &cmd.inscription_id,
                     &inscriptions_db_conn,
                 )?;

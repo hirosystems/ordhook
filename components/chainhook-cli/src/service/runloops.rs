@@ -142,5 +142,5 @@ pub fn start_bitcoin_scan_runloop(
             ));
         });
     }
-    let res = bitcoin_scan_pool.join();
+    let _ = bitcoin_scan_pool.join();
 }
