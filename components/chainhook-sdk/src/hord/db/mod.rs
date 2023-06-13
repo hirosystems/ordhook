@@ -463,8 +463,7 @@ pub fn find_inscription_with_id(
             let ordinal_number: u64 = row.get(1).unwrap();
             let inscription_offset_intra_output: u64 = row.get(3).unwrap();
             let outpoint_to_watch: String = row.get(4).unwrap();
-            let (_, output_index) =
-                parse_outpoint_to_watch(&outpoint_to_watch);
+            let (_, output_index) = parse_outpoint_to_watch(&outpoint_to_watch);
             let (transaction_identifier, input_index) = parse_inscription_id(inscription_id);
             let traversal = TraversalResult {
                 inscription_number,
@@ -1164,8 +1163,7 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
     }
 
     let height = Height(ordinal_block_number.into());
-    let ordinal_number =
-        height.starting_sat().0 + ordinal_offset + inscription_offset_intra_output;
+    let ordinal_number = height.starting_sat().0 + ordinal_offset + inscription_offset_intra_output;
 
     Ok(TraversalResult {
         inscription_number,

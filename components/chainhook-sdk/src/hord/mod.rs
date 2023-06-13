@@ -232,6 +232,7 @@ pub fn retrieve_inscribed_satoshi_points_from_block(
                 }
             };
             if let Some(inscriptions_db_conn) = inscriptions_db_conn {
+                // TODO: introduce scanning context
                 if let Some(traversal) = find_inscription_with_id(
                     &inscription_data.inscription_id,
                     &block.block_identifier.hash,
@@ -485,10 +486,6 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
             };
 
             let outputs = new_tx.metadata.outputs.clone();
-            ctx.try_log(|logger| {
-                slog::info!(logger, "=> {:?} / {:?}", traversal, outputs);
-            });
-
             inscription.ordinal_offset = traversal.get_ordinal_coinbase_offset();
             inscription.ordinal_block_height = traversal.get_ordinal_coinbase_height();
             inscription.ordinal_number = traversal.ordinal_number;
@@ -501,20 +498,28 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
                 traversal.output_index,
                 traversal.inscription_offset_intra_output
             );
-            inscription.inscription_output_value =
-                new_tx.metadata.outputs[traversal.output_index].value;
-            inscription.inscriber_address = {
-                let script_pub_key =
-                    new_tx.metadata.outputs[traversal.output_index].get_script_pubkey_hex();
-                match Script::from_hex(&script_pub_key) {
-                    Ok(script) => match Address::from_script(&script, network) {
-                        Ok(a) => Some(a.to_string()),
+            if let Some(output) = new_tx.metadata.outputs.get(traversal.output_index) {
+                inscription.inscription_output_value = output.value;
+                inscription.inscriber_address = {
+                    let script_pub_key = output.get_script_pubkey_hex();
+                    match Script::from_hex(&script_pub_key) {
+                        Ok(script) => match Address::from_script(&script, network) {
+                            Ok(a) => Some(a.to_string()),
+                            _ => None,
+                        },
                         _ => None,
-                    },
-                    _ => None,
-                }
-            };
-
+                    }
+                };
+            } else {
+                ctx.try_log(|logger| {
+                    slog::warn!(
+                        logger,
+                        "Database corrupted, skipping cursed inscription => {:?} / {:?}",
+                        traversal,
+                        outputs
+                    );
+                });
+            }
             match storage {
                 Storage::Sqlite(rw_hord_db_conn) => {
                     if traversal.ordinal_number == 0 {
