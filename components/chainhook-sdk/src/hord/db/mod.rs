@@ -462,9 +462,9 @@ pub fn find_inscription_with_id(
             let inscription_number: i64 = row.get(0).unwrap();
             let ordinal_number: u64 = row.get(1).unwrap();
             let inscription_offset_intra_output: u64 = row.get(3).unwrap();
-            let outpoint_to_watch: String = row.get(4).unwrap();
+            let _outpoint_to_watch: String = row.get(4).unwrap();
             let (transaction_identifier, output_index) =
-                parse_outpoint_to_watch(&outpoint_to_watch);
+                parse_inscription_id(&inscription_id);
             let (_, input_index) = parse_inscription_id(inscription_id);
             let traversal = TraversalResult {
                 inscription_number,
