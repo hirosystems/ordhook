@@ -6,7 +6,7 @@ use bitcoincore_rpc::bitcoin::hashes::hex::FromHex;
 use bitcoincore_rpc::bitcoin::{Address, Network, Script};
 use bitcoincore_rpc_json::bitcoin::Witness;
 use chainhook_types::{
-    BitcoinBlockData, OrdinalInscriptionCurseType, OrdinalInscriptionRevealData,
+    BitcoinBlockData, BitcoinNetwork, OrdinalInscriptionCurseType, OrdinalInscriptionRevealData,
     OrdinalInscriptionTransferData, OrdinalOperation, TransactionIdentifier,
 };
 use dashmap::DashMap;
@@ -96,21 +96,6 @@ pub fn parse_ordinal_operations(
                 index: input_index as u32,
             };
 
-            let inscription_output_value = tx
-                .vout
-                .get(0)
-                .and_then(|o| Some(o.value.to_sat()))
-                .unwrap_or(0);
-
-            let inscriber_address = if let Ok(authors) = Address::from_script(
-                &tx.vout[0].script_pub_key.script().unwrap(),
-                bitcoincore_rpc::bitcoin::Network::Bitcoin,
-            ) {
-                Some(authors.to_string())
-            } else {
-                None
-            };
-
             if input_index > 0 {
                 inscription.curse = Some(OrdinalInscriptionCurseType::Batch);
             }
@@ -123,16 +108,16 @@ pub fn parse_ordinal_operations(
                 content_bytes: format!("0x{}", hex::encode(&inscription_content_bytes)),
                 content_length: inscription_content_bytes.len(),
                 inscription_id: inscription_id.to_string(),
-                inscriber_address,
-                inscription_output_value,
-                inscription_fee: 0,
                 inscription_input_index: input_index,
+                inscription_output_value: 0,
+                inscription_fee: 0,
                 inscription_number: 0,
+                inscriber_address: None,
                 ordinal_number: 0,
                 ordinal_block_height: 0,
                 ordinal_offset: 0,
                 transfers_pre_inscription: 0,
-                satpoint_post_inscription: format!("{}:0:0", tx.txid.clone()),
+                satpoint_post_inscription: format!(""),
                 curse_type: inscription.curse.take(),
             };
 
@@ -435,7 +420,11 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
     ctx: &Context,
 ) -> Result<bool, String> {
     let mut storage_updated = false;
-
+    let network = match block.metadata.network {
+        BitcoinNetwork::Mainnet => Network::Bitcoin,
+        BitcoinNetwork::Regtest => Network::Regtest,
+        BitcoinNetwork::Testnet => Network::Testnet,
+    };
     let mut latest_inscription_number = match find_latest_inscription_number_at_block_height(
         &block.block_identifier.index,
         &inscriptions_db_conn,
@@ -499,9 +488,24 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
             inscription.transfers_pre_inscription = traversal.transfers;
             inscription.inscription_fee = new_tx.metadata.fee;
             inscription.satpoint_post_inscription = format!(
-                "{}:{}",
-                traversal.outpoint_to_watch, traversal.inscription_offset
+                "{}:{}:{}",
+                traversal.transaction_identifier.hash,
+                traversal.output_index,
+                traversal.inscription_offset_intra_output
             );
+            inscription.inscription_output_value =
+                new_tx.metadata.outputs[traversal.output_index].value;
+            inscription.inscriber_address = {
+                let script_pub_key =
+                    new_tx.metadata.outputs[traversal.output_index].get_script_pubkey_hex();
+                match Script::from_hex(&script_pub_key) {
+                    Ok(script) => match Address::from_script(&script, network) {
+                        Ok(a) => Some(a.to_string()),
+                        _ => None,
+                    },
+                    _ => None,
+                }
+            };
 
             match storage {
                 Storage::Sqlite(rw_hord_db_conn) => {

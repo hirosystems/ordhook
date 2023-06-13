@@ -123,7 +123,9 @@ pub struct BitcoinBlockData {
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
-pub struct BitcoinBlockMetadata {}
+pub struct BitcoinBlockMetadata {
+    pub network: BitcoinNetwork,
+}
 
 /// The timestamp of the block in milliseconds since the Unix Epoch. The
 /// timestamp is stored in milliseconds because some blockchains produce blocks
