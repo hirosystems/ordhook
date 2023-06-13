@@ -2,7 +2,6 @@ use super::BlockEvent;
 use chainhook_types::{
     BlockIdentifier, StacksBlockData, StacksBlockMetadata, StacksTransactionData,
 };
-use clarity_repl::clarity::util::hash::to_hex;
 
 pub fn generate_test_stacks_block(
     fork_id: u8,

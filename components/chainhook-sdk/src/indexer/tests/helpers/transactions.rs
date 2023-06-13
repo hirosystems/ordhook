@@ -9,7 +9,6 @@ use chainhook_types::{
     StacksTransactionData, StacksTransactionKind, StacksTransactionMetadata,
     StacksTransactionReceipt, TransactionIdentifier,
 };
-use clarity_repl::clarity::util::hash::to_hex;
 
 use super::accounts;
 
@@ -39,7 +38,7 @@ pub fn generate_test_tx_stacks_contract_call(
 
     StacksTransactionData {
         transaction_identifier: TransactionIdentifier {
-            hash: to_hex(&hash[..]),
+            hash: hex::encode(&hash[..]),
         },
         operations: vec![],
         metadata: StacksTransactionMetadata {

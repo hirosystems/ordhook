@@ -1,5 +1,4 @@
 use clarity_repl::clarity::codec::StacksString;
-use clarity_repl::clarity::util::hash::{hex_bytes, to_hex};
 use clarity_repl::clarity::ClarityName;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use hex::{decode, encode};

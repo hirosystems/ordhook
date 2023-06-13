@@ -29,7 +29,6 @@ use chainhook_types::{
     BitcoinChainUpdatedWithReorgData, BitcoinNetwork, BlockIdentifier, BlockchainEvent,
     StacksChainEvent, StacksNetwork, TransactionIdentifier,
 };
-use clarity_repl::clarity::util::hash::bytes_to_hex;
 use hiro_system_kit;
 use hiro_system_kit::slog;
 use reqwest::Client as HttpClient;
@@ -497,7 +496,7 @@ pub fn get_bitcoin_proof(
 
     let res = bitcoin_client_rpc.get_tx_out_proof(&vec![txid], Some(&block_hash));
     match res {
-        Ok(proof) => Ok(format!("0x{}", bytes_to_hex(&proof))),
+        Ok(proof) => Ok(format!("0x{}", hex::encode(&proof))),
         Err(e) => Err(format!(
             "failed collecting proof for transaction {}: {}",
             transaction_identifier.hash,

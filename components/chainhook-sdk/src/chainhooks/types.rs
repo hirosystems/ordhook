@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
 
 use chainhook_types::{BitcoinNetwork, StacksNetwork};
-use clarity_repl::clarity::util::hash::hex_bytes;
 use reqwest::Url;
 use serde::ser::{SerializeSeq, Serializer};
 use serde::{Deserialize, Serialize};
@@ -484,7 +483,7 @@ impl ScriptTemplate {
                 instructions.push(ScriptInstruction::Placeholder(name.to_string(), size));
             } else if let Some(opcode) = opcode_to_hex(&raw_instruction) {
                 instructions.push(ScriptInstruction::Opcode(opcode));
-            } else if let Ok(bytes) = hex_bytes(&raw_instruction) {
+            } else if let Ok(bytes) = hex::decode(&raw_instruction) {
                 instructions.push(ScriptInstruction::RawBytes(bytes));
             } else {
                 return Err(format!("unable to handle instruction {}", raw_instruction));

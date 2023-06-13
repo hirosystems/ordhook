@@ -1,7 +1,6 @@
 use chainhook_types::{
     BitcoinBlockData, BitcoinBlockMetadata, BitcoinTransactionData, BlockIdentifier,
 };
-use clarity_repl::clarity::util::hash::to_hex;
 
 pub fn generate_test_bitcoin_block(
     fork_id: u8,
@@ -30,7 +29,7 @@ pub fn generate_test_bitcoin_block(
             parent_hash.append(&mut (block_height - 1).to_be_bytes().to_vec());
             BlockIdentifier {
                 index: block_height - 1,
-                hash: format!("0x{}", to_hex(&parent_hash[..])),
+                hash: format!("0x{}", hex::encode(&parent_hash[..])),
             }
         }
     };
@@ -38,7 +37,7 @@ pub fn generate_test_bitcoin_block(
     BitcoinBlockData {
         block_identifier: BlockIdentifier {
             index: block_height,
-            hash: format!("0x{}", to_hex(&hash[..])),
+            hash: format!("0x{}", hex::encode(&hash[..])),
         },
         parent_block_identifier,
         timestamp: 0,
