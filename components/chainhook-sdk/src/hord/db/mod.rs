@@ -1159,7 +1159,25 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
     }
 
     let height = Height(ordinal_block_number.into());
-    let ordinal_number = height.starting_sat().0 + ordinal_offset;
+    let mut ordinal_number = height.starting_sat().0 + ordinal_offset;
+
+    if input_index > 0 {
+        let tx =
+            match find_lazy_block_at_block_height(block_identifier.index as u32, 10, &blocks_db) {
+                Some(block) => match block.find_and_serialize_transaction_with_txid(
+                    &transaction_identifier.get_8_hash_bytes(),
+                ) {
+                    Some(entry) => entry,
+                    None => unreachable!(),
+                },
+                None => {
+                    unimplemented!()
+                }
+            };
+        for i in 0..input_index {
+            ordinal_number += tx.inputs[i].txin_value;
+        }
+    }
 
     Ok(TraversalResult {
         inscription_number,
