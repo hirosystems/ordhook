@@ -467,7 +467,7 @@ dependencies = [
  "ansi_term",
  "atty",
  "chainhook-sdk",
- "chainhook-types 1.0.3",
+ "chainhook-types 1.0.6",
  "clap 3.2.23",
  "clap_generate",
  "clarinet-files",
@@ -500,14 +500,14 @@ dependencies = [
 
 [[package]]
 name = "chainhook-sdk"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "base58 0.2.0",
  "base64 0.13.1",
  "bitcoincore-rpc",
  "bitcoincore-rpc-json",
- "chainhook-types 1.0.3",
+ "chainhook-types 1.0.6",
  "chrono",
  "clap 3.2.23",
  "clap_generate",
@@ -554,7 +554,7 @@ dependencies = [
 
 [[package]]
 name = "chainhook-types"
-version = "1.0.3"
+version = "1.0.6"
 dependencies = [
  "hex",
  "schemars",
