@@ -494,13 +494,13 @@ pub fn find_all_inscriptions_in_block(
         let inscription_number: i64 = row.get(0).unwrap();
         let ordinal_number: u64 = row.get(1).unwrap();
         let block_height: u64 = row.get(2).unwrap();
-        let (transaction_id, input_index) = {
+        let (transaction_identifier, input_index) = {
             let inscription_id: String = row.get(3).unwrap();
             parse_inscription_id(&inscription_id)
         };
         let inscription_offset_intra_output: u64 = row.get(4).unwrap();
         let outpoint_to_watch: String = row.get(5).unwrap();
-        let (transaction_identifier, output_index) = parse_outpoint_to_watch(&outpoint_to_watch);
+        let (_, output_index) = parse_outpoint_to_watch(&outpoint_to_watch);
 
         let traversal = TraversalResult {
             inscription_number,
