@@ -11,6 +11,7 @@ use chainhook_types::{
 use dashmap::DashMap;
 use fxhash::FxHasher;
 use hiro_system_kit::slog;
+use rand::{thread_rng, Rng};
 
 use rocksdb::DB;
 use rusqlite::{Connection, OpenFlags, ToSql};
@@ -254,12 +255,17 @@ pub fn find_lazy_block_at_block_height(
     // let mut read_options = rocksdb::ReadOptions::default();
     // read_options.fill_cache(true);
     // read_options.set_verify_checksums(false);
+    let mut backoff: f64 = 1.0;
+    let mut rng = thread_rng();
+
     loop {
         match blocks_db.get(block_height.to_be_bytes()) {
             Ok(Some(res)) => return Some(LazyBlock::new(res)),
             _ => {
                 attempt += 1;
-                std::thread::sleep(std::time::Duration::from_secs(2));
+                backoff = 2.0 * backoff + (backoff * rng.gen_range(0.0..1.0));
+                let duration = std::time::Duration::from_millis((backoff * 1_000.0) as u64);
+                std::thread::sleep(duration);
                 if attempt > retry {
                     return None;
                 }
@@ -965,7 +971,7 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
                         traversals_cache.insert((ordinal_block_number, txid.clone()), tx);
                         (sats_ranges, inscription_offset_cross_outputs)
                     }
-                    None => return Err(format!("block #{ordinal_block_number} not in database")),
+                    None => return Err(format!("txid not in block #{ordinal_block_number}")),
                 },
             },
         };
