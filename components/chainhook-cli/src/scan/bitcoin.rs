@@ -165,6 +165,7 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
             let local_traverals = match find_all_inscriptions_in_block(
                 &cursor,
                 &inscriptions_db_conn,
+                &ctx,
             )
             .remove(&cursor)
             {

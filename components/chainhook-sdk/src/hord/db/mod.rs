@@ -483,6 +483,7 @@ pub fn find_inscription_with_id(
 pub fn find_all_inscriptions_in_block(
     block_height: &u64,
     inscriptions_db_conn: &Connection,
+    ctx: &Context,
 ) -> BTreeMap<u64, Vec<(TransactionIdentifier, TraversalResult)>> {
     let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
     let mut stmt = inscriptions_db_conn
@@ -494,13 +495,24 @@ pub fn find_all_inscriptions_in_block(
         let inscription_number: i64 = row.get(0).unwrap();
         let ordinal_number: u64 = row.get(1).unwrap();
         let block_height: u64 = row.get(2).unwrap();
+        let inscription_id: String = row.get(3).unwrap();
         let (transaction_identifier, input_index) = {
-            let inscription_id: String = row.get(3).unwrap();
             parse_inscription_id(&inscription_id)
         };
         let inscription_offset_intra_output: u64 = row.get(4).unwrap();
         let outpoint_to_watch: String = row.get(5).unwrap();
-        let (_, output_index) = parse_outpoint_to_watch(&outpoint_to_watch);
+        let (latest_transaction_id, mut output_index) = parse_outpoint_to_watch(&outpoint_to_watch);
+
+        if latest_transaction_id.eq(&transaction_identifier) {
+            ctx.try_log(|logger| {
+                slog::warn!(
+                    logger,
+                    "Inscription {} ({}) most likely to end up lost in transfers",
+                    inscription_number, inscription_id
+                )
+            });
+            output_index = 0;
+        };
 
         let traversal = TraversalResult {
             inscription_number,
@@ -508,13 +520,13 @@ pub fn find_all_inscriptions_in_block(
             input_index,
             transfers: 0,
             inscription_offset_intra_output,
-            transaction_identifier,
+            transaction_identifier: transaction_identifier.clone(),
             output_index,
         };
         results
             .entry(block_height)
-            .and_modify(|v| v.push((transaction_id.clone(), traversal.clone())))
-            .or_insert(vec![(transaction_id, traversal)]);
+            .and_modify(|v| v.push((transaction_identifier.clone(), traversal.clone())))
+            .or_insert(vec![(transaction_identifier, traversal)]);
     }
     return results;
 }
