@@ -1,0 +1,22 @@
+{
+    "uuid": "1",
+    "name": "Stacking.club Events",
+    "chain": "stacks",
+    "version": 1,
+    "networks": {
+        "testnet": {
+            "start_block": 1,
+            "end_block": 103672,
+            "if_this": {
+                "contains": "onboard-user",
+                "contract_identifier": "ST3AXH4EBHD63FCFPTZ8GR29TNTVWDYPGY0KDY5E5.globals",
+                "scope": "print_event"
+            },
+            "then_that": {
+                "file_append": {
+                    "path": "zest-results.txt"
+                }
+            }
+        }
+    }
+}

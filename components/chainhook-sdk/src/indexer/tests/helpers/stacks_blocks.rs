@@ -41,7 +41,7 @@ pub fn generate_test_stacks_block(
             (
                 BlockIdentifier {
                     index: block_height - 1,
-                    hash: to_hex(&parent_hash[..]),
+                    hash: hex::encode(&parent_hash[..]),
                 },
                 None,
             )
@@ -51,7 +51,7 @@ pub fn generate_test_stacks_block(
     BlockEvent::Block(StacksBlockData {
         block_identifier: BlockIdentifier {
             index: block_height,
-            hash: to_hex(&hash[..]),
+            hash: hex::encode(&hash[..]),
         },
         parent_block_identifier,
         timestamp: 0,
