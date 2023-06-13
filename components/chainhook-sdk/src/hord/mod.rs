@@ -481,6 +481,10 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
                     continue;
                 }
             };
+            ctx.try_log(|logger| {
+                slog::info!(logger, "=> {:?}", traversal);
+            });
+
             inscription.ordinal_offset = traversal.get_ordinal_coinbase_offset();
             inscription.ordinal_block_height = traversal.get_ordinal_coinbase_height();
             inscription.ordinal_number = traversal.ordinal_number;

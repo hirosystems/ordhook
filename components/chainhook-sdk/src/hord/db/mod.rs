@@ -1164,8 +1164,7 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
     }
 
     let height = Height(ordinal_block_number.into());
-    let ordinal_number =
-        height.starting_sat().0 + ordinal_offset + inscription_offset_intra_output;
+    let ordinal_number = height.starting_sat().0 + ordinal_offset + inscription_offset_intra_output;
 
     Ok(TraversalResult {
         inscription_number,
