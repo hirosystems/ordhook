@@ -308,8 +308,7 @@ pub fn get_entry_from_predicates_db(
         Some(payload) => payload,
     };
 
-    let status = serde_json::from_str(&encoded_status)
-        .map_err(|e| format!("{}", e.to_string()))?;
+    let status = serde_json::from_str(&encoded_status).map_err(|e| format!("{}", e.to_string()))?;
 
     Ok(Some((spec, status)))
 }
