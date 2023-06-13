@@ -264,7 +264,7 @@ pub fn retrieve_inscribed_satoshi_points_from_block(
 
     if !transactions_ids.is_empty() {
         let expected_traversals = transactions_ids.len();
-        let (traversal_tx, traversal_rx) = channel::<(TransactionIdentifier, _)>();
+        let (traversal_tx, traversal_rx) = channel::<Result<TraversalResult, _>>();
         let traversal_data_pool = ThreadPool::new(hord_config.ingestion_thread_max);
 
         let mut rng = thread_rng();
@@ -287,7 +287,7 @@ pub fn retrieve_inscribed_satoshi_points_from_block(
                             local_cache,
                             &moved_ctx,
                         );
-                        let _ = moved_traversal_tx.send((transaction_id, traversal));
+                        let _ = moved_traversal_tx.send(traversal);
                         break;
                     }
                     Err(e) => {
@@ -300,7 +300,7 @@ pub fn retrieve_inscribed_satoshi_points_from_block(
         }
 
         let mut traversals_received = 0;
-        while let Ok((transaction_identifier, traversal_result)) = traversal_rx.recv() {
+        while let Ok(traversal_result) = traversal_rx.recv() {
             traversals_received += 1;
             match traversal_result {
                 Ok(traversal) => {
@@ -311,15 +311,17 @@ pub fn retrieve_inscribed_satoshi_points_from_block(
                             traversal.ordinal_number, traversal.get_ordinal_coinbase_height(), traversal.get_ordinal_coinbase_offset(), traversal.transfers
                             )
                     });
-                    traversals.insert((transaction_identifier, traversal.input_index), traversal);
+                    traversals.insert(
+                        (
+                            traversal.transaction_identifier.clone(),
+                            traversal.input_index,
+                        ),
+                        traversal,
+                    );
                 }
                 Err(e) => {
                     ctx.try_log(|logger| {
-                        slog::error!(
-                            logger,
-                            "Unable to compute inscription's Satoshi from transaction {}: {e}",
-                            transaction_identifier.hash
-                        )
+                        slog::error!(logger, "Unable to compute inscription's Satoshi: {e}",)
                     });
                 }
             }
@@ -481,8 +483,10 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
                     continue;
                 }
             };
+
+            let outputs = new_tx.metadata.outputs.clone();
             ctx.try_log(|logger| {
-                slog::info!(logger, "=> {:?}", traversal);
+                slog::info!(logger, "=> {:?} / {:?}", traversal, outputs);
             });
 
             inscription.ordinal_offset = traversal.get_ordinal_coinbase_offset();
