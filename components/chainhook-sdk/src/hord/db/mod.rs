@@ -979,11 +979,12 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
     ctx.try_log(|logger| {
         slog::info!(
             logger,
-            "Computing ordinal number for Satoshi point {} ({}:0 -> {}:{})  (block #{})",
+            "Computing ordinal number for Satoshi point {} ({}:0 -> {}:{}/{})  (block #{})",
             transaction_identifier.hash,
             input_index,
             inscription_output_index,
             inscription_offset_intra_output,
+            inscription_offset_cross_outputs,
             block_identifier.index
         )
     });
@@ -1158,7 +1159,7 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
 
     let height = Height(ordinal_block_number.into());
     let ordinal_number =
-        height.starting_sat().0 + ordinal_offset + inscription_offset_cross_outputs;
+        height.starting_sat().0 + ordinal_offset + inscription_offset_intra_output;
 
     Ok(TraversalResult {
         inscription_number,
