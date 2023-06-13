@@ -247,7 +247,7 @@ fn test_stacks_chainhook_register_deregister() {
 
     // Should signal that no hook were triggered
     assert!(match observer_events_rx.recv() {
-        Ok(ObserverEvent::HooksTriggered(len)) => {
+        Ok(ObserverEvent::PredicatesTriggered(len)) => {
             assert_eq!(len, 0);
             true
         }
@@ -278,7 +278,7 @@ fn test_stacks_chainhook_register_deregister() {
     let _ = observer_commands_tx.send(ObserverCommand::PropagateStacksChainEvent(chain_event));
     // Should signal that no hook were triggered
     assert!(match observer_events_rx.recv() {
-        Ok(ObserverEvent::HooksTriggered(len)) => {
+        Ok(ObserverEvent::PredicatesTriggered(len)) => {
             assert_eq!(len, 1);
             true
         }
@@ -335,7 +335,7 @@ fn test_stacks_chainhook_register_deregister() {
     let _ = observer_commands_tx.send(ObserverCommand::PropagateStacksChainEvent(chain_event));
     // Should signal that no hook were triggered
     assert!(match observer_events_rx.recv() {
-        Ok(ObserverEvent::HooksTriggered(len)) => {
+        Ok(ObserverEvent::PredicatesTriggered(len)) => {
             assert_eq!(len, 1);
             true
         }
@@ -391,7 +391,7 @@ fn test_stacks_chainhook_register_deregister() {
     let _ = observer_commands_tx.send(ObserverCommand::PropagateStacksChainEvent(chain_event));
     // Should signal that no hook were triggered
     assert!(match observer_events_rx.recv() {
-        Ok(ObserverEvent::HooksTriggered(len)) => {
+        Ok(ObserverEvent::PredicatesTriggered(len)) => {
             assert_eq!(len, 0);
             true
         }
@@ -422,7 +422,7 @@ fn test_stacks_chainhook_register_deregister() {
     let _ = observer_commands_tx.send(ObserverCommand::PropagateStacksChainEvent(chain_event));
     // Should signal that no hook were triggered
     assert!(match observer_events_rx.recv() {
-        Ok(ObserverEvent::HooksTriggered(len)) => {
+        Ok(ObserverEvent::PredicatesTriggered(len)) => {
             assert_eq!(len, 0);
             true
         }
@@ -503,7 +503,7 @@ fn test_stacks_chainhook_auto_deregister() {
     });
 
     assert!(match observer_events_rx.recv() {
-        Ok(ObserverEvent::HooksTriggered(len)) => {
+        Ok(ObserverEvent::PredicatesTriggered(len)) => {
             assert_eq!(len, 0);
             true
         }
@@ -538,7 +538,7 @@ fn test_stacks_chainhook_auto_deregister() {
     let _ = observer_commands_tx.send(ObserverCommand::PropagateStacksChainEvent(chain_event));
     // Should signal that no hook were triggered
     assert!(match observer_events_rx.recv() {
-        Ok(ObserverEvent::HooksTriggered(len)) => {
+        Ok(ObserverEvent::PredicatesTriggered(len)) => {
             assert_eq!(len, 1);
             true
         }
@@ -577,7 +577,7 @@ fn test_stacks_chainhook_auto_deregister() {
     let _ = observer_commands_tx.send(ObserverCommand::PropagateStacksChainEvent(chain_event));
     // Should signal that no hook were triggered
     assert!(match observer_events_rx.recv() {
-        Ok(ObserverEvent::HooksTriggered(len)) => {
+        Ok(ObserverEvent::PredicatesTriggered(len)) => {
             assert_eq!(len, 0);
             true
         }
@@ -653,7 +653,7 @@ fn test_bitcoin_chainhook_register_deregister() {
     let _ = observer_commands_tx.send(ObserverCommand::PropagateBitcoinChainEvent(chain_event));
     // Should signal that no hook were triggered
     assert!(match observer_events_rx.recv() {
-        Ok(ObserverEvent::HooksTriggered(len)) => {
+        Ok(ObserverEvent::PredicatesTriggered(len)) => {
             assert_eq!(len, 0);
             true
         }
@@ -692,7 +692,7 @@ fn test_bitcoin_chainhook_register_deregister() {
     let _ = observer_commands_tx.send(ObserverCommand::PropagateBitcoinChainEvent(chain_event));
     // Should signal that no hook were triggered
     assert!(match observer_events_rx.recv() {
-        Ok(ObserverEvent::HooksTriggered(len)) => {
+        Ok(ObserverEvent::PredicatesTriggered(len)) => {
             assert_eq!(len, 1);
             true
         }
@@ -747,7 +747,7 @@ fn test_bitcoin_chainhook_register_deregister() {
     let _ = observer_commands_tx.send(ObserverCommand::PropagateBitcoinChainEvent(chain_event));
     // Should signal that no hook were triggered
     assert!(match observer_events_rx.recv() {
-        Ok(ObserverEvent::HooksTriggered(len)) => {
+        Ok(ObserverEvent::PredicatesTriggered(len)) => {
             assert_eq!(len, 1);
             true
         }
@@ -803,7 +803,7 @@ fn test_bitcoin_chainhook_register_deregister() {
 
     // Should signal that no hook were triggered
     assert!(match observer_events_rx.recv() {
-        Ok(ObserverEvent::HooksTriggered(len)) => {
+        Ok(ObserverEvent::PredicatesTriggered(len)) => {
             assert_eq!(len, 0);
             true
         }
@@ -833,7 +833,7 @@ fn test_bitcoin_chainhook_register_deregister() {
     let _ = observer_commands_tx.send(ObserverCommand::PropagateBitcoinChainEvent(chain_event));
     // Should signal that no hook were triggered
     assert!(match observer_events_rx.recv() {
-        Ok(ObserverEvent::HooksTriggered(len)) => {
+        Ok(ObserverEvent::PredicatesTriggered(len)) => {
             assert_eq!(len, 0);
             true
         }
@@ -894,7 +894,7 @@ fn test_bitcoin_chainhook_auto_deregister() {
 
     // Should signal that no hook were triggered
     assert!(match observer_events_rx.recv() {
-        Ok(ObserverEvent::HooksTriggered(len)) => {
+        Ok(ObserverEvent::PredicatesTriggered(len)) => {
             assert_eq!(len, 0);
             true
         }
@@ -926,7 +926,7 @@ fn test_bitcoin_chainhook_auto_deregister() {
 
     // Should signal that no hook were triggered
     assert!(match observer_events_rx.recv() {
-        Ok(ObserverEvent::HooksTriggered(len)) => {
+        Ok(ObserverEvent::PredicatesTriggered(len)) => {
             assert_eq!(len, 1);
             true
         }
@@ -966,7 +966,7 @@ fn test_bitcoin_chainhook_auto_deregister() {
 
     // Should signal that no hook were triggered
     assert!(match observer_events_rx.recv() {
-        Ok(ObserverEvent::HooksTriggered(len)) => {
+        Ok(ObserverEvent::PredicatesTriggered(len)) => {
             assert_eq!(len, 0);
             true
         }
@@ -998,7 +998,7 @@ fn test_bitcoin_chainhook_auto_deregister() {
 
     // Should signal that no hook were triggered
     assert!(match observer_events_rx.recv() {
-        Ok(ObserverEvent::HooksTriggered(len)) => {
+        Ok(ObserverEvent::PredicatesTriggered(len)) => {
             assert_eq!(len, 0);
             true
         }

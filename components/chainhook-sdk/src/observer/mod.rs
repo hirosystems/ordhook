@@ -313,7 +313,7 @@ pub enum ObserverEvent {
     PredicateEnabled(ChainhookSpecification),
     BitcoinPredicateTriggered(BitcoinChainhookOccurrencePayload),
     StacksPredicateTriggered(StacksChainhookOccurrencePayload),
-    HooksTriggered(usize),
+    PredicatesTriggered(usize),
     Terminate,
     StacksChainMempoolEvent(StacksChainMempoolEvent),
 }
@@ -1044,7 +1044,7 @@ pub async fn start_observer_commands_handler(
                 });
 
                 if let Some(ref tx) = observer_events_tx {
-                    let _ = tx.send(ObserverEvent::HooksTriggered(chainhooks_to_trigger.len()));
+                    let _ = tx.send(ObserverEvent::PredicatesTriggered(chainhooks_to_trigger.len()));
                 }
                 for chainhook_to_trigger in chainhooks_to_trigger.into_iter() {
                     match handle_bitcoin_hook_action(chainhook_to_trigger, &proofs) {
@@ -1180,7 +1180,7 @@ pub async fn start_observer_commands_handler(
                 }
 
                 if let Some(ref tx) = observer_events_tx {
-                    let _ = tx.send(ObserverEvent::HooksTriggered(chainhooks_to_trigger.len()));
+                    let _ = tx.send(ObserverEvent::PredicatesTriggered(chainhooks_to_trigger.len()));
                 }
                 let proofs = HashMap::new();
                 for chainhook_to_trigger in chainhooks_to_trigger.into_iter() {
