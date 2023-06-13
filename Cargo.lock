@@ -512,7 +512,6 @@ dependencies = [
  "clap 3.2.23",
  "clap_generate",
  "clarinet-utils",
- "clarity-repl",
  "crossbeam-channel 0.5.8",
  "ctrlc",
  "dashmap 5.4.0",
@@ -4075,11 +4074,10 @@ dependencies = [
 
 [[package]]
 name = "stacks-rpc-client"
-version = "1.0.1"
+version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3160c1225d52bd81f588ad39a7382385e47018990893466b98e5420b0e56b48"
+checksum = "d37303e34a7b81da7c285cd88b95e380481f211749ed7eab5ee53fae0476b111"
 dependencies = [
- "clarinet-utils",
  "clarity-repl",
  "reqwest",
  "serde",
