@@ -446,7 +446,7 @@ pub fn standardize_bitcoin_block(
         },
         timestamp: block.time as u32,
         metadata: BitcoinBlockMetadata {
-            network: network.clone()
+            network: network.clone(),
         },
         transactions,
     })

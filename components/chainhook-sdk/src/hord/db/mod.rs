@@ -966,10 +966,13 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
                     return Err(format!("block #{ordinal_block_number} not in database"));
                 }
                 Some(block) => match block.find_and_serialize_transaction_with_txid(&txid) {
-                    Some(tx) => (
-                        tx.get_sat_ranges(),
-                        tx.get_cumulated_sats_in_until_input_index(input_index),
-                    ),
+                    Some(tx) => {
+                        let sats_ranges = tx.get_sat_ranges();
+                        let inscription_offset_cross_outputs =
+                            tx.get_cumulated_sats_in_until_input_index(input_index);
+                        traversals_cache.insert((ordinal_block_number, txid.clone()), tx);
+                        (sats_ranges, inscription_offset_cross_outputs)
+                    }
                     None => return Err(format!("block #{ordinal_block_number} not in database")),
                 },
             },
