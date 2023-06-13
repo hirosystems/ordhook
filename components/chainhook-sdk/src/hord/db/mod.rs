@@ -938,14 +938,6 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
     >,
     ctx: &Context,
 ) -> Result<TraversalResult, String> {
-    ctx.try_log(|logger| {
-        slog::info!(
-            logger,
-            "Computing ordinal number for Satoshi point {}:0:0 (block #{})",
-            transaction_identifier.hash,
-            block_identifier.index
-        )
-    });
     let mut inscription_offset_intra_output = 0;
     let mut inscription_output_index: usize = 0;
     let mut ordinal_offset = 0;
@@ -984,6 +976,17 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
             inscription_offset_intra_output = inscription_offset_cross_outputs - min;
         }
     }
+    ctx.try_log(|logger| {
+        slog::info!(
+            logger,
+            "Computing ordinal number for Satoshi point {} ({}:0 -> {}:{})  (block #{})",
+            transaction_identifier.hash,
+            input_index,
+            inscription_output_index,
+            inscription_offset_intra_output,
+            block_identifier.index
+        )
+    });
 
     let mut tx_cursor: ([u8; 8], usize) = (txid, input_index);
     let mut hops: u32 = 0;

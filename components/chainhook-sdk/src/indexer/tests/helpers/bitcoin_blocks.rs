@@ -43,7 +43,9 @@ pub fn generate_test_bitcoin_block(
         parent_block_identifier,
         timestamp: 0,
         transactions,
-        metadata: BitcoinBlockMetadata {},
+        metadata: BitcoinBlockMetadata {
+            network: chainhook_types::BitcoinNetwork::Regtest,
+        },
     }
 }
 
