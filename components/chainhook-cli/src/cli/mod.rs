@@ -859,7 +859,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
 
                     let mut missing_blocks = vec![];
                     for i in 1..=790000 {
-                        if find_lazy_block_at_block_height(i, 3, &blocks_db_rw).is_none() {
+                        if find_lazy_block_at_block_height(i, 10, &blocks_db_rw, &ctx).is_none() {
                             println!("Missing block {i}");
                             missing_blocks.push(i);
                         }

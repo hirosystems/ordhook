@@ -80,7 +80,7 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
         let blocks_db_rw =
             open_readwrite_hord_db_conn_rocks_db(&config.expected_cache_path(), ctx)?;
 
-        if find_lazy_block_at_block_height(end_block as u32, 3, &blocks_db_rw).is_none() {
+        if find_lazy_block_at_block_height(end_block as u32, 10, &blocks_db_rw, &ctx).is_none() {
             // Count how many entries in the table
             // Compute the right interval
             // Start the build local storage routine
@@ -162,16 +162,13 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
             }
 
             // Evaluating every single block is required for also keeping track of transfers.
-            let local_traverals = match find_all_inscriptions_in_block(
-                &cursor,
-                &inscriptions_db_conn,
-                &ctx,
-            )
-            .remove(&cursor)
-            {
-                Some(entry) => entry,
-                None => vec![],
-            };
+            let local_traverals =
+                match find_all_inscriptions_in_block(&cursor, &inscriptions_db_conn, &ctx)
+                    .remove(&cursor)
+                {
+                    Some(entry) => entry,
+                    None => vec![],
+                };
             for (transaction_identifier, traversal_result) in local_traverals.into_iter() {
                 traversals.insert(
                     (transaction_identifier, traversal_result.input_index),

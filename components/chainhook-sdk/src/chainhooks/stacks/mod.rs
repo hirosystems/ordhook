@@ -8,11 +8,11 @@ use chainhook_types::{
     BlockIdentifier, StacksChainEvent, StacksTransactionData, StacksTransactionEvent,
     StacksTransactionKind, TransactionIdentifier,
 };
-use stacks_rpc_client::clarity::stacks_common::codec::StacksMessageCodec;
-use stacks_rpc_client::clarity::vm::types::{CharType, SequenceData, Value as ClarityValue};
 use hiro_system_kit::slog;
 use reqwest::{Client, Method};
 use serde_json::Value as JsonValue;
+use stacks_rpc_client::clarity::stacks_common::codec::StacksMessageCodec;
+use stacks_rpc_client::clarity::vm::types::{CharType, SequenceData, Value as ClarityValue};
 use std::collections::{BTreeMap, HashMap};
 use std::io::Cursor;
 

@@ -119,7 +119,7 @@ impl Service {
         let context_cloned = self.ctx.clone();
         let event_observer_config_moved = event_observer_config.clone();
         let observer_command_tx_moved = observer_command_tx.clone();
-        let _ = std::thread::spawn(move || {
+        let _ = hiro_system_kit::thread_named("Chainhook event observer").spawn(move || {
             let future = start_event_observer(
                 event_observer_config_moved,
                 observer_command_tx_moved,
