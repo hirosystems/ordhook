@@ -228,7 +228,7 @@ pub fn retrieve_inscribed_satoshi_points_from_block(
         DashMap<(u32, [u8; 8]), LazyBlockTransaction, BuildHasherDefault<FxHasher>>,
     >,
     ctx: &Context,
-) -> HashMap<TransactionIdentifier, TraversalResult> {
+) -> HashMap<(TransactionIdentifier, usize), TraversalResult> {
     let mut transactions_ids = vec![];
     let mut traversals = HashMap::new();
 
@@ -253,7 +253,13 @@ pub fn retrieve_inscribed_satoshi_points_from_block(
                     inscriptions_db_conn,
                     ctx,
                 ) {
-                    traversals.insert(tx.transaction_identifier.clone(), traversal);
+                    traversals.insert(
+                        (
+                            tx.transaction_identifier.clone(),
+                            inscription_data.inscription_input_index,
+                        ),
+                        traversal,
+                    );
                 } else {
                     // Enqueue for traversals
                     transactions_ids.push((
@@ -320,7 +326,7 @@ pub fn retrieve_inscribed_satoshi_points_from_block(
                             traversal.ordinal_number, traversal.get_ordinal_coinbase_height(), traversal.get_ordinal_coinbase_offset(), traversal.transfers
                             )
                     });
-                    traversals.insert(transaction_identifier, traversal);
+                    traversals.insert((transaction_identifier, traversal.input_index), traversal);
                 }
                 Err(e) => {
                     ctx.try_log(|logger| {
@@ -424,7 +430,7 @@ pub enum Storage<'a> {
 pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
     block: &mut BitcoinBlockData,
     storage: &mut Storage,
-    traversals: &HashMap<TransactionIdentifier, TraversalResult>,
+    traversals: &HashMap<(TransactionIdentifier, usize), TraversalResult>,
     inscriptions_db_conn: &Connection,
     ctx: &Context,
 ) -> Result<bool, String> {
@@ -469,7 +475,10 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
                 latest_inscription_number
             };
 
-            let traversal = match traversals.get(&new_tx.transaction_identifier) {
+            let transaction_identifier = new_tx.transaction_identifier.clone();
+            let traversal = match traversals
+                .get(&(transaction_identifier, inscription.inscription_input_index))
+            {
                 Some(traversal) => traversal,
                 None => {
                     ctx.try_log(|logger| {

@@ -172,7 +172,10 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
                 None => vec![],
             };
             for (transaction_identifier, traversal_result) in local_traverals.into_iter() {
-                traversals.insert(transaction_identifier, traversal_result);
+                traversals.insert(
+                    (transaction_identifier, traversal_result.input_index),
+                    traversal_result,
+                );
             }
 
             let _ = update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(

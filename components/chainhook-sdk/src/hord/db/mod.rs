@@ -457,9 +457,11 @@ pub fn find_inscription_with_id(
             let ordinal_number: u64 = row.get(1).unwrap();
             let inscription_offset: u64 = row.get(3).unwrap();
             let outpoint_to_watch: String = row.get(4).unwrap();
+            let (_, input_index) = parse_inscription_id(inscription_id);
             let traversal = TraversalResult {
                 inscription_number,
                 ordinal_number,
+                input_index,
                 inscription_offset,
                 outpoint_to_watch,
                 transfers: 0,
@@ -484,7 +486,7 @@ pub fn find_all_inscriptions_in_block(
         let inscription_number: i64 = row.get(0).unwrap();
         let ordinal_number: u64 = row.get(1).unwrap();
         let block_height: u64 = row.get(2).unwrap();
-        let (transaction_id, _) = {
+        let (transaction_id, input_index) = {
             let inscription_id: String = row.get(3).unwrap();
             parse_inscription_id(&inscription_id)
         };
@@ -493,6 +495,7 @@ pub fn find_all_inscriptions_in_block(
         let traversal = TraversalResult {
             inscription_number,
             ordinal_number,
+            input_index,
             transfers: 0,
             inscription_offset,
             outpoint_to_watch,
@@ -847,6 +850,7 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
 pub struct TraversalResult {
     pub inscription_number: i64,
     pub inscription_offset: u64,
+    pub input_index: usize,
     pub outpoint_to_watch: String,
     pub ordinal_number: u64,
     pub transfers: u32,
@@ -1019,6 +1023,7 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
                     ordinal_number: 0,
                     transfers: 0,
                     inscription_offset,
+                    input_index,
                     outpoint_to_watch: format_outpoint_to_watch(
                         &transaction_identifier,
                         inscription_output_index,
@@ -1149,6 +1154,7 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
                     ordinal_number: 0,
                     transfers: 0,
                     inscription_offset,
+                    input_index,
                     outpoint_to_watch: format_outpoint_to_watch(
                         &transaction_identifier,
                         inscription_output_index,
@@ -1159,13 +1165,14 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
     }
 
     let height = Height(ordinal_block_number.into());
-    let ordinal_number = height.starting_sat().0 + ordinal_offset + inscription_offset;
+    let ordinal_number = height.starting_sat().0 + ordinal_offset;
 
     Ok(TraversalResult {
         inscription_number,
         ordinal_number,
         transfers: hops,
         inscription_offset,
+        input_index,
         outpoint_to_watch: format_outpoint_to_watch(
             &transaction_identifier,
             inscription_output_index,
