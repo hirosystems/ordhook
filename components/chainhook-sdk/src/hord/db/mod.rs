@@ -254,7 +254,7 @@ pub fn find_lazy_block_at_block_height(
     blocks_db: &DB,
     ctx: &Context,
 ) -> Option<LazyBlock> {
-    let mut attempt = 0;
+    let mut attempt = 1;
     // let mut read_options = rocksdb::ReadOptions::default();
     // read_options.fill_cache(true);
     // read_options.set_verify_checksums(false);
@@ -265,6 +265,22 @@ pub fn find_lazy_block_at_block_height(
         match blocks_db.get(block_height.to_be_bytes()) {
             Ok(Some(res)) => return Some(LazyBlock::new(res)),
             _ => {
+                if attempt == 1 {
+                    ctx.try_log(|logger| {
+                        slog::warn!(
+                            logger,
+                            "Attempt to retrieve block {} through iterator",
+                            block_height,
+                        )
+                    });
+                    let mut iter = blocks_db.iterator(rocksdb::IteratorMode::End);
+                    let block_height_bytes = block_height.to_be_bytes();
+                    while let Some(Ok((k, res))) = iter.next() {
+                        if (*k).eq(&block_height_bytes) {
+                            return Some(LazyBlock::new(res.to_vec()));
+                        }
+                    }
+                }
                 attempt += 1;
                 backoff = 2.0 * backoff + (backoff * rng.gen_range(0.0..1.0));
                 let duration = std::time::Duration::from_millis((backoff * 1_000.0) as u64);
