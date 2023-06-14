@@ -198,7 +198,9 @@ pub fn open_readonly_hord_db_conn_rocks_db(
     _ctx: &Context,
 ) -> Result<DB, String> {
     let path = get_default_hord_db_file_path_rocks_db(&base_dir);
-    let opts = rocks_db_default_options();
+    let mut opts = rocks_db_default_options();
+    opts.set_disable_auto_compactions(true);
+    opts.set_max_background_jobs(0);
     let db = DB::open_for_read_only(&opts, path, false)
         .map_err(|e| format!("unable to open blocks_db: {}", e.to_string()))?;
     Ok(db)
@@ -979,7 +981,7 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
                 tx.get_cumulated_sats_in_until_input_index(input_index),
             )
         }
-        None => match find_lazy_block_at_block_height(ordinal_block_number, 10, &blocks_db, &ctx) {
+        None => match find_lazy_block_at_block_height(ordinal_block_number, 4, &blocks_db, &ctx) {
             None => {
                 return Err(format!("block #{ordinal_block_number} not in database"));
             }
@@ -1078,7 +1080,7 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
         }
 
         let lazy_block =
-            match find_lazy_block_at_block_height(ordinal_block_number, 10, &blocks_db, &ctx) {
+            match find_lazy_block_at_block_height(ordinal_block_number, 4, &blocks_db, &ctx) {
                 Some(block) => block,
                 None => {
                     return Err(format!("block #{ordinal_block_number} not in database"));
