@@ -777,7 +777,7 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
         // processing.
 
         // Should we start look for inscriptions data in blocks?
-        if raw_block.height as u64 > ordinal_computing_height {
+        if raw_block.height as u64 >= ordinal_computing_height {
             if cursor == 0 {
                 cursor = raw_block.height;
             }
