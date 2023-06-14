@@ -859,7 +859,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
 
                     let mut missing_blocks = vec![];
                     for i in 1..=790000 {
-                        if find_lazy_block_at_block_height(i, 4, &blocks_db_rw, &ctx).is_none() {
+                        if find_lazy_block_at_block_height(i, 3, &blocks_db_rw, &ctx).is_none() {
                             println!("Missing block {i}");
                             missing_blocks.push(i);
                         }
@@ -899,7 +899,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                 let config = Config::default(false, false, false, &cmd.config_path)?;
                 let stacks_db = open_readonly_stacks_db_conn(&config.expected_cache_path(), &ctx)
                     .expect("unable to read stacks_db");
-                match get_stacks_block_at_block_height(cmd.block_height, true, 4, &stacks_db) {
+                match get_stacks_block_at_block_height(cmd.block_height, true, 3, &stacks_db) {
                     Ok(Some(block)) => {
                         info!(ctx.expect_logger(), "{}", json!(block));
                     }

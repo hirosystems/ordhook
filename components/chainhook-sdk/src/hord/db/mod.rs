@@ -981,7 +981,7 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
                 tx.get_cumulated_sats_in_until_input_index(input_index),
             )
         }
-        None => match find_lazy_block_at_block_height(ordinal_block_number, 4, &blocks_db, &ctx) {
+        None => match find_lazy_block_at_block_height(ordinal_block_number, 3, &blocks_db, &ctx) {
             None => {
                 return Err(format!("block #{ordinal_block_number} not in database"));
             }
@@ -1080,7 +1080,7 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
         }
 
         let lazy_block =
-            match find_lazy_block_at_block_height(ordinal_block_number, 4, &blocks_db, &ctx) {
+            match find_lazy_block_at_block_height(ordinal_block_number, 3, &blocks_db, &ctx) {
                 Some(block) => block,
                 None => {
                     return Err(format!("block #{ordinal_block_number} not in database"));
