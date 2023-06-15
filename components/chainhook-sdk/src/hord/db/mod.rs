@@ -859,7 +859,7 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
         }
 
         if !traversals_cache.is_empty() {
-            if num_writes % 16 == 0 {
+            if num_writes % 24 == 0 {
                 ctx.try_log(|logger| {
                     slog::info!(
                         logger,
@@ -871,7 +871,7 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
             }
         }
 
-        if num_writes % 512 == 0 {
+        if num_writes % 128 == 0 {
             ctx.try_log(|logger| {
                 slog::info!(logger, "Flushing DB to disk ({num_writes} inserts)");
             });
