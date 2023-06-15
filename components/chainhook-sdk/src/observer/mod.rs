@@ -29,7 +29,6 @@ use chainhook_types::{
     BitcoinChainUpdatedWithReorgData, BitcoinNetwork, BlockIdentifier, BlockchainEvent,
     StacksChainEvent, StacksNetwork, TransactionIdentifier,
 };
-use clarity_repl::clarity::util::hash::bytes_to_hex;
 use hiro_system_kit;
 use hiro_system_kit::slog;
 use reqwest::Client as HttpClient;
@@ -219,6 +218,7 @@ impl EventObserverConfig {
                 .unwrap_or("cache".to_string()),
             bitcoin_network,
             stacks_network,
+            #[cfg(feature = "ordinals")]
             hord_config: None,
         };
         Ok(config)
@@ -314,7 +314,7 @@ pub enum ObserverEvent {
     PredicateEnabled(ChainhookSpecification),
     BitcoinPredicateTriggered(BitcoinChainhookOccurrencePayload),
     StacksPredicateTriggered(StacksChainhookOccurrencePayload),
-    HooksTriggered(usize),
+    PredicatesTriggered(usize),
     Terminate,
     StacksChainMempoolEvent(StacksChainMempoolEvent),
 }
@@ -497,7 +497,7 @@ pub fn get_bitcoin_proof(
 
     let res = bitcoin_client_rpc.get_tx_out_proof(&vec![txid], Some(&block_hash));
     match res {
-        Ok(proof) => Ok(format!("0x{}", bytes_to_hex(&proof))),
+        Ok(proof) => Ok(format!("0x{}", hex::encode(&proof))),
         Err(e) => Err(format!(
             "failed collecting proof for transaction {}: {}",
             transaction_identifier.hash,
@@ -670,6 +670,7 @@ pub async fn start_observer_commands_handler(
     let event_handlers = config.event_handlers.clone();
     let networks = (&config.bitcoin_network, &config.stacks_network);
     let mut bitcoin_block_store: HashMap<BlockIdentifier, BitcoinBlockData> = HashMap::new();
+    #[cfg(feature = "ordinals")]
     let cache_size = config
         .hord_config
         .as_ref()
@@ -837,6 +838,7 @@ pub async fn start_observer_commands_handler(
                             slog::info!(logger, "Bitcoin reorg detected, will rollback blocks {} and apply blocks {}", blocks_ids_to_rollback.join(", "), blocks_ids_to_apply.join(", "))
                         });
 
+                        #[cfg(feature = "ordinals")]
                         ctx.try_log(|logger| {
                             slog::info!(
                                 logger,
@@ -844,6 +846,8 @@ pub async fn start_observer_commands_handler(
                                 traversals_cache.len()
                             )
                         });
+
+                        #[cfg(feature = "ordinals")]
                         traversals_cache.clear();
 
                         #[cfg(feature = "ordinals")]
@@ -1045,7 +1049,9 @@ pub async fn start_observer_commands_handler(
                 });
 
                 if let Some(ref tx) = observer_events_tx {
-                    let _ = tx.send(ObserverEvent::HooksTriggered(chainhooks_to_trigger.len()));
+                    let _ = tx.send(ObserverEvent::PredicatesTriggered(
+                        chainhooks_to_trigger.len(),
+                    ));
                 }
                 for chainhook_to_trigger in chainhooks_to_trigger.into_iter() {
                     match handle_bitcoin_hook_action(chainhook_to_trigger, &proofs) {
@@ -1094,6 +1100,7 @@ pub async fn start_observer_commands_handler(
                     let _ = send_request(request, 3, 1, &ctx).await;
                 }
 
+                #[cfg(feature = "ordinals")]
                 for block in confirmed_blocks.into_iter() {
                     if block.block_identifier.index % 24 == 0 {
                         ctx.try_log(|logger| {
@@ -1181,7 +1188,9 @@ pub async fn start_observer_commands_handler(
                 }
 
                 if let Some(ref tx) = observer_events_tx {
-                    let _ = tx.send(ObserverEvent::HooksTriggered(chainhooks_to_trigger.len()));
+                    let _ = tx.send(ObserverEvent::PredicatesTriggered(
+                        chainhooks_to_trigger.len(),
+                    ));
                 }
                 let proofs = HashMap::new();
                 for chainhook_to_trigger in chainhooks_to_trigger.into_iter() {

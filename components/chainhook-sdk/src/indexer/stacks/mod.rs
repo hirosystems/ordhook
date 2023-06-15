@@ -7,13 +7,12 @@ use crate::indexer::AssetClassCache;
 use crate::indexer::{IndexerConfig, StacksChainContext};
 use crate::utils::Context;
 use chainhook_types::*;
-use clarity_repl::clarity::codec::StacksMessageCodec;
-use clarity_repl::clarity::util::hash::hex_bytes;
-use clarity_repl::clarity::vm::types::{SequenceData, Value as ClarityValue};
-use clarity_repl::codec::{StacksTransaction, TransactionAuth, TransactionPayload};
 use hiro_system_kit::slog;
 use rocket::serde::json::Value as JsonValue;
 use rocket::serde::Deserialize;
+use stacks_rpc_client::clarity::codec::{StacksTransaction, TransactionAuth, TransactionPayload};
+use stacks_rpc_client::clarity::stacks_common::codec::StacksMessageCodec;
+use stacks_rpc_client::clarity::vm::types::{SequenceData, Value as ClarityValue};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::convert::TryInto;
 use std::io::Cursor;
@@ -484,7 +483,7 @@ pub fn get_value_description(raw_value: &str, ctx: &Context) -> String {
         Some(raw_value) => raw_value,
         _ => return raw_value.to_string(),
     };
-    let value_bytes = match hex_bytes(&raw_value) {
+    let value_bytes = match hex::decode(&raw_value) {
         Ok(bytes) => bytes,
         _ => return raw_value.to_string(),
     };
@@ -519,7 +518,7 @@ pub fn get_tx_description(
         Some(raw_tx) => raw_tx,
         _ => return Err("unable to read txid".into()),
     };
-    let tx_bytes = match hex_bytes(&raw_tx) {
+    let tx_bytes = match hex::decode(&raw_tx) {
         Ok(bytes) => bytes,
         Err(e) => return Err(format!("unable to read txid {}", e.to_string())),
     };

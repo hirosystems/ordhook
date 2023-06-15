@@ -239,9 +239,9 @@ checksum = "383d29d513d8764dcdc42ea295d979eb99c3c9f00607b3692cf68a431f7dca72"
 
 [[package]]
 name = "bindgen"
-version = "0.65.1"
+version = "0.64.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cfdf7b466f9a4903edc73f95d6d2bcd5baf8ae620638762244d3f60143643cc5"
+checksum = "c4243e6031260db77ede97ad86c27e501d646a27ab57b59a574f725d98ab1fb4"
 dependencies = [
  "bitflags 1.3.2",
  "cexpr",
@@ -249,13 +249,12 @@ dependencies = [
  "lazy_static",
  "lazycell",
  "peeking_take_while",
- "prettyplease",
  "proc-macro2",
  "quote",
  "regex",
  "rustc-hash",
  "shlex",
- "syn 2.0.18",
+ "syn 1.0.105",
 ]
 
 [[package]]
@@ -462,12 +461,12 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
 name = "chainhook"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "ansi_term",
  "atty",
  "chainhook-sdk",
- "chainhook-types 1.0.3",
+ "chainhook-types 1.0.6",
  "clap 3.2.23",
  "clap_generate",
  "clarinet-files",
@@ -500,19 +499,18 @@ dependencies = [
 
 [[package]]
 name = "chainhook-sdk"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "base58 0.2.0",
  "base64 0.13.1",
  "bitcoincore-rpc",
  "bitcoincore-rpc-json",
- "chainhook-types 1.0.3",
+ "chainhook-types 1.0.6",
  "chrono",
  "clap 3.2.23",
  "clap_generate",
  "clarinet-utils",
- "clarity-repl",
  "crossbeam-channel 0.5.8",
  "ctrlc",
  "dashmap 5.4.0",
@@ -555,7 +553,7 @@ dependencies = [
 
 [[package]]
 name = "chainhook-types"
-version = "1.0.3"
+version = "1.0.6"
 dependencies = [
  "hex",
  "schemars",
@@ -2126,9 +2124,9 @@ dependencies = [
 
 [[package]]
 name = "librocksdb-sys"
-version = "0.11.0+8.1.1"
+version = "0.10.0+7.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3386f101bcb4bd252d8e9d2fb41ec3b0862a15a62b478c355b2982efa469e3e"
+checksum = "0fe4d5874f5ff2bc616e55e8c6086d478fcda13faf9495768a4aa1c22042d30b"
 dependencies = [
  "bindgen",
  "bzip2-sys",
@@ -2873,16 +2871,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b40af805b3121feab8a3c29f04d8ad262fa8e0561883e7653e024ae4479e6de"
 
 [[package]]
-name = "prettyplease"
-version = "0.2.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3b69d39aab54d069e7f2fe8cb970493e7834601ca2d8c65fd7bbd183578080d1"
-dependencies = [
- "proc-macro2",
- "syn 2.0.18",
-]
-
-[[package]]
 name = "prettytable-rs"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3387,9 +3375,9 @@ dependencies = [
 
 [[package]]
 name = "rocksdb"
-version = "0.21.0"
+version = "0.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bb6f170a4041d50a0ce04b0d2e14916d6ca863ea2e422689a5b694395d299ffe"
+checksum = "015439787fce1e75d55f279078d33ff14b4af5d93d995e8838ee4631301c8a99"
 dependencies = [
  "libc",
  "librocksdb-sys",
@@ -4075,16 +4063,20 @@ dependencies = [
 
 [[package]]
 name = "stacks-rpc-client"
-version = "1.0.1"
+version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3160c1225d52bd81f588ad39a7382385e47018990893466b98e5420b0e56b48"
+checksum = "417254594e89666f68c76267a620d3751ae6604e39c97f3abb57a845390bc1a0"
 dependencies = [
- "clarinet-utils",
  "clarity-repl",
+ "hmac 0.12.1",
+ "libsecp256k1 0.7.1",
+ "pbkdf2",
  "reqwest",
  "serde",
  "serde_derive",
  "serde_json",
+ "sha2 0.10.6",
+ "tiny-hderive",
 ]
 
 [[package]]

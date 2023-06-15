@@ -307,36 +307,45 @@ $ chainhook predicates scan ./path/to/predicate.json --testnet
 When using the flag `--testnet`, the scan operation will generate a configuration file in memory using the following settings:
 ```toml
 [storage]
-driver = "memory"
-
-[chainhooks]
-max_stacks_registrations = 500
-max_bitcoin_registrations = 500
+working_dir = "cache" # Directory used by chainhook node for caching data
 
 [network]
 mode = "testnet"
 bitcoind_rpc_url = "http://0.0.0.0:18332"
-bitcoind_rpc_username = "testnet"
-bitcoind_rpc_password = "testnet"
-stacks_node_rpc_url = "http://0.0.0.0:20443"
+bitcoind_rpc_username = "bitcoind_username"
+bitcoind_rpc_password = "bitcoind_password"
+# bitcoind_zmq_url = "http://0.0.0.0:18543"
+
+[limits]
+max_number_of_bitcoin_predicates = 100
+max_number_of_concurrent_bitcoin_scans = 100
+max_number_of_stacks_predicates = 10
+max_number_of_concurrent_stacks_scans = 10
+max_number_of_processing_threads = 16
+max_number_of_networking_threads = 16
+max_caching_memory_size_mb = 32000
 ```
 
 When using the flag `--mainnet`, the scan operation will generate a configuration file in memory using the following settings:
 ```toml
 [storage]
-driver = "memory"
-
-[chainhooks]
-max_stacks_registrations = 500
-max_bitcoin_registrations = 500
+working_dir = "cache"
 
 [network]
-mode = "mainnet"
+mode = "testnet"
 bitcoind_rpc_url = "http://0.0.0.0:8332"
-bitcoind_rpc_username = "mainnet"
-bitcoind_rpc_password = "mainnet"
-stacks_node_rpc_url = "http://0.0.0.0:20443"
+bitcoind_rpc_username = "bitcoind_username"
+bitcoind_rpc_password = "bitcoind_password"
+# bitcoind_zmq_url = "http://0.0.0.0:18543"
 
+[limits]
+max_number_of_bitcoin_predicates = 100
+max_number_of_concurrent_bitcoin_scans = 100
+max_number_of_stacks_predicates = 10
+max_number_of_concurrent_stacks_scans = 10
+max_number_of_processing_threads = 16
+max_number_of_networking_threads = 16
+max_caching_memory_size_mb = 32000
 ```
 
 By passing the flag `--config=/path/to/config.toml`, developers can customize the credentials and network address of their bitcoin node. 

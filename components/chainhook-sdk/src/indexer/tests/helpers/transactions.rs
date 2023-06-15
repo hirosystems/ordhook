@@ -9,7 +9,6 @@ use chainhook_types::{
     StacksTransactionData, StacksTransactionKind, StacksTransactionMetadata,
     StacksTransactionReceipt, TransactionIdentifier,
 };
-use clarity_repl::clarity::util::hash::to_hex;
 
 use super::accounts;
 
@@ -39,7 +38,7 @@ pub fn generate_test_tx_stacks_contract_call(
 
     StacksTransactionData {
         transaction_identifier: TransactionIdentifier {
-            hash: to_hex(&hash[..]),
+            hash: hex::encode(&hash[..]),
         },
         operations: vec![],
         metadata: StacksTransactionMetadata {
@@ -93,12 +92,12 @@ pub fn generate_test_tx_bitcoin_p2pkh_transfer(
         .into_script();
     let outputs = vec![TxOut {
         value: amount,
-        script_pubkey: format!("0x{}", to_hex(script.as_bytes())),
+        script_pubkey: format!("0x{}", hex::encode(script.as_bytes())),
     }];
 
     BitcoinTransactionData {
         transaction_identifier: TransactionIdentifier {
-            hash: format!("0x{}", to_hex(&hash[..])),
+            hash: format!("0x{}", hex::encode(&hash[..])),
         },
         operations: vec![],
         metadata: BitcoinTransactionMetadata {

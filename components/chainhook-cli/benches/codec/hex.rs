@@ -1,5 +1,4 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use clarity_repl::clarity::util::hash::{hex_bytes, to_hex};
 use hex::{decode, encode};
 
 #[inline]
@@ -9,7 +8,7 @@ fn decode_hex_str_stacks(input: &str) -> Vec<u8> {
 
 #[inline]
 fn encode_hex_str_stacks() -> String {
-    to_hex(&[
+    hex::encode(&[
         0x00,
         0x00,
         0x00,

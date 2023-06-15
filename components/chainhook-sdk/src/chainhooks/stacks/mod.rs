@@ -8,12 +8,11 @@ use chainhook_types::{
     BlockIdentifier, StacksChainEvent, StacksTransactionData, StacksTransactionEvent,
     StacksTransactionKind, TransactionIdentifier,
 };
-use clarity_repl::clarity::codec::StacksMessageCodec;
-use clarity_repl::clarity::util::hash::hex_bytes;
-use clarity_repl::clarity::vm::types::{CharType, SequenceData, Value as ClarityValue};
 use hiro_system_kit::slog;
 use reqwest::{Client, Method};
 use serde_json::Value as JsonValue;
+use stacks_rpc_client::clarity::stacks_common::codec::StacksMessageCodec;
+use stacks_rpc_client::clarity::vm::types::{CharType, SequenceData, Value as ClarityValue};
 use std::collections::{BTreeMap, HashMap};
 use std::io::Cursor;
 
@@ -575,7 +574,7 @@ pub fn expect_decoded_clarity_value(hex_value: &str) -> ClarityValue {
 
 pub fn try_decode_clarity_value(hex_value: &str) -> Option<ClarityValue> {
     let hex_value = hex_value.strip_prefix("0x")?;
-    let value_bytes = hex_bytes(&hex_value).ok()?;
+    let value_bytes = hex::decode(&hex_value).ok()?;
     ClarityValue::consensus_deserialize(&mut Cursor::new(&value_bytes)).ok()
 }
 
@@ -584,7 +583,7 @@ pub fn serialized_decoded_clarity_value(hex_value: &str, ctx: &Context) -> serde
         Some(hex_value) => hex_value,
         _ => return json!(hex_value.to_string()),
     };
-    let value_bytes = match hex_bytes(&hex_value) {
+    let value_bytes = match hex::decode(&hex_value) {
         Ok(bytes) => bytes,
         _ => return json!(hex_value.to_string()),
     };

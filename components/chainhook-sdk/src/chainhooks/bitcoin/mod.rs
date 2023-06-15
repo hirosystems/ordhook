@@ -10,7 +10,6 @@ use chainhook_types::{
     BitcoinBlockData, BitcoinChainEvent, BitcoinTransactionData, BlockIdentifier, OrdinalOperation,
     StacksBaseChainOperation, TransactionIdentifier,
 };
-use clarity_repl::clarity::util::hash::to_hex;
 
 use reqwest::{Client, Method};
 use serde_json::Value as JsonValue;
@@ -332,7 +331,7 @@ impl BitcoinPredicateType {
                     Ok(address) => address,
                     Err(_) => return false,
                 };
-                let address_bytes = to_hex(address.script_pubkey().as_bytes());
+                let address_bytes = hex::encode(address.script_pubkey().as_bytes());
                 for output in tx.metadata.outputs.iter() {
                     if output.script_pubkey[2..] == address_bytes {
                         return true;
@@ -356,7 +355,7 @@ impl BitcoinPredicateType {
                     },
                     Err(_) => return false,
                 };
-                let address_bytes = to_hex(address.script_pubkey().as_bytes());
+                let address_bytes = hex::encode(address.script_pubkey().as_bytes());
                 for output in tx.metadata.outputs.iter() {
                     if output.script_pubkey[2..] == address_bytes {
                         return true;

@@ -2,7 +2,6 @@ use super::BlockEvent;
 use chainhook_types::{
     BlockIdentifier, StacksMicroblockData, StacksMicroblockMetadata, StacksTransactionData,
 };
-use clarity_repl::clarity::util::hash::to_hex;
 
 pub fn generate_test_microblock(
     fork_id: u8,
@@ -37,7 +36,7 @@ pub fn generate_test_microblock(
 
                 BlockIdentifier {
                     index: microblock_height - 1,
-                    hash: to_hex(&parent_hash[..]),
+                    hash: hex::encode(&parent_hash[..]),
                 }
             }
         }
@@ -46,7 +45,7 @@ pub fn generate_test_microblock(
     BlockEvent::Microblock(StacksMicroblockData {
         block_identifier: BlockIdentifier {
             index: microblock_height,
-            hash: to_hex(&hash[..]),
+            hash: hex::encode(&hash[..]),
         },
         parent_block_identifier,
         timestamp: 0,
