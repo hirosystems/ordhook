@@ -41,9 +41,10 @@ use crate::{
 
 use self::db::{
     find_inscription_with_id, find_latest_cursed_inscription_number_at_block_height,
-    find_latest_inscription_number_at_block_height, open_readonly_hord_db_conn_rocks_db,
-    parse_satpoint_to_watch, remove_entry_from_blocks, remove_entry_from_inscriptions, LazyBlock,
-    LazyBlockTransaction, TraversalResult, WatchedSatpoint,
+    find_latest_inscription_number_at_block_height,
+    parse_satpoint_to_watch, remove_entry_from_blocks,
+    remove_entry_from_inscriptions, LazyBlock, LazyBlockTransaction, TraversalResult,
+    WatchedSatpoint,
 };
 use self::inscription::InscriptionParser;
 use self::ord::inscription_id::InscriptionId;
@@ -276,27 +277,17 @@ pub fn retrieve_inscribed_satoshi_points_from_block(
             let block_identifier = block.block_identifier.clone();
             let moved_hord_db_path = hord_config.db_path.clone();
             let local_cache = traversals_cache.clone();
-            traversal_data_pool.execute(move || loop {
-                match open_readonly_hord_db_conn_rocks_db(&moved_hord_db_path, &moved_ctx) {
-                    Ok(blocks_db) => {
-                        let traversal = retrieve_satoshi_point_using_lazy_storage(
-                            &blocks_db,
-                            &block_identifier,
-                            &transaction_id,
-                            input_index,
-                            0,
-                            local_cache,
-                            &moved_ctx,
-                        );
-                        let _ = moved_traversal_tx.send(traversal);
-                        break;
-                    }
-                    Err(e) => {
-                        moved_ctx.try_log(|logger| {
-                            slog::warn!(logger, "Unable to open db: {e}",);
-                        });
-                    }
-                }
+            traversal_data_pool.execute(move || {
+                let traversal = retrieve_satoshi_point_using_lazy_storage(
+                    &moved_hord_db_path,
+                    &block_identifier,
+                    &transaction_id,
+                    input_index,
+                    0,
+                    local_cache,
+                    &moved_ctx,
+                );
+                let _ = moved_traversal_tx.send(traversal);
             });
         }
 

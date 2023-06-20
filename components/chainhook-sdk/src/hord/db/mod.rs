@@ -206,6 +206,21 @@ pub fn open_readonly_hord_db_conn_rocks_db(
     Ok(db)
 }
 
+pub fn open_readonly_hord_db_conn_rocks_db_loop(base_dir: &PathBuf, ctx: &Context) -> DB {
+    let blocks_db = loop {
+        match open_readonly_hord_db_conn_rocks_db(&base_dir, &ctx) {
+            Ok(db) => break db,
+            Err(e) => {
+                ctx.try_log(|logger| {
+                    slog::warn!(logger, "Unable to open db: {e}",);
+                });
+                continue;
+            }
+        }
+    };
+    blocks_db
+}
+
 pub fn open_readwrite_hord_dbs(
     base_dir: &PathBuf,
     ctx: &Context,
@@ -251,6 +266,7 @@ pub fn find_last_block_inserted(blocks_db: &DB) -> u32 {
 pub fn find_lazy_block_at_block_height(
     block_height: u32,
     retry: u8,
+    try_iterator: bool,
     blocks_db: &DB,
     ctx: &Context,
 ) -> Option<LazyBlock> {
@@ -265,7 +281,7 @@ pub fn find_lazy_block_at_block_height(
         match blocks_db.get(block_height.to_be_bytes()) {
             Ok(Some(res)) => return Some(LazyBlock::new(res)),
             _ => {
-                if attempt == 1 {
+                if attempt == 1 && try_iterator {
                     ctx.try_log(|logger| {
                         slog::warn!(
                             logger,
@@ -971,7 +987,7 @@ pub fn parse_outpoint_to_watch(outpoint_to_watch: &str) -> (TransactionIdentifie
 }
 
 pub fn retrieve_satoshi_point_using_lazy_storage(
-    blocks_db: &DB,
+    blocks_db_dir: &PathBuf,
     block_identifier: &BlockIdentifier,
     transaction_identifier: &TransactionIdentifier,
     input_index: usize,
@@ -987,6 +1003,8 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
     let mut ordinal_block_number = block_identifier.index as u32;
     let txid = transaction_identifier.get_8_hash_bytes();
 
+    let mut blocks_db = open_readonly_hord_db_conn_rocks_db_loop(&blocks_db_dir, &ctx);
+
     let (sats_ranges, inscription_offset_cross_outputs) = match traversals_cache
         .get(&(block_identifier.index as u32, txid.clone()))
     {
@@ -997,21 +1015,38 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
                 tx.get_cumulated_sats_in_until_input_index(input_index),
             )
         }
-        None => match find_lazy_block_at_block_height(ordinal_block_number, 3, &blocks_db, &ctx) {
-            None => {
-                return Err(format!("block #{ordinal_block_number} not in database"));
-            }
-            Some(block) => match block.find_and_serialize_transaction_with_txid(&txid) {
-                Some(tx) => {
-                    let sats_ranges = tx.get_sat_ranges();
-                    let inscription_offset_cross_outputs =
-                        tx.get_cumulated_sats_in_until_input_index(input_index);
-                    traversals_cache.insert((ordinal_block_number, txid.clone()), tx);
-                    (sats_ranges, inscription_offset_cross_outputs)
+        None => {
+            let mut attempt = 0;
+            loop {
+                match find_lazy_block_at_block_height(
+                    ordinal_block_number,
+                    3,
+                    false,
+                    &blocks_db,
+                    &ctx,
+                ) {
+                    None => {
+                        if attempt < 3 {
+                            attempt += 1;
+                            blocks_db =
+                                open_readonly_hord_db_conn_rocks_db_loop(&blocks_db_dir, &ctx);
+                        } else {
+                            return Err(format!("block #{ordinal_block_number} not in database"));
+                        }
+                    }
+                    Some(block) => match block.find_and_serialize_transaction_with_txid(&txid) {
+                        Some(tx) => {
+                            let sats_ranges = tx.get_sat_ranges();
+                            let inscription_offset_cross_outputs =
+                                tx.get_cumulated_sats_in_until_input_index(input_index);
+                            traversals_cache.insert((ordinal_block_number, txid.clone()), tx);
+                            break (sats_ranges, inscription_offset_cross_outputs);
+                        }
+                        None => return Err(format!("txid not in block #{ordinal_block_number}")),
+                    },
                 }
-                None => return Err(format!("txid not in block #{ordinal_block_number}")),
-            },
-        },
+            }
+        }
     };
 
     for (i, (min, max)) in sats_ranges.into_iter().enumerate() {
@@ -1095,13 +1130,29 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
             }
         }
 
-        let lazy_block =
-            match find_lazy_block_at_block_height(ordinal_block_number, 3, &blocks_db, &ctx) {
-                Some(block) => block,
-                None => {
-                    return Err(format!("block #{ordinal_block_number} not in database"));
+        let lazy_block = {
+            let mut attempt = 0;
+            loop {
+                match find_lazy_block_at_block_height(
+                    ordinal_block_number,
+                    3,
+                    false,
+                    &blocks_db,
+                    &ctx,
+                ) {
+                    Some(block) => break block,
+                    None => {
+                        if attempt < 3 {
+                            attempt += 1;
+                            blocks_db =
+                                open_readonly_hord_db_conn_rocks_db_loop(&blocks_db_dir, &ctx);
+                        } else {
+                            return Err(format!("block #{ordinal_block_number} not in database"));
+                        }
+                    }
                 }
-            };
+            }
+        };
 
         let coinbase_txid = lazy_block.get_coinbase_txid();
         let txid = tx_cursor.0;

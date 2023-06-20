@@ -107,7 +107,10 @@ impl Service {
         };
 
         // Download and ingest a Stacks dump
-        let _ = consolidate_local_stacks_chainstate_using_csv(&mut self.config, &self.ctx).await;
+        if self.config.rely_on_remote_stacks_tsv() {
+            let _ =
+                consolidate_local_stacks_chainstate_using_csv(&mut self.config, &self.ctx).await;
+        }
 
         // Download and ingest a Ordinal dump, if hord is enabled
         if !hord_disabled {

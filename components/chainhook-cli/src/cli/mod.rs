@@ -664,11 +664,12 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                 let config =
                     Config::default(cmd.devnet, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
 
-                let hord_db_conn =
-                    open_readonly_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx)
-                        .unwrap();
-
-                let tip_height = find_last_block_inserted(&hord_db_conn) as u64;
+                let tip_height = {
+                    let hord_db_conn =
+                        open_readonly_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx)
+                            .unwrap();
+                    find_last_block_inserted(&hord_db_conn) as u64
+                };
                 if cmd.block_height > tip_height {
                     perform_hord_db_update(
                         tip_height,
@@ -691,7 +692,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                         let transaction_identifier = TransactionIdentifier { hash: txid.clone() };
                         let traversals_cache = new_traversals_lazy_cache(1024);
                         let traversal = retrieve_satoshi_point_using_lazy_storage(
-                            &hord_db_conn,
+                            &config.expected_cache_path(),
                             &block_identifier,
                             &transaction_identifier,
                             0,
@@ -859,7 +860,9 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
 
                     let mut missing_blocks = vec![];
                     for i in 1..=790000 {
-                        if find_lazy_block_at_block_height(i, 3, &blocks_db_rw, &ctx).is_none() {
+                        if find_lazy_block_at_block_height(i, 3, false, &blocks_db_rw, &ctx)
+                            .is_none()
+                        {
                             println!("Missing block {i}");
                             missing_blocks.push(i);
                         }
