@@ -197,14 +197,10 @@ pub async fn download_stacks_dataset_if_required(config: &mut Config, ctx: &Cont
             };
             let should_download = match (local_sha_file, remote_sha_file) {
                 (Ok(local), Ok(remote_response)) => {
-                    let cache_not_expired = remote_response.starts_with(&local[0..32]) == false;
-                    if cache_not_expired {
-                        info!(
-                            ctx.expect_logger(),
-                            "More recent Stacks archive file detected"
-                        );
-                    }
-                    cache_not_expired == false
+                    let local_version_is_latest = remote_response
+                        .to_ascii_lowercase()
+                        .starts_with(&local[0..32]);
+                    local_version_is_latest == false
                 }
                 (_, _) => {
                     info!(
