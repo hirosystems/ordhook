@@ -33,7 +33,7 @@ export class ChainhookEventObserver {
    * @param predicates - Predicates to register
    * @param callback - Function to handle every Chainhook event payload sent by the node
    */
-  async start(predicates: [ServerPredicate], callback: OnEventCallback): Promise<void> {
+  async start(predicates: ServerPredicate[], callback: OnEventCallback): Promise<void> {
     if (this.fastify) return;
     this.fastify = await buildServer(this.serverOpts, this.chainhookOpts, predicates, callback);
     await this.fastify.listen({ host: this.serverOpts.hostname, port: this.serverOpts.port });
