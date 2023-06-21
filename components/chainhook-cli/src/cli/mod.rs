@@ -441,6 +441,9 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                 if cmd.predicates_paths.len() > 0 && !cmd.start_http_api {
                     config.http_api = PredicatesApi::Off;
                 }
+
+                let _ = initialize_hord_db(&config.expected_cache_path(), &ctx);
+
                 let predicates = cmd
                     .predicates_paths
                     .iter()

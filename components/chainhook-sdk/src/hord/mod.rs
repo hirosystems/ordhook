@@ -41,10 +41,9 @@ use crate::{
 
 use self::db::{
     find_inscription_with_id, find_latest_cursed_inscription_number_at_block_height,
-    find_latest_inscription_number_at_block_height,
-    parse_satpoint_to_watch, remove_entry_from_blocks,
-    remove_entry_from_inscriptions, LazyBlock, LazyBlockTransaction, TraversalResult,
-    WatchedSatpoint,
+    find_latest_inscription_number_at_block_height, parse_satpoint_to_watch,
+    remove_entry_from_blocks, remove_entry_from_inscriptions, LazyBlock, LazyBlockTransaction,
+    TraversalResult, WatchedSatpoint,
 };
 use self::inscription::InscriptionParser;
 use self::ord::inscription_id::InscriptionId;
