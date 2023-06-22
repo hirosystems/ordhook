@@ -41,9 +41,9 @@ use crate::{
 
 use self::db::{
     find_inscription_with_id, find_latest_cursed_inscription_number_at_block_height,
-    find_latest_inscription_number_at_block_height, parse_satpoint_to_watch,
-    remove_entry_from_blocks, remove_entry_from_inscriptions, LazyBlock, LazyBlockTransaction,
-    TraversalResult, WatchedSatpoint,
+    find_latest_inscription_number_at_block_height, format_satpoint_to_watch,
+    parse_satpoint_to_watch, remove_entry_from_blocks, remove_entry_from_inscriptions, LazyBlock,
+    LazyBlockTransaction, TraversalResult, WatchedSatpoint,
 };
 use self::inscription::InscriptionParser;
 use self::ord::inscription_id::InscriptionId;
@@ -482,11 +482,10 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
             inscription.inscription_number = traversal.inscription_number;
             inscription.transfers_pre_inscription = traversal.transfers;
             inscription.inscription_fee = new_tx.metadata.fee;
-            inscription.satpoint_post_inscription = format!(
-                "{}:{}:{}",
-                traversal.transaction_identifier.hash,
+            inscription.satpoint_post_inscription = format_satpoint_to_watch(
+                &traversal.transaction_identifier,
                 traversal.output_index,
-                traversal.inscription_offset_intra_output
+                traversal.inscription_offset_intra_output,
             );
             if let Some(output) = new_tx.metadata.outputs.get(traversal.output_index) {
                 inscription.inscription_output_value = output.value;
@@ -642,10 +641,9 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
 
         for input in new_tx.metadata.inputs.iter() {
             // input.previous_output.txid
-            let outpoint_pre_transfer = format!(
-                "{}:{}",
-                &input.previous_output.txid[2..],
-                input.previous_output.vout
+            let outpoint_pre_transfer = format_outpoint_to_watch(
+                &input.previous_output.txid,
+                input.previous_output.vout as usize,
             );
 
             let entries = match storage {

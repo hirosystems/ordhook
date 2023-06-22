@@ -387,7 +387,7 @@ pub fn standardize_bitcoin_block(
             sats_in += prevout.value.to_sat();
             inputs.push(TxIn {
                 previous_output: OutPoint {
-                    txid: format!("0x{}", txid.to_string()),
+                    txid: TransactionIdentifier::new(&txid.to_string()),
                     vout,
                     block_height: prevout.height,
                     value: prevout.value.to_sat(),

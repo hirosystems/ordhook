@@ -180,7 +180,7 @@ pub fn serialize_bitcoin_transactions_to_json<'a>(
                         .iter()
                         .map(|input| {
                             json!({
-                                "txin": format!("0x{}", input.previous_output.txid),
+                                "txin": input.previous_output.txid.hash.to_string(),
                                 "vout": input.previous_output.vout,
                                 "sequence": input.sequence,
                             })
@@ -366,7 +366,7 @@ impl BitcoinPredicateType {
             BitcoinPredicateType::Inputs(InputPredicate::Txid(predicate)) => {
                 // TODO(lgalabru): add support for transaction chainhing, if enabled
                 for input in tx.metadata.inputs.iter() {
-                    if input.previous_output.txid.eq(&predicate.txid)
+                    if input.previous_output.txid.hash.eq(&predicate.txid)
                         && input.previous_output.vout.eq(&predicate.vout)
                     {
                         return true;

@@ -949,9 +949,7 @@ pub fn format_satpoint_to_watch(
 
 pub fn parse_satpoint_to_watch(outpoint_to_watch: &str) -> (TransactionIdentifier, usize, u64) {
     let comps: Vec<&str> = outpoint_to_watch.split(":").collect();
-    let tx = TransactionIdentifier {
-        hash: format!("0x{}", comps[0]),
-    };
+    let tx = TransactionIdentifier::new(comps[0]);
     let output_index = comps[1].to_string().parse::<usize>().unwrap();
     let offset = comps[2].to_string().parse::<u64>().unwrap();
     (tx, output_index, offset)
@@ -970,18 +968,14 @@ pub fn format_outpoint_to_watch(
 
 pub fn parse_inscription_id(inscription_id: &str) -> (TransactionIdentifier, usize) {
     let comps: Vec<&str> = inscription_id.split("i").collect();
-    let tx = TransactionIdentifier {
-        hash: format!("0x{}", comps[0]),
-    };
+    let tx = TransactionIdentifier::new(&comps[0]);
     let output_index = comps[1].to_string().parse::<usize>().unwrap();
     (tx, output_index)
 }
 
 pub fn parse_outpoint_to_watch(outpoint_to_watch: &str) -> (TransactionIdentifier, usize) {
     let comps: Vec<&str> = outpoint_to_watch.split(":").collect();
-    let tx = TransactionIdentifier {
-        hash: format!("0x{}", comps[0]),
-    };
+    let tx = TransactionIdentifier::new(&comps[0]);
     let output_index = comps[1].to_string().parse::<usize>().unwrap();
     (tx, output_index)
 }
@@ -1552,12 +1546,7 @@ impl LazyBlock {
             // For each transaction input:
             for input in tx.metadata.inputs.iter() {
                 // txin - 8 first bytes
-                let txin = {
-                    let txid = hex::decode(&input.previous_output.txid[2..]).unwrap();
-                    [
-                        txid[0], txid[1], txid[2], txid[3], txid[4], txid[5], txid[6], txid[7],
-                    ]
-                };
+                let txin = input.previous_output.txid.get_8_hash_bytes();
                 buffer.write_all(&txin)?;
                 // txin's block height
                 let block_height = input.previous_output.block_height as u32;

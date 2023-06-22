@@ -1,3 +1,5 @@
+use crate::TransactionIdentifier;
+
 /// A transaction input, which defines old coins to be consumed
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash, Serialize, Deserialize)]
 pub struct TxIn {
@@ -32,7 +34,7 @@ pub struct TxOut {
 #[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct OutPoint {
     /// The referenced transaction's txid.
-    pub txid: String,
+    pub txid: TransactionIdentifier,
     /// The index of the referenced output in its transaction's vout.
     pub vout: u32,
     /// The value of the referenced.
