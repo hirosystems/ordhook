@@ -2,16 +2,16 @@
 
 ## Introduction
 
-Blockchains are pieces of infrastructure that unblock new use cases and introduce a new generation of decentralized applications, by relying on a public ledger.
-`chainhook` is a fork aware transaction indexing engine aiming at helping developers focusing on the informations they need, by helping with the on-chain data extraction. By focusing on the data they care about, developers are working with a much lighter datasets. Benefits are plurals: 
-- Improved Developer Experience: instead of working with a generic blockchain indexer, taking hours to process every single transactions of every single block, developers can create their own indexes, build, iterate and refine in minutes. 
-- Cost Optimization: by avoiding full chain indexation, developers avoid massive storage management and unnecessary storage scaling issues. Also `chainhook` helps developers creating elegant event based architectures. Developers write `if_this` / `then_that` **predicates**, being evaluated on transactions and blocks. When the evaluation of these **predicates** appears to be true, the related transactions are packaged as event and forwarded to the configured destination. By using cloud functions as destinations, developers can also cut costs on processing, by only paying processing when a block that contains some data relevant to developer's application is being mined.
-- Optimized User Experience: lighter indexes implies faster queries results, which helps minimizing end user responses time. 
+Blockchains are pieces of infrastructure that unblock new use cases and introduce a new generation of decentralized applications by relying on a public ledger.
+`chainhook` is a fork-aware transaction indexing engine aiming at helping developers focus on the information they need, by helping with the on-chain data extraction. By focusing on the data they care about, developers are working with much lighter datasets. Benefits are plurals: 
+- Improved Developer Experience: instead of working with a generic blockchain indexer, taking hours to process every single transaction of every single block, developers can create their own indexes, build, iterate, and refine them in minutes. 
+- Cost Optimization: by avoiding full chain indexation, developers avoid massive storage management and unnecessary storage scaling issues. Also, `chainhook` helps developers create elegant event-based architectures. Developers write `if_this` / `then_that` **predicates**, being evaluated on transactions and blocks. When the evaluation of these **predicates** appears to be true, the related transactions are packaged as events and forwarded to the configured destination. By using cloud functions as destinations, developers can also cut costs on processing by only paying for processing when a block that contains some data relevant to the developer's application is being mined.
+- Optimized User Experience: lighter indexes implies faster query results, which helps minimize end-user response time. 
 
 ---
 ## Install chainhook
 
-### Install from source
+### Install from the source
 
 ```bash 
 $ git clone https://github.com/hirosystems/chainhook.git
@@ -24,7 +24,7 @@ $ cargo chainhook-install
 
 ### Guide to `if_this` / `then_that` predicate design
 
-To get started with bitcoin predicates, we can use the `chainhook` to generate a template: 
+To get started with Bitcoin predicates, we can use the `chainhook` to generate a template: 
 
 ```bash
 $ chainhook predicates new hello-ordinals.json --bitcoin
@@ -32,7 +32,7 @@ $ chainhook predicates new hello-ordinals.json --bitcoin
 
 We will focus on the `if_this` and `then_that` parts of the specifications.
 
-The current `bitcoin` predicates supports the following `if_this` constructs:
+The current `bitcoin` predicates support the following `if_this` constructs:
 
 ```jsonc
 // Get any transaction matching a given txid
@@ -45,7 +45,7 @@ The current `bitcoin` predicates supports the following `if_this` constructs:
     }
 }
 
-// Get any transaction including an OP_RETURN output starting with a set of characters.
+// Get any transaction, including an OP_RETURN output starting with a set of characters.
 // `starts_with` mandatory argument admits:
 //  - ASCII string type. example: `X2[`
 //  - hex encoded bytes. example: `0x589403`
@@ -58,7 +58,7 @@ The current `bitcoin` predicates supports the following `if_this` constructs:
     }
 }
 
-// Get any transaction including an OP_RETURN output matching the sequence of bytes specified 
+// Get any transaction, including an OP_RETURN output matching the sequence of bytes specified 
 // `equals` mandatory argument admits:
 //  - hex encoded bytes. example: `0x589403`
 {
@@ -126,7 +126,7 @@ The current `bitcoin` predicates supports the following `if_this` constructs:
 }
 
 // Get any Bitcoin transaction including a Block commitment.
-// Broadcasted payloads include Proof of Transfer reward informations.
+// Broadcasted payloads include Proof of Transfer reward information.
 {
     "if_this": {
         "scope": "stacks_protocol",
@@ -134,7 +134,7 @@ The current `bitcoin` predicates supports the following `if_this` constructs:
     }
 }
 
-// Get any transaction including a key registration operation 
+// Get any transaction, including a key registration operation 
 {
     "if_this": {
         "scope": "stacks_protocol",
@@ -142,7 +142,7 @@ The current `bitcoin` predicates supports the following `if_this` constructs:
     }
 }
 
-// Get any transaction including a STX transfer operation 
+// Get any transaction, including an STX transfer operation 
 // Coming soon
 {
     "if_this": {
@@ -151,7 +151,7 @@ The current `bitcoin` predicates supports the following `if_this` constructs:
     }
 }
 
-// Get any transaction including a STX lock operation
+// Get any transaction, including an STX lock operation
 // Coming soon
 {
     "if_this": {
@@ -160,7 +160,7 @@ The current `bitcoin` predicates supports the following `if_this` constructs:
     }
 }
 
-// Get any transaction including a new Ordinal inscription (inscription revealed and transfered)
+// Get any transaction including a new Ordinal inscription (inscription revealed and transferred)
 {
     "if_this": {
         "scope": "ordinals_protocol",
@@ -186,7 +186,7 @@ In terms of actions available, the following `then_that` constructs are supporte
     }
 }
 
-// Append events to a file through filesystem. Convenient for local tests.
+// Append events to a file through the filesystem. Convenient for local tests.
 // `file_append` construct admits:
 //  - path (string type). Path to file on disk.
 {
@@ -348,7 +348,7 @@ max_number_of_networking_threads = 16
 max_caching_memory_size_mb = 32000
 ```
 
-By passing the flag `--config=/path/to/config.toml`, developers can customize the credentials and network address of their bitcoin node. 
+By passing the flag `--config=/path/to/config.toml`, developers can customize the credentials and network address of their Bitcoin node. 
 ```bash
 $ chainhook config new --testnet
 ✔ Generated config file Chainhook.toml
@@ -360,8 +360,8 @@ $ chainhook predicates scan ./path/predicate.json --config-path=./Testnet.toml
 
 To optimize their experience with scanning, developers have a few knobs they can play with:
 
-- Use of adequate values for `start_block` and `end_block` in predicates will drastically improved the speed.
-- Networking: reducing the amount of networks hops between the chainhook process and the bitcoind process can also help a lot.
+- Use of adequate values for `start_block` and `end_block` in predicates will drastically improve the speed.
+- Networking: reducing the number of network hops between the chainhook process and the bitcoind process can also help a lot.
 
 ---
 ## Development workflow for Stacks chainhooks
@@ -376,7 +376,7 @@ $ chainhook predicates new hello-arkadiko.json --stacks
 
 We will focus on the `if_this` and `then_that` parts of the specifications.
 
-The current `stacks` predicates supports the following `if_this` constructs:
+The current `stacks` predicates support the following `if_this` constructs:
 
 ```jsonc
 // Get any transaction matching a given txid
@@ -412,7 +412,7 @@ The current `stacks` predicates supports the following `if_this` constructs:
     },
 }
 
-// Get any transaction related to a given non fungible token asset identifier
+// Get any transaction related to a given non-fungible token asset identifier
 // `asset-identifier` mandatory argument admits:
 //  - string type, fully qualifying the asset identifier to observe. example: `ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.monkey-sip09::monkeys`
 // `actions` mandatory argument admits:
@@ -427,7 +427,7 @@ The current `stacks` predicates supports the following `if_this` constructs:
 
 // Get any transaction moving STX tokens
 // `actions` mandatory argument admits:
-//  - array of string type constrained to `mint`, `transfer` and `lock` values. example: ["mint", "lock"]
+//  - array of string type constrained to `mint`, `transfer`, and `lock` values. example: ["mint", "lock"]
 {
     "if_this": {
         "scope": "stx_event",
@@ -463,7 +463,7 @@ The current `stacks` predicates supports the following `if_this` constructs:
     },
 }
 
-// Get any transaction including a contract deployment
+// Get any transaction, including a contract deployment
 // `deployer` mandatory argument admits:
 //  - string "*"
 //  - string encoding a valid STX address. example: "ST2CY5V39NHDPWSXMW9QDT3HC3GD6Q6XX4CFRK9AG"
@@ -474,7 +474,7 @@ The current `stacks` predicates supports the following `if_this` constructs:
     },
 }
 
-// Get any transaction including a contract deployment implementing a given trait (coming soon)
+// Get any transaction, including a contract deployment implementing a given trait (coming soon)
 // `implement-trait` mandatory argument admits:
 //  - string type, fully qualifying the trait's shape to observe. example: `ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sip09-protocol`
 {
@@ -501,7 +501,7 @@ In terms of actions available, the following `then_that` constructs are supporte
     }
 }
 
-// Append events to a file through filesystem. Convenient for local tests.
+// Append events to a file through the filesystem. Convenient for local tests.
 // `file_append` construct admits:
 //  - path (string type). Path to file on disk.
 {
@@ -612,14 +612,14 @@ To test a Stacks `if_this` / `then_that` predicate, the following command can by
 $ chainhook predicates scan ./path/to/predicate.json  --testnet
 ```
 
-Tbe first time this command run, a chainstate archive will be downloaded, uncompressed and written to disk (aronud 3GB required for testnet, 10GB for mainnet).
+The first time this command run, a chainstate archive will be downloaded, uncompressed, and written to disk (around 3GB required for the testnet, 10GB for the mainnet).
 
 The subsequent scans will use the cached chainstate if already present, speeding up iterations and the overall feedback loop. 
 
 ---
 ## Run `chainhook` as a service for streaming new blocks
 
-`chainhook` can be ran as a background service for streaming and processing new canonical blocks appended to the Bitcoin and Stacks blockchains.
+`chainhook` can be run as a background service for streaming and processing new canonical blocks appended to the Bitcoin and Stacks blockchains.
 
 When running chainhook as a service, `if_this` / `then_that` predicates can be registered by passing the path of the `json` file in the command line: 
 
@@ -627,7 +627,7 @@ When running chainhook as a service, `if_this` / `then_that` predicates can be r
 $ chainhook service start --predicate-path=./path/to/predicate-1.json --predicate-path=./path/to/predicate-2.json --config-path=./path/to/config.toml
 ```
 
-Predicates can also be added dynamically. When the `--predicate-path` option is not passed or when the `--start-http-api` option is passed, `chainhook` will instantiate a REST API allowing developers to list, add and removes preducates at runtime:
+Predicates can also be added dynamically. When the `--predicate-path` option is not passed or when the `--start-http-api` option is passed, `chainhook` will instantiate a REST API allowing developers to list, add, and removes predicates at runtime:
 
 ```bash
 $ chainhook service start --config-path=./path/to/config.toml
@@ -637,4 +637,4 @@ $ chainhook service start --config-path=./path/to/config.toml
 $ chainhook service start --predicate-path=./path/to/predicate-1.json --start-http-api --config-path=./path/to/config.toml
 ```
 
-A comprehensive OpenAPI spcification explaining how to interact with the Chainhook REST API can be found [here](./docs/chainhook-openapi.json).
+A comprehensive OpenAPI specification explaining how to interact with the Chainhook REST API can be found [here](./docs/chainhook-openapi.json).
