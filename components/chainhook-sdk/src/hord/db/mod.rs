@@ -492,12 +492,26 @@ pub fn find_inscription_with_id(
     inscription_id: &str,
     block_hash: &str,
     inscriptions_db_conn: &Connection,
-    _ctx: &Context,
+    ctx: &Context,
 ) -> Option<TraversalResult> {
     let args: &[&dyn ToSql] = &[&inscription_id.to_sql().unwrap()];
-    let mut stmt = inscriptions_db_conn
+    let mut stmt = loop {
+        match inscriptions_db_conn
         .prepare("SELECT inscription_number, ordinal_number, block_hash, offset, outpoint_to_watch FROM inscriptions WHERE inscription_id = ?")
-        .unwrap();
+        {
+            Ok(stmt) => break stmt,
+            Err(e) => {
+                ctx.try_log(|logger| {
+                    slog::warn!(
+                        logger,
+                        "unable to retrieve inscription with id: {}",
+                        e.to_string(),
+                    )
+                });
+                std::thread::sleep(std::time::Duration::from_secs(5));
+            }
+        }
+    };
     let mut rows = stmt.query(args).unwrap();
     while let Ok(Some(row)) = rows.next() {
         let inscription_block_hash: String = row.get(2).unwrap();
@@ -828,7 +842,7 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
                 let mut new_block =
                     match standardize_bitcoin_block(next_block, &bitcoin_network, &ctx) {
                         Ok(block) => block,
-                        Err(e) => {
+                        Err((e, _)) => {
                             ctx.try_log(|logger| {
                                 slog::error!(logger, "Unable to standardize bitcoin block: {e}",)
                             });

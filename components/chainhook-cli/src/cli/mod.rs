@@ -1083,4 +1083,5 @@ pub async fn fetch_and_standardize_block(
         download_and_parse_block_with_retry(&block_hash, &bitcoin_config, &ctx).await?;
 
     indexer::bitcoin::standardize_bitcoin_block(block_breakdown, &bitcoin_config.network, &ctx)
+        .map_err(|(e, _)| e)
 }
