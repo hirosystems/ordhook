@@ -73,7 +73,7 @@ export type ServerPredicate = Static<typeof ServerPredicateSchema>;
 export async function buildServer(
   serverOpts: ServerOptions,
   chainhookOpts: ChainhookNodeOptions,
-  predicates: [ServerPredicate],
+  predicates: ServerPredicate[],
   callback: OnEventCallback
 ) {
   async function waitForNode(this: FastifyInstance) {

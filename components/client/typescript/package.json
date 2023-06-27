@@ -1,6 +1,6 @@
 {
   "name": "@hirosystems/chainhook-client",
-  "version": "1.0.2",
+  "version": "1.0.4",
   "description": "Chainhook TypeScript client",
   "main": "./dist/index.js",
   "typings": "./dist/index.d.ts",
