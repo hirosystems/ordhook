@@ -407,7 +407,7 @@ pub struct LockSTXData {
 
 /// The transaction_identifier uniquely identifies a transaction in a particular
 /// network and block or in the mempool.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Hash, PartialOrd, Ord)]
 pub struct TransactionIdentifier {
     /// Any transactions that are attributable only to a block (ex: a block
     /// event) should use the hash of the block as the identifier.
@@ -415,6 +415,16 @@ pub struct TransactionIdentifier {
 }
 
 impl TransactionIdentifier {
+    pub fn new(txid: &str) -> Self {
+        let lowercased_txid = txid.to_lowercase();
+        Self {
+            hash: match lowercased_txid.starts_with("0x") {
+                true => lowercased_txid,
+                false => format!("0x{}", lowercased_txid),
+            },
+        }
+    }
+
     pub fn get_hash_bytes_str(&self) -> &str {
         &self.hash[2..]
     }

@@ -1,6 +1,6 @@
 [package]
 name = "chainhook-sdk"
-version = "0.4.0"
+version = "0.5.0"
 description = "Stateless Transaction Indexing Engine for Stacks and Bitcoin"
 license = "GPL-3.0"
 edition = "2021"
@@ -19,7 +19,7 @@ hiro-system-kit = "0.1.0"
 # clarinet-utils = { version = "1", path = "../../../clarinet/components/clarinet-utils" }
 # clarity-repl = { version = "1", path = "../../../clarinet/components/clarity-repl" }
 # hiro-system-kit = { version = "0.1.0", path = "../../../clarinet/components/hiro-system-kit" }
-chainhook-types = { version = "1.0.6", path = "../chainhook-types-rs" }
+chainhook-types = { version = "1.0.7", path = "../chainhook-types-rs" }
 rocket = { version = "=0.5.0-rc.3", features = ["json"] }
 bitcoincore-rpc = "0.16.0"
 bitcoincore-rpc-json = "0.16.0"
@@ -45,8 +45,6 @@ hex = "0.4.3"
 rusqlite = { version = "0.27.0", features = ["bundled"], optional = true }
 threadpool = "1.8.1"
 rand = "0.8.5"
-hex-simd = "0.8.0"
-serde_cbor = "0.11.2"
 zeromq = { version = "0.3.3", default-features = false, features = ["tokio-runtime", "tcp-transport"], optional = true }
 dashmap = "5.4.0"
 fxhash = "0.2.1"

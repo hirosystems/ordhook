@@ -41,7 +41,7 @@ use crate::{
 
 use self::db::{
     find_inscription_with_id, find_latest_cursed_inscription_number_at_block_height,
-    find_latest_inscription_number_at_block_height, open_readonly_hord_db_conn_rocks_db,
+    find_latest_inscription_number_at_block_height, format_satpoint_to_watch,
     parse_satpoint_to_watch, remove_entry_from_blocks, remove_entry_from_inscriptions, LazyBlock,
     LazyBlockTransaction, TraversalResult, WatchedSatpoint,
 };
@@ -276,27 +276,17 @@ pub fn retrieve_inscribed_satoshi_points_from_block(
             let block_identifier = block.block_identifier.clone();
             let moved_hord_db_path = hord_config.db_path.clone();
             let local_cache = traversals_cache.clone();
-            traversal_data_pool.execute(move || loop {
-                match open_readonly_hord_db_conn_rocks_db(&moved_hord_db_path, &moved_ctx) {
-                    Ok(blocks_db) => {
-                        let traversal = retrieve_satoshi_point_using_lazy_storage(
-                            &blocks_db,
-                            &block_identifier,
-                            &transaction_id,
-                            input_index,
-                            0,
-                            local_cache,
-                            &moved_ctx,
-                        );
-                        let _ = moved_traversal_tx.send(traversal);
-                        break;
-                    }
-                    Err(e) => {
-                        moved_ctx.try_log(|logger| {
-                            slog::warn!(logger, "Unable to open db: {e}",);
-                        });
-                    }
-                }
+            traversal_data_pool.execute(move || {
+                let traversal = retrieve_satoshi_point_using_lazy_storage(
+                    &moved_hord_db_path,
+                    &block_identifier,
+                    &transaction_id,
+                    input_index,
+                    0,
+                    local_cache,
+                    &moved_ctx,
+                );
+                let _ = moved_traversal_tx.send(traversal);
             });
         }
 
@@ -492,11 +482,10 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
             inscription.inscription_number = traversal.inscription_number;
             inscription.transfers_pre_inscription = traversal.transfers;
             inscription.inscription_fee = new_tx.metadata.fee;
-            inscription.satpoint_post_inscription = format!(
-                "{}:{}:{}",
-                traversal.transaction_identifier.hash,
+            inscription.satpoint_post_inscription = format_satpoint_to_watch(
+                &traversal.transaction_identifier,
                 traversal.output_index,
-                traversal.inscription_offset_intra_output
+                traversal.inscription_offset_intra_output,
             );
             if let Some(output) = new_tx.metadata.outputs.get(traversal.output_index) {
                 inscription.inscription_output_value = output.value;
@@ -652,10 +641,9 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
 
         for input in new_tx.metadata.inputs.iter() {
             // input.previous_output.txid
-            let outpoint_pre_transfer = format!(
-                "{}:{}",
-                &input.previous_output.txid[2..],
-                input.previous_output.vout
+            let outpoint_pre_transfer = format_outpoint_to_watch(
+                &input.previous_output.txid,
+                input.previous_output.vout as usize,
             );
 
             let entries = match storage {

@@ -328,7 +328,7 @@ pub fn standardize_bitcoin_block(
     block: BitcoinBlockFullBreakdown,
     network: &BitcoinNetwork,
     ctx: &Context,
-) -> Result<BitcoinBlockData, String> {
+) -> Result<BitcoinBlockData, (String, bool)> {
     let mut transactions = vec![];
     let block_height = block.height as u64;
     let expected_magic_bytes = get_stacks_canonical_magic_bytes(&network);
@@ -364,30 +364,42 @@ pub fn standardize_bitcoin_block(
             if input.is_coinbase() {
                 continue;
             }
-            let prevout = input.prevout.as_ref().ok_or(format!(
-                "error retrieving prevout for transaction {}, input #{} (block #{})",
-                tx.txid, index, block.height
+            let prevout = input.prevout.as_ref().ok_or((
+                format!(
+                    "error retrieving prevout for transaction {}, input #{} (block #{})",
+                    tx.txid, index, block.height
+                ),
+                true,
             ))?;
 
-            let txid = input.txid.as_ref().ok_or(format!(
-                "error retrieving txid for transaction {}, input #{} (block #{})",
-                tx.txid, index, block.height
+            let txid = input.txid.as_ref().ok_or((
+                format!(
+                    "error retrieving txid for transaction {}, input #{} (block #{})",
+                    tx.txid, index, block.height
+                ),
+                true,
             ))?;
 
-            let vout = input.vout.ok_or(format!(
-                "error retrieving vout for transaction {}, input #{} (block #{})",
-                tx.txid, index, block.height
+            let vout = input.vout.ok_or((
+                format!(
+                    "error retrieving vout for transaction {}, input #{} (block #{})",
+                    tx.txid, index, block.height
+                ),
+                true,
             ))?;
 
-            let script_sig = input.script_sig.ok_or(format!(
-                "error retrieving script_sig for transaction {}, input #{} (block #{})",
-                tx.txid, index, block.height
+            let script_sig = input.script_sig.ok_or((
+                format!(
+                    "error retrieving script_sig for transaction {}, input #{} (block #{})",
+                    tx.txid, index, block.height
+                ),
+                true,
             ))?;
 
             sats_in += prevout.value.to_sat();
             inputs.push(TxIn {
                 previous_output: OutPoint {
-                    txid: format!("0x{}", txid.to_string()),
+                    txid: TransactionIdentifier::new(&txid.to_string()),
                     vout,
                     block_height: prevout.height,
                     value: prevout.value.to_sat(),
