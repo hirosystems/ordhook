@@ -4,23 +4,23 @@ use super::{BitcoinBlockData, BitcoinTransactionData, StacksBlockData, StacksTra
 use serde_json::Value as JsonValue;
 
 pub struct ProcessedStacksTransaction {
-    tx: StacksTransactionData,
-    metadata: BTreeMap<String, JsonValue>,
+    pub tx: StacksTransactionData,
+    pub metadata: BTreeMap<String, JsonValue>,
 }
 
 pub struct ProcessedStacksBlock {
-    tx: StacksBlockData,
-    metadata: BTreeMap<String, JsonValue>,
+    pub tx: StacksBlockData,
+    pub metadata: BTreeMap<String, JsonValue>,
 }
 
 pub struct ProcessedBitcoinTransaction {
-    tx: BitcoinTransactionData,
-    metadata: BTreeMap<String, JsonValue>,
+    pub tx: BitcoinTransactionData,
+    pub metadata: BTreeMap<String, JsonValue>,
 }
 
 pub struct ProcessedBitcoinBlock {
-    tx: BitcoinBlockData,
-    metadata: BTreeMap<String, JsonValue>,
+    pub tx: BitcoinBlockData,
+    pub metadata: BTreeMap<String, JsonValue>,
 }
 
 pub enum ProcessingContext {
