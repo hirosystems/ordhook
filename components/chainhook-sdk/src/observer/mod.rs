@@ -420,7 +420,7 @@ pub async fn start_event_observer(
 
     let background_job_tx_mutex = Arc::new(Mutex::new(observer_commands_tx.clone()));
 
-    let limits = Limits::default().limit("json", 4.megabytes());
+    let limits = Limits::default().limit("json", 20.megabytes());
     let mut shutdown_config = config::Shutdown::default();
     shutdown_config.ctrlc = false;
     shutdown_config.grace = 0;
