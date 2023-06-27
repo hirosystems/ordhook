@@ -17,7 +17,7 @@ hex = "0.4.3"
 rand = "0.8.5"
 # tikv-client = { git = "https://github.com/tikv/client-rust.git", rev = "8f54e6114227718e256027df2577bbacdf425f86" }
 # raft-proto = { git = "https://github.com/tikv/raft-rs", rev="f73766712a538c2f6eb135b455297ad6c03fc58d", version = "0.7.0"}
-chainhook-sdk = { version = "0.4.0", default-features = false, features = ["ordinals", "zeromq"], path = "../chainhook-sdk" }
+chainhook-sdk = { version = "0.5.0", default-features = false, features = ["ordinals", "zeromq"], path = "../chainhook-sdk" }
 chainhook-types = { version = "1.0.6", path = "../chainhook-types-rs" }
 clarinet-files = "1"
 hiro-system-kit = "0.1.0"

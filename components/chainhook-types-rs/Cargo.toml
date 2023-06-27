@@ -2,7 +2,7 @@
 name = "chainhook-types"
 description = "Bitcoin and Stacks data schemas, based on the Rosetta specification"
 license = "MIT"
-version = "1.0.6"
+version = "1.0.7"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

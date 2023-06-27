@@ -466,7 +466,7 @@ dependencies = [
  "ansi_term",
  "atty",
  "chainhook-sdk",
- "chainhook-types 1.0.6",
+ "chainhook-types 1.0.7",
  "clap 3.2.23",
  "clap_generate",
  "clarinet-files",
@@ -499,14 +499,14 @@ dependencies = [
 
 [[package]]
 name = "chainhook-sdk"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "base58 0.2.0",
  "base64 0.13.1",
  "bitcoincore-rpc",
  "bitcoincore-rpc-json",
- "chainhook-types 1.0.6",
+ "chainhook-types 1.0.7",
  "chrono",
  "clap 3.2.23",
  "clap_generate",
@@ -517,7 +517,6 @@ dependencies = [
  "futures",
  "fxhash",
  "hex",
- "hex-simd",
  "hiro-system-kit",
  "hyper",
  "rand 0.8.5",
@@ -528,7 +527,6 @@ dependencies = [
  "schemars",
  "serde",
  "serde-hex",
- "serde_cbor",
  "serde_derive",
  "serde_json",
  "stacks-rpc-client",
@@ -553,7 +551,7 @@ dependencies = [
 
 [[package]]
 name = "chainhook-types"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "hex",
  "schemars",
@@ -1767,16 +1765,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
-name = "hex-simd"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1f7685beb53fc20efc2605f32f5d51e9ba18b8ef237961d1760169d2290d3bee"
-dependencies = [
- "outref",
- "vsimd",
-]
-
-[[package]]
 name = "hiro-system-kit"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2663,12 +2651,6 @@ name = "os_str_bytes"
 version = "6.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b7820b9daea5457c9f21c69448905d723fbd21136ccf521748f23fd49e723ee"
-
-[[package]]
-name = "outref"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4030760ffd992bef45b0ae3f10ce1aba99e33464c90d14dd7c039884963ddc7a"
 
 [[package]]
 name = "overload"
@@ -4749,12 +4731,6 @@ name = "version_check"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
-
-[[package]]
-name = "vsimd"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c3082ca00d5a5ef149bb8b555a72ae84c9c59f7250f013ac822ac2e49b19c64"
 
 [[package]]
 name = "walkdir"

@@ -12,9 +12,7 @@ use chainhook_sdk::chainhooks::bitcoin::{
 };
 use chainhook_sdk::chainhooks::types::{BitcoinChainhookSpecification, BitcoinPredicateType};
 use chainhook_sdk::hord::db::{
-    fetch_and_cache_blocks_in_hord_db, find_all_inscriptions_in_block, find_last_block_inserted,
-    find_lazy_block_at_block_height, get_any_entry_in_ordinal_activities,
-    open_readonly_hord_db_conn, open_readwrite_hord_db_conn, open_readwrite_hord_db_conn_rocks_db,
+    find_all_inscriptions_in_block, get_any_entry_in_ordinal_activities, open_readonly_hord_db_conn,
 };
 use chainhook_sdk::hord::{
     get_inscriptions_revealed_in_block,
@@ -77,40 +75,6 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
     let mut inscriptions_db_conn = None;
 
     if let BitcoinPredicateType::OrdinalsProtocol(_) = &predicate_spec.predicate {
-        let blocks_db_rw =
-            open_readwrite_hord_db_conn_rocks_db(&config.expected_cache_path(), ctx)?;
-
-        if find_lazy_block_at_block_height(end_block as u32, 3, &blocks_db_rw, &ctx).is_none() {
-            // Count how many entries in the table
-            // Compute the right interval
-            // Start the build local storage routine
-
-            // TODO: make sure that we have a contiguous chain
-            // check_compacted_blocks_chain_integrity(&hord_db_conn);
-
-            let start_block = find_last_block_inserted(&blocks_db_rw) as u64;
-            if start_block < end_block {
-                warn!(
-                ctx.expect_logger(),
-                "Database hord.sqlite appears to be outdated regarding the window of blocks provided. Syncing {} missing blocks",
-                (end_block - start_block)
-            );
-
-                let inscriptions_db_conn_rw =
-                    open_readwrite_hord_db_conn(&config.expected_cache_path(), ctx)?;
-                fetch_and_cache_blocks_in_hord_db(
-                    &config.get_event_observer_config().get_bitcoin_config(),
-                    &blocks_db_rw,
-                    &inscriptions_db_conn_rw,
-                    start_block,
-                    end_block,
-                    &config.get_hord_config(),
-                    &ctx,
-                )
-                .await?;
-            }
-        }
-
         inscriptions_db_conn = Some(open_readonly_hord_db_conn(
             &config.expected_cache_path(),
             ctx,
@@ -138,6 +102,12 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
         cursor += 1;
         blocks_scanned += 1;
 
+        if let Some(ref inscriptions_db_conn) = inscriptions_db_conn {
+            if !get_any_entry_in_ordinal_activities(&cursor, &inscriptions_db_conn, &ctx) {
+                continue;
+            }
+        }
+
         let block_hash = retrieve_block_hash_with_retry(&cursor, &bitcoin_config, ctx).await?;
         let block_breakdown =
             download_and_parse_block_with_retry(&block_hash, &bitcoin_config, ctx).await?;
@@ -147,7 +117,7 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
             ctx,
         ) {
             Ok(data) => data,
-            Err(e) => {
+            Err((e, _)) => {
                 warn!(
                     ctx.expect_logger(),
                     "Unable to standardize block#{} {}: {}", cursor, block_hash, e
@@ -157,10 +127,6 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
         };
 
         if let Some(ref inscriptions_db_conn) = inscriptions_db_conn {
-            if !get_any_entry_in_ordinal_activities(&cursor, &inscriptions_db_conn, &ctx) {
-                continue;
-            }
-
             // Evaluating every single block is required for also keeping track of transfers.
             let local_traverals =
                 match find_all_inscriptions_in_block(&cursor, &inscriptions_db_conn, &ctx)
