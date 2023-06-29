@@ -344,12 +344,6 @@ pub struct BitcoinConfig {
 }
 
 #[derive(Debug, Clone)]
-pub struct ServicesConfig {
-    pub stacks_node_url: String,
-    pub bitcoin_node_url: String,
-}
-
-#[derive(Debug, Clone)]
 pub struct ChainhookStore {
     pub predicates: ChainhookConfig,
 }
@@ -397,11 +391,6 @@ pub async fn start_event_observer(
     let ingestion_port = config.ingestion_port;
     let bitcoin_rpc_proxy_enabled = config.bitcoin_rpc_proxy_enabled;
     let bitcoin_config = config.get_bitcoin_config();
-
-    let services_config = ServicesConfig {
-        stacks_node_url: config.bitcoind_rpc_url.clone(),
-        bitcoin_node_url: config.stacks_node_rpc_url.clone(),
-    };
 
     let mut chainhook_store = ChainhookStore::new();
     // If authorization not required, we create a default ChainhookConfig
@@ -462,7 +451,6 @@ pub async fn start_event_observer(
         .manage(background_job_tx_mutex)
         .manage(bitcoin_config)
         .manage(ctx_cloned)
-        .manage(services_config)
         .mount("/", routes)
         .ignite()
         .await?;
@@ -516,7 +504,6 @@ pub fn start_zeromq_runloop(
 ) {
     #[cfg(feature = "zeromq")]
     {
-        use crate::indexer::bitcoin::download_and_parse_block_with_retry;
         use crate::indexer::fork_scratch_pad::ForkScratchPad;
 
         if let BitcoinBlockSignaling::ZeroMQ(ref bitcoind_zmq_url) = config.bitcoin_block_signaling
