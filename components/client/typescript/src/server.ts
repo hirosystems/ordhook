@@ -22,6 +22,7 @@ const ServerOptionsSchema = Type.Object({
   port: Type.Integer(),
   auth_token: Type.String(),
   external_base_url: Type.String(),
+  wait_for_chainhook_node: Type.Boolean({ default: true }),
 });
 /** Local event server connection and authentication options */
 export type ServerOptions = Static<typeof ServerOptionsSchema>;
@@ -92,6 +93,10 @@ export async function buildServer(
   }
 
   async function registerPredicates(this: FastifyInstance) {
+    if (predicates.length === 0) {
+      logger.info(`ChainhookEventObserver does not have predicates to register`);
+      return;
+    }
     logger.info(
       predicates,
       `ChainhookEventObserver registering predicates at ${chainhookOpts.base_url}`
@@ -123,6 +128,10 @@ export async function buildServer(
   }
 
   async function removePredicates(this: FastifyInstance) {
+    if (predicates.length === 0) {
+      logger.info(`ChainhookEventObserver does not have predicates to close`);
+      return;
+    }
     logger.info(`ChainhookEventObserver closing predicates at ${chainhookOpts.base_url}`);
     const removals = predicates.map(
       predicate =>
@@ -196,7 +205,9 @@ export async function buildServer(
     bodyLimit: 41943040, // 40 MB
   }).withTypeProvider<TypeBoxTypeProvider>();
 
-  fastify.addHook('onReady', waitForNode);
+  if (serverOpts.wait_for_chainhook_node) {
+    fastify.addHook('onReady', waitForNode);
+  }
   fastify.addHook('onReady', registerPredicates);
   fastify.addHook('onClose', removePredicates);
 
