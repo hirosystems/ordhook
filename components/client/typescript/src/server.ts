@@ -179,11 +179,11 @@ export async function buildServer(
       async (request, reply) => {
         try {
           await callback(request.params.uuid, request.body);
+          await reply.code(200).send();
         } catch (error) {
           logger.error(error, `ChainhookEventObserver error processing payload`);
-          await reply.code(422).send();
+          await reply.code(500).send();
         }
-        await reply.code(200).send();
       }
     );
     done();
