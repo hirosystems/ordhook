@@ -16,7 +16,13 @@ mode = "mainnet"
 bitcoind_rpc_url = "http://localhost:8332"
 bitcoind_rpc_username = "devnet"
 bitcoind_rpc_password = "devnet"
+# Bitcoin block events can be received by Chainhook
+# either through a Bitcoin node's ZeroMQ interface,
+# or through the Stacks node. The Stacks node is
+# used by default:
 stacks_node_rpc_url = "http://localhost:20443"
+# but zmq can be used instead:
+# bitcoind_zmq_url = "http://0.0.0.0:18543"
 
 [limits]
 max_number_of_bitcoin_predicates = 100
