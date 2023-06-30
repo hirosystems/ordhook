@@ -493,7 +493,7 @@ pub fn find_initial_inscription_transfer_data(
 ) -> Result<Option<(TransactionIdentifier, usize, u64)>, String> {
     let args: &[&dyn ToSql] = &[&inscription_id.to_sql().unwrap()];
     let mut stmt = inscriptions_db_conn
-        .prepare("SELECT offset, outpoint_to_watch FROM locations WHERE inscription_id = ? ORDER BY block_height ASC, tx_index ASC LIMIT 1")
+        .prepare("SELECT outpoint_to_watch, offset FROM locations WHERE inscription_id = ? ORDER BY block_height ASC, tx_index ASC LIMIT 1")
         .unwrap();
     let mut rows = stmt.query(args).unwrap();
     while let Ok(Some(row)) = rows.next() {
