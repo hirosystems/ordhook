@@ -539,7 +539,7 @@ pub fn get_bitcoin_proof(
     }
 }
 
-#[allow(unused_variables)]
+#[allow(unused_variables, unused_imports)]
 pub fn start_zeromq_runloop(
     config: &EventObserverConfig,
     observer_commands_tx: Sender<ObserverCommand>,

@@ -11,11 +11,11 @@ use crate::storage::{
 };
 
 use chainhook_sdk::bitcoincore_rpc::{Auth, Client, RpcApi};
+
 use chainhook_sdk::chainhooks::types::{
-    BitcoinChainhookFullSpecification, BitcoinChainhookNetworkSpecification, BitcoinPredicateType,
-    ChainhookFullSpecification, FileHook, HookAction, OrdinalOperations,
-    StacksChainhookFullSpecification, StacksChainhookNetworkSpecification, StacksPredicate,
-    StacksPrintEventBasedPredicate,
+    BitcoinChainhookFullSpecification, BitcoinChainhookNetworkSpecification, BitcoinPredicateType, ChainhookFullSpecification, FileHook,
+    HookAction, OrdinalOperations, StacksChainhookFullSpecification,
+    StacksChainhookNetworkSpecification, StacksPredicate, StacksPrintEventBasedPredicate,
 };
 use chainhook_sdk::hord::db::{
     delete_data_in_hord_db, fetch_and_cache_blocks_in_hord_db, find_last_block_inserted,
@@ -81,6 +81,9 @@ enum PredicatesCommand {
     /// Scan blocks (one-off) from specified network and apply provided predicate
     #[clap(name = "scan", bin_name = "scan")]
     Scan(ScanPredicate),
+    /// Check given predicate
+    #[clap(name = "check", bin_name = "check")]
+    Check(CheckPredicate),
 }
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
@@ -131,6 +134,25 @@ struct NewPredicate {
 #[derive(Parser, PartialEq, Clone, Debug)]
 struct ScanPredicate {
     /// Chainhook spec file to scan (json format)
+    pub predicate_path: String,
+    /// Target Testnet network
+    #[clap(long = "testnet", conflicts_with = "mainnet")]
+    pub testnet: bool,
+    /// Target Mainnet network
+    #[clap(long = "mainnet", conflicts_with = "testnet")]
+    pub mainnet: bool,
+    /// Load config file path
+    #[clap(
+        long = "config-path",
+        conflicts_with = "mainnet",
+        conflicts_with = "testnet"
+    )]
+    pub config_path: Option<String>,
+}
+
+#[derive(Parser, PartialEq, Clone, Debug)]
+struct CheckPredicate {
+    /// Chainhook spec file to check (json format)
     pub predicate_path: String,
     /// Target Testnet network
     #[clap(long = "testnet", conflicts_with = "mainnet")]
@@ -660,6 +682,41 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                         .await?;
                     }
                 }
+            }
+            PredicatesCommand::Check(cmd) => {
+                let config = Config::default(false, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
+                let predicate: ChainhookFullSpecification =
+                    load_predicate_from_path(&cmd.predicate_path)?;
+
+                match predicate {
+                    ChainhookFullSpecification::Bitcoin(predicate) => {
+                        let _ = match predicate
+                            .into_selected_network_specification(&config.network.bitcoin_network)
+                        {
+                            Ok(predicate) => predicate,
+                            Err(e) => {
+                                return Err(format!(
+                                    "Specification missing for network {:?}: {e}",
+                                    config.network.bitcoin_network
+                                ));
+                            }
+                        };
+                    }
+                    ChainhookFullSpecification::Stacks(predicate) => {
+                        let _ = match predicate
+                            .into_selected_network_specification(&config.network.stacks_network)
+                        {
+                            Ok(predicate) => predicate,
+                            Err(e) => {
+                                return Err(format!(
+                                    "Specification missing for network {:?}: {e}",
+                                    config.network.bitcoin_network
+                                ));
+                            }
+                        };
+                    }
+                }
+                println!("✔️ Predicate {} successfully checked", cmd.predicate_path);
             }
         },
         Command::Hord(HordCommand::Scan(subcmd)) => match subcmd {

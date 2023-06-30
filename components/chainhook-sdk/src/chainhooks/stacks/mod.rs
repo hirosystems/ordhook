@@ -1,7 +1,7 @@
 use crate::utils::{AbstractStacksBlock, Context};
 
 use super::types::{
-    BlockIdentifierIndexRule, HookAction, StacksChainhookSpecification,
+    BlockIdentifierIndexRule, ExactMatchingRule, HookAction, StacksChainhookSpecification,
     StacksContractDeploymentPredicate, StacksPredicate,
 };
 use chainhook_types::{
@@ -399,7 +399,9 @@ pub fn evaluate_stacks_predicate_on_transaction<'a>(
             }
             false
         }
-        StacksPredicate::Txid(txid) => txid.eq(&transaction.transaction_identifier.hash),
+        StacksPredicate::Txid(ExactMatchingRule::Equals(txid)) => {
+            txid.eq(&transaction.transaction_identifier.hash)
+        }
         StacksPredicate::BlockHeight(_) => unreachable!(),
     }
 }

@@ -738,7 +738,7 @@ pub enum StacksPredicate {
     FtEvent(StacksFtEventBasedPredicate),
     NftEvent(StacksNftEventBasedPredicate),
     StxEvent(StacksStxEventBasedPredicate),
-    Txid(String),
+    Txid(ExactMatchingRule),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
