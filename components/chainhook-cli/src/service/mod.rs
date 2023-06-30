@@ -216,7 +216,7 @@ impl Service {
             match event {
                 ObserverEvent::PredicateRegistered(spec) => {
                     // If start block specified, use it.
-                    // I no start block specified, depending on the nature the hook, we'd like to retrieve:
+                    // If no start block specified, depending on the nature the hook, we'd like to retrieve:
                     // - contract-id
                     if let PredicatesApi::On(ref config) = self.config.http_api {
                         let mut predicates_db_conn = match open_readwrite_predicates_db_conn(config)

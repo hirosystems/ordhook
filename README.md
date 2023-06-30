@@ -87,7 +87,9 @@ The current `bitcoin` predicates support the following `if_this` constructs:
 {
     "if_this": {
         "scope": "outputs",
-        "p2pkh": "mr1iPkD9N3RJZZxXRk7xF9d36gffa6exNC"
+        "p2pkh": {
+            "equals": "mr1iPkD9N3RJZZxXRk7xF9d36gffa6exNC"
+        }
     }
 }
 
@@ -97,7 +99,9 @@ The current `bitcoin` predicates support the following `if_this` constructs:
 {
     "if_this": {
         "scope": "outputs",
-        "p2sh": "2MxDJ723HBJtEMa2a9vcsns4qztxBuC8Zb2"
+        "p2sh": {
+          "equals": "2MxDJ723HBJtEMa2a9vcsns4qztxBuC8Zb2"
+        }
     }
 }
 
@@ -107,7 +111,9 @@ The current `bitcoin` predicates support the following `if_this` constructs:
 {
     "if_this": {
         "scope": "outputs",
-        "p2wpkh": "bcrt1qnxknq3wqtphv7sfwy07m7e4sr6ut9yt6ed99jg"
+        "p2wpkh": {
+          "equals": "bcrt1qnxknq3wqtphv7sfwy07m7e4sr6ut9yt6ed99jg"
+        }
     }
 }
 
@@ -117,7 +123,9 @@ The current `bitcoin` predicates support the following `if_this` constructs:
 {
     "if_this": {
         "scope": "outputs",
-        "p2wsh": "bc1qklpmx03a8qkv263gy8te36w0z9yafxplc5kwzc"
+        "p2wsh": {
+          "equals": "bc1qklpmx03a8qkv263gy8te36w0z9yafxplc5kwzc"
+        }
     }
 }
 
@@ -134,7 +142,7 @@ The current `bitcoin` predicates support the following `if_this` constructs:
 {
     "if_this": {
         "scope": "stacks_protocol",
-        "operation": "leader_key_registered"
+        "operation": "leader_registered"
     }
 }
 
