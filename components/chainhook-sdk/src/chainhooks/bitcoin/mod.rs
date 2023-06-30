@@ -158,6 +158,7 @@ pub fn serialize_bitcoin_payload_to_json<'a>(
         "chainhook": {
             "uuid": trigger.chainhook.uuid,
             "predicate": trigger.chainhook.predicate,
+            "is_streaming_blocks": trigger.chainhook.enabled
         }
     })
 }
