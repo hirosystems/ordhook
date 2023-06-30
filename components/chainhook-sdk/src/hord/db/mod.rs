@@ -77,7 +77,7 @@ pub fn initialize_hord_db(path: &PathBuf, ctx: &Context) -> Connection {
     } else {
         if let Err(e) = conn.execute(
             "CREATE TABLE IF NOT EXISTS locations (
-                inscription_id TEXT NOT NULL PRIMARY KEY,
+                inscription_id TEXT NOT NULL,
                 block_height INTEGER NOT NULL,
                 tx_index INTEGER NOT NULL,
                 outpoint_to_watch TEXT NOT NULL,
@@ -108,6 +108,7 @@ pub fn initialize_hord_db(path: &PathBuf, ctx: &Context) -> Connection {
         ) {
             ctx.try_log(|logger| slog::warn!(logger, "{}", e.to_string()));
         }
+
         if let Err(e) = conn.execute(
             "CREATE INDEX IF NOT EXISTS index_inscriptions_on_block_height ON inscriptions(block_height);",
             [],
@@ -122,6 +123,12 @@ pub fn initialize_hord_db(path: &PathBuf, ctx: &Context) -> Connection {
         }
         if let Err(e) = conn.execute(
             "CREATE INDEX IF NOT EXISTS index_locations_on_outpoint_to_watch ON locations(outpoint_to_watch);",
+            [],
+        ) {
+            ctx.try_log(|logger| slog::warn!(logger, "{}", e.to_string()));
+        }
+        if let Err(e) = conn.execute(
+            "CREATE INDEX IF NOT EXISTS index_locations_on_inscription_id ON locations(inscription_id);",
             [],
         ) {
             ctx.try_log(|logger| slog::warn!(logger, "{}", e.to_string()));
