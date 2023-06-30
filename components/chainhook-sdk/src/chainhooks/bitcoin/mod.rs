@@ -54,7 +54,7 @@ pub enum BitcoinChainhookOccurrence {
 
 pub fn evaluate_bitcoin_chainhooks_on_chain_event<'a>(
     chain_event: &'a BitcoinChainEvent,
-    active_chainhooks: Vec<&'a BitcoinChainhookSpecification>,
+    active_chainhooks: &Vec<&'a BitcoinChainhookSpecification>,
     ctx: &Context,
 ) -> (
     Vec<BitcoinTriggerChainhook<'a>>,

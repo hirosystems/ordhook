@@ -1098,7 +1098,7 @@ pub async fn start_observer_commands_handler(
                 let (predicates_triggered, predicates_evaluated) =
                     evaluate_bitcoin_chainhooks_on_chain_event(
                         &chain_event,
-                        bitcoin_chainhooks,
+                        &bitcoin_chainhooks,
                         &ctx,
                     );
                 for (uuid, block_identifier) in predicates_evaluated.into_iter() {
