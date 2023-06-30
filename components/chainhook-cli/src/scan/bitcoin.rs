@@ -25,7 +25,7 @@ use chainhook_sdk::indexer::bitcoin::{
 };
 use chainhook_sdk::observer::{gather_proofs, EventObserverConfig};
 use chainhook_sdk::utils::{file_append, send_request, Context};
-use chainhook_types::{BitcoinChainEvent, BitcoinChainUpdatedWithBlocksData};
+use chainhook_types::{BitcoinBlockData, BitcoinChainEvent, BitcoinChainUpdatedWithBlocksData};
 use std::collections::{BTreeMap, HashMap};
 
 pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
@@ -137,7 +137,10 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
                 };
             for (transaction_identifier, traversal_result) in local_traverals.into_iter() {
                 traversals.insert(
-                    (transaction_identifier, traversal_result.input_index),
+                    (
+                        transaction_identifier,
+                        traversal_result.inscription_input_index,
+                    ),
                     traversal_result,
                 );
             }
@@ -170,15 +173,21 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
             );
         }
 
-        let chain_event =
-            BitcoinChainEvent::ChainUpdatedWithBlocks(BitcoinChainUpdatedWithBlocksData {
-                new_blocks: vec![block],
-                confirmed_blocks: vec![],
-            });
+        match process_block_with_predicates(
+            block,
+            &vec![&predicate_spec],
+            &event_observer_config,
+            ctx,
+        )
+        .await
+        {
+            Ok(actions) => actions_triggered += actions,
+            Err(_) => err_count += 1,
+        }
 
-        let (predicates_triggered, _predicates_evaluated) =
-            evaluate_bitcoin_chainhooks_on_chain_event(&chain_event, vec![&predicate_spec], ctx);
-        occurrences_found += predicates_triggered.len() as u64;
+        if err_count >= 3 {
+            return Err(format!("Scan aborted (consecutive action errors >= 3)"));
+        }
 
         if let PredicatesApi::On(ref api_config) = config.http_api {
             if blocks_scanned % 50 == 0 {
@@ -197,15 +206,6 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
                     &ctx,
                 )
             }
-        }
-
-        match execute_predicates_action(predicates_triggered, &event_observer_config, &ctx).await {
-            Ok(actions) => actions_triggered += actions,
-            Err(_) => err_count += 1,
-        }
-
-        if err_count >= 3 {
-            return Err(format!("Scan aborted (consecutive action errors >= 3)"));
         }
 
         if cursor == end_block && floating_end_block {
@@ -234,6 +234,24 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
     }
 
     Ok(())
+}
+
+pub async fn process_block_with_predicates(
+    block: BitcoinBlockData,
+    predicates: &Vec<&BitcoinChainhookSpecification>,
+    event_observer_config: &EventObserverConfig,
+    ctx: &Context,
+) -> Result<u32, ()> {
+    let chain_event =
+        BitcoinChainEvent::ChainUpdatedWithBlocks(BitcoinChainUpdatedWithBlocksData {
+            new_blocks: vec![block],
+            confirmed_blocks: vec![],
+        });
+
+    let (predicates_triggered, _predicates_evaluated) =
+        evaluate_bitcoin_chainhooks_on_chain_event(&chain_event, predicates, ctx);
+
+    execute_predicates_action(predicates_triggered, &event_observer_config, &ctx).await
 }
 
 pub async fn execute_predicates_action<'a>(
