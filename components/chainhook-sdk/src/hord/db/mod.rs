@@ -6,7 +6,8 @@ use std::{
 };
 
 use chainhook_types::{
-    BitcoinBlockData, BlockIdentifier, OrdinalInscriptionRevealData, TransactionIdentifier, OrdinalInscriptionTransferData,
+    BitcoinBlockData, BlockIdentifier, OrdinalInscriptionRevealData,
+    OrdinalInscriptionTransferData, TransactionIdentifier,
 };
 use dashmap::DashMap;
 use fxhash::FxHasher;
@@ -66,7 +67,13 @@ pub fn initialize_hord_db(path: &PathBuf, ctx: &Context) -> Connection {
         )",
         [],
     ) {
-        ctx.try_log(|logger| slog::warn!(logger, "Unable to create table inscriptions: {}", e.to_string()));
+        ctx.try_log(|logger| {
+            slog::warn!(
+                logger,
+                "Unable to create table inscriptions: {}",
+                e.to_string()
+            )
+        });
     } else {
         if let Err(e) = conn.execute(
             "CREATE TABLE IF NOT EXISTS locations (
@@ -78,7 +85,9 @@ pub fn initialize_hord_db(path: &PathBuf, ctx: &Context) -> Connection {
             )",
             [],
         ) {
-            ctx.try_log(|logger| slog::warn!(logger, "Unable to create table locations:{}", e.to_string()));
+            ctx.try_log(|logger| {
+                slog::warn!(logger, "Unable to create table locations:{}", e.to_string())
+            });
         }
 
         // Legacy table - to be removed
@@ -88,7 +97,9 @@ pub fn initialize_hord_db(path: &PathBuf, ctx: &Context) -> Connection {
             )",
             [],
         ) {
-            ctx.try_log(|logger| slog::warn!(logger, "Unable to create table locations:{}", e.to_string()));
+            ctx.try_log(|logger| {
+                slog::warn!(logger, "Unable to create table locations:{}", e.to_string())
+            });
         }
 
         if let Err(e) = conn.execute(
@@ -399,8 +410,7 @@ pub fn insert_transfer_in_locations(
     inscriptions_db_conn_rw: &Connection,
     ctx: &Context,
 ) {
-    let (tx, output_index, offset) =
-        parse_satpoint_to_watch(&transfer_data.satpoint_post_transfer);
+    let (tx, output_index, offset) = parse_satpoint_to_watch(&transfer_data.satpoint_post_transfer);
     let outpoint_to_watch = format_outpoint_to_watch(&tx, output_index);
     if let Err(e) = inscriptions_db_conn_rw.execute(
         "INSERT INTO locations (inscription_id, outpoint_to_watch, offset, block_height, tx_index) VALUES (?1, ?2, ?3, ?4, ?5)",

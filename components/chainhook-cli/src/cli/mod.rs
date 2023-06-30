@@ -11,9 +11,10 @@ use crate::storage::{
 };
 
 use chainhook_sdk::chainhooks::types::{
-    BitcoinChainhookFullSpecification, BitcoinChainhookNetworkSpecification, BitcoinPredicateType, ChainhookFullSpecification, FileHook,
-    HookAction, OrdinalOperations, StacksChainhookFullSpecification,
-    StacksChainhookNetworkSpecification, StacksPredicate, StacksPrintEventBasedPredicate,
+    BitcoinChainhookFullSpecification, BitcoinChainhookNetworkSpecification, BitcoinPredicateType,
+    ChainhookFullSpecification, FileHook, HookAction, OrdinalOperations,
+    StacksChainhookFullSpecification, StacksChainhookNetworkSpecification, StacksPredicate,
+    StacksPrintEventBasedPredicate,
 };
 use chainhook_sdk::hord::db::{
     delete_data_in_hord_db, find_last_block_inserted, find_lazy_block_at_block_height,
@@ -480,8 +481,8 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
             ConfigCommand::New(cmd) => {
                 use std::fs::File;
                 use std::io::Write;
-                let _config = Config::default(cmd.devnet, cmd.testnet, cmd.mainnet, &None)?;
-                let config_content = generate_config();
+                let config = Config::default(cmd.devnet, cmd.testnet, cmd.mainnet, &None)?;
+                let config_content = generate_config(&config.network.bitcoin_network);
                 let mut file_path = PathBuf::new();
                 file_path.push("Chainhook.toml");
                 let mut file = File::create(&file_path)

@@ -41,8 +41,9 @@ use crate::{
 use self::db::{
     find_inscription_with_id, find_latest_cursed_inscription_number_at_block_height,
     find_latest_inscription_number_at_block_height, format_satpoint_to_watch,
-    parse_satpoint_to_watch, remove_entry_from_blocks, remove_entry_from_inscriptions, LazyBlock,
-    LazyBlockTransaction, TraversalResult, WatchedSatpoint, insert_transfer_in_locations, parse_outpoint_to_watch,
+    insert_transfer_in_locations, parse_outpoint_to_watch, parse_satpoint_to_watch,
+    remove_entry_from_blocks, remove_entry_from_inscriptions, LazyBlock, LazyBlockTransaction,
+    TraversalResult, WatchedSatpoint,
 };
 use self::inscription::InscriptionParser;
 use self::ord::inscription_id::InscriptionId;
@@ -651,7 +652,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
 
             // For each satpoint inscribed retrieved, we need to compute the next
             // outpoint to watch
-            for mut watched_satpoint in entries.into_iter() {                
+            for mut watched_satpoint in entries.into_iter() {
                 let satpoint_pre_transfer =
                     format!("{}:{}", outpoint_pre_transfer, watched_satpoint.offset);
 
@@ -659,9 +660,24 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
                 // burnt or lost in fees and transfered to the miner?
 
                 let (_, input_index) = parse_outpoint_to_watch(&outpoint_pre_transfer);
-                let inputs = new_tx.metadata.inputs.iter().map(|o| o.previous_output.value).collect::<_>();
-                let outputs = new_tx.metadata.outputs.iter().map(|o| o.value).collect::<_>();
-                let post_transfer_data = compute_next_satpoint_data(input_index, watched_satpoint.offset, &inputs, &outputs);
+                let inputs = new_tx
+                    .metadata
+                    .inputs
+                    .iter()
+                    .map(|o| o.previous_output.value)
+                    .collect::<_>();
+                let outputs = new_tx
+                    .metadata
+                    .outputs
+                    .iter()
+                    .map(|o| o.value)
+                    .collect::<_>();
+                let post_transfer_data = compute_next_satpoint_data(
+                    input_index,
+                    watched_satpoint.offset,
+                    &inputs,
+                    &outputs,
+                );
 
                 let (
                     outpoint_post_transfer,
@@ -707,8 +723,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
                     }
                     SatPosition::Fee(offset) => {
                         // Get Coinbase TX
-                        let offset =
-                            first_sat_post_subsidy + cumulated_fees + offset;
+                        let offset = first_sat_post_subsidy + cumulated_fees + offset;
                         let outpoint = format_outpoint_to_watch(&coinbase_txid, 0);
                         (outpoint, offset, None, None)
                     }
@@ -725,7 +740,6 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
                         block.block_identifier.index,
                     )
                 });
-
 
                 let satpoint_post_transfer =
                     format!("{}:{}", outpoint_post_transfer, offset_post_transfer);
@@ -776,8 +790,12 @@ pub enum SatPosition {
     Fee(u64),
 }
 
-
-pub fn compute_next_satpoint_data(input_index: usize, offset_intra_input: u64, inputs: &Vec<u64>, outputs: &Vec<u64>) -> SatPosition {
+pub fn compute_next_satpoint_data(
+    input_index: usize,
+    offset_intra_input: u64,
+    inputs: &Vec<u64>,
+    outputs: &Vec<u64>,
+) -> SatPosition {
     let mut offset_cross_inputs = 0;
     for (index, input_value) in inputs.iter().enumerate() {
         if index == input_index {
@@ -794,7 +812,7 @@ pub fn compute_next_satpoint_data(input_index: usize, offset_intra_input: u64, i
     for (index, output_value) in outputs.iter().enumerate() {
         floating_bound += output_value;
         output_index = index;
-        if floating_bound > offset_cross_inputs  {
+        if floating_bound > offset_cross_inputs {
             break;
         }
         offset_intra_outputs += output_value;
@@ -802,7 +820,7 @@ pub fn compute_next_satpoint_data(input_index: usize, offset_intra_input: u64, i
 
     if output_index == (outputs.len() - 1) && offset_cross_inputs >= floating_bound {
         // Satoshi spent in fees
-        return SatPosition::Fee(offset_cross_inputs-floating_bound);
+        return SatPosition::Fee(offset_cross_inputs - floating_bound);
     }
     SatPosition::Output((output_index, (offset_cross_inputs - offset_intra_outputs)))
 }
@@ -810,15 +828,38 @@ pub fn compute_next_satpoint_data(input_index: usize, offset_intra_input: u64, i
 #[cfg(test)]
 pub mod tests;
 
-
 #[test]
 fn test_identify_next_output_index_destination() {
-    assert_eq!(compute_next_satpoint_data(0, 10, &vec![20, 30, 45], &vec![20, 30, 45]), SatPosition::Output((0, 10)));
-    assert_eq!(compute_next_satpoint_data(0, 20, &vec![20, 30, 45], &vec![20, 30, 45]), SatPosition::Output((1, 0)));
-    assert_eq!(compute_next_satpoint_data(1, 5, &vec![20, 30, 45], &vec![20, 30, 45]), SatPosition::Output((1, 5)));
-    assert_eq!(compute_next_satpoint_data(1, 6, &vec![20, 30, 45], &vec![20, 5, 45]), SatPosition::Output((2, 1)));
-    assert_eq!(compute_next_satpoint_data(1, 10, &vec![10, 10, 10], &vec![30]), SatPosition::Output((0, 20)));
-    assert_eq!(compute_next_satpoint_data(0, 30, &vec![10, 10, 10], &vec![30]), SatPosition::Fee(0));
-    assert_eq!(compute_next_satpoint_data(0, 0, &vec![10, 10, 10], &vec![30]), SatPosition::Output((0, 0)));
-    assert_eq!(compute_next_satpoint_data(2, 45, &vec![20, 30, 45], &vec![20, 30, 45]), SatPosition::Fee(0));
+    assert_eq!(
+        compute_next_satpoint_data(0, 10, &vec![20, 30, 45], &vec![20, 30, 45]),
+        SatPosition::Output((0, 10))
+    );
+    assert_eq!(
+        compute_next_satpoint_data(0, 20, &vec![20, 30, 45], &vec![20, 30, 45]),
+        SatPosition::Output((1, 0))
+    );
+    assert_eq!(
+        compute_next_satpoint_data(1, 5, &vec![20, 30, 45], &vec![20, 30, 45]),
+        SatPosition::Output((1, 5))
+    );
+    assert_eq!(
+        compute_next_satpoint_data(1, 6, &vec![20, 30, 45], &vec![20, 5, 45]),
+        SatPosition::Output((2, 1))
+    );
+    assert_eq!(
+        compute_next_satpoint_data(1, 10, &vec![10, 10, 10], &vec![30]),
+        SatPosition::Output((0, 20))
+    );
+    assert_eq!(
+        compute_next_satpoint_data(0, 30, &vec![10, 10, 10], &vec![30]),
+        SatPosition::Fee(0)
+    );
+    assert_eq!(
+        compute_next_satpoint_data(0, 0, &vec![10, 10, 10], &vec![30]),
+        SatPosition::Output((0, 0))
+    );
+    assert_eq!(
+        compute_next_satpoint_data(2, 45, &vec![20, 30, 45], &vec![20, 30, 45]),
+        SatPosition::Fee(0)
+    );
 }

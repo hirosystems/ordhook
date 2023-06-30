@@ -4,9 +4,10 @@ use chainhook_sdk::{
     bitcoincore_rpc::{Auth, Client, RpcApi},
     hord::{
         db::{
-            fetch_and_cache_blocks_in_hord_db, find_last_block_inserted, initialize_hord_db,
+            fetch_and_cache_blocks_in_hord_db, find_last_block_inserted,
+            find_latest_inscription_block_height, initialize_hord_db, open_readonly_hord_db_conn,
             open_readonly_hord_db_conn_rocks_db, open_readwrite_hord_db_conn,
-            open_readwrite_hord_db_conn_rocks_db, find_latest_inscription_block_height, open_readonly_hord_db_conn,
+            open_readwrite_hord_db_conn_rocks_db,
         },
         HordConfig,
     },
@@ -30,14 +31,14 @@ pub fn should_sync_hord_db(config: &Config, ctx: &Context) -> Result<Option<(u64
         }
     };
 
-    let mut start_block = match open_readonly_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx)
-    {
-        Ok(blocks_db) => find_last_block_inserted(&blocks_db) as u64,
-        Err(err) => {
-            warn!(ctx.expect_logger(), "{}", err);
-            0
-        }
-    };
+    let mut start_block =
+        match open_readonly_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx) {
+            Ok(blocks_db) => find_last_block_inserted(&blocks_db) as u64,
+            Err(err) => {
+                warn!(ctx.expect_logger(), "{}", err);
+                0
+            }
+        };
 
     if start_block == 0 {
         let _ = initialize_hord_db(&config.expected_cache_path(), &ctx);
@@ -53,7 +54,6 @@ pub fn should_sync_hord_db(config: &Config, ctx: &Context) -> Result<Option<(u64
             start_block = start_block.min(config.get_hord_config().first_inscription_height);
         }
     };
-
 
     let end_block = match bitcoin_rpc.get_blockchain_info() {
         Ok(result) => result.blocks,

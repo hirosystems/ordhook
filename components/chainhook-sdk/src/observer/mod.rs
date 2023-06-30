@@ -29,7 +29,7 @@ use bitcoincore_rpc::{Auth, Client, RpcApi};
 use chainhook_types::{
     BitcoinBlockData, BitcoinBlockSignaling, BitcoinChainEvent, BitcoinChainUpdatedWithBlocksData,
     BitcoinChainUpdatedWithReorgData, BitcoinNetwork, BlockIdentifier, BlockchainEvent,
-    StacksChainEvent, StacksNetwork, TransactionIdentifier,
+    StacksChainEvent, StacksNetwork, StacksNodeConfig, TransactionIdentifier,
 };
 use hiro_system_kit;
 use hiro_system_kit::slog;
@@ -216,7 +216,12 @@ impl EventObserverConfig {
             bitcoin_block_signaling: overrides
                 .and_then(|c| match c.bitcoind_zmq_url.as_ref() {
                     Some(url) => Some(BitcoinBlockSignaling::ZeroMQ(url.clone())),
-                    None => Some(BitcoinBlockSignaling::Stacks(stacks_node_rpc_url.clone())),
+                    None => Some(BitcoinBlockSignaling::Stacks(StacksNodeConfig {
+                        rpc_url: stacks_node_rpc_url.clone(),
+                        ingestion_port: overrides
+                            .and_then(|c| c.ingestion_port)
+                            .unwrap_or(DEFAULT_INGESTION_PORT),
+                    })),
                 })
                 .unwrap_or(BitcoinBlockSignaling::Stacks(StacksNodeConfig {
                     rpc_url: stacks_node_rpc_url.clone(),

@@ -4,7 +4,7 @@ pub mod generator;
 use chainhook_sdk::hord::HordConfig;
 pub use chainhook_sdk::indexer::IndexerConfig;
 use chainhook_sdk::observer::EventObserverConfig;
-use chainhook_types::{BitcoinBlockSignaling, BitcoinNetwork, StacksNetwork};
+use chainhook_types::{BitcoinBlockSignaling, BitcoinNetwork, StacksNetwork, StacksNodeConfig};
 pub use file::ConfigFile;
 use std::fs::File;
 use std::io::{BufReader, Read};
@@ -409,9 +409,10 @@ impl Config {
                 bitcoind_rpc_url: "http://0.0.0.0:18443".into(),
                 bitcoind_rpc_username: "devnet".into(),
                 bitcoind_rpc_password: "devnet".into(),
-                bitcoin_block_signaling: BitcoinBlockSignaling::Stacks(
-                    "http://0.0.0.0:20443".into(),
-                ),
+                bitcoin_block_signaling: BitcoinBlockSignaling::Stacks(StacksNodeConfig {
+                    rpc_url: "http://localhost:20443".to_string(),
+                    ingestion_port: DEFAULT_INGESTION_PORT,
+                }),
                 stacks_network: StacksNetwork::Devnet,
                 bitcoin_network: BitcoinNetwork::Regtest,
             },
@@ -440,9 +441,10 @@ impl Config {
                 bitcoind_rpc_url: "http://0.0.0.0:18332".into(),
                 bitcoind_rpc_username: "devnet".into(),
                 bitcoind_rpc_password: "devnet".into(),
-                bitcoin_block_signaling: BitcoinBlockSignaling::Stacks(
-                    "http://0.0.0.0:20443".into(),
-                ),
+                bitcoin_block_signaling: BitcoinBlockSignaling::Stacks(StacksNodeConfig {
+                    rpc_url: "http://localhost:20443".to_string(),
+                    ingestion_port: DEFAULT_INGESTION_PORT,
+                }),
                 stacks_network: StacksNetwork::Testnet,
                 bitcoin_network: BitcoinNetwork::Testnet,
             },
@@ -476,9 +478,10 @@ impl Config {
                 bitcoind_rpc_url: "http://0.0.0.0:8332".into(),
                 bitcoind_rpc_username: "devnet".into(),
                 bitcoind_rpc_password: "devnet".into(),
-                bitcoin_block_signaling: BitcoinBlockSignaling::Stacks(
-                    "http://0.0.0.0:20443".into(),
-                ),
+                bitcoin_block_signaling: BitcoinBlockSignaling::Stacks(StacksNodeConfig {
+                    rpc_url: "http://localhost:20443".to_string(),
+                    ingestion_port: DEFAULT_INGESTION_PORT,
+                }),
                 stacks_network: StacksNetwork::Mainnet,
                 bitcoin_network: BitcoinNetwork::Mainnet,
             },
