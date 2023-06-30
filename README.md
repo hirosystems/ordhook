@@ -142,7 +142,7 @@ The current `bitcoin` predicates support the following `if_this` constructs:
 {
     "if_this": {
         "scope": "stacks_protocol",
-        "operation": "leader_key_registered"
+        "operation": "leader_registered"
     }
 }
 
