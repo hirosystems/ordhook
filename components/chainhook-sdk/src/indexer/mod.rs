@@ -6,7 +6,7 @@ use crate::utils::{AbstractBlock, Context};
 
 use chainhook_types::{
     BitcoinBlockSignaling, BitcoinNetwork, BlockHeader, BlockIdentifier, BlockchainEvent,
-    StacksChainEvent, StacksNetwork,
+    StacksChainEvent, StacksNetwork, StacksNodeConfig,
 };
 use hiro_system_kit::slog;
 use rocket::serde::json::Value as JsonValue;
@@ -53,11 +53,19 @@ impl BitcoinChainContext {
 pub struct IndexerConfig {
     pub bitcoin_network: BitcoinNetwork,
     pub stacks_network: StacksNetwork,
-    pub stacks_node_rpc_url: String,
     pub bitcoind_rpc_url: String,
     pub bitcoind_rpc_username: String,
     pub bitcoind_rpc_password: String,
     pub bitcoin_block_signaling: BitcoinBlockSignaling,
+}
+
+impl IndexerConfig {
+    pub fn get_stacks_node_config(&self) -> &StacksNodeConfig {
+        match self.bitcoin_block_signaling {
+            BitcoinBlockSignaling::Stacks(ref config) => config,
+            _ => unreachable!(),
+        }
+    }
 }
 
 pub struct Indexer {

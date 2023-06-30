@@ -129,7 +129,6 @@ pub struct EventObserverConfig {
     pub bitcoind_rpc_password: String,
     pub bitcoind_rpc_url: String,
     pub bitcoin_block_signaling: BitcoinBlockSignaling,
-    pub stacks_node_rpc_url: String,
     pub display_logs: bool,
     pub cache_path: String,
     pub bitcoin_network: BitcoinNetwork,
@@ -168,6 +167,13 @@ impl EventObserverConfig {
             bitcoin_block_signaling: self.bitcoin_block_signaling.clone(),
         };
         bitcoin_config
+    }
+
+    pub fn get_stacks_node_config(&self) -> &StacksNodeConfig {
+        match self.bitcoin_block_signaling {
+            BitcoinBlockSignaling::Stacks(ref config) => config,
+            _ => unreachable!(),
+        }
     }
 
     pub fn new_using_overrides(
@@ -212,8 +218,12 @@ impl EventObserverConfig {
                     Some(url) => Some(BitcoinBlockSignaling::ZeroMQ(url.clone())),
                     None => Some(BitcoinBlockSignaling::Stacks(stacks_node_rpc_url.clone())),
                 })
-                .unwrap_or(BitcoinBlockSignaling::Stacks(stacks_node_rpc_url.clone())),
-            stacks_node_rpc_url,
+                .unwrap_or(BitcoinBlockSignaling::Stacks(StacksNodeConfig {
+                    rpc_url: stacks_node_rpc_url.clone(),
+                    ingestion_port: overrides
+                        .and_then(|c| c.ingestion_port)
+                        .unwrap_or(DEFAULT_INGESTION_PORT),
+                })),
             display_logs: overrides.and_then(|c| c.display_logs).unwrap_or(false),
             cache_path: overrides
                 .and_then(|c| c.cache_path.clone())
@@ -396,7 +406,6 @@ pub async fn start_event_observer(
     ctx: Context,
 ) -> Result<(), Box<dyn Error>> {
     let indexer_config = IndexerConfig {
-        stacks_node_rpc_url: config.stacks_node_rpc_url.clone(),
         bitcoind_rpc_url: config.bitcoind_rpc_url.clone(),
         bitcoind_rpc_username: config.bitcoind_rpc_username.clone(),
         bitcoind_rpc_password: config.bitcoind_rpc_password.clone(),
@@ -417,7 +426,7 @@ pub async fn start_event_observer(
         LogLevel::Off
     };
 
-    let ingestion_port = config.ingestion_port;
+    let ingestion_port = config.get_stacks_node_config().ingestion_port;
     let bitcoin_rpc_proxy_enabled = config.bitcoin_rpc_proxy_enabled;
     let bitcoin_config = config.get_bitcoin_config();
 

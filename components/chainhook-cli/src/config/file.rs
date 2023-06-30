@@ -48,5 +48,6 @@ pub struct NetworkConfigFile {
     pub bitcoind_rpc_username: String,
     pub bitcoind_rpc_password: String,
     pub bitcoind_zmq_url: Option<String>,
-    pub stacks_node_rpc_url: String,
+    pub stacks_node_rpc_url: Option<String>,
+    pub stacks_events_ingestion_port: Option<u16>,
 }

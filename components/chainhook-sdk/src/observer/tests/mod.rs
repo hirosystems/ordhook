@@ -34,7 +34,6 @@ fn generate_test_config() -> (EventObserverConfig, ChainhookStore) {
         bitcoind_rpc_username: "user".into(),
         bitcoind_rpc_password: "user".into(),
         bitcoind_rpc_url: "http://localhost:18443".into(),
-        stacks_node_rpc_url: "http://localhost:20443".into(),
         display_logs: false,
         bitcoin_block_signaling: BitcoinBlockSignaling::Stacks("http://localhost:20443".into()),
         cache_path: "cache".into(),

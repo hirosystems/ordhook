@@ -131,7 +131,6 @@ impl Config {
             bitcoind_rpc_username: self.network.bitcoind_rpc_username.clone(),
             bitcoind_rpc_password: self.network.bitcoind_rpc_password.clone(),
             bitcoind_rpc_url: self.network.bitcoind_rpc_url.clone(),
-            stacks_node_rpc_url: self.network.stacks_node_rpc_url.clone(),
             bitcoin_block_signaling: self.network.bitcoin_block_signaling.clone(),
             display_logs: false,
             cache_path: self.storage.working_dir.clone(),
@@ -212,15 +211,21 @@ impl Config {
                     .unwrap_or(2048),
             },
             network: IndexerConfig {
-                stacks_node_rpc_url: config_file.network.stacks_node_rpc_url.to_string(),
                 bitcoind_rpc_url: config_file.network.bitcoind_rpc_url.to_string(),
                 bitcoind_rpc_username: config_file.network.bitcoind_rpc_username.to_string(),
                 bitcoind_rpc_password: config_file.network.bitcoind_rpc_password.to_string(),
                 bitcoin_block_signaling: match config_file.network.bitcoind_zmq_url {
                     Some(ref zmq_url) => BitcoinBlockSignaling::ZeroMQ(zmq_url.clone()),
-                    None => BitcoinBlockSignaling::Stacks(
-                        config_file.network.stacks_node_rpc_url.clone(),
-                    ),
+                    None => BitcoinBlockSignaling::Stacks(StacksNodeConfig {
+                        rpc_url: config_file
+                            .network
+                            .stacks_node_rpc_url
+                            .unwrap_or("http://localhost:20443".to_string()),
+                        ingestion_port: config_file
+                            .network
+                            .stacks_events_ingestion_port
+                            .unwrap_or(DEFAULT_INGESTION_PORT),
+                    }),
                 },
                 stacks_network,
                 bitcoin_network,
@@ -401,7 +406,6 @@ impl Config {
                 max_caching_memory_size_mb: 2048,
             },
             network: IndexerConfig {
-                stacks_node_rpc_url: "http://0.0.0.0:20443".into(),
                 bitcoind_rpc_url: "http://0.0.0.0:18443".into(),
                 bitcoind_rpc_username: "devnet".into(),
                 bitcoind_rpc_password: "devnet".into(),
@@ -433,7 +437,6 @@ impl Config {
                 max_caching_memory_size_mb: 2048,
             },
             network: IndexerConfig {
-                stacks_node_rpc_url: "http://0.0.0.0:20443".into(),
                 bitcoind_rpc_url: "http://0.0.0.0:18332".into(),
                 bitcoind_rpc_username: "devnet".into(),
                 bitcoind_rpc_password: "devnet".into(),
@@ -470,7 +473,6 @@ impl Config {
                 max_caching_memory_size_mb: 2048,
             },
             network: IndexerConfig {
-                stacks_node_rpc_url: "http://0.0.0.0:20443".into(),
                 bitcoind_rpc_url: "http://0.0.0.0:8332".into(),
                 bitcoind_rpc_username: "devnet".into(),
                 bitcoind_rpc_password: "devnet".into(),

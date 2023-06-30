@@ -288,7 +288,7 @@ pub fn standardize_stacks_block(
             &tx.txid,
             events,
             &mut chain_ctx.asset_class_map,
-            &indexer_config.stacks_node_rpc_url,
+            &indexer_config.get_stacks_node_config().rpc_url.clone(),
             true,
         );
 
@@ -409,7 +409,7 @@ pub fn standardize_stacks_microblock_trail(
             &tx.txid,
             events,
             &mut chain_ctx.asset_class_map,
-            &indexer_config.stacks_node_rpc_url,
+            &indexer_config.get_stacks_node_config().rpc_url.clone(),
             true,
         );
 
