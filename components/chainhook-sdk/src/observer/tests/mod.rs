@@ -11,6 +11,7 @@ use crate::indexer::tests::helpers::{
 };
 use crate::observer::{
     start_observer_commands_handler, ChainhookStore, EventObserverConfig, ObserverCommand,
+    ObserverMetrics,
 };
 use crate::utils::{AbstractBlock, Context};
 use chainhook_types::{
@@ -20,6 +21,7 @@ use chainhook_types::{
 use hiro_system_kit;
 use std::collections::BTreeMap;
 use std::sync::mpsc::{channel, Sender};
+use std::sync::{Arc, RwLock};
 
 use super::ObserverEvent;
 
@@ -201,6 +203,8 @@ fn generate_and_register_new_bitcoin_chainhook(
 fn test_stacks_chainhook_register_deregister() {
     let (observer_commands_tx, observer_commands_rx) = channel();
     let (observer_events_tx, observer_events_rx) = crossbeam_channel::unbounded();
+    let observer_metrics_rw_lock = Arc::new(RwLock::new(ObserverMetrics::default()));
+    let observer_metrics_rw_lock_moved = observer_metrics_rw_lock.clone();
 
     let handle = std::thread::spawn(move || {
         let (config, chainhook_store) = generate_test_config();
@@ -210,6 +214,7 @@ fn test_stacks_chainhook_register_deregister() {
             observer_commands_rx,
             Some(observer_events_tx),
             None,
+            observer_metrics_rw_lock_moved,
             Context::empty(),
         ));
     });
@@ -221,6 +226,16 @@ fn test_stacks_chainhook_register_deregister() {
         1,
         "counter",
         "increment",
+    );
+
+    // registering stacks chainhook should increment the observer_metric's registered stacks hooks
+    assert_eq!(
+        1,
+        observer_metrics_rw_lock
+            .read()
+            .unwrap()
+            .stacks
+            .registered_predicates
     );
 
     // Simulate a block that does not include a trigger
@@ -373,6 +388,25 @@ fn test_stacks_chainhook_register_deregister() {
         _ => false,
     });
 
+    // deregistering stacks chainhook should decrement the observer_metric's registered stacks hooks
+    assert_eq!(
+        0,
+        observer_metrics_rw_lock
+            .read()
+            .unwrap()
+            .stacks
+            .registered_predicates
+    );
+    // and increment the deregistered hooks
+    assert_eq!(
+        1,
+        observer_metrics_rw_lock
+            .read()
+            .unwrap()
+            .stacks
+            .deregistered_predicates
+    );
+
     // Simulate a block that does not include a trigger
     let transactions = vec![generate_test_tx_stacks_contract_call(
         2,
@@ -443,6 +477,8 @@ fn test_stacks_chainhook_register_deregister() {
 fn test_stacks_chainhook_auto_deregister() {
     let (observer_commands_tx, observer_commands_rx) = channel();
     let (observer_events_tx, observer_events_rx) = crossbeam_channel::unbounded();
+    let observer_metrics_rw_lock = Arc::new(RwLock::new(ObserverMetrics::default()));
+    let observer_metrics_rw_lock_moved = observer_metrics_rw_lock.clone();
 
     let handle = std::thread::spawn(move || {
         let (config, chainhook_store) = generate_test_config();
@@ -452,6 +488,7 @@ fn test_stacks_chainhook_auto_deregister() {
             observer_commands_rx,
             Some(observer_events_tx),
             None,
+            observer_metrics_rw_lock_moved,
             Context::empty(),
         ));
     });
@@ -479,6 +516,15 @@ fn test_stacks_chainhook_auto_deregister() {
         }
         _ => false,
     });
+    // registering stacks chainhook should increment the observer_metric's registered stacks hooks
+    assert_eq!(
+        1,
+        observer_metrics_rw_lock
+            .read()
+            .unwrap()
+            .stacks
+            .registered_predicates
+    );
 
     // Simulate a block that does not include a trigger
     let transactions = vec![generate_test_tx_stacks_contract_call(
@@ -591,6 +637,25 @@ fn test_stacks_chainhook_auto_deregister() {
         _ => false,
     });
 
+    // deregistering stacks chainhook should decrement the observer_metric's registered stacks hooks
+    assert_eq!(
+        0,
+        observer_metrics_rw_lock
+            .read()
+            .unwrap()
+            .stacks
+            .registered_predicates
+    );
+    // and increment the deregistered hooks
+    assert_eq!(
+        1,
+        observer_metrics_rw_lock
+            .read()
+            .unwrap()
+            .stacks
+            .deregistered_predicates
+    );
+
     // Should propagate block
     assert!(match observer_events_rx.recv() {
         Ok(ObserverEvent::StacksChainEvent(_)) => {
@@ -614,6 +679,8 @@ fn test_stacks_chainhook_auto_deregister() {
 fn test_bitcoin_chainhook_register_deregister() {
     let (observer_commands_tx, observer_commands_rx) = channel();
     let (observer_events_tx, observer_events_rx) = crossbeam_channel::unbounded();
+    let observer_metrics_rw_lock = Arc::new(RwLock::new(ObserverMetrics::default()));
+    let observer_metrics_rw_lock_moved = observer_metrics_rw_lock.clone();
 
     let handle = std::thread::spawn(move || {
         let (config, chainhook_store) = generate_test_config();
@@ -623,6 +690,7 @@ fn test_bitcoin_chainhook_register_deregister() {
             observer_commands_rx,
             Some(observer_events_tx),
             None,
+            observer_metrics_rw_lock_moved,
             Context::empty(),
         ));
     });
@@ -634,6 +702,16 @@ fn test_bitcoin_chainhook_register_deregister() {
         1,
         &accounts::wallet_2_btc_address(),
         None,
+    );
+
+    // registering bitcoin chainhook should increment the observer_metric's registered bitcoin hooks
+    assert_eq!(
+        1,
+        observer_metrics_rw_lock
+            .read()
+            .unwrap()
+            .bitcoin
+            .registered_predicates
     );
 
     // Simulate a block that does not include a trigger (wallet_1 to wallet_3)
@@ -785,6 +863,25 @@ fn test_bitcoin_chainhook_register_deregister() {
         _ => false,
     });
 
+    // deregistering bitcoin chainhook should decrement the observer_metric's registered bitcoin hooks
+    assert_eq!(
+        0,
+        observer_metrics_rw_lock
+            .read()
+            .unwrap()
+            .bitcoin
+            .registered_predicates
+    );
+    // and increment the deregistered hooks
+    assert_eq!(
+        1,
+        observer_metrics_rw_lock
+            .read()
+            .unwrap()
+            .bitcoin
+            .deregistered_predicates
+    );
+
     // Simulate a block that does not include a trigger
     let transactions = vec![generate_test_tx_bitcoin_p2pkh_transfer(
         2,
@@ -854,6 +951,8 @@ fn test_bitcoin_chainhook_register_deregister() {
 fn test_bitcoin_chainhook_auto_deregister() {
     let (observer_commands_tx, observer_commands_rx) = channel();
     let (observer_events_tx, observer_events_rx) = crossbeam_channel::unbounded();
+    let observer_metrics_rw_lock = Arc::new(RwLock::new(ObserverMetrics::default()));
+    let observer_metrics_rw_lock_moved = observer_metrics_rw_lock.clone();
 
     let handle = std::thread::spawn(move || {
         let (config, chainhook_store) = generate_test_config();
@@ -863,6 +962,7 @@ fn test_bitcoin_chainhook_auto_deregister() {
             observer_commands_rx,
             Some(observer_events_tx),
             None,
+            observer_metrics_rw_lock_moved,
             Context::empty(),
         ));
     });
@@ -874,6 +974,16 @@ fn test_bitcoin_chainhook_auto_deregister() {
         1,
         &accounts::wallet_2_btc_address(),
         Some(1),
+    );
+
+    // registering bitcoin chainhook should increment the observer_metric's registered bitcoin hooks
+    assert_eq!(
+        1,
+        observer_metrics_rw_lock
+            .read()
+            .unwrap()
+            .bitcoin
+            .registered_predicates
     );
 
     // Simulate a block that does not include a trigger (wallet_1 to wallet_3)
@@ -1011,6 +1121,25 @@ fn test_bitcoin_chainhook_auto_deregister() {
         }
         _ => false,
     });
+
+    // deregistering bitcoin chainhook should decrement the observer_metric's registered bitcoin hooks
+    assert_eq!(
+        0,
+        observer_metrics_rw_lock
+            .read()
+            .unwrap()
+            .bitcoin
+            .registered_predicates
+    );
+    // and increment the deregistered hooks
+    assert_eq!(
+        1,
+        observer_metrics_rw_lock
+            .read()
+            .unwrap()
+            .bitcoin
+            .deregistered_predicates
+    );
 
     // Should propagate block
     assert!(match observer_events_rx.recv() {

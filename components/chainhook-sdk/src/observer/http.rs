@@ -8,16 +8,19 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex, RwLock};
 
 use super::{
-    BitcoinConfig, BitcoinRPCRequest, MempoolAdmissionData, ObserverCommand,
+    BitcoinConfig, BitcoinRPCRequest, MempoolAdmissionData, ObserverCommand, ObserverMetrics,
     StacksChainMempoolEvent,
 };
 
 #[rocket::get("/ping", format = "application/json")]
-pub fn handle_ping(ctx: &State<Context>) -> Json<JsonValue> {
+pub fn handle_ping(
+    ctx: &State<Context>,
+    metrics_rw_lock: &State<Arc<RwLock<ObserverMetrics>>>,
+) -> Json<JsonValue> {
     ctx.try_log(|logger| slog::info!(logger, "GET /ping"));
     Json(json!({
         "status": 200,
-        "result": "Ok",
+        "result": metrics_rw_lock.inner(),
     }))
 }
 
