@@ -11,10 +11,9 @@ use crate::storage::{
 };
 
 use chainhook_sdk::bitcoincore_rpc::{Auth, Client, RpcApi};
-use chainhook_sdk::chainhooks::bitcoin::BitcoinApplyTransactionPayload;
+
 use chainhook_sdk::chainhooks::types::{
-    BitcoinChainhookFullSpecification, BitcoinChainhookNetworkSpecification,
-    BitcoinChainhookSpecification, BitcoinPredicateType, ChainhookFullSpecification, FileHook,
+    BitcoinChainhookFullSpecification, BitcoinChainhookNetworkSpecification, BitcoinPredicateType, ChainhookFullSpecification, FileHook,
     HookAction, OrdinalOperations, StacksChainhookFullSpecification,
     StacksChainhookNetworkSpecification, StacksPredicate, StacksPrintEventBasedPredicate,
 };
