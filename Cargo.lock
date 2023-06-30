@@ -510,6 +510,7 @@ dependencies = [
  "chrono",
  "clap 3.2.23",
  "clap_generate",
+ "clarinet-files",
  "clarinet-utils",
  "crossbeam-channel 0.5.8",
  "ctrlc",
