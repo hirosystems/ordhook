@@ -383,13 +383,21 @@ pub fn update_hord_db_and_augment_bitcoin_block(
         )?;
 
     if any_inscription_revealed || any_inscription_transferred {
-        insert_entry_in_ordinal_activities(
-            new_block.block_identifier.index as u32,
-            inscriptions_db_conn_rw,
-            ctx,
-        )
-    }
+        let inscriptions_revealed = get_inscriptions_revealed_in_block(&new_block)
+            .iter()
+            .map(|d| d.inscription_number.to_string())
+            .collect::<Vec<String>>();
 
+        ctx.try_log(|logger| {
+            slog::info!(
+                logger,
+                "Block #{} processed through hord, revealing {} inscriptions [{}]",
+                new_block.block_identifier.index,
+                inscriptions_revealed.len(),
+                inscriptions_revealed.join(", ")
+            )
+        });
+    }
     Ok(())
 }
 
@@ -747,7 +755,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
                 let transfer_data = OrdinalInscriptionTransferData {
                     inscription_id: watched_satpoint.inscription_id.clone(),
                     updated_address,
-                    tx_index: tx_index,
+                    tx_index,
                     satpoint_pre_transfer,
                     satpoint_post_transfer,
                     post_transfer_output_value,
