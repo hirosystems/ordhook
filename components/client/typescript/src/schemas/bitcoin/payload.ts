@@ -44,7 +44,7 @@ export const BitcoinCursedInscriptionRevealedSchema = Type.Object({
   ordinal_block_height: Type.Integer(),
   ordinal_offset: Type.Integer(),
   satpoint_post_inscription: Type.String(),
-  curse_type: Type.String(),
+  curse_type: Nullable(Type.Union([Type.String(), Type.Object({ tag: Type.Number() })])),
 });
 export type BitcoinCursedInscriptionRevealed = Static<
   typeof BitcoinCursedInscriptionRevealedSchema

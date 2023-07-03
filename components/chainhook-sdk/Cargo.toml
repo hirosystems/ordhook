@@ -13,7 +13,7 @@ serde_json = { version = "1", features = ["arbitrary_precision"] }
 serde-hex = "0.1.0"
 serde_derive = "1"
 stacks-rpc-client = "=1.0.7"
-clarinet-utils = "1"
+clarinet-utils = "1.0.0"
 hiro-system-kit = "0.1.0"
 # stacks-rpc-client = { version = "1", path = "../../../clarinet/components/stacks-rpc-client" }
 # clarinet-utils = { version = "1", path = "../../../clarinet/components/clarinet-utils" }

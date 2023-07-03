@@ -6,8 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-csv = "1"
-num_cpus = "1.4"
+csv = "1.2.2"
+num_cpus = "1.16.0"
 serde = "1"
 serde_json = "1"
 serde_derive = "1"
@@ -19,7 +19,7 @@ rand = "0.8.5"
 # raft-proto = { git = "https://github.com/tikv/raft-rs", rev="f73766712a538c2f6eb135b455297ad6c03fc58d", version = "0.7.0"}
 chainhook-sdk = { version = "0.5.0", default-features = false, features = ["ordinals", "zeromq"], path = "../chainhook-sdk" }
 chainhook-types = { version = "1.0.6", path = "../chainhook-types-rs" }
-clarinet-files = "1"
+clarinet-files = "1.0.1"
 hiro-system-kit = "0.1.0"
 # clarinet-files = { path = "../../../clarinet/components/clarinet-files" }
 # hiro-system-kit = { path = "../../../clarinet/components/hiro-system-kit" }
@@ -45,7 +45,8 @@ rocket = { version = "=0.5.0-rc.3", features = ["json"] }
 [dev-dependencies]
 criterion = "0.3"
 redis = "0.21.5"
-clarity-repl = "=1.5.0"
+clarity-repl = "=1.7.0"
+clarity-vm = "=2.1.1"
 hex = "0.4.3"
 
 

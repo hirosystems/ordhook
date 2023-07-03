@@ -12,6 +12,7 @@ export const PayloadSchema = Type.Object({
   chainhook: Type.Object({
     uuid: Type.String(),
     predicate: Type.Union([BitcoinIfThisSchema, StacksIfThisSchema]),
+    is_streaming_blocks: Type.Boolean(),
   }),
 });
 export type Payload = Static<typeof PayloadSchema>;
