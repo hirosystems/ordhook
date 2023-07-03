@@ -25,11 +25,11 @@ const ServerOptionsSchema = Type.Object({
   external_base_url: Type.String(),
 
   /** Wait for the chainhook node to be available before submitting predicates */
-  wait_for_chainhook_node: Type.Boolean({ default: true }),
+  wait_for_chainhook_node: Type.Optional(Type.Boolean({ default: true })),
   /** Validate the JSON schema of received chainhook payloads and report errors when invalid */
-  validate_chainhook_payloads: Type.Boolean({ default: false }),
+  validate_chainhook_payloads: Type.Optional(Type.Boolean({ default: false })),
   /** Size limit for received chainhook payloads (default 40MB) */
-  body_limit: Type.Number({ default: 41943040 }),
+  body_limit: Type.Optional(Type.Number({ default: 41943040 })),
 });
 /** Local event server connection and authentication options */
 export type ServerOptions = Static<typeof ServerOptionsSchema>;
@@ -194,7 +194,10 @@ export async function buildServer(
         },
       },
       async (request, reply) => {
-        if (serverOpts.validate_chainhook_payloads && !compiledSchema.Check(request.body)) {
+        if (
+          (serverOpts.validate_chainhook_payloads ?? false) &&
+          !compiledSchema.Check(request.body)
+        ) {
           logger.error(
             [...compiledSchema.Errors(request.body)],
             `ChainhookEventObserver received an invalid payload`
@@ -218,10 +221,10 @@ export async function buildServer(
     trustProxy: true,
     logger: PINO_CONFIG,
     pluginTimeout: 0, // Disable so ping can retry indefinitely
-    bodyLimit: serverOpts.body_limit,
+    bodyLimit: serverOpts.body_limit ?? 41943040, // 40MB
   }).withTypeProvider<TypeBoxTypeProvider>();
 
-  if (serverOpts.wait_for_chainhook_node) {
+  if (serverOpts.wait_for_chainhook_node ?? true) {
     fastify.addHook('onReady', waitForNode);
   }
   fastify.addHook('onReady', registerPredicates);
