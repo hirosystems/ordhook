@@ -1,4 +1,5 @@
 import { Static, Type, TypeBoxTypeProvider } from '@fastify/type-provider-typebox';
+import { TypeCompiler } from '@sinclair/typebox/compiler';
 import Fastify, {
   FastifyInstance,
   FastifyPluginCallback,
@@ -22,7 +23,13 @@ const ServerOptionsSchema = Type.Object({
   port: Type.Integer(),
   auth_token: Type.String(),
   external_base_url: Type.String(),
+
+  /** Wait for the chainhook node to be available before submitting predicates */
   wait_for_chainhook_node: Type.Boolean({ default: true }),
+  /** Validate the JSON schema of received chainhook payloads and report errors when invalid */
+  validate_chainhook_payloads: Type.Boolean({ default: false }),
+  /** Size limit for received chainhook payloads (default 40MB) */
+  body_limit: Type.Number({ default: 41943040 }),
 });
 /** Local event server connection and authentication options */
 export type ServerOptions = Static<typeof ServerOptionsSchema>;
@@ -174,6 +181,7 @@ export async function buildServer(
     Server,
     TypeBoxTypeProvider
   > = (fastify, options, done) => {
+    const compiledSchema = TypeCompiler.Compile(PayloadSchema);
     fastify.addHook('preHandler', isEventAuthorized);
     fastify.post(
       '/chainhook/:uuid',
@@ -186,6 +194,14 @@ export async function buildServer(
         },
       },
       async (request, reply) => {
+        if (serverOpts.validate_chainhook_payloads && !compiledSchema.Check(request.body)) {
+          logger.error(
+            [...compiledSchema.Errors(request.body)],
+            `ChainhookEventObserver received an invalid payload`
+          );
+          await reply.code(422).send();
+          return;
+        }
         try {
           await callback(request.params.uuid, request.body);
           await reply.code(200).send();
@@ -202,7 +218,7 @@ export async function buildServer(
     trustProxy: true,
     logger: PINO_CONFIG,
     pluginTimeout: 0, // Disable so ping can retry indefinitely
-    bodyLimit: 41943040, // 40 MB
+    bodyLimit: serverOpts.body_limit,
   }).withTypeProvider<TypeBoxTypeProvider>();
 
   if (serverOpts.wait_for_chainhook_node) {
