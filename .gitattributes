@@ -1,8 +1,3 @@
-# Have linguist ignore typescript compiler sources 
-components/clarinet-cli/js/* linguist-vendored
-components/clarinet-cli/dts/* linguist-vendored
-components/clarinet-cli/tsc/* linguist-vendored
-
 # Declare Clarity files that will always have LF line endings on checkout.
 *.clar text eol=lf
 

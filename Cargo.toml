@@ -1,7 +1,5 @@
 [workspace]
 members = [
-    "components/chainhook-sdk",
-    "components/chainhook-cli",
-    "components/chainhook-types-rs",
+    "components/hord-cli"
 ]
-default-members = ["components/chainhook-cli", "components/chainhook-sdk"]
+default-members = ["components/hord-cli"]
