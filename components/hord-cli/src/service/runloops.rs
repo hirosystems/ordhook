@@ -1,9 +1,7 @@
 use std::sync::mpsc::Sender;
 
 use chainhook_sdk::{
-    chainhooks::types::{
-        BitcoinChainhookSpecification, ChainhookSpecification,
-    },
+    chainhooks::types::{BitcoinChainhookSpecification, ChainhookSpecification},
     observer::ObserverCommand,
     utils::Context,
 };

@@ -1,7 +1,4 @@
-use std::{
-    collections::HashMap,
-    sync::mpsc::{channel, Sender},
-};
+use std::sync::mpsc::{channel, Sender};
 
 use super::HordConfig;
 

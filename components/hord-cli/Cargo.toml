@@ -14,7 +14,7 @@ redis = "0.21.5"
 serde-redis = "0.12.0"
 hex = "0.4.3"
 rand = "0.8.5"
-chainhook-sdk = { version = "0.5.0", default-features = false, features = ["ordinals", "zeromq"], path = "../../../chainhook/components/chainhook-sdk" }
+chainhook-sdk = { version = "0.5.0", default-features = false, features = ["zeromq"], path = "../../../chainhook/components/chainhook-sdk" }
 chainhook-types = { version = "1.0.6", path = "../../../chainhook/components/chainhook-types-rs" }
 clarinet-files = "1.0.1"
 hiro-system-kit = "0.1.0"

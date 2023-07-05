@@ -445,13 +445,11 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 name = "chainhook-sdk"
 version = "0.5.0"
 dependencies = [
- "anyhow",
  "base58 0.2.0",
  "base64",
  "bitcoincore-rpc",
  "bitcoincore-rpc-json",
  "chainhook-types 1.0.7",
- "chrono",
  "clarinet-files",
  "clarinet-utils",
  "crossbeam-channel 0.5.8",
@@ -464,8 +462,6 @@ dependencies = [
  "rand 0.8.5",
  "reqwest",
  "rocket",
- "rocksdb",
- "rusqlite",
  "schemars",
  "serde",
  "serde-hex",

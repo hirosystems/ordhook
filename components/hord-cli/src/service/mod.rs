@@ -2,7 +2,11 @@ mod http_api;
 mod runloops;
 
 use crate::config::{Config, PredicatesApi, PredicatesApiConfig};
-use crate::hord::should_sync_hord_db;
+use crate::db::open_readwrite_hord_dbs;
+use crate::hord::{
+    new_traversals_lazy_cache, revert_hord_db_with_augmented_bitcoin_block, should_sync_hord_db,
+    update_hord_db_and_augment_bitcoin_block,
+};
 use crate::scan::bitcoin::process_block_with_predicates;
 use crate::service::http_api::{load_predicates_from_redis, start_predicate_api_server};
 use crate::service::runloops::start_bitcoin_scan_runloop;
@@ -12,12 +16,15 @@ use chainhook_sdk::chainhooks::types::{
 };
 
 use chainhook_sdk::chainhooks::types::ChainhookSpecification;
+use chainhook_sdk::chainhooks::types::{ChainhookConfig, ChainhookFullSpecification};
 use chainhook_sdk::observer::{start_event_observer, ObserverEvent};
 use chainhook_sdk::utils::Context;
-use chainhook_types::BitcoinBlockSignaling;
+use chainhook_types::{BitcoinBlockSignaling, BitcoinChainEvent};
+use hiro_system_kit::slog;
 use redis::{Commands, Connection};
 
 use std::sync::mpsc::channel;
+use std::sync::Arc;
 
 pub struct Service {
     config: Config,
@@ -102,32 +109,25 @@ impl Service {
         let mut event_observer_config = self.config.get_event_observer_config();
         event_observer_config.chainhook_config = Some(chainhook_config);
 
-        // Download and ingest a Ordinal dump, if hord is enabled
-        if !hord_disabled {
-            // TODO: add flag
-            // let _ = download_ordinals_dataset_if_required(&mut self.config, &self.ctx).await;
-            info!(
-                self.ctx.expect_logger(),
-                "Ordinal indexing is enabled by default, checking index... (use --no-hord to disable ordinals)"
-            );
+        let hord_config = self.config.get_hord_config();
 
-            if let Some((start_block, end_block)) = should_sync_hord_db(&self.config, &self.ctx)? {
-                if start_block == 0 {
-                    info!(
-                        self.ctx.expect_logger(),
-                        "Initializing hord indexing from block #{}", start_block
-                    );
-                } else {
-                    info!(
-                        self.ctx.expect_logger(),
-                        "Resuming hord indexing from block #{}", start_block
-                    );
-                }
+        if let Some((start_block, end_block)) = should_sync_hord_db(&self.config, &self.ctx)? {
+            if start_block == 0 {
+                info!(
+                    self.ctx.expect_logger(),
+                    "Initializing hord indexing from block #{}", start_block
+                );
+            } else {
+                info!(
+                    self.ctx.expect_logger(),
+                    "Resuming hord indexing from block #{}", start_block
+                );
+            }
 
-                let (tx, rx) = channel();
+            let (tx, rx) = channel();
 
-                let mut moved_event_observer_config = event_observer_config.clone();
-                let moved_ctx = self.ctx.clone();
+            let mut moved_event_observer_config = event_observer_config.clone();
+            let moved_ctx = self.ctx.clone();
 
                 let _ = hiro_system_kit::thread_named("Initial predicate processing")
                     .spawn(move || {
@@ -154,20 +154,22 @@ impl Service {
                                 }
                             }
                         }
-                    })
-                    .expect("unable to spawn thread");
+                    }
+                })
+                .expect("unable to spawn thread");
 
-                crate::hord::perform_hord_db_update(
-                    start_block,
-                    end_block,
-                    &self.config.get_hord_config(),
-                    &self.config,
-                    Some(tx),
-                    &self.ctx,
-                )
-                .await?;
-            }
+            crate::hord::perform_hord_db_update(
+                start_block,
+                end_block,
+                &self.config.get_hord_config(),
+                &self.config,
+                Some(tx),
+                &self.ctx,
+            )
+            .await?;
         }
+
+        let traversals_cache = Arc::new(new_traversals_lazy_cache(hord_config.cache_size));
 
         // Bitcoin scan operation threadpool
         let (bitcoin_scan_op_tx, bitcoin_scan_op_rx) = crossbeam_channel::unbounded();
@@ -346,8 +348,92 @@ impl Service {
                         }
                     }
                 }
-                ObserverEvent::BitcoinChainEvent((_chain_update, _report)) => {
-                    debug!(self.ctx.expect_logger(), "Bitcoin update not stored");
+                ObserverEvent::BitcoinChainEvent((mut chain_update, _report)) => {
+                    //
+                    let (blocks_db, inscriptions_db_conn_rw) = match open_readwrite_hord_dbs(
+                        &self.config.expected_cache_path(),
+                        &self.ctx,
+                    ) {
+                        Ok(dbs) => dbs,
+                        Err(e) => {
+                            self.ctx.try_log(|logger| {
+                                slog::error!(logger, "Unable to open readwtite connection: {e}",)
+                            });
+                            continue;
+                        }
+                    };
+
+                    // Update Chain event before propagation
+                    match chain_update {
+                        BitcoinChainEvent::ChainUpdatedWithBlocks(ref mut data) => {
+                            for block in data.new_blocks.iter_mut() {
+                                if let Err(e) = update_hord_db_and_augment_bitcoin_block(
+                                    block,
+                                    &blocks_db,
+                                    &inscriptions_db_conn_rw,
+                                    true,
+                                    &hord_config,
+                                    &traversals_cache,
+                                    &self.ctx,
+                                ) {
+                                    self.ctx.try_log(|logger| {
+                                        slog::error!(
+                                            logger,
+                                            "Unable to insert bitcoin block {} in hord_db: {e}",
+                                            block.block_identifier.index
+                                        )
+                                    });
+                                }
+                            }
+                        }
+                        BitcoinChainEvent::ChainUpdatedWithReorg(ref mut data) => {
+                            for block in data.blocks_to_rollback.iter() {
+                                if let Err(e) = revert_hord_db_with_augmented_bitcoin_block(
+                                    block,
+                                    &blocks_db,
+                                    &inscriptions_db_conn_rw,
+                                    &self.ctx,
+                                ) {
+                                    self.ctx.try_log(|logger| {
+                                        slog::error!(
+                                            logger,
+                                            "Unable to rollback bitcoin block {}: {e}",
+                                            block.block_identifier
+                                        )
+                                    });
+                                }
+                            }
+
+                            for block in data.blocks_to_apply.iter_mut() {
+                                if let Err(e) = update_hord_db_and_augment_bitcoin_block(
+                                    block,
+                                    &blocks_db,
+                                    &inscriptions_db_conn_rw,
+                                    true,
+                                    &hord_config,
+                                    &traversals_cache,
+                                    &self.ctx,
+                                ) {
+                                    self.ctx.try_log(|logger| {
+                                        slog::error!(
+                                            logger,
+                                            "Unable to apply bitcoin block {} with hord_db: {e}",
+                                            block.block_identifier.index
+                                        )
+                                    });
+                                }
+                            }
+                        }
+                    };
+                    self.ctx.try_log(|logger| {
+                        slog::info!(
+                            logger,
+                            "Flushing traversals_cache ({} entries)",
+                            traversals_cache.len()
+                        )
+                    });
+
+                    // traversals_cache.clear();
                 }
                 ObserverEvent::Terminate => {
                     info!(self.ctx.expect_logger(), "Terminating runloop");

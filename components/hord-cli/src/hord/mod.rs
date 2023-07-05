@@ -977,3 +977,20 @@ fn test_identify_next_output_index_destination() {
         SatPosition::Fee(0)
     );
 }
+
+#[test]
+fn test_ordinal_inscription_parsing() {
+    let bytes = hex::decode("208737bc46923c3e64c7e6768c0346879468bf3aba795a5f5f56efca288f50ed2aac0063036f7264010118746578742f706c61696e3b636861727365743d7574662d38004c9948656c6c6f2030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030300a68").unwrap();
+
+    let script = Script::from(bytes);
+    let parser = InscriptionParser {
+        instructions: script.instructions().peekable(),
+    };
+
+    let inscription = match parser.parse_script() {
+        Ok(inscription) => inscription,
+        Err(_) => panic!(),
+    };
+
+    println!("{:?}", inscription);
+}

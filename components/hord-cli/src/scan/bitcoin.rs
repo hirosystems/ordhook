@@ -1,5 +1,13 @@
 use crate::archive::download_ordinals_dataset_if_required;
 use crate::config::{Config, PredicatesApi};
+use crate::db::{
+    find_all_inscriptions_in_block, get_any_entry_in_ordinal_activities, open_readonly_hord_db_conn,
+};
+use crate::hord::{
+    get_inscriptions_revealed_in_block,
+    update_storage_and_augment_bitcoin_block_with_inscription_reveal_data,
+    update_storage_and_augment_bitcoin_block_with_inscription_transfer_data, Storage,
+};
 use crate::service::{
     open_readwrite_predicates_db_conn_or_panic, update_predicate_status, PredicateStatus,
     ScanningData,
@@ -11,14 +19,6 @@ use chainhook_sdk::chainhooks::bitcoin::{
     BitcoinChainhookOccurrence, BitcoinTriggerChainhook,
 };
 use chainhook_sdk::chainhooks::types::{BitcoinChainhookSpecification, BitcoinPredicateType};
-use chainhook_sdk::hord::db::{
-    find_all_inscriptions_in_block, get_any_entry_in_ordinal_activities, open_readonly_hord_db_conn,
-};
-use chainhook_sdk::hord::{
-    get_inscriptions_revealed_in_block,
-    update_storage_and_augment_bitcoin_block_with_inscription_reveal_data,
-    update_storage_and_augment_bitcoin_block_with_inscription_transfer_data, Storage,
-};
 use chainhook_sdk::indexer;
 use chainhook_sdk::indexer::bitcoin::{
     download_and_parse_block_with_retry, retrieve_block_hash_with_retry,
@@ -88,7 +88,7 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
 
     let mut blocks_scanned = 0;
     let mut actions_triggered = 0;
-    let mut occurrences_found = 0u64;
+    let occurrences_found = 0u64;
     let mut err_count = 0;
 
     let event_observer_config = config.get_event_observer_config();

@@ -1,35 +1,31 @@
 use crate::config::generator::generate_config;
 use crate::config::{Config, PredicatesApi};
-use crate::scan::bitcoin::scan_bitcoin_chainstate_via_rpc_using_predicate;
 use crate::service::Service;
-use crate::storage::get_last_block_height_inserted;
 
-use chainhook_sdk::chainhooks::types::ChainhookFullSpecification;
-use chainhook_sdk::hord::db::{
+use crate::db::{
     delete_data_in_hord_db, find_last_block_inserted, find_lazy_block_at_block_height,
     find_watched_satpoint_for_inscription, initialize_hord_db, open_readonly_hord_db_conn,
     open_readonly_hord_db_conn_rocks_db, open_readwrite_hord_db_conn,
     open_readwrite_hord_db_conn_rocks_db, retrieve_satoshi_point_using_lazy_storage,
 };
-use chainhook_sdk::hord::{
+use crate::hord::{
     new_traversals_lazy_cache, retrieve_inscribed_satoshi_points_from_block,
     update_storage_and_augment_bitcoin_block_with_inscription_transfer_data, Storage,
 };
+use chainhook_sdk::chainhooks::types::ChainhookFullSpecification;
 use chainhook_sdk::indexer;
 use chainhook_sdk::indexer::bitcoin::{
     download_and_parse_block_with_retry, retrieve_block_hash_with_retry,
 };
 use chainhook_sdk::observer::BitcoinConfig;
 use chainhook_sdk::utils::Context;
-use chainhook_types::{BitcoinBlockData, BitcoinNetwork, BlockIdentifier, TransactionIdentifier};
+use chainhook_types::{BitcoinBlockData, BlockIdentifier, TransactionIdentifier};
 use clap::{Parser, Subcommand};
-use ctrlc;
 use hiro_system_kit;
 use std::collections::BTreeMap;
 use std::io::{BufReader, Read};
 use std::path::PathBuf;
 use std::process;
-use std::sync::mpsc::Sender;
 use std::sync::Arc;
 
 #[derive(Parser, Debug)]
@@ -151,26 +147,6 @@ enum HordDbCommand {
     /// Check integrity
     #[clap(name = "check", bin_name = "check")]
     Check(CheckDbCommand),
-}
-
-#[derive(Subcommand, PartialEq, Clone, Debug)]
-enum StacksCommand {
-    /// Db maintenance related commands
-    #[clap(subcommand)]
-    Db(StacksDbCommand),
-}
-
-#[derive(Subcommand, PartialEq, Clone, Debug)]
-enum StacksDbCommand {
-    /// Check integrity
-    #[clap(name = "check", bin_name = "check")]
-    Check(CheckDbCommand),
-    /// Update database using latest Stacks archive file
-    #[clap(name = "update", bin_name = "update")]
-    Update(UpdateDbCommand),
-    /// Retrieve a block from the Stacks db
-    #[clap(name = "get", bin_name = "get")]
-    GetBlock(GetBlockDbCommand),
 }
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
@@ -307,30 +283,6 @@ struct CheckDbCommand {
     pub config_path: Option<String>,
 }
 
-#[derive(Parser, PartialEq, Clone, Debug)]
-struct UpdateDbCommand {
-    /// Load config file path
-    #[clap(long = "config-path")]
-    pub config_path: Option<String>,
-}
-
-#[derive(Parser, PartialEq, Clone, Debug)]
-struct GetBlockDbCommand {
-    /// Block index to retrieve
-    #[clap(long = "block-height")]
-    pub block_height: u64,
-    /// Load config file path
-    #[clap(long = "config-path")]
-    pub config_path: Option<String>,
-}
-
-#[derive(Parser, PartialEq, Clone, Debug)]
-struct InitHordDbCommand {
-    /// Load config file path
-    #[clap(long = "config-path")]
-    pub config_path: Option<String>,
-}
-
 pub fn main() {
     let logger = hiro_system_kit::log::setup_logger();
     let _guard = hiro_system_kit::log::setup_global_logger(logger.clone());
@@ -444,6 +396,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                 }
                 None => {
                     let event_observer_config = config.get_event_observer_config();
+                    let hord_config = config.get_hord_config();
                     let bitcoin_config = event_observer_config.get_bitcoin_config();
                     let block =
                         fetch_and_standardize_block(cmd.block_height, &bitcoin_config, &ctx)
@@ -453,7 +406,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     let _traversals = retrieve_inscribed_satoshi_points_from_block(
                         &block,
                         None,
-                        event_observer_config.hord_config.as_ref().unwrap(),
+                        &hord_config,
                         &traversals_cache,
                         &ctx,
                     );
@@ -621,13 +574,12 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                 "Cleaning hord_db: {} blocks dropped",
                 cmd.end_block - cmd.start_block + 1
             );
-        }
-        // HordDbCommand::Patch(_cmd) => {
-        //     unimplemented!()
-        // }
-        // HordDbCommand::Migrate(_cmd) => {
-        //     unimplemented!()
-        // }
+        } // HordDbCommand::Patch(_cmd) => {
+          //     unimplemented!()
+          // }
+          // HordDbCommand::Migrate(_cmd) => {
+          //     unimplemented!()
+          // }
     }
     Ok(())
 }
