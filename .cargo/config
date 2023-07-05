@@ -1,2 +1,2 @@
 [alias]
-chainhook-install = "install --path components/chainhook-cli --locked --force"
+hord-install = "install --path components/hord-cli --locked --force"

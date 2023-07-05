@@ -21,11 +21,11 @@ bitcoind_rpc_username = "devnet"
 bitcoind_rpc_password = "devnet"
 # Bitcoin block events can be received by Chainhook
 # either through a Bitcoin node's ZeroMQ interface,
-# or through the Stacks node. The Stacks node is
+# or through the Stacks node. Zmq is being
 # used by default:
-stacks_node_rpc_url = "http://localhost:20443"
-# but zmq can be used instead:
-# bitcoind_zmq_url = "http://0.0.0.0:18543"
+bitcoind_zmq_url = "http://0.0.0.0:18543"
+# but stacks can also be used:
+# stacks_node_rpc_url = "http://localhost:20443"
 
 [limits]
 max_number_of_bitcoin_predicates = 100
@@ -33,10 +33,6 @@ max_number_of_concurrent_bitcoin_scans = 100
 max_number_of_processing_threads = 16
 max_number_of_networking_threads = 16
 max_caching_memory_size_mb = 32000
-
-# [[event_source]]
-# tsv_file_url = "https://archive.hiro.so/{network}/stacks-blockchain-api/{network}-stacks-blockchain-api-latest"
-# tsv_file_url = "https://archive.hiro.so/{network}/stacks-blockchain-api/{network}-stacks-blockchain-api-latest"
 "#,
         network = network.to_lowercase(),
     );

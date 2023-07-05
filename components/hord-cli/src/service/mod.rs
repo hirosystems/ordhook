@@ -35,10 +35,7 @@ impl Service {
         Self { config, ctx }
     }
 
-    pub async fn run(
-        &mut self,
-        predicates: Vec<ChainhookFullSpecification>,
-    ) -> Result<(), String> {
+    pub async fn run(&mut self, predicates: Vec<ChainhookFullSpecification>) -> Result<(), String> {
         let mut chainhook_config = ChainhookConfig::new();
 
         // If no predicates passed at launch, retrieve predicates from Redis
