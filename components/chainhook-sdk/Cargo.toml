@@ -18,6 +18,7 @@ hiro-system-kit = "0.1.0"
 # stacks-rpc-client = { version = "1", path = "../../../clarinet/components/stacks-rpc-client" }
 # clarinet-utils = { version = "1", path = "../../../clarinet/components/clarinet-utils" }
 # clarity-repl = { version = "1", path = "../../../clarinet/components/clarity-repl" }
+clarinet-files = "1.0.1"
 # hiro-system-kit = { version = "0.1.0", path = "../../../clarinet/components/hiro-system-kit" }
 chainhook-types = { version = "1.0.7", path = "../chainhook-types-rs" }
 rocket = { version = "=0.5.0-rc.3", features = ["json"] }

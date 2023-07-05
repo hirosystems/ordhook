@@ -32,7 +32,6 @@ use crate::{
             find_inscription_with_ordinal_number, find_inscriptions_at_wached_outpoint,
             insert_entry_in_blocks, insert_entry_in_inscriptions,
             insert_entry_in_ordinal_activities, retrieve_satoshi_point_using_lazy_storage,
-            update_transfered_inscription,
         },
         ord::height::Height,
     },
@@ -42,8 +41,9 @@ use crate::{
 use self::db::{
     find_inscription_with_id, find_latest_cursed_inscription_number_at_block_height,
     find_latest_inscription_number_at_block_height, format_satpoint_to_watch,
-    parse_satpoint_to_watch, remove_entry_from_blocks, remove_entry_from_inscriptions, LazyBlock,
-    LazyBlockTransaction, TraversalResult, WatchedSatpoint,
+    insert_transfer_in_locations, parse_outpoint_to_watch, parse_satpoint_to_watch,
+    remove_entry_from_blocks, remove_entry_from_inscriptions, LazyBlock, LazyBlockTransaction,
+    TraversalResult, WatchedSatpoint,
 };
 use self::inscription::InscriptionParser;
 use self::ord::inscription_id::InscriptionId;
@@ -109,6 +109,7 @@ pub fn parse_ordinal_operations(
                 content_length: inscription_content_bytes.len(),
                 inscription_id: inscription_id.to_string(),
                 inscription_input_index: input_index,
+                tx_index: 0,
                 inscription_output_value: 0,
                 inscription_fee: 0,
                 inscription_number: 0,
@@ -166,17 +167,11 @@ pub fn revert_hord_db_with_augmented_bitcoin_block(
                         ctx,
                     );
                 }
-                OrdinalOperation::InscriptionTransferred(data) => {
+                OrdinalOperation::InscriptionTransferred(transfer_data) => {
                     // We revert the outpoint to the pre-transfer value
-                    let comps = data.satpoint_pre_transfer.split(":").collect::<Vec<_>>();
-                    let outpoint_pre_transfer = format!("{}:{}", comps[0], comps[1]);
-                    let offset_pre_transfer = comps[2]
-                        .parse::<u64>()
-                        .map_err(|e| format!("hord_db corrupted {}", e.to_string()))?;
-                    update_transfered_inscription(
-                        &&data.inscription_id,
-                        &outpoint_pre_transfer,
-                        offset_pre_transfer,
+                    insert_transfer_in_locations(
+                        transfer_data,
+                        &block.block_identifier,
                         &inscriptions_db_conn_rw,
                         &ctx,
                     );
@@ -233,9 +228,8 @@ pub fn retrieve_inscribed_satoshi_points_from_block(
             };
             if let Some(inscriptions_db_conn) = inscriptions_db_conn {
                 // TODO: introduce scanning context
-                if let Some(traversal) = find_inscription_with_id(
+                if let Ok(Some(traversal)) = find_inscription_with_id(
                     &inscription_data.inscription_id,
-                    &block.block_identifier.hash,
                     inscriptions_db_conn,
                     ctx,
                 ) {
@@ -304,8 +298,8 @@ pub fn retrieve_inscribed_satoshi_points_from_block(
                     });
                     traversals.insert(
                         (
-                            traversal.transaction_identifier.clone(),
-                            traversal.input_index,
+                            traversal.transaction_identifier_inscription.clone(),
+                            traversal.inscription_input_index,
                         ),
                         traversal,
                     );
@@ -389,13 +383,21 @@ pub fn update_hord_db_and_augment_bitcoin_block(
         )?;
 
     if any_inscription_revealed || any_inscription_transferred {
-        insert_entry_in_ordinal_activities(
-            new_block.block_identifier.index as u32,
-            inscriptions_db_conn_rw,
-            ctx,
-        )
-    }
+        let inscriptions_revealed = get_inscriptions_revealed_in_block(&new_block)
+            .iter()
+            .map(|d| d.inscription_number.to_string())
+            .collect::<Vec<String>>();
 
+        ctx.try_log(|logger| {
+            slog::info!(
+                logger,
+                "Block #{} processed through hord, revealing {} inscriptions [{}]",
+                new_block.block_identifier.index,
+                inscriptions_revealed.len(),
+                inscriptions_revealed.join(", ")
+            )
+        });
+    }
     Ok(())
 }
 
@@ -439,7 +441,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
 
     let mut sats_overflow = vec![];
 
-    for new_tx in block.transactions.iter_mut().skip(1) {
+    for (tx_index, new_tx) in block.transactions.iter_mut().skip(1).enumerate() {
         let mut ordinals_events_indexes_to_discard = VecDeque::new();
         // Have a new inscription been revealed, if so, are looking at a re-inscription
         for (ordinal_event_index, ordinal_event) in
@@ -475,19 +477,20 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
                 }
             };
 
-            let outputs = new_tx.metadata.outputs.clone();
+            let outputs = &new_tx.metadata.outputs;
             inscription.ordinal_offset = traversal.get_ordinal_coinbase_offset();
             inscription.ordinal_block_height = traversal.get_ordinal_coinbase_height();
             inscription.ordinal_number = traversal.ordinal_number;
             inscription.inscription_number = traversal.inscription_number;
             inscription.transfers_pre_inscription = traversal.transfers;
             inscription.inscription_fee = new_tx.metadata.fee;
+            inscription.tx_index = tx_index;
             inscription.satpoint_post_inscription = format_satpoint_to_watch(
-                &traversal.transaction_identifier,
-                traversal.output_index,
-                traversal.inscription_offset_intra_output,
+                &traversal.transfer_data.transaction_identifier_location,
+                traversal.transfer_data.output_index,
+                traversal.transfer_data.inscription_offset_intra_output,
             );
-            if let Some(output) = new_tx.metadata.outputs.get(traversal.output_index) {
+            if let Some(output) = outputs.get(traversal.transfer_data.output_index) {
                 inscription.inscription_output_value = output.value;
                 inscription.inscriber_address = {
                     let script_pub_key = output.get_script_pubkey_hex();
@@ -570,8 +573,6 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
                         outpoint,
                         vec![WatchedSatpoint {
                             inscription_id: inscription.inscription_id.clone(),
-                            inscription_number: inscription.inscription_number,
-                            ordinal_number: inscription.ordinal_number,
                             offset,
                         }],
                     );
@@ -631,14 +632,15 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
     let mut storage_updated = false;
     let mut cumulated_fees = 0;
     let first_sat_post_subsidy = Height(block.block_identifier.index).starting_sat().0;
-    let coinbase_txid = &block.transactions[0].transaction_identifier.hash.clone();
-
+    let coinbase_txid = &block.transactions[0].transaction_identifier.clone();
+    let network = match block.metadata.network {
+        BitcoinNetwork::Mainnet => Network::Bitcoin,
+        BitcoinNetwork::Regtest => Network::Regtest,
+        BitcoinNetwork::Testnet => Network::Testnet,
+    };
     // todo: handle ordinals coinbase spend
 
-    for new_tx in block.transactions.iter_mut().skip(1) {
-        // Have inscriptions been transfered?
-        let mut sats_in_offset = 0;
-
+    for (tx_index, new_tx) in block.transactions.iter_mut().skip(1).enumerate() {
         for input in new_tx.metadata.inputs.iter() {
             // input.previous_output.txid
             let outpoint_pre_transfer = format_outpoint_to_watch(
@@ -656,46 +658,48 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
                 },
             };
 
+            // For each satpoint inscribed retrieved, we need to compute the next
+            // outpoint to watch
             for mut watched_satpoint in entries.into_iter() {
-                let mut post_transfer_output_index = 0;
-                let mut sats_out_offset = 0;
-                let mut next_output_value = new_tx.metadata.outputs[0].value;
                 let satpoint_pre_transfer =
                     format!("{}:{}", outpoint_pre_transfer, watched_satpoint.offset);
 
                 // Question is: are inscriptions moving to a new output,
                 // burnt or lost in fees and transfered to the miner?
 
-                let post_transfer_output: Option<usize> = loop {
-                    if sats_out_offset + next_output_value
-                        > sats_in_offset + watched_satpoint.offset
-                    {
-                        break Some(post_transfer_output_index);
-                    }
-                    sats_out_offset += next_output_value;
-                    post_transfer_output_index += 1;
-                    if post_transfer_output_index >= new_tx.metadata.outputs.len() {
-                        break None;
-                    } else {
-                        next_output_value =
-                            new_tx.metadata.outputs[post_transfer_output_index].value;
-                    }
-                };
+                let (_, input_index) = parse_outpoint_to_watch(&outpoint_pre_transfer);
+                let inputs = new_tx
+                    .metadata
+                    .inputs
+                    .iter()
+                    .map(|o| o.previous_output.value)
+                    .collect::<_>();
+                let outputs = new_tx
+                    .metadata
+                    .outputs
+                    .iter()
+                    .map(|o| o.value)
+                    .collect::<_>();
+                let post_transfer_data = compute_next_satpoint_data(
+                    input_index,
+                    watched_satpoint.offset,
+                    &inputs,
+                    &outputs,
+                );
 
                 let (
                     outpoint_post_transfer,
                     offset_post_transfer,
                     updated_address,
                     post_transfer_output_value,
-                ) = match post_transfer_output {
-                    Some(index) => {
+                ) = match post_transfer_data {
+                    SatPosition::Output((output_index, offset)) => {
                         let outpoint =
-                            format_outpoint_to_watch(&new_tx.transaction_identifier, index);
-                        let offset = (sats_in_offset + watched_satpoint.offset) - sats_out_offset;
+                            format_outpoint_to_watch(&new_tx.transaction_identifier, output_index);
                         let script_pub_key_hex =
-                            new_tx.metadata.outputs[index].get_script_pubkey_hex();
+                            new_tx.metadata.outputs[output_index].get_script_pubkey_hex();
                         let updated_address = match Script::from_hex(&script_pub_key_hex) {
-                            Ok(script) => match Address::from_script(&script, Network::Bitcoin) {
+                            Ok(script) => match Address::from_script(&script, network.clone()) {
                                 Ok(address) => Some(address.to_string()),
                                 Err(e) => {
                                     ctx.try_log(|logger| {
@@ -718,19 +722,17 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
                                 None
                             }
                         };
-
                         (
                             outpoint,
                             offset,
                             updated_address,
-                            Some(new_tx.metadata.outputs[post_transfer_output_index].value),
+                            Some(new_tx.metadata.outputs[output_index].value),
                         )
                     }
-                    None => {
+                    SatPosition::Fee(offset) => {
                         // Get Coinbase TX
-                        let offset =
-                            first_sat_post_subsidy + cumulated_fees + watched_satpoint.offset;
-                        let outpoint = format!("{}:0", &coinbase_txid[2..]);
+                        let offset = first_sat_post_subsidy + cumulated_fees + offset;
+                        let outpoint = format_outpoint_to_watch(&coinbase_txid, 0);
                         (outpoint, offset, None, None)
                     }
                 };
@@ -739,22 +741,32 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
                 ctx.try_log(|logger| {
                     slog::info!(
                         logger,
-                        "Inscription {} (#{}) moved from {} to {} (block: {})",
+                        "Inscription {} moved from {} to {} (block: {})",
                         watched_satpoint.inscription_id,
-                        watched_satpoint.inscription_number,
                         satpoint_pre_transfer,
                         outpoint_post_transfer,
                         block.block_identifier.index,
                     )
                 });
 
+                let satpoint_post_transfer =
+                    format!("{}:{}", outpoint_post_transfer, offset_post_transfer);
+
+                let transfer_data = OrdinalInscriptionTransferData {
+                    inscription_id: watched_satpoint.inscription_id.clone(),
+                    updated_address,
+                    tx_index,
+                    satpoint_pre_transfer,
+                    satpoint_post_transfer,
+                    post_transfer_output_value,
+                };
+
                 // Update watched outpoint
                 match storage {
                     Storage::Sqlite(rw_hord_db_conn) => {
-                        update_transfered_inscription(
-                            &watched_satpoint.inscription_id,
-                            &outpoint_post_transfer,
-                            offset_post_transfer,
+                        insert_transfer_in_locations(
+                            &transfer_data,
+                            &block.block_identifier,
                             &rw_hord_db_conn,
                             &ctx,
                         );
@@ -768,28 +780,94 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
                 };
                 storage_updated = true;
 
-                let satpoint_post_transfer =
-                    format!("{}:{}", outpoint_post_transfer, offset_post_transfer);
-
-                let event_data = OrdinalInscriptionTransferData {
-                    inscription_id: watched_satpoint.inscription_id.clone(),
-                    inscription_number: watched_satpoint.inscription_number,
-                    ordinal_number: watched_satpoint.ordinal_number,
-                    updated_address,
-                    satpoint_pre_transfer,
-                    satpoint_post_transfer,
-                    post_transfer_output_value,
-                };
-
                 // Attach transfer event
                 new_tx
                     .metadata
                     .ordinal_operations
-                    .push(OrdinalOperation::InscriptionTransferred(event_data));
+                    .push(OrdinalOperation::InscriptionTransferred(transfer_data));
             }
-            sats_in_offset += input.previous_output.value;
         }
         cumulated_fees += new_tx.metadata.fee;
     }
     Ok(storage_updated)
+}
+
+#[derive(PartialEq, Debug)]
+pub enum SatPosition {
+    Output((usize, u64)),
+    Fee(u64),
+}
+
+pub fn compute_next_satpoint_data(
+    input_index: usize,
+    offset_intra_input: u64,
+    inputs: &Vec<u64>,
+    outputs: &Vec<u64>,
+) -> SatPosition {
+    let mut offset_cross_inputs = 0;
+    for (index, input_value) in inputs.iter().enumerate() {
+        if index == input_index {
+            break;
+        }
+        offset_cross_inputs += input_value;
+    }
+    offset_cross_inputs += offset_intra_input;
+
+    let mut offset_intra_outputs = 0;
+    let mut output_index = 0;
+    let mut floating_bound = 0;
+
+    for (index, output_value) in outputs.iter().enumerate() {
+        floating_bound += output_value;
+        output_index = index;
+        if floating_bound > offset_cross_inputs {
+            break;
+        }
+        offset_intra_outputs += output_value;
+    }
+
+    if output_index == (outputs.len() - 1) && offset_cross_inputs >= floating_bound {
+        // Satoshi spent in fees
+        return SatPosition::Fee(offset_cross_inputs - floating_bound);
+    }
+    SatPosition::Output((output_index, (offset_cross_inputs - offset_intra_outputs)))
+}
+
+#[cfg(test)]
+pub mod tests;
+
+#[test]
+fn test_identify_next_output_index_destination() {
+    assert_eq!(
+        compute_next_satpoint_data(0, 10, &vec![20, 30, 45], &vec![20, 30, 45]),
+        SatPosition::Output((0, 10))
+    );
+    assert_eq!(
+        compute_next_satpoint_data(0, 20, &vec![20, 30, 45], &vec![20, 30, 45]),
+        SatPosition::Output((1, 0))
+    );
+    assert_eq!(
+        compute_next_satpoint_data(1, 5, &vec![20, 30, 45], &vec![20, 30, 45]),
+        SatPosition::Output((1, 5))
+    );
+    assert_eq!(
+        compute_next_satpoint_data(1, 6, &vec![20, 30, 45], &vec![20, 5, 45]),
+        SatPosition::Output((2, 1))
+    );
+    assert_eq!(
+        compute_next_satpoint_data(1, 10, &vec![10, 10, 10], &vec![30]),
+        SatPosition::Output((0, 20))
+    );
+    assert_eq!(
+        compute_next_satpoint_data(0, 30, &vec![10, 10, 10], &vec![30]),
+        SatPosition::Fee(0)
+    );
+    assert_eq!(
+        compute_next_satpoint_data(0, 0, &vec![10, 10, 10], &vec![30]),
+        SatPosition::Output((0, 0))
+    );
+    assert_eq!(
+        compute_next_satpoint_data(2, 45, &vec![20, 30, 45], &vec![20, 30, 45]),
+        SatPosition::Fee(0)
+    );
 }

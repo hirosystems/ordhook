@@ -233,7 +233,8 @@ pub async fn download_stacks_dataset_if_required(config: &mut Config, ctx: &Cont
     } else {
         info!(
             ctx.expect_logger(),
-            "Streaming blocks from stacks-node {}", config.network.stacks_node_rpc_url
+            "Streaming blocks from stacks-node {}",
+            config.network.get_stacks_node_config().rpc_url
         );
         false
     }
@@ -303,7 +304,7 @@ pub async fn download_ordinals_dataset_if_required(config: &Config, ctx: &Contex
     } else {
         info!(
             ctx.expect_logger(),
-            "Streaming blocks from bitcoind {}", config.network.stacks_node_rpc_url
+            "Streaming blocks from bitcoind {}", config.network.bitcoind_rpc_url
         );
         false
     }

@@ -17,13 +17,14 @@ use crate::utils::{AbstractBlock, Context};
 use chainhook_types::{
     BitcoinBlockSignaling, BitcoinNetwork, BlockchainEvent, BlockchainUpdatedWithHeaders,
     StacksBlockUpdate, StacksChainEvent, StacksChainUpdatedWithBlocksData, StacksNetwork,
+    StacksNodeConfig,
 };
 use hiro_system_kit;
 use std::collections::BTreeMap;
 use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, RwLock};
 
-use super::ObserverEvent;
+use super::{ObserverEvent, DEFAULT_INGESTION_PORT};
 
 fn generate_test_config() -> (EventObserverConfig, ChainhookStore) {
     let config: EventObserverConfig = EventObserverConfig {
@@ -34,9 +35,10 @@ fn generate_test_config() -> (EventObserverConfig, ChainhookStore) {
         bitcoind_rpc_username: "user".into(),
         bitcoind_rpc_password: "user".into(),
         bitcoind_rpc_url: "http://localhost:18443".into(),
-        stacks_node_rpc_url: "http://localhost:20443".into(),
         display_logs: false,
-        bitcoin_block_signaling: BitcoinBlockSignaling::Stacks("http://localhost:20443".into()),
+        bitcoin_block_signaling: BitcoinBlockSignaling::Stacks(
+            StacksNodeConfig::default_localhost(DEFAULT_INGESTION_PORT),
+        ),
         cache_path: "cache".into(),
         bitcoin_network: BitcoinNetwork::Regtest,
         stacks_network: StacksNetwork::Devnet,

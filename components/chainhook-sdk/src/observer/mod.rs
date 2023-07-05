@@ -29,7 +29,7 @@ use bitcoincore_rpc::{Auth, Client, RpcApi};
 use chainhook_types::{
     BitcoinBlockData, BitcoinBlockSignaling, BitcoinChainEvent, BitcoinChainUpdatedWithBlocksData,
     BitcoinChainUpdatedWithReorgData, BitcoinNetwork, BlockIdentifier, BlockchainEvent,
-    StacksChainEvent, StacksNetwork, TransactionIdentifier,
+    StacksChainEvent, StacksNetwork, StacksNodeConfig, TransactionIdentifier,
 };
 use hiro_system_kit;
 use hiro_system_kit::slog;
@@ -129,7 +129,6 @@ pub struct EventObserverConfig {
     pub bitcoind_rpc_password: String,
     pub bitcoind_rpc_url: String,
     pub bitcoin_block_signaling: BitcoinBlockSignaling,
-    pub stacks_node_rpc_url: String,
     pub display_logs: bool,
     pub cache_path: String,
     pub bitcoin_network: BitcoinNetwork,
@@ -170,13 +169,16 @@ impl EventObserverConfig {
         bitcoin_config
     }
 
+    pub fn get_stacks_node_config(&self) -> &StacksNodeConfig {
+        match self.bitcoin_block_signaling {
+            BitcoinBlockSignaling::Stacks(ref config) => config,
+            _ => unreachable!(),
+        }
+    }
+
     pub fn new_using_overrides(
         overrides: Option<&EventObserverConfigOverrides>,
     ) -> Result<EventObserverConfig, String> {
-        let stacks_node_rpc_url = overrides
-            .and_then(|c| c.stacks_node_rpc_url.clone())
-            .unwrap_or("http://localhost:20443".to_string());
-
         let bitcoin_network =
             if let Some(network) = overrides.and_then(|c| c.bitcoin_network.as_ref()) {
                 BitcoinNetwork::from_str(network)?
@@ -210,10 +212,21 @@ impl EventObserverConfig {
             bitcoin_block_signaling: overrides
                 .and_then(|c| match c.bitcoind_zmq_url.as_ref() {
                     Some(url) => Some(BitcoinBlockSignaling::ZeroMQ(url.clone())),
-                    None => Some(BitcoinBlockSignaling::Stacks(stacks_node_rpc_url.clone())),
+                    None => Some(BitcoinBlockSignaling::Stacks(
+                        StacksNodeConfig::default_localhost(
+                            overrides
+                                .and_then(|c| c.ingestion_port)
+                                .unwrap_or(DEFAULT_INGESTION_PORT),
+                        ),
+                    )),
                 })
-                .unwrap_or(BitcoinBlockSignaling::Stacks(stacks_node_rpc_url.clone())),
-            stacks_node_rpc_url,
+                .unwrap_or(BitcoinBlockSignaling::Stacks(
+                    StacksNodeConfig::default_localhost(
+                        overrides
+                            .and_then(|c| c.ingestion_port)
+                            .unwrap_or(DEFAULT_INGESTION_PORT),
+                    ),
+                )),
             display_logs: overrides.and_then(|c| c.display_logs).unwrap_or(false),
             cache_path: overrides
                 .and_then(|c| c.cache_path.clone())
@@ -396,7 +409,6 @@ pub async fn start_event_observer(
     ctx: Context,
 ) -> Result<(), Box<dyn Error>> {
     let indexer_config = IndexerConfig {
-        stacks_node_rpc_url: config.stacks_node_rpc_url.clone(),
         bitcoind_rpc_url: config.bitcoind_rpc_url.clone(),
         bitcoind_rpc_username: config.bitcoind_rpc_username.clone(),
         bitcoind_rpc_password: config.bitcoind_rpc_password.clone(),
@@ -417,7 +429,7 @@ pub async fn start_event_observer(
         LogLevel::Off
     };
 
-    let ingestion_port = config.ingestion_port;
+    let ingestion_port = config.get_stacks_node_config().ingestion_port;
     let bitcoin_rpc_proxy_enabled = config.bitcoin_rpc_proxy_enabled;
     let bitcoin_config = config.get_bitcoin_config();
 
@@ -1089,7 +1101,7 @@ pub async fn start_observer_commands_handler(
                 let (predicates_triggered, predicates_evaluated) =
                     evaluate_bitcoin_chainhooks_on_chain_event(
                         &chain_event,
-                        bitcoin_chainhooks,
+                        &bitcoin_chainhooks,
                         &ctx,
                     );
                 for (uuid, block_identifier) in predicates_evaluated.into_iter() {
