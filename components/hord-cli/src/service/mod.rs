@@ -13,10 +13,9 @@ use crate::service::runloops::start_bitcoin_scan_runloop;
 
 use chainhook_sdk::chainhooks::types::{
     BitcoinChainhookSpecification, ChainhookConfig, ChainhookFullSpecification,
+    ChainhookSpecification,
 };
 
-use chainhook_sdk::chainhooks::types::ChainhookSpecification;
-use chainhook_sdk::chainhooks::types::{ChainhookConfig, ChainhookFullSpecification};
 use chainhook_sdk::observer::{start_event_observer, ObserverEvent};
 use chainhook_sdk::utils::Context;
 use chainhook_types::{BitcoinBlockSignaling, BitcoinChainEvent};
@@ -39,7 +38,6 @@ impl Service {
     pub async fn run(
         &mut self,
         predicates: Vec<ChainhookFullSpecification>,
-        hord_disabled: bool,
     ) -> Result<(), String> {
         let mut chainhook_config = ChainhookConfig::new();
 
@@ -129,29 +127,27 @@ impl Service {
             let mut moved_event_observer_config = event_observer_config.clone();
             let moved_ctx = self.ctx.clone();
 
-                let _ = hiro_system_kit::thread_named("Initial predicate processing")
-                    .spawn(move || {
-                        if let Some(mut chainhook_config) =
-                            moved_event_observer_config.chainhook_config.take()
-                        {
-                            let mut bitcoin_predicates_ref: Vec<&BitcoinChainhookSpecification> =
-                                vec![];
-                            for bitcoin_predicate in chainhook_config.bitcoin_chainhooks.iter_mut()
-                            {
-                                bitcoin_predicate.enabled = false;
-                                bitcoin_predicates_ref.push(bitcoin_predicate);
-                            }
-                            while let Ok(block) = rx.recv() {
-                                let future = process_block_with_predicates(
-                                    block,
-                                    &bitcoin_predicates_ref,
-                                    &moved_event_observer_config,
-                                    &moved_ctx,
-                                );
-                                let res = hiro_system_kit::nestable_block_on(future);
-                                if let Err(_) = res {
-                                    error!(moved_ctx.expect_logger(), "Initial ingestion failing");
-                                }
+            let _ = hiro_system_kit::thread_named("Initial predicate processing")
+                .spawn(move || {
+                    if let Some(mut chainhook_config) =
+                        moved_event_observer_config.chainhook_config.take()
+                    {
+                        let mut bitcoin_predicates_ref: Vec<&BitcoinChainhookSpecification> =
+                            vec![];
+                        for bitcoin_predicate in chainhook_config.bitcoin_chainhooks.iter_mut() {
+                            bitcoin_predicate.enabled = false;
+                            bitcoin_predicates_ref.push(bitcoin_predicate);
+                        }
+                        while let Ok(block) = rx.recv() {
+                            let future = process_block_with_predicates(
+                                block,
+                                &bitcoin_predicates_ref,
+                                &moved_event_observer_config,
+                                &moved_ctx,
+                            );
+                            let res = hiro_system_kit::nestable_block_on(future);
+                            if let Err(_) = res {
+                                error!(moved_ctx.expect_logger(), "Initial ingestion failing");
                             }
                         }
                     }

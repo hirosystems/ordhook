@@ -330,7 +330,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                 info!(ctx.expect_logger(), "Starting service...",);
 
                 let mut service = Service::new(config, ctx);
-                return service.run(predicates, cmd.hord_disabled).await;
+                return service.run(predicates).await;
             }
         },
         Command::Config(subcmd) => match subcmd {
