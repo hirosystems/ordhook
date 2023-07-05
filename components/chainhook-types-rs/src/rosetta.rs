@@ -895,6 +895,15 @@ pub struct StacksNodeConfig {
     pub ingestion_port: u16,
 }
 
+impl StacksNodeConfig {
+    pub fn default_localhost(ingestion_port: u16) -> StacksNodeConfig {
+        StacksNodeConfig {
+            rpc_url: "http://localhost:20443".to_string(),
+            ingestion_port,
+        }
+    }
+}
+
 impl BitcoinBlockSignaling {
     pub fn should_ignore_bitcoin_block_signaling_through_stacks(&self) -> bool {
         match &self {

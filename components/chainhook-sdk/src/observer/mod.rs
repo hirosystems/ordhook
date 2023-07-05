@@ -179,10 +179,6 @@ impl EventObserverConfig {
     pub fn new_using_overrides(
         overrides: Option<&EventObserverConfigOverrides>,
     ) -> Result<EventObserverConfig, String> {
-        let stacks_node_rpc_url = overrides
-            .and_then(|c| c.stacks_node_rpc_url.clone())
-            .unwrap_or("http://localhost:20443".to_string());
-
         let bitcoin_network =
             if let Some(network) = overrides.and_then(|c| c.bitcoin_network.as_ref()) {
                 BitcoinNetwork::from_str(network)?
@@ -216,19 +212,21 @@ impl EventObserverConfig {
             bitcoin_block_signaling: overrides
                 .and_then(|c| match c.bitcoind_zmq_url.as_ref() {
                     Some(url) => Some(BitcoinBlockSignaling::ZeroMQ(url.clone())),
-                    None => Some(BitcoinBlockSignaling::Stacks(StacksNodeConfig {
-                        rpc_url: stacks_node_rpc_url.clone(),
-                        ingestion_port: overrides
+                    None => Some(BitcoinBlockSignaling::Stacks(
+                        StacksNodeConfig::default_localhost(
+                            overrides
+                                .and_then(|c| c.ingestion_port)
+                                .unwrap_or(DEFAULT_INGESTION_PORT),
+                        ),
+                    )),
+                })
+                .unwrap_or(BitcoinBlockSignaling::Stacks(
+                    StacksNodeConfig::default_localhost(
+                        overrides
                             .and_then(|c| c.ingestion_port)
                             .unwrap_or(DEFAULT_INGESTION_PORT),
-                    })),
-                })
-                .unwrap_or(BitcoinBlockSignaling::Stacks(StacksNodeConfig {
-                    rpc_url: stacks_node_rpc_url.clone(),
-                    ingestion_port: overrides
-                        .and_then(|c| c.ingestion_port)
-                        .unwrap_or(DEFAULT_INGESTION_PORT),
-                })),
+                    ),
+                )),
             display_logs: overrides.and_then(|c| c.display_logs).unwrap_or(false),
             cache_path: overrides
                 .and_then(|c| c.cache_path.clone())
