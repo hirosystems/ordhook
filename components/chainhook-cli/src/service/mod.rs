@@ -11,7 +11,9 @@ use crate::storage::{
     confirm_entries_in_stacks_blocks, draft_entries_in_stacks_blocks, open_readwrite_stacks_db_conn,
 };
 
-use chainhook_sdk::chainhooks::types::{ChainhookConfig, ChainhookFullSpecification};
+use chainhook_sdk::chainhooks::types::{
+    BitcoinChainhookSpecification, ChainhookConfig, ChainhookFullSpecification,
+};
 
 use chainhook_sdk::chainhooks::types::ChainhookSpecification;
 use chainhook_sdk::observer::{start_event_observer, ObserverEvent};
@@ -146,14 +148,11 @@ impl Service {
                         if let Some(mut chainhook_config) =
                             moved_event_observer_config.chainhook_config.take()
                         {
+                            let mut bitcoin_predicates_ref: Vec<&BitcoinChainhookSpecification> =
+                                vec![];
                             for bitcoin_predicate in chainhook_config.bitcoin_chainhooks.iter_mut()
                             {
                                 bitcoin_predicate.enabled = false;
-                            }
-                            let mut bitcoin_predicates_ref: Vec<
-                                &chainhook_sdk::chainhooks::types::BitcoinChainhookSpecification,
-                            > = vec![];
-                            for bitcoin_predicate in chainhook_config.bitcoin_chainhooks.iter() {
                                 bitcoin_predicates_ref.push(bitcoin_predicate);
                             }
                             while let Ok(block) = rx.recv() {
