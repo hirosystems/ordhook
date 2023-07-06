@@ -37,18 +37,18 @@ struct Opts {
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
 enum Command {
-    /// Generate configuration files
+    /// Generate a new configuration file
     #[clap(subcommand)]
     Config(ConfigCommand),
-    /// Run a service streaming blocks and evaluating registered predicates
+    /// Stream Bitcoin blocks and index ordinals inscriptions and transfers
     #[clap(subcommand)]
     Service(ServiceCommand),
-    /// Db maintenance related commands
+    /// Perform maintenance operations on local databases
     #[clap(subcommand)]
     Db(HordDbCommand),
-    /// Db maintenance related commands
+    /// Test inscriptions and transfers computation algorithms
     #[clap(subcommand)]
-    Scan(ScanCommand),
+    Test(TestCommand),
 }
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
@@ -128,9 +128,6 @@ struct StartCommand {
     /// Start REST API for managing predicates
     #[clap(long = "start-http-api")]
     pub start_http_api: bool,
-    /// Disable hord indexing
-    #[clap(long = "no-hord")]
-    pub hord_disabled: bool,
 }
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
@@ -150,7 +147,7 @@ enum HordDbCommand {
 }
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
-enum ScanCommand {
+enum TestCommand {
     /// Compute ordinal number of the 1st satoshi of the 1st input of a given transaction
     #[clap(name = "inscriptions", bin_name = "inscriptions")]
     Inscriptions(ScanInscriptionsCommand),
@@ -340,15 +337,15 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                 let config = Config::default(cmd.devnet, cmd.testnet, cmd.mainnet, &None)?;
                 let config_content = generate_config(&config.network.bitcoin_network);
                 let mut file_path = PathBuf::new();
-                file_path.push("Chainhook.toml");
+                file_path.push("Hord.toml");
                 let mut file = File::create(&file_path)
                     .map_err(|e| format!("unable to open file {}\n{}", file_path.display(), e))?;
                 file.write_all(config_content.as_bytes())
                     .map_err(|e| format!("unable to write file {}\n{}", file_path.display(), e))?;
-                println!("Created file Chainhook.toml");
+                println!("Created file Hord.toml");
             }
         },
-        Command::Scan(ScanCommand::Inscriptions(cmd)) => {
+        Command::Test(TestCommand::Inscriptions(cmd)) => {
             let config = Config::default(cmd.devnet, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
 
             let tip_height = {
@@ -418,7 +415,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                 }
             }
         }
-        Command::Scan(ScanCommand::Transfers(cmd)) => {
+        Command::Test(TestCommand::Transfers(cmd)) => {
             let config = Config::default(cmd.devnet, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
 
             let inscriptions_db_conn =
