@@ -17,7 +17,7 @@
 The [Ordinal theory](https://trustmachines.co/glossary/ordinal-theory) is a protocol aiming at attributing unique identifiers to every single satoshis minted. Thanks to this numbering scheme, satoshis can be **inscribed** with arbitrary content (aka **inscriptions**), creating bitcoin-native digital artifacts more commonly known as NFTs. Inscriptions do not require a sidechain or separate token.
 These inscribed sats can then be transferred using bitcoin transactions, sent to bitcoin addresses, and held in bitcoin UTXOs. These transactions, addresses, and UTXOs are normal bitcoin transactions, addresses, and UTXOS in all respects, with the exception that in order to send individual sats, transactions must control the order and value of inputs and outputs according to ordinal theory.
 
-The [Chainhook SDK](https://github.com/hirosystems/chainhook) is a re-org aware transaction indexing engine for Stacks and Bitcoin. It helps developers extracting efficiently transactions from blocks, along with keeping a consistent view of the chainstate thenks to an event based architecture.
+The [Chainhook SDK](https://github.com/hirosystems/chainhook) is a re-org aware transaction indexing engine for Stacks and Bitcoin. It helps developers extracting efficiently transactions from blocks, along with keeping a consistent view of the chainstate thanks to its event based architecture.
 
 **hord** is an indexer designed to help developers building new re-org resistant applications on top of the Ordinal theory.
 
