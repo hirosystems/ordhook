@@ -758,6 +758,19 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
                                 None
                             }
                         };
+
+                        // At this point we know that inscriptions are being moved.
+                        ctx.try_log(|logger| {
+                            slog::info!(
+                                logger,
+                                "Inscription {} moved from {} to {} (block: {})",
+                                watched_satpoint.inscription_id,
+                                satpoint_pre_transfer,
+                                outpoint,
+                                block.block_identifier.index,
+                            )
+                        });
+
                         (
                             outpoint,
                             offset,
@@ -769,21 +782,19 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
                         // Get Coinbase TX
                         let offset = first_sat_post_subsidy + cumulated_fees + offset;
                         let outpoint = format_outpoint_to_watch(&coinbase_txid, 0);
+                        ctx.try_log(|logger| {
+                            slog::info!(
+                                logger,
+                                "Inscription {} spent in fees ({}+{}+{})",
+                                watched_satpoint.inscription_id,
+                                first_sat_post_subsidy,
+                                cumulated_fees,
+                                offset
+                            )
+                        });
                         (outpoint, offset, None, None)
                     }
                 };
-
-                // At this point we know that inscriptions are being moved.
-                ctx.try_log(|logger| {
-                    slog::info!(
-                        logger,
-                        "Inscription {} moved from {} to {} (block: {})",
-                        watched_satpoint.inscription_id,
-                        satpoint_pre_transfer,
-                        outpoint_post_transfer,
-                        block.block_identifier.index,
-                    )
-                });
 
                 let satpoint_post_transfer =
                     format!("{}:{}", outpoint_post_transfer, offset_post_transfer);
@@ -1008,6 +1019,15 @@ fn test_identify_next_output_index_destination() {
             &vec![1600, 10000, 15000]
         ),
         SatPosition::Output((1, 0))
+    );
+    assert_eq!(
+        compute_next_satpoint_data(
+            3,
+            0,
+            &vec![6100, 148660, 103143, 7600],
+            &vec![81434, 173995]
+        ),
+        SatPosition::Fee(2474)
     );
 }
 

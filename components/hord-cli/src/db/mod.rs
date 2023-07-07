@@ -78,7 +78,8 @@ pub fn initialize_hord_db(path: &PathBuf, ctx: &Context) -> Connection {
                 block_height INTEGER NOT NULL,
                 tx_index INTEGER NOT NULL,
                 outpoint_to_watch TEXT NOT NULL,
-                offset INTEGER NOT NULL
+                offset INTEGER NOT NULL,
+                UNIQUE(outpoint_to_watch,offset)
             )",
             [],
         ) {

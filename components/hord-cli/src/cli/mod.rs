@@ -3,10 +3,11 @@ use crate::config::{Config, PredicatesApi};
 use crate::service::Service;
 
 use crate::db::{
-    delete_data_in_hord_db, find_last_block_inserted, find_lazy_block_at_block_height,
-    find_watched_satpoint_for_inscription, initialize_hord_db, open_readonly_hord_db_conn,
-    open_readonly_hord_db_conn_rocks_db, open_readwrite_hord_db_conn,
-    open_readwrite_hord_db_conn_rocks_db, retrieve_satoshi_point_using_lazy_storage, find_all_inscriptions_in_block, remove_entry_from_inscriptions, insert_entry_in_locations,
+    delete_data_in_hord_db, find_all_inscriptions_in_block, find_last_block_inserted,
+    find_lazy_block_at_block_height, find_watched_satpoint_for_inscription, initialize_hord_db,
+    insert_entry_in_locations, open_readonly_hord_db_conn, open_readonly_hord_db_conn_rocks_db,
+    open_readwrite_hord_db_conn, open_readwrite_hord_db_conn_rocks_db,
+    remove_entry_from_inscriptions, retrieve_satoshi_point_using_lazy_storage,
 };
 use crate::hord::{
     self, new_traversals_lazy_cache, retrieve_inscribed_satoshi_points_from_block,
@@ -25,8 +26,8 @@ use std::collections::BTreeMap;
 use std::io::{BufReader, Read};
 use std::path::PathBuf;
 use std::process;
-use std::sync::Arc;
 use std::sync::mpsc::channel;
+use std::sync::Arc;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -512,16 +513,27 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
             let config = Config::default(false, false, false, &cmd.config_path)?;
             if cmd.transfers_only {
                 let mut inscriptions_db_conn_rw =
-                open_readwrite_hord_db_conn(&config.expected_cache_path(), &ctx)?;
+                    open_readwrite_hord_db_conn(&config.expected_cache_path(), &ctx)?;
                 let inscriptions_db_conn =
-                open_readonly_hord_db_conn(&config.expected_cache_path(), &ctx)?;
+                    open_readonly_hord_db_conn(&config.expected_cache_path(), &ctx)?;
 
                 for cursor in cmd.start_block..cmd.end_block {
-                    let inscriptions = find_all_inscriptions_in_block(&cursor, &inscriptions_db_conn, &ctx);
+                    let inscriptions =
+                        find_all_inscriptions_in_block(&cursor, &inscriptions_db_conn, &ctx);
                     let transaction = inscriptions_db_conn_rw.transaction().unwrap();
                     for (_, entry) in inscriptions.iter() {
-                        remove_entry_from_inscriptions(&entry.get_inscription_id(), &transaction, &ctx);
-                        insert_entry_in_locations(&entry.get_inscription_id(), cursor,&entry.transfer_data, &transaction, &ctx)
+                        remove_entry_from_inscriptions(
+                            &entry.get_inscription_id(),
+                            &transaction,
+                            &ctx,
+                        );
+                        insert_entry_in_locations(
+                            &entry.get_inscription_id(),
+                            cursor,
+                            &entry.transfer_data,
+                            &transaction,
+                            &ctx,
+                        )
                     }
                     transaction.commit().unwrap();
                 }
@@ -533,18 +545,25 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                     network: config.network.bitcoin_network.clone(),
                     bitcoin_block_signaling: config.network.bitcoin_block_signaling.clone(),
                 };
-            
+
                 let (tx, rx) = channel();
                 for cursor in cmd.start_block..cmd.end_block {
-                    let block = fetch_and_standardize_block(cursor, &bitcoin_config, &ctx).await.unwrap();
+                    let block = fetch_and_standardize_block(cursor, &bitcoin_config, &ctx)
+                        .await
+                        .unwrap();
                     let _ = tx.send(block);
                 }
 
                 let inscriptions_db_conn_rw =
-                open_readwrite_hord_db_conn(&config.expected_cache_path(), &ctx)?;
+                    open_readwrite_hord_db_conn(&config.expected_cache_path(), &ctx)?;
                 let mut storage = Storage::Sqlite(&inscriptions_db_conn_rw);
                 while let Ok(mut block) = rx.recv() {
-                    update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(&mut block, &mut storage, &ctx).unwrap();
+                    update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
+                        &mut block,
+                        &mut storage,
+                        &ctx,
+                    )
+                    .unwrap();
                 }
             } else {
                 // Delete data, if any
