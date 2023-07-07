@@ -6,7 +6,7 @@ use crate::db::{
     delete_data_in_hord_db, find_last_block_inserted, find_lazy_block_at_block_height,
     find_watched_satpoint_for_inscription, initialize_hord_db, open_readonly_hord_db_conn,
     open_readonly_hord_db_conn_rocks_db, open_readwrite_hord_db_conn,
-    open_readwrite_hord_db_conn_rocks_db, retrieve_satoshi_point_using_lazy_storage,
+    open_readwrite_hord_db_conn_rocks_db, retrieve_satoshi_point_using_lazy_storage, find_all_inscriptions_in_block, remove_entry_from_inscriptions, insert_entry_in_locations,
 };
 use crate::hord::{
     self, new_traversals_lazy_cache, retrieve_inscribed_satoshi_points_from_block,
@@ -26,6 +26,7 @@ use std::io::{BufReader, Read};
 use std::path::PathBuf;
 use std::process;
 use std::sync::Arc;
+use std::sync::mpsc::channel;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -238,6 +239,8 @@ struct UpdateHordDbCommand {
     /// Load config file path
     #[clap(long = "config-path")]
     pub config_path: Option<String>,
+    /// Transfers only
+    pub transfers_only: bool,
 }
 
 #[derive(Parser, PartialEq, Clone, Debug)]
@@ -507,31 +510,69 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
         }
         Command::Db(HordDbCommand::Rewrite(cmd)) => {
             let config = Config::default(false, false, false, &cmd.config_path)?;
-            // Delete data, if any
-            {
-                let blocks_db_rw =
-                    open_readwrite_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
-                let inscriptions_db_conn_rw =
-                    open_readwrite_hord_db_conn(&config.expected_cache_path(), &ctx)?;
+            if cmd.transfers_only {
+                let mut inscriptions_db_conn_rw =
+                open_readwrite_hord_db_conn(&config.expected_cache_path(), &ctx)?;
+                let inscriptions_db_conn =
+                open_readonly_hord_db_conn(&config.expected_cache_path(), &ctx)?;
 
-                delete_data_in_hord_db(
+                for cursor in cmd.start_block..cmd.end_block {
+                    let inscriptions = find_all_inscriptions_in_block(&cursor, &inscriptions_db_conn, &ctx);
+                    let transaction = inscriptions_db_conn_rw.transaction().unwrap();
+                    for (_, entry) in inscriptions.iter() {
+                        remove_entry_from_inscriptions(&entry.get_inscription_id(), &transaction, &ctx);
+                        insert_entry_in_locations(&entry.get_inscription_id(), cursor,&entry.transfer_data, &transaction, &ctx)
+                    }
+                    transaction.commit().unwrap();
+                }
+
+                let bitcoin_config = BitcoinConfig {
+                    username: config.network.bitcoind_rpc_username.clone(),
+                    password: config.network.bitcoind_rpc_password.clone(),
+                    rpc_url: config.network.bitcoind_rpc_url.clone(),
+                    network: config.network.bitcoin_network.clone(),
+                    bitcoin_block_signaling: config.network.bitcoin_block_signaling.clone(),
+                };
+            
+                let (tx, rx) = channel();
+                for cursor in cmd.start_block..cmd.end_block {
+                    let block = fetch_and_standardize_block(cursor, &bitcoin_config, &ctx).await.unwrap();
+                    let _ = tx.send(block);
+                }
+
+                let inscriptions_db_conn_rw =
+                open_readwrite_hord_db_conn(&config.expected_cache_path(), &ctx)?;
+                let mut storage = Storage::Sqlite(&inscriptions_db_conn_rw);
+                while let Ok(mut block) = rx.recv() {
+                    update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(&mut block, &mut storage, &ctx).unwrap();
+                }
+            } else {
+                // Delete data, if any
+                {
+                    let blocks_db_rw =
+                        open_readwrite_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
+                    let inscriptions_db_conn_rw =
+                        open_readwrite_hord_db_conn(&config.expected_cache_path(), &ctx)?;
+
+                    delete_data_in_hord_db(
+                        cmd.start_block,
+                        cmd.end_block,
+                        &blocks_db_rw,
+                        &inscriptions_db_conn_rw,
+                        &ctx,
+                    )?;
+                }
+                // Update data
+                hord::perform_hord_db_update(
                     cmd.start_block,
                     cmd.end_block,
-                    &blocks_db_rw,
-                    &inscriptions_db_conn_rw,
+                    &config.get_hord_config(),
+                    &config,
+                    None,
                     &ctx,
-                )?;
+                )
+                .await?;
             }
-            // Update data
-            hord::perform_hord_db_update(
-                cmd.start_block,
-                cmd.end_block,
-                &config.get_hord_config(),
-                &config,
-                None,
-                &ctx,
-            )
-            .await?;
         }
         Command::Db(HordDbCommand::Check(cmd)) => {
             let config = Config::default(false, false, false, &cmd.config_path)?;
