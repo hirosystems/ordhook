@@ -22,14 +22,13 @@ use threadpool::ThreadPool;
 
 use chainhook_sdk::{
     indexer::bitcoin::{
-        download_block_with_retry, retrieve_block_hash_with_retry, standardize_bitcoin_block,
-        BitcoinBlockFullBreakdown,
+        download_block_with_retry, retrieve_block_hash_with_retry, BitcoinBlockFullBreakdown,
     },
     observer::BitcoinConfig,
     utils::Context,
 };
 
-use crate::hord::HordConfig;
+use crate::hord::{self, HordConfig};
 use crate::hord::{new_traversals_lazy_cache, update_hord_db_and_augment_bitcoin_block};
 use crate::ord::{height::Height, sat::Sat};
 
@@ -979,19 +978,21 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
                         inbox.len()
                     )
                 });
-                let mut new_block =
-                    match standardize_bitcoin_block(next_block, &bitcoin_network, &ctx) {
-                        Ok(block) => block,
-                        Err((e, _)) => {
-                            ctx.try_log(|logger| {
-                                slog::error!(logger, "Unable to standardize bitcoin block: {e}",)
-                            });
-                            return Err(e);
-                        }
-                    };
+                let mut new_block = match hord::parse_ordinals_and_standardize_block(
+                    next_block,
+                    &bitcoin_network,
+                    &ctx,
+                ) {
+                    Ok(block) => block,
+                    Err((e, _)) => {
+                        ctx.try_log(|logger| {
+                            slog::error!(logger, "Unable to standardize bitcoin block: {e}",)
+                        });
+                        return Err(e);
+                    }
+                };
 
                 let _ = blocks_db_rw.flush();
-
                 if let Err(e) = update_hord_db_and_augment_bitcoin_block(
                     &mut new_block,
                     blocks_db_rw,

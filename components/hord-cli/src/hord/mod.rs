@@ -41,7 +41,9 @@ use crate::ord::height::Height;
 use crate::config::Config;
 
 use crate::db::format_outpoint_to_watch;
-use chainhook_sdk::indexer::bitcoin::BitcoinTransactionFullBreakdown;
+use chainhook_sdk::indexer::bitcoin::{
+    standardize_bitcoin_block, BitcoinBlockFullBreakdown, BitcoinTransactionFullBreakdown,
+};
 
 use crate::db::{
     fetch_and_cache_blocks_in_hord_db, find_last_block_inserted,
@@ -54,9 +56,9 @@ use self::inscription::InscriptionParser;
 use crate::db::{
     find_inscription_with_id, find_latest_cursed_inscription_number_at_block_height,
     find_latest_inscription_number_at_block_height, format_satpoint_to_watch,
-    insert_transfer_in_locations, parse_outpoint_to_watch, parse_satpoint_to_watch,
-    remove_entry_from_blocks, remove_entry_from_inscriptions, LazyBlock, LazyBlockTransaction,
-    TraversalResult, WatchedSatpoint,
+    insert_transfer_in_locations, parse_satpoint_to_watch, remove_entry_from_blocks,
+    remove_entry_from_inscriptions, LazyBlock, LazyBlockTransaction, TraversalResult,
+    WatchedSatpoint,
 };
 use crate::ord::inscription_id::InscriptionId;
 
@@ -67,6 +69,29 @@ pub struct HordConfig {
     pub cache_size: usize,
     pub db_path: PathBuf,
     pub first_inscription_height: u64,
+}
+
+pub fn parse_ordinals_and_standardize_block(
+    raw_block: BitcoinBlockFullBreakdown,
+    network: &BitcoinNetwork,
+    ctx: &Context,
+) -> Result<BitcoinBlockData, (String, bool)> {
+    let mut ordinal_operations = BTreeMap::new();
+
+    for tx in raw_block.tx.iter() {
+        ordinal_operations.insert(tx.txid.to_string(), parse_ordinal_operations(&tx, ctx));
+    }
+
+    let mut block = standardize_bitcoin_block(raw_block, network, ctx)?;
+
+    for tx in block.transactions.iter_mut() {
+        if let Some(ordinal_operations) =
+            ordinal_operations.remove(tx.transaction_identifier.get_hash_bytes_str())
+        {
+            tx.metadata.ordinal_operations = ordinal_operations;
+        }
+    }
+    Ok(block)
 }
 
 pub fn parse_ordinal_operations(

@@ -9,11 +9,10 @@ use crate::db::{
     open_readwrite_hord_db_conn_rocks_db, retrieve_satoshi_point_using_lazy_storage,
 };
 use crate::hord::{
-    new_traversals_lazy_cache, retrieve_inscribed_satoshi_points_from_block,
+    self, new_traversals_lazy_cache, retrieve_inscribed_satoshi_points_from_block,
     update_storage_and_augment_bitcoin_block_with_inscription_transfer_data, Storage,
 };
 use chainhook_sdk::chainhooks::types::ChainhookFullSpecification;
-use chainhook_sdk::indexer;
 use chainhook_sdk::indexer::bitcoin::{
     download_and_parse_block_with_retry, retrieve_block_hash_with_retry,
 };
@@ -355,7 +354,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                 find_last_block_inserted(&hord_db_conn) as u64
             };
             if cmd.block_height > tip_height {
-                crate::hord::perform_hord_db_update(
+                hord::perform_hord_db_update(
                     tip_height,
                     cmd.block_height,
                     &config.get_hord_config(),
@@ -427,7 +426,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
             let tip_height = find_last_block_inserted(&blocks_db_conn) as u64;
             let _end_at = match cmd.block_height {
                 Some(block_height) if block_height > tip_height => {
-                    crate::hord::perform_hord_db_update(
+                    hord::perform_hord_db_update(
                         tip_height,
                         block_height,
                         &config.get_hord_config(),
@@ -481,8 +480,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
         }
         Command::Db(HordDbCommand::Sync(cmd)) => {
             let config = Config::default(false, false, false, &cmd.config_path)?;
-            if let Some((start_block, end_block)) = crate::hord::should_sync_hord_db(&config, &ctx)?
-            {
+            if let Some((start_block, end_block)) = hord::should_sync_hord_db(&config, &ctx)? {
                 if start_block == 0 {
                     info!(
                         ctx.expect_logger(),
@@ -494,7 +492,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                         "Resuming hord indexing from block #{}", start_block
                     );
                 }
-                crate::hord::perform_hord_db_update(
+                hord::perform_hord_db_update(
                     start_block,
                     end_block,
                     &config.get_hord_config(),
@@ -525,7 +523,7 @@ async fn handle_command(opts: Opts, ctx: Context) -> Result<(), String> {
                 )?;
             }
             // Update data
-            crate::hord::perform_hord_db_update(
+            hord::perform_hord_db_update(
                 cmd.start_block,
                 cmd.end_block,
                 &config.get_hord_config(),
@@ -605,6 +603,6 @@ pub async fn fetch_and_standardize_block(
     let block_breakdown =
         download_and_parse_block_with_retry(&block_hash, &bitcoin_config, &ctx).await?;
 
-    indexer::bitcoin::standardize_bitcoin_block(block_breakdown, &bitcoin_config.network, &ctx)
+    hord::parse_ordinals_and_standardize_block(block_breakdown, &bitcoin_config.network, &ctx)
         .map_err(|(e, _)| e)
 }
