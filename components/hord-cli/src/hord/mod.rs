@@ -882,7 +882,7 @@ pub fn should_sync_hord_db(config: &Config, ctx: &Context) -> Result<Option<(u64
     };
 
     let end_block = match bitcoin_rpc.get_blockchain_info() {
-        Ok(result) => result.blocks,
+        Ok(result) => result.blocks.saturating_sub(1),
         Err(e) => {
             return Err(format!(
                 "unable to retrieve Bitcoin chain tip ({})",
