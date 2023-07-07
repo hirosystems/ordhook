@@ -668,7 +668,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
 ) -> Result<bool, String> {
     let mut storage_updated = false;
     let mut cumulated_fees = 0;
-    let first_sat_post_subsidy = Height(block.block_identifier.index).starting_sat().0;
+    let subsidy = Height(block.block_identifier.index).subsidy();
     let coinbase_txid = &block.transactions[0].transaction_identifier.clone();
     let network = match block.metadata.network {
         BitcoinNetwork::Mainnet => Network::Bitcoin,
@@ -780,19 +780,19 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
                     }
                     SatPosition::Fee(offset) => {
                         // Get Coinbase TX
-                        let offset = first_sat_post_subsidy + cumulated_fees + offset;
+                        let total_offset = subsidy + cumulated_fees + offset;
                         let outpoint = format_outpoint_to_watch(&coinbase_txid, 0);
                         ctx.try_log(|logger| {
                             slog::info!(
                                 logger,
                                 "Inscription {} spent in fees ({}+{}+{})",
                                 watched_satpoint.inscription_id,
-                                first_sat_post_subsidy,
+                                subsidy,
                                 cumulated_fees,
                                 offset
                             )
                         });
-                        (outpoint, offset, None, None)
+                        (outpoint, total_offset, None, None)
                     }
                 };
 
