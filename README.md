@@ -1,7 +1,7 @@
                       
        /     /   ▶ Hord   
       / --- /      Ordinal indexing engine based on Chainhook.
-     /     /       Build new protocols on top of Ordinals (BRC20, etc), focused on correctness.
+     /     /       Build indexes, standards and protocols on top of Ordinals and Inscriptions (BRC20, etc).
                   
 
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[![Introduction](https://img.shields.io/badge/%23-%20Introduction%20-orange?labelColor=gray)](#Introduction)
