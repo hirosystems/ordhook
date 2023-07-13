@@ -88,18 +88,6 @@ pub fn initialize_hord_db(path: &PathBuf, ctx: &Context) -> Connection {
             });
         }
 
-        // Legacy table - to be removed
-        if let Err(e) = conn.execute(
-            "CREATE TABLE IF NOT EXISTS activities (
-                block_height INTEGER NOT NULL PRIMARY KEY
-            )",
-            [],
-        ) {
-            ctx.try_log(|logger| {
-                slog::warn!(logger, "Unable to create table locations:{}", e.to_string())
-            });
-        }
-
         if let Err(e) = conn.execute(
             "CREATE INDEX IF NOT EXISTS index_inscriptions_on_ordinal_number ON inscriptions(ordinal_number);",
             [],
@@ -425,16 +413,19 @@ pub fn insert_transfer_in_locations(
     }
 }
 
-pub fn insert_entry_in_ordinal_activities(
-    block_height: u32,
+pub fn insert_transfer_in_locations(
+    transfer_data: &OrdinalInscriptionTransferData,
+    block_identifier: &BlockIdentifier,
     inscriptions_db_conn_rw: &Connection,
     ctx: &Context,
 ) {
+    let (tx, output_index, offset) = parse_satpoint_to_watch(&transfer_data.satpoint_post_transfer);
+    let outpoint_to_watch = format_outpoint_to_watch(&tx, output_index);
     if let Err(e) = inscriptions_db_conn_rw.execute(
-        "INSERT INTO activities (block_height) VALUES (?1)",
-        rusqlite::params![&block_height],
+        "INSERT INTO locations (inscription_id, outpoint_to_watch, offset, block_height, tx_index) VALUES (?1, ?2, ?3, ?4, ?5)",
+        rusqlite::params![&transfer_data.inscription_id, &outpoint_to_watch, offset, &block_identifier.index, &transfer_data.tx_index],
     ) {
-        ctx.try_log(|logger| slog::warn!(logger, "{}", e.to_string()));
+        ctx.try_log(|logger| slog::error!(logger, "{}", e.to_string()));
     }
 }
 
