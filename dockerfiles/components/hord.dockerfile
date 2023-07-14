@@ -8,15 +8,13 @@ RUN rustup update 1.67.0 && rustup default 1.67.0
 
 COPY ./components/hord-cli /src/components/hord-cli
 
-COPY ./components/hord-core /src/components/hord-core
-
 WORKDIR /src/components/hord-cli
 
 RUN mkdir /out
 
 RUN cargo build --features release --release
 
-RUN cp target/release/chainhook /out
+RUN cp target/release/hord /out
 
 FROM debian:bullseye-slim
 
