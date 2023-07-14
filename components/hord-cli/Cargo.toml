@@ -14,9 +14,8 @@ redis = "0.21.5"
 serde-redis = "0.12.0"
 hex = "0.4.3"
 rand = "0.8.5"
-chainhook-sdk = { version = "0.5.0", default-features = false, features = ["zeromq"], path = "../../../chainhook/components/chainhook-sdk" }
-chainhook-types = { version = "1.0.6", path = "../../../chainhook/components/chainhook-types-rs" }
-clarinet-files = "1.0.1"
+chainhook-sdk = { version = "0.7.0", default-features = false, features = ["zeromq"] }
+chainhook-types = { version = "1.0.6" }
 hiro-system-kit = "0.1.0"
 clap = { version = "3.2.23", features = ["derive"], optional = true }
 clap_generate = { version = "3.0.3", optional = true }
@@ -39,6 +38,7 @@ dashmap = "5.4.0"
 fxhash = "0.2.1"
 rusqlite = { version = "0.27.0", features = ["bundled"] }
 anyhow = { version = "1.0.56", features = ["backtrace"] }
+schemars = { version = "0.8.10", git = "https://github.com/hirosystems/schemars.git", branch = "feat-chainhook-fixes" }
 
 [dependencies.rocksdb]
 version = "0.20.1"

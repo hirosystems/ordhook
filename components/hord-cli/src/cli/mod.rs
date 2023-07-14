@@ -1,15 +1,15 @@
 use crate::config::generator::generate_config;
-use crate::config::{Config, PredicatesApi};
+use crate::config::Config;
 use crate::scan::bitcoin::scan_bitcoin_chainstate_via_rpc_using_predicate;
 use crate::service::Service;
 
 use crate::db::{
     delete_data_in_hord_db, find_all_inscription_transfers, find_all_inscriptions_in_block,
-    find_all_transfers_in_block, find_initial_inscription_transfer_data, find_inscription_with_id,
-    find_last_block_inserted, find_latest_inscription_block_height,
-    find_lazy_block_at_block_height, find_watched_satpoint_for_inscription, initialize_hord_db,
-    insert_entry_in_locations, open_readonly_hord_db_conn, open_readonly_hord_db_conn_rocks_db,
-    open_readwrite_hord_db_conn, open_readwrite_hord_db_conn_rocks_db, rebuild_rocks_db,
+    find_all_transfers_in_block, find_inscription_with_id, find_last_block_inserted,
+    find_latest_inscription_block_height, find_lazy_block_at_block_height,
+    find_watched_satpoint_for_inscription, initialize_hord_db, insert_entry_in_locations,
+    open_readonly_hord_db_conn, open_readonly_hord_db_conn_rocks_db, open_readwrite_hord_db_conn,
+    open_readwrite_hord_db_conn_rocks_db, rebuild_rocks_db,
     remove_entries_from_locations_at_block_height, retrieve_satoshi_point_using_lazy_storage,
 };
 use crate::hord::{
@@ -30,7 +30,7 @@ use chainhook_sdk::utils::Context;
 use chainhook_types::{BitcoinBlockData, BlockIdentifier, TransactionIdentifier};
 use clap::{Parser, Subcommand};
 use hiro_system_kit;
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::BTreeMap;
 use std::io::{BufReader, Read};
 use std::path::PathBuf;
 use std::process;
@@ -442,40 +442,6 @@ pub fn main() {
     }
 }
 
-pub enum BlockHeights {
-    OpenEndedRange(u64),
-    BlockRange(u64, u64),
-    Blocks(Vec<u64>),
-}
-
-impl BlockHeights {
-    pub fn get_sorted_entries(&self) -> VecDeque<u64> {
-        let mut entries = VecDeque::new();
-        match &self {
-            BlockHeights::OpenEndedRange(min) => {}
-            BlockHeights::BlockRange(start, end) => {
-                let min = *start.min(end);
-                let max = *start.max(end);
-                for i in min..=max {
-                    entries.push_back(i);
-                }
-            }
-            BlockHeights::Blocks(heights) => {
-                let mut sorted_entries = heights.clone();
-                sorted_entries.sort();
-                let mut unique_sorted_entries = BTreeSet::new();
-                for entry in sorted_entries.into_iter() {
-                    unique_sorted_entries.insert(entry);
-                }
-                for entry in unique_sorted_entries.into_iter() {
-                    entries.push_back(entry)
-                }
-            }
-        }
-        entries
-    }
-}
-
 async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
     match opts.command {
         Command::Scan(ScanCommand::Blocks(cmd)) => {
@@ -487,9 +453,9 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
             // If post-to:
             // - Replay that requires connection to bitcoind
             let mut block_range =
-                BlockHeights::BlockRange(cmd.start_block, cmd.end_block).get_sorted_entries();
+                chainhook_sdk::utils::BlockHeights::BlockRange(cmd.start_block, cmd.end_block)
+                    .get_sorted_entries();
 
-            let bitcoind_required = cmd.post_to.is_some();
             if let Some(ref post_to) = cmd.post_to {
                 let tip = check_bitcoind_connection(&config).await?;
                 if tip < cmd.end_block {
@@ -514,7 +480,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                         find_all_inscriptions_in_block(&block_height, &inscriptions_db_conn, &ctx);
                     let mut locations =
                         find_all_transfers_in_block(&block_height, &inscriptions_db_conn, &ctx);
-                    for (txid, inscription) in inscriptions.iter() {
+                    for (_, inscription) in inscriptions.iter() {
                         println!("Inscription {} revealed at block #{} (inscription_number {}, ordinal_number {})", inscription.get_inscription_id(), block_height, inscription.inscription_number, inscription.ordinal_number);
                         if let Some(transfers) = locations.remove(&inscription.get_inscription_id())
                         {
@@ -942,14 +908,14 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
         }
         Command::Db(HordDbCommand::Check(cmd)) => {
             let config = Config::default(false, false, false, &cmd.config_path)?;
-            // Delete data, if any
             {
-                let blocks_db_rw =
-                    open_readwrite_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
-
+                let blocks_db =
+                    open_readonly_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
+                let tip = find_last_block_inserted(&blocks_db) as u64;
+                println!("Tip: {}", tip);
                 let mut missing_blocks = vec![];
-                for i in 1..=790000 {
-                    if find_lazy_block_at_block_height(i, 3, false, &blocks_db_rw, &ctx).is_none() {
+                for i in 1..=800000 {
+                    if find_lazy_block_at_block_height(i, 3, false, &blocks_db, &ctx).is_none() {
                         println!("Missing block {i}");
                         missing_blocks.push(i);
                     }
@@ -1027,6 +993,7 @@ pub fn build_predicate_from_cli(
         BitcoinChainhookNetworkSpecification {
             start_block: Some(start_block),
             end_block,
+            blocks: None,
             expire_after_occurrence: None,
             include_proof: None,
             include_inputs: None,

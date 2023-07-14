@@ -1,27 +1,39 @@
 mod http_api;
 mod runloops;
 
+use crate::cli::fetch_and_standardize_block;
 use crate::config::{Config, PredicatesApi, PredicatesApiConfig};
-use crate::db::open_readwrite_hord_dbs;
+use crate::db::{
+    find_all_inscriptions_in_block, format_satpoint_to_watch, insert_entry_in_locations,
+    open_readwrite_hord_db_conn, open_readwrite_hord_dbs, parse_satpoint_to_watch,
+    remove_entries_from_locations_at_block_height,
+};
 use crate::hord::{
     new_traversals_lazy_cache, revert_hord_db_with_augmented_bitcoin_block, should_sync_hord_db,
     update_hord_db_and_augment_bitcoin_block,
+    update_storage_and_augment_bitcoin_block_with_inscription_transfer_data_tx,
 };
 use crate::scan::bitcoin::process_block_with_predicates;
 use crate::service::http_api::{load_predicates_from_redis, start_predicate_api_server};
 use crate::service::runloops::start_bitcoin_scan_runloop;
 
+use chainhook_sdk::bitcoincore_rpc_json::bitcoin::hashes::hex::FromHex;
+use chainhook_sdk::bitcoincore_rpc_json::bitcoin::{Address, Network, Script};
 use chainhook_sdk::chainhooks::types::{
     BitcoinChainhookSpecification, ChainhookConfig, ChainhookFullSpecification,
     ChainhookSpecification,
 };
 
-use chainhook_sdk::observer::{start_event_observer, ObserverEvent};
+use chainhook_sdk::observer::{start_event_observer, BitcoinConfig, ObserverEvent};
 use chainhook_sdk::utils::Context;
-use chainhook_types::{BitcoinBlockSignaling, BitcoinChainEvent};
+use chainhook_types::{
+    BitcoinBlockData, BitcoinBlockSignaling, BitcoinChainEvent, BitcoinNetwork,
+    OrdinalInscriptionTransferData, OrdinalOperation,
+};
 use hiro_system_kit::slog;
 use redis::{Commands, Connection};
 
+use std::collections::BTreeMap;
 use std::sync::mpsc::channel;
 use std::sync::Arc;
 
@@ -342,7 +354,7 @@ impl Service {
                 }
                 ObserverEvent::BitcoinChainEvent((mut chain_update, _report)) => {
                     //
-                    let (blocks_db, inscriptions_db_conn_rw) = match open_readwrite_hord_dbs(
+                    let (blocks_db, mut inscriptions_db_conn_rw) = match open_readwrite_hord_dbs(
                         &self.config.expected_cache_path(),
                         &self.ctx,
                     ) {
@@ -362,7 +374,7 @@ impl Service {
                                 if let Err(e) = update_hord_db_and_augment_bitcoin_block(
                                     block,
                                     &blocks_db,
-                                    &inscriptions_db_conn_rw,
+                                    &mut inscriptions_db_conn_rw,
                                     true,
                                     &hord_config,
                                     &traversals_cache,
@@ -400,7 +412,7 @@ impl Service {
                                 if let Err(e) = update_hord_db_and_augment_bitcoin_block(
                                     block,
                                     &blocks_db,
-                                    &inscriptions_db_conn_rw,
+                                    &mut inscriptions_db_conn_rw,
                                     true,
                                     &hord_config,
                                     &traversals_cache,
@@ -432,6 +444,162 @@ impl Service {
                     break;
                 }
                 _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    pub fn replay_transfers(
+        &self,
+        start_block: u64,
+        end_block: u64,
+        block_post_processor: Option<crossbeam_channel::Sender<BitcoinBlockData>>,
+    ) -> Result<(), String> {
+        info!(self.ctx.expect_logger(), "Transfers only");
+
+        let bitcoin_config = BitcoinConfig {
+            username: self.config.network.bitcoind_rpc_username.clone(),
+            password: self.config.network.bitcoind_rpc_password.clone(),
+            rpc_url: self.config.network.bitcoind_rpc_url.clone(),
+            network: self.config.network.bitcoin_network.clone(),
+            bitcoin_block_signaling: self.config.network.bitcoin_block_signaling.clone(),
+        };
+        let (tx, rx) = crossbeam_channel::bounded(100);
+        let moved_ctx = self.ctx.clone();
+        hiro_system_kit::thread_named("Block fetch")
+            .spawn(move || {
+                for cursor in start_block..=end_block {
+                    info!(moved_ctx.expect_logger(), "Fetching block {}", cursor);
+                    let future = fetch_and_standardize_block(cursor, &bitcoin_config, &moved_ctx);
+
+                    let block = hiro_system_kit::nestable_block_on(future).unwrap();
+
+                    let _ = tx.send(block);
+                }
+            })
+            .unwrap();
+
+        let mut inscriptions_db_conn_rw =
+            open_readwrite_hord_db_conn(&self.config.expected_cache_path(), &self.ctx)?;
+
+        while let Ok(mut block) = rx.recv() {
+            let network = match block.metadata.network {
+                BitcoinNetwork::Mainnet => Network::Bitcoin,
+                BitcoinNetwork::Regtest => Network::Regtest,
+                BitcoinNetwork::Testnet => Network::Testnet,
+            };
+
+            info!(
+                self.ctx.expect_logger(),
+                "Cleaning transfers from block {}", block.block_identifier.index
+            );
+            let inscriptions = find_all_inscriptions_in_block(
+                &block.block_identifier.index,
+                &inscriptions_db_conn_rw,
+                &self.ctx,
+            );
+            info!(
+                self.ctx.expect_logger(),
+                "{} inscriptions retrieved at block {}",
+                inscriptions.len(),
+                block.block_identifier.index
+            );
+            let mut operations = BTreeMap::new();
+
+            let transaction = inscriptions_db_conn_rw.transaction().unwrap();
+
+            remove_entries_from_locations_at_block_height(
+                &block.block_identifier.index,
+                &transaction,
+                &self.ctx,
+            );
+
+            for (_, entry) in inscriptions.iter() {
+                let inscription_id = entry.get_inscription_id();
+                info!(
+                    self.ctx.expect_logger(),
+                    "Processing inscription {}", inscription_id
+                );
+                insert_entry_in_locations(
+                    &inscription_id,
+                    block.block_identifier.index,
+                    &entry.transfer_data,
+                    &transaction,
+                    &self.ctx,
+                );
+
+                operations.insert(
+                    entry.transaction_identifier_inscription.clone(),
+                    OrdinalInscriptionTransferData {
+                        inscription_id: entry.get_inscription_id(),
+                        updated_address: None,
+                        satpoint_pre_transfer: format_satpoint_to_watch(
+                            &entry.transaction_identifier_inscription,
+                            entry.inscription_input_index,
+                            0,
+                        ),
+                        satpoint_post_transfer: format_satpoint_to_watch(
+                            &entry.transfer_data.transaction_identifier_location,
+                            entry.transfer_data.output_index,
+                            entry.transfer_data.inscription_offset_intra_output,
+                        ),
+                        post_transfer_output_value: None,
+                        tx_index: 0,
+                    },
+                );
+            }
+
+            info!(
+                self.ctx.expect_logger(),
+                "Rewriting transfers for block {}", block.block_identifier.index
+            );
+
+            for tx in block.transactions.iter_mut() {
+                tx.metadata.ordinal_operations.clear();
+                if let Some(mut entry) = operations.remove(&tx.transaction_identifier) {
+                    let (_, output_index, _) =
+                        parse_satpoint_to_watch(&entry.satpoint_post_transfer);
+
+                    let script_pub_key_hex =
+                        tx.metadata.outputs[output_index].get_script_pubkey_hex();
+                    let updated_address = match Script::from_hex(&script_pub_key_hex) {
+                        Ok(script) => match Address::from_script(&script, network.clone()) {
+                            Ok(address) => Some(address.to_string()),
+                            Err(_e) => None,
+                        },
+                        Err(_e) => None,
+                    };
+
+                    entry.updated_address = updated_address;
+                    entry.post_transfer_output_value =
+                        Some(tx.metadata.outputs[output_index].value);
+
+                    tx.metadata
+                        .ordinal_operations
+                        .push(OrdinalOperation::InscriptionTransferred(entry));
+                }
+            }
+
+            update_storage_and_augment_bitcoin_block_with_inscription_transfer_data_tx(
+                &mut block,
+                &transaction,
+                &self.ctx,
+            )
+            .unwrap();
+
+            info!(
+                self.ctx.expect_logger(),
+                "Saving supdates for block {}", block.block_identifier.index
+            );
+            transaction.commit().unwrap();
+
+            info!(
+                self.ctx.expect_logger(),
+                "Transfers in block {} repaired", block.block_identifier.index
+            );
+
+            if let Some(ref tx) = block_post_processor {
+                let _ = tx.send(block);
             }
         }
         Ok(())

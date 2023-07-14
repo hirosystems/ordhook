@@ -258,32 +258,16 @@ dependencies = [
 ]
 
 [[package]]
-name = "bip39"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b9e89470017230c38e52b82b3ee3f530db1856ba1d434e3a67a3456a8a8dec5f"
-dependencies = [
- "bitcoin_hashes 0.9.7",
- "rand_core 0.4.2",
-]
-
-[[package]]
 name = "bitcoin"
 version = "0.29.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0694ea59225b0c5f3cb405ff3f670e4828358ed26aec49dc352f730f0cb1a8a3"
 dependencies = [
  "bech32",
- "bitcoin_hashes 0.11.0",
+ "bitcoin_hashes",
  "secp256k1",
  "serde",
 ]
-
-[[package]]
-name = "bitcoin_hashes"
-version = "0.9.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ce18265ec2324ad075345d5814fbeed4f41f0a660055dc78840b74d19b874b1"
 
 [[package]]
 name = "bitcoin_hashes"
@@ -443,14 +427,15 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
 name = "chainhook-sdk"
-version = "0.5.0"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "575f90ffc963d0796193061a0811009cca7eb666c2edf90a0a52187fb925e8a1"
 dependencies = [
  "base58 0.2.0",
  "base64",
  "bitcoincore-rpc",
  "bitcoincore-rpc-json",
- "chainhook-types 1.0.7",
- "clarinet-files",
+ "chainhook-types",
  "clarinet-utils",
  "crossbeam-channel 0.5.8",
  "dashmap 5.4.0",
@@ -462,7 +447,7 @@ dependencies = [
  "rand 0.8.5",
  "reqwest",
  "rocket",
- "schemars",
+ "schemars 0.8.11",
  "serde",
  "serde-hex",
  "serde_derive",
@@ -475,24 +460,12 @@ dependencies = [
 
 [[package]]
 name = "chainhook-types"
-version = "1.0.6"
+version = "1.0.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "65268eb9aad0d567865cd13c5a5c7a9a301d99f6301f8f5cac1654744eda0a7c"
+checksum = "1e205711f1d01227cd9239754309c9ff2ef6a637faaf737b4642570753980ee5"
 dependencies = [
  "hex",
- "schemars",
- "serde",
- "serde_derive",
- "serde_json",
- "strum",
-]
-
-[[package]]
-name = "chainhook-types"
-version = "1.0.7"
-dependencies = [
- "hex",
- "schemars",
+ "schemars 0.8.11",
  "serde",
  "serde_derive",
  "serde_json",
@@ -581,25 +554,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2850f2f5a82cbf437dd5af4d49848fbdfc27c157c3d010345776f952765261c5"
 dependencies = [
  "os_str_bytes",
-]
-
-[[package]]
-name = "clarinet-files"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1464355d97840afd89fcc04c4361a4d06200de1ddf4a311b649744c7e67d0155"
-dependencies = [
- "bip39",
- "bitcoin",
- "chainhook-types 1.0.6",
- "clarinet-utils",
- "clarity-repl",
- "libsecp256k1 0.7.1",
- "serde",
- "serde_derive",
- "tiny-hderive",
- "toml",
- "url",
 ]
 
 [[package]]
@@ -1699,10 +1653,9 @@ dependencies = [
  "anyhow",
  "atty",
  "chainhook-sdk",
- "chainhook-types 1.0.7",
+ "chainhook-types",
  "clap",
  "clap_generate",
- "clarinet-files",
  "crossbeam-channel 0.5.8",
  "ctrlc",
  "dashmap 5.4.0",
@@ -1720,6 +1673,7 @@ dependencies = [
  "rocket_okapi",
  "rocksdb",
  "rusqlite",
+ "schemars 0.8.12",
  "serde",
  "serde-redis",
  "serde_derive",
@@ -2387,7 +2341,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ce66b6366e049880a35c378123fddb630b1a1a3c37fa1ca70caaf4a09f6e2893"
 dependencies = [
  "log",
- "schemars",
+ "schemars 0.8.11",
  "serde",
  "serde_json",
 ]
@@ -2679,9 +2633,9 @@ checksum = "dbf0c48bc1d91375ae5c3cd81e3722dff1abcf81a30960240640d223f59fe0e5"
 
 [[package]]
 name = "proc-macro2"
-version = "1.0.59"
+version = "1.0.63"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6aeca18b86b413c660b781aa319e4e2648a3e6f9eadc9b47e9038e6fe9f3451b"
+checksum = "7b368fba921b0dce7e60f5e04ec15e565b3303972b42bcfde1d0713b881959eb"
 dependencies = [
  "unicode-ident",
 ]
@@ -2783,12 +2737,6 @@ dependencies = [
  "ppv-lite86",
  "rand_core 0.6.4",
 ]
-
-[[package]]
-name = "rand_core"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c33a3c44ca05fa6f1807d8e6743f3824e8509beca625669633be0acbdf509dc"
 
 [[package]]
 name = "rand_core"
@@ -3067,7 +3015,7 @@ dependencies = [
  "okapi",
  "rocket",
  "rocket_okapi_codegen",
- "schemars",
+ "schemars 0.8.11",
  "serde",
  "serde_json",
 ]
@@ -3277,7 +3225,18 @@ checksum = "2a5fb6c61f29e723026dc8e923d94c694313212abbecbbe5f55a7748eec5b307"
 dependencies = [
  "dyn-clone",
  "indexmap",
- "schemars_derive",
+ "schemars_derive 0.8.11",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "schemars"
+version = "0.8.12"
+source = "git+https://github.com/hirosystems/schemars.git?branch=feat-chainhook-fixes#15fdd4711700114d57c090aad62516593bd4ca6d"
+dependencies = [
+ "dyn-clone",
+ "schemars_derive 0.8.12",
  "serde",
  "serde_json",
 ]
@@ -3287,6 +3246,17 @@ name = "schemars_derive"
 version = "0.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f188d036977451159430f3b8dc82ec76364a42b7e289c2b18a9a18f4470058e9"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "serde_derive_internals",
+ "syn 1.0.105",
+]
+
+[[package]]
+name = "schemars_derive"
+version = "0.8.12"
+source = "git+https://github.com/hirosystems/schemars.git?branch=feat-chainhook-fixes#15fdd4711700114d57c090aad62516593bd4ca6d"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3328,7 +3298,7 @@ version = "0.24.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6b1629c9c557ef9b293568b338dddfc8208c98a18c59d722a9d53f859d9c9b62"
 dependencies = [
- "bitcoin_hashes 0.11.0",
+ "bitcoin_hashes",
  "secp256k1-sys",
  "serde",
 ]
@@ -4378,7 +4348,6 @@ dependencies = [
  "form_urlencoded",
  "idna",
  "percent-encoding",
- "serde",
 ]
 
 [[package]]
