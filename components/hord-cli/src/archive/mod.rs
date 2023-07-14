@@ -1,7 +1,7 @@
 use crate::config::Config;
+use crate::utils::{read_file_content_at_path, write_file_content_at_path};
 use chainhook_sdk::utils::Context;
 use chainhook_types::BitcoinNetwork;
-use clarinet_files::FileLocation;
 use flate2::read::GzDecoder;
 use futures_util::StreamExt;
 use std::fs;
@@ -35,8 +35,7 @@ pub async fn download_sqlite_file(config: &Config) -> Result<(), String> {
         &config.network.bitcoin_network,
     ));
 
-    let local_sha_file = FileLocation::from_path(local_sha_file_path);
-    let _ = local_sha_file.write_content(&res.to_vec());
+    write_file_content_at_path(&local_sha_file_path, &res.to_vec())?;
 
     let file_url = config.expected_remote_ordinals_sqlite_url();
     let res = reqwest::get(&file_url)
@@ -124,7 +123,7 @@ pub async fn download_ordinals_dataset_if_required(config: &Config, ctx: &Contex
 
             // Download archive if not already present in cache
             // Load the local
-            let local_sha_file = FileLocation::from_path(tsv_sha_file_path).read_content();
+            let local_sha_file = read_file_content_at_path(&tsv_sha_file_path);
             let sha_url = config.expected_remote_ordinals_sqlite_sha256();
 
             let remote_sha_file = match reqwest::get(&sha_url).await {

@@ -4,9 +4,9 @@ use crate::db::{
     find_all_inscriptions_in_block, get_any_entry_in_ordinal_activities, open_readonly_hord_db_conn,
 };
 use crate::hord::{
-    get_inscriptions_revealed_in_block,
-    update_storage_and_augment_bitcoin_block_with_inscription_reveal_data,
-    update_storage_and_augment_bitcoin_block_with_inscription_transfer_data, Storage,
+    self, get_inscriptions_revealed_in_block,
+    update_storage_and_augment_bitcoin_block_with_inscription_reveal_data_tx,
+    update_storage_and_augment_bitcoin_block_with_inscription_transfer_data_tx,
 };
 use crate::service::{
     open_readwrite_predicates_db_conn_or_panic, update_predicate_status, PredicateStatus,
@@ -19,14 +19,13 @@ use chainhook_sdk::chainhooks::bitcoin::{
     BitcoinChainhookOccurrence, BitcoinTriggerChainhook,
 };
 use chainhook_sdk::chainhooks::types::{BitcoinChainhookSpecification, BitcoinPredicateType};
-use chainhook_sdk::indexer;
 use chainhook_sdk::indexer::bitcoin::{
     download_and_parse_block_with_retry, retrieve_block_hash_with_retry,
 };
 use chainhook_sdk::observer::{gather_proofs, EventObserverConfig};
 use chainhook_sdk::utils::{file_append, send_request, Context};
 use chainhook_types::{BitcoinBlockData, BitcoinChainEvent, BitcoinChainUpdatedWithBlocksData};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 
 pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
     predicate_spec: &BitcoinChainhookSpecification,
@@ -95,7 +94,6 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
     let bitcoin_config = event_observer_config.get_bitcoin_config();
     let mut traversals = HashMap::new();
 
-    let mut storage = Storage::Memory(BTreeMap::new());
     let mut cursor = start_block.saturating_sub(1);
 
     while cursor <= end_block {
@@ -111,7 +109,7 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
         let block_hash = retrieve_block_hash_with_retry(&cursor, &bitcoin_config, ctx).await?;
         let block_breakdown =
             download_and_parse_block_with_retry(&block_hash, &bitcoin_config, ctx).await?;
-        let mut block = match indexer::bitcoin::standardize_bitcoin_block(
+        let mut block = match hord::parse_ordinals_and_standardize_block(
             block_breakdown,
             &event_observer_config.bitcoin_network,
             ctx,
@@ -126,15 +124,10 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
             }
         };
 
-        if let Some(ref inscriptions_db_conn) = inscriptions_db_conn {
+        if let Some(ref mut inscriptions_db_conn) = inscriptions_db_conn {
             // Evaluating every single block is required for also keeping track of transfers.
             let local_traverals =
-                match find_all_inscriptions_in_block(&cursor, &inscriptions_db_conn, &ctx)
-                    .remove(&cursor)
-                {
-                    Some(entry) => entry,
-                    None => vec![],
-                };
+                find_all_inscriptions_in_block(&cursor, &inscriptions_db_conn, &ctx);
             for (transaction_identifier, traversal_result) in local_traverals.into_iter() {
                 traversals.insert(
                     (
@@ -145,18 +138,19 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
                 );
             }
 
-            let _ = update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
+            let transaction = inscriptions_db_conn.transaction().unwrap();
+            let empty_ctx = Context::empty();
+            let _ = update_storage_and_augment_bitcoin_block_with_inscription_reveal_data_tx(
                 &mut block,
-                &mut storage,
+                &transaction,
                 &traversals,
-                &inscriptions_db_conn,
-                &ctx,
+                &empty_ctx,
             )?;
 
-            let _ = update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
+            let _ = update_storage_and_augment_bitcoin_block_with_inscription_transfer_data_tx(
                 &mut block,
-                &mut storage,
-                &ctx,
+                &transaction,
+                &empty_ctx,
             )?;
 
             let inscriptions_revealed = get_inscriptions_revealed_in_block(&block)

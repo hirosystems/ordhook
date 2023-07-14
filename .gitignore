@@ -20,3 +20,5 @@ components/chainhook-types-js/dist
 *.rdb
 
 cache/
+./tests
+tmp/

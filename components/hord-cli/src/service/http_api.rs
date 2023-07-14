@@ -14,8 +14,6 @@ use redis::{Commands, Connection};
 use rocket::config::{self, Config, LogLevel};
 use rocket::serde::json::{json, Json, Value as JsonValue};
 use rocket::State;
-use rocket_okapi::openapi;
-use rocket_okapi::openapi_get_routes;
 use std::error::Error;
 
 use crate::config::PredicatesApiConfig;
@@ -46,13 +44,12 @@ pub async fn start_predicate_api_server(
         ..Config::default()
     };
 
-    let routes = openapi_get_routes![
+    let routes = routes![
         handle_ping,
         handle_get_predicates,
         handle_get_predicate,
         handle_create_predicate,
         handle_delete_bitcoin_predicate,
-        handle_delete_stacks_predicate
     ];
 
     let background_job_tx_mutex = Arc::new(Mutex::new(observer_commands_tx.clone()));
@@ -73,7 +70,6 @@ pub async fn start_predicate_api_server(
     Ok(())
 }
 
-#[openapi(tag = "Chainhooks")]
 #[get("/ping")]
 fn handle_ping(ctx: &State<Context>) -> Json<JsonValue> {
     ctx.try_log(|logger| slog::info!(logger, "Handling HTTP GET /ping"));
@@ -83,13 +79,12 @@ fn handle_ping(ctx: &State<Context>) -> Json<JsonValue> {
     }))
 }
 
-#[openapi(tag = "Chainhooks")]
-#[get("/v1/chainhooks", format = "application/json")]
+#[get("/v1/observers", format = "application/json")]
 fn handle_get_predicates(
     api_config: &State<PredicatesApiConfig>,
     ctx: &State<Context>,
 ) -> Json<JsonValue> {
-    ctx.try_log(|logger| slog::info!(logger, "Handling HTTP GET /v1/chainhooks"));
+    ctx.try_log(|logger| slog::info!(logger, "Handling HTTP GET /v1/observers"));
     match open_readwrite_predicates_db_conn(api_config) {
         Ok(mut predicates_db_conn) => {
             let predicates = match get_entries_from_predicates_db(&mut predicates_db_conn, &ctx) {
@@ -120,15 +115,14 @@ fn handle_get_predicates(
     }
 }
 
-#[openapi(tag = "Chainhooks")]
-#[post("/v1/chainhooks", format = "application/json", data = "<predicate>")]
+#[post("/v1/observers", format = "application/json", data = "<predicate>")]
 fn handle_create_predicate(
     predicate: Json<ChainhookFullSpecification>,
     api_config: &State<PredicatesApiConfig>,
     background_job_tx: &State<Arc<Mutex<Sender<ObserverCommand>>>>,
     ctx: &State<Context>,
 ) -> Json<JsonValue> {
-    ctx.try_log(|logger| slog::info!(logger, "Handling HTTP POST /v1/chainhooks"));
+    ctx.try_log(|logger| slog::info!(logger, "Handling HTTP POST /v1/observers"));
     let predicate = predicate.into_inner();
     if let Err(e) = predicate.validate() {
         return Json(json!({
@@ -140,11 +134,11 @@ fn handle_create_predicate(
     let predicate_uuid = predicate.get_uuid().to_string();
 
     if let Ok(mut predicates_db_conn) = open_readwrite_predicates_db_conn(api_config) {
-        match get_entry_from_predicates_db(
-            &ChainhookSpecification::either_stx_or_btc_key(&predicate_uuid),
-            &mut predicates_db_conn,
-            &ctx,
-        ) {
+        let key: String = format!(
+            "hord::{}",
+            ChainhookSpecification::bitcoin_key(&predicate_uuid)
+        );
+        match get_entry_from_predicates_db(&key, &mut predicates_db_conn, &ctx) {
             Ok(Some(_)) => {
                 return Json(json!({
                     "status": 409,
@@ -169,28 +163,21 @@ fn handle_create_predicate(
     }))
 }
 
-#[openapi(tag = "Chainhooks")]
-#[get("/v1/chainhooks/<predicate_uuid>", format = "application/json")]
+#[get("/v1/observers/<predicate_uuid>", format = "application/json")]
 fn handle_get_predicate(
     predicate_uuid: String,
     api_config: &State<PredicatesApiConfig>,
     ctx: &State<Context>,
 ) -> Json<JsonValue> {
-    ctx.try_log(|logger| {
-        slog::info!(
-            logger,
-            "Handling HTTP GET /v1/chainhooks/{}",
-            predicate_uuid
-        )
-    });
+    ctx.try_log(|logger| slog::info!(logger, "Handling HTTP GET /v1/observers/{}", predicate_uuid));
 
     match open_readwrite_predicates_db_conn(api_config) {
         Ok(mut predicates_db_conn) => {
-            let entry = match get_entry_from_predicates_db(
-                &ChainhookSpecification::either_stx_or_btc_key(&predicate_uuid),
-                &mut predicates_db_conn,
-                &ctx,
-            ) {
+            let key: String = format!(
+                "hord::{}",
+                ChainhookSpecification::bitcoin_key(&predicate_uuid)
+            );
+            let entry = match get_entry_from_predicates_db(&key, &mut predicates_db_conn, &ctx) {
                 Ok(Some((ChainhookSpecification::Stacks(spec), status))) => json!({
                     "chain": "stacks",
                     "uuid": spec.uuid,
@@ -225,37 +212,7 @@ fn handle_get_predicate(
     }
 }
 
-#[openapi(tag = "Chainhooks")]
-#[delete("/v1/chainhooks/stacks/<predicate_uuid>", format = "application/json")]
-fn handle_delete_stacks_predicate(
-    predicate_uuid: String,
-    background_job_tx: &State<Arc<Mutex<Sender<ObserverCommand>>>>,
-    ctx: &State<Context>,
-) -> Json<JsonValue> {
-    ctx.try_log(|logger| {
-        slog::info!(
-            logger,
-            "Handling HTTP DELETE /v1/chainhooks/stacks/{}",
-            predicate_uuid
-        )
-    });
-
-    let background_job_tx = background_job_tx.inner();
-    match background_job_tx.lock() {
-        Ok(tx) => {
-            let _ = tx.send(ObserverCommand::DeregisterStacksPredicate(predicate_uuid));
-        }
-        _ => {}
-    };
-
-    Json(json!({
-        "status": 200,
-        "result": "Ok",
-    }))
-}
-
-#[openapi(tag = "Chainhooks")]
-#[delete("/v1/chainhooks/bitcoin/<predicate_uuid>", format = "application/json")]
+#[delete("/v1/observers/<predicate_uuid>", format = "application/json")]
 fn handle_delete_bitcoin_predicate(
     predicate_uuid: String,
     background_job_tx: &State<Arc<Mutex<Sender<ObserverCommand>>>>,
@@ -264,7 +221,7 @@ fn handle_delete_bitcoin_predicate(
     ctx.try_log(|logger| {
         slog::info!(
             logger,
-            "Handling HTTP DELETE /v1/chainhooks/bitcoin/{}",
+            "Handling HTTP DELETE /v1/observers/{}",
             predicate_uuid
         )
     });
@@ -317,8 +274,9 @@ pub fn get_entries_from_predicates_db(
     predicate_db_conn: &mut Connection,
     ctx: &Context,
 ) -> Result<Vec<(ChainhookSpecification, PredicateStatus)>, String> {
+    let key: String = format!("hord::{}", ChainhookSpecification::bitcoin_key("*"));
     let chainhooks_to_load: Vec<String> = predicate_db_conn
-        .scan_match(ChainhookSpecification::either_stx_or_btc_key("*"))
+        .scan_match(key)
         .map_err(|e| format!("unable to connect to redis: {}", e.to_string()))?
         .into_iter()
         .collect();
