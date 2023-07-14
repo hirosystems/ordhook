@@ -410,13 +410,19 @@ pub fn update_hord_db_and_augment_bitcoin_block(
         ctx,
     );
 
+    let inner_ctx = if discard_changes {
+        Context::empty()
+    } else {
+        ctx.clone()
+    };
+
     let transaction = inscriptions_db_conn_rw.transaction().unwrap();
     let any_inscription_revealed =
         update_storage_and_augment_bitcoin_block_with_inscription_reveal_data_tx(
             new_block,
             &transaction,
             &traversals,
-            &ctx,
+            &inner_ctx,
         )?;
 
     // Have inscriptions been transfered?
@@ -424,7 +430,7 @@ pub fn update_hord_db_and_augment_bitcoin_block(
         update_storage_and_augment_bitcoin_block_with_inscription_transfer_data_tx(
             new_block,
             &transaction,
-            &ctx,
+            &inner_ctx,
         )?;
 
     if discard_changes {
