@@ -1370,7 +1370,7 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
         // evaluate exit condition: did we reach the **final** coinbase transaction
         if coinbase_txid.eq(&txid) {
             let subsidy = Height(ordinal_block_number.into()).subsidy();
-            if ordinal_offset.lt(&subsidy) {
+            if ordinal_offset < subsidy  {
                 // Great!
                 break;
             }
@@ -1400,7 +1400,7 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
                     for input in tx.inputs.into_iter() {
                         sats_in += input.txin_value;
 
-                        if sats_in >= total_out {
+                        if sats_in > total_out {
                             ordinal_offset = total_out - (sats_in - input.txin_value);
                             ordinal_block_number = input.block_height;
                             tx_cursor = (input.txin.clone(), input.vout as usize);
