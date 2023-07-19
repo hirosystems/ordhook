@@ -3,7 +3,7 @@ use std::{
     fs::File,
     hash::BuildHasherDefault,
     path::PathBuf,
-    sync::{mpsc::Sender, Arc},
+    sync::{mpsc::Sender, Arc}, time::Duration,
 };
 
 use chainhook_sdk::types::{
@@ -23,7 +23,7 @@ use threadpool::ThreadPool;
 
 use chainhook_sdk::{
     indexer::bitcoin::{
-        download_block_with_retry, retrieve_block_hash_with_retry, BitcoinBlockFullBreakdown,
+        download_block_with_retry, BitcoinBlockFullBreakdown,
     },
     observer::BitcoinConfig,
     utils::Context,
@@ -917,13 +917,20 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
     let (block_compressed_tx, block_compressed_rx) = crossbeam_channel::bounded(block_process_lim);
 
     // Thread pool #1: given a block height, retrieve the block hash
+    let http_client: HttpClient = HttpClient::builder()
+        .timeout(Duration::from_secs(20))
+        .build()
+        .expect("Unable to build http client");
+
     for block_cursor in start_block..=end_block {
         let block_height = block_cursor.clone();
         let block_hash_tx = block_hash_tx.clone();
         let config = bitcoin_config.clone();
         let moved_ctx = ctx.clone();
+        let moved_http_client = http_client.clone();
+
         retrieve_block_hash_pool.execute(move || {
-            let future = retrieve_block_hash_with_retry(&block_height, &config, &moved_ctx);
+            let future = retrieve_block_hash_with_retry(&moved_http_client, &block_height, &config, &moved_ctx);
             let block_hash = hiro_system_kit::nestable_block_on(future).unwrap();
             block_hash_tx
                 .send(Some((block_height, block_hash)))
@@ -1861,6 +1868,10 @@ pub async fn rebuild_rocks_db(
     let (block_data_tx, block_data_rx) = crossbeam_channel::bounded(block_req_lim);
     let compress_block_data_pool = ThreadPool::new(hord_config.ingestion_thread_max);
     let (block_compressed_tx, block_compressed_rx) = crossbeam_channel::bounded(block_process_lim);
+    let http_client: HttpClient = HttpClient::builder()
+        .timeout(Duration::from_secs(20))
+        .build()
+        .expect("Unable to build http client");
 
     // Thread pool #1: given a block height, retrieve the block hash
     for block_cursor in start_block..=end_block {
@@ -1868,8 +1879,10 @@ pub async fn rebuild_rocks_db(
         let block_hash_tx = block_hash_tx.clone();
         let config = bitcoin_config.clone();
         let moved_ctx = ctx.clone();
+        let moved_http_client = http_client.clone();
+
         retrieve_block_hash_pool.execute(move || {
-            let future = retrieve_block_hash_with_retry(&block_height, &config, &moved_ctx);
+            let future = retrieve_block_hash_with_retry(&moved_http_client, &block_height, &config, &moved_ctx);
             let block_hash = hiro_system_kit::nestable_block_on(future).unwrap();
             block_hash_tx
                 .send(Some((block_height, block_hash)))
@@ -1961,7 +1974,7 @@ pub async fn rebuild_rocks_db(
                         slog::info!(logger, "Generating report");
                     });
         
-                    let file = File::create("/Users/ludovic/Coding/hord/tmp/tmp/hord-perf.svg").unwrap();
+                    let file = File::create("hord-perf.svg").unwrap();
                     report.flamegraph(file).unwrap();
                 }
                 Err(e) => {
@@ -1996,4 +2009,63 @@ pub async fn rebuild_rocks_db(
 
 
     Ok(())
+}
+
+use reqwest::Client as HttpClient;
+
+pub async fn retrieve_block_hash_with_retry(
+    http_client: &HttpClient,
+    block_height: &u64,
+    bitcoin_config: &BitcoinConfig,
+    ctx: &Context,
+) -> Result<String, String> {
+    let mut errors_count = 0;
+    let block_hash = loop {
+        match retrieve_block_hash(http_client, block_height, bitcoin_config, ctx).await {
+            Ok(result) => break result,
+            Err(_e) => {
+                errors_count += 1;
+                if errors_count > 3 {
+                    ctx.try_log(|logger| {
+                        slog::warn!(
+                            logger,
+                            "unable to retrieve block hash #{block_height}: will retry in a few seconds (attempt #{errors_count}).",
+                        )
+                    });
+                }
+                std::thread::sleep(std::time::Duration::from_secs(2));
+            }
+        }
+    };
+    Ok(block_hash)
+}
+
+pub async fn retrieve_block_hash(
+    http_client: &HttpClient,
+    block_height: &u64,
+    bitcoin_config: &BitcoinConfig,
+    _ctx: &Context,
+) -> Result<String, String> {
+    let body = json!({
+        "jsonrpc": "1.0",
+        "id": "chainhook-cli",
+        "method": "getblockhash",
+        "params": [block_height]
+    });
+    let block_hash = http_client
+        .post(&bitcoin_config.rpc_url)
+        .basic_auth(&bitcoin_config.username, Some(&bitcoin_config.password))
+        .header("Content-Type", "application/json")
+        .header("Host", &bitcoin_config.rpc_url[7..])
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("unable to send request ({})", e))?
+        .json::<chainhook_sdk::bitcoincore_rpc::jsonrpc::Response>()
+        .await
+        .map_err(|e| format!("unable to parse response ({})", e))?
+        .result::<String>()
+        .map_err(|e| format!("unable to parse response ({})", e))?;
+
+    Ok(block_hash)
 }
