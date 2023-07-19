@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
+use chainhook_sdk::types::{BlockIdentifier, StacksBlockData, StacksBlockUpdate};
 use chainhook_sdk::utils::Context;
-use chainhook_types::{BlockIdentifier, StacksBlockData, StacksBlockUpdate};
 use rocksdb::{Options, DB};
 
 fn get_db_default_options() -> Options {

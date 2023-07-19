@@ -23,8 +23,10 @@ use chainhook_sdk::indexer::bitcoin::{
     download_and_parse_block_with_retry, retrieve_block_hash_with_retry,
 };
 use chainhook_sdk::observer::{gather_proofs, EventObserverConfig};
+use chainhook_sdk::types::{
+    BitcoinBlockData, BitcoinChainEvent, BitcoinChainUpdatedWithBlocksData,
+};
 use chainhook_sdk::utils::{file_append, send_request, Context};
-use chainhook_types::{BitcoinBlockData, BitcoinChainEvent, BitcoinChainUpdatedWithBlocksData};
 use std::collections::HashMap;
 
 pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(

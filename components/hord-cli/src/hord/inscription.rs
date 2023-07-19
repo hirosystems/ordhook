@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::str::FromStr;
 
 use chainhook_sdk::bitcoincore_rpc::bitcoin::Transaction;
-use chainhook_types::OrdinalInscriptionCurseType;
+use chainhook_sdk::types::OrdinalInscriptionCurseType;
 use {
     chainhook_sdk::bitcoincore_rpc::bitcoin::{
         blockdata::{

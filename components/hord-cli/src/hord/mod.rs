@@ -4,7 +4,7 @@ pub mod ordinals;
 use chainhook_sdk::bitcoincore_rpc::bitcoin::hashes::hex::FromHex;
 use chainhook_sdk::bitcoincore_rpc::bitcoin::{Address, Network, Script};
 use chainhook_sdk::bitcoincore_rpc_json::bitcoin::Witness;
-use chainhook_types::{
+use chainhook_sdk::types::{
     BitcoinBlockData, BitcoinNetwork, OrdinalInscriptionCurseType, OrdinalInscriptionRevealData,
     OrdinalInscriptionTransferData, OrdinalOperation, TransactionIdentifier,
 };

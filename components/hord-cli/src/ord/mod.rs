@@ -3,7 +3,7 @@
 
 type Result<T = (), E = anyhow::Error> = std::result::Result<T, E>;
 
-use chainhook_types::BitcoinNetwork;
+use chainhook_sdk::types::BitcoinNetwork;
 
 pub mod chain;
 pub mod deserialize_from_str;

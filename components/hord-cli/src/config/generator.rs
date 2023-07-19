@@ -1,4 +1,4 @@
-use chainhook_types::BitcoinNetwork;
+use chainhook_sdk::types::BitcoinNetwork;
 
 pub fn generate_config(network: &BitcoinNetwork) -> String {
     let network = format!("{:?}", network);

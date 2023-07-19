@@ -451,9 +451,9 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
 name = "chainhook-sdk"
-version = "0.7.3"
+version = "0.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "54290fb4f2a139c559e94e8212eadeeae5658abc4bcad1935edb244f0c4d5d0b"
+checksum = "5a03d4d808b18353fd16ec670281ff28365a46de76c59ec7bc9fe915248f2c24"
 dependencies = [
  "base58 0.2.0",
  "base64",
@@ -1707,7 +1707,6 @@ dependencies = [
  "anyhow",
  "atty",
  "chainhook-sdk",
- "chainhook-types",
  "clap",
  "clap_generate",
  "crossbeam-channel 0.5.8",

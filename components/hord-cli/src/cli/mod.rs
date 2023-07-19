@@ -26,8 +26,8 @@ use chainhook_sdk::indexer::bitcoin::{
     download_and_parse_block_with_retry, retrieve_block_hash_with_retry,
 };
 use chainhook_sdk::observer::BitcoinConfig;
+use chainhook_sdk::types::{BitcoinBlockData, BlockIdentifier, TransactionIdentifier};
 use chainhook_sdk::utils::Context;
-use chainhook_types::{BitcoinBlockData, BlockIdentifier, TransactionIdentifier};
 use clap::{Parser, Subcommand};
 use hiro_system_kit;
 use std::collections::BTreeMap;

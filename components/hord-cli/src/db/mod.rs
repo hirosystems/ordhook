@@ -1,11 +1,12 @@
 use std::{
     collections::{BTreeMap, HashMap},
+    fs::File,
     hash::BuildHasherDefault,
     path::PathBuf,
-    sync::{mpsc::Sender, Arc}, fs::File,
+    sync::{mpsc::Sender, Arc},
 };
 
-use chainhook_types::{
+use chainhook_sdk::types::{
     BitcoinBlockData, BlockIdentifier, OrdinalInscriptionRevealData,
     OrdinalInscriptionTransferData, TransactionIdentifier,
 };
