@@ -1842,8 +1842,15 @@ pub async fn rebuild_rocks_db(
     hord_config: &HordConfig,
     ctx: &Context,
 ) -> Result<(), String> {
+    let guard = pprof::ProfilerGuardBuilder::default()
+        .frequency(50)
+        .blocklist(&["libc", "libgcc", "pthread", "vdso"])
+        .build()
+        .unwrap();
 
-    let guard = pprof::ProfilerGuardBuilder::default().frequency(1000).blocklist(&["libc", "libgcc", "pthread", "vdso"]).build().unwrap();
+    ctx.try_log(|logger| {
+        slog::info!(logger, "Generating report");
+    });
 
     let number_of_blocks_to_process = end_block - start_block + 1;
     let (block_hash_req_lim, block_req_lim, block_process_lim) = (256, 128, 128);
@@ -1947,6 +1954,22 @@ pub async fn rebuild_rocks_db(
                     "Local block storage successfully seeded with #{blocks_stored} blocks"
                 )
             });
+
+            match guard.report().build() {
+                Ok(report) => {
+                    ctx.try_log(|logger| {
+                        slog::info!(logger, "Generating report");
+                    });
+        
+                    let file = File::create("/Users/ludovic/Coding/hord/tmp/tmp/hord-perf.svg").unwrap();
+                    report.flamegraph(file).unwrap();
+                }
+                Err(e) => {
+                    ctx.try_log(|logger| {
+                        slog::error!(logger, "Reporting failed: {}", e.to_string());
+                    });
+                }
+            }        
             return Ok(());
         }
 
@@ -1971,10 +1994,6 @@ pub async fn rebuild_rocks_db(
 
     retrieve_block_hash_pool.join();
 
-    if let Ok(report) = guard.report().build() {
-        let file = File::create("hord-perf.svg").unwrap();
-        report.flamegraph(file).unwrap();
-    };    
-    
+
     Ok(())
 }
