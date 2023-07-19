@@ -1880,6 +1880,7 @@ pub async fn rebuild_rocks_db(
     let (block_compressed_tx, block_compressed_rx) = crossbeam_channel::bounded(block_process_lim);
     let http_client: HttpClient = HttpClient::builder()
         .timeout(Duration::from_secs(20))
+        .danger_accept_invalid_certs(true)
         .build()
         .expect("Unable to build http client");
 
