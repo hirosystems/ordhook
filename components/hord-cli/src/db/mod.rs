@@ -2145,10 +2145,6 @@ pub async fn download_block(
         "method": "getblock",
         "params": [block_hash, 3]
     });
-    let http_client = HttpClient::builder()
-        .timeout(Duration::from_secs(20))
-        .build()
-        .expect("Unable to build http client");
     let block = http_client
         .post(&bitcoin_config.rpc_url)
         .basic_auth(&bitcoin_config.username, Some(&bitcoin_config.password))
