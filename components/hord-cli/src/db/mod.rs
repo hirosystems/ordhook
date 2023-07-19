@@ -2,7 +2,7 @@ use std::{
     collections::{BTreeMap, HashMap},
     hash::BuildHasherDefault,
     path::PathBuf,
-    sync::{mpsc::Sender, Arc},
+    sync::{mpsc::Sender, Arc}, fs::File,
 };
 
 use chainhook_types::{
@@ -1841,6 +1841,9 @@ pub async fn rebuild_rocks_db(
     hord_config: &HordConfig,
     ctx: &Context,
 ) -> Result<(), String> {
+
+    let guard = pprof::ProfilerGuardBuilder::default().frequency(1000).blocklist(&["libc", "libgcc", "pthread", "vdso"]).build().unwrap();
+
     let number_of_blocks_to_process = end_block - start_block + 1;
     let (block_hash_req_lim, block_req_lim, block_process_lim) = (256, 128, 128);
 
@@ -1967,5 +1970,10 @@ pub async fn rebuild_rocks_db(
 
     retrieve_block_hash_pool.join();
 
+    if let Ok(report) = guard.report().build() {
+        let file = File::create("hord-perf.svg").unwrap();
+        report.flamegraph(file).unwrap();
+    };    
+    
     Ok(())
 }
