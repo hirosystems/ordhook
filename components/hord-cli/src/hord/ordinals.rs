@@ -16,10 +16,10 @@ pub struct JobInputs {}
 
 pub struct JobResult {}
 
-pub fn start_ordinals_number_processor(config: &HordConfig) -> Sender<Batch> {
+pub fn start_ordinals_number_processor(_config: &HordConfig) -> Sender<Batch> {
     // let mut batches = HashMap::new();
 
-    let (tx, rx) = channel();
+    let (tx, _rx) = channel();
     // let (inner_tx, inner_rx) = channel();
 
     hiro_system_kit::thread_named("Batch receiver")
