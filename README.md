@@ -14,16 +14,15 @@
 
 # Introduction
 
-The [Ordinal theory](https://trustmachines.co/glossary/ordinal-theory) is a protocol aiming at attributing unique identifiers to every single satoshis minted. Thanks to this numbering scheme, satoshis can be **inscribed** with arbitrary content (aka **inscriptions**), creating bitcoin-native digital artifacts more commonly known as NFTs. Inscriptions do not require a sidechain or separate token.
-These inscribed sats can then be transferred using bitcoin transactions, sent to bitcoin addresses, and held in bitcoin UTXOs. These transactions, addresses, and UTXOs are normal bitcoin transactions, addresses, and UTXOS in all respects, with the exception that in order to send individual sats, transactions must control the order and value of inputs and outputs according to ordinal theory.
+The [Ordinal Theory](https://trustmachines.co/glossary/ordinal-theory) is a protocol aiming at attributing unique identifiers to minted satoshis (sats). With its numbering scheme, satoshis can be **inscribed** with arbitrary content (aka **inscriptions**), creating bitcoin-native digital artifacts more commonly known as NFTs. Inscriptions do not require a sidechain or separate token, which makes it attractive for new entrants to adopt, extend, and use. These inscribed sats can be transferred using Bitcoin transactions, sent to Bitcoin addresses, and held in Bitcoin UTXOs. In all respects, these transactions, addresses, and UTXOs are normal Bitcoin transactions, addresses, and UTXOs, except that to send individual sats, transactions must control the order and value of inputs and outputs per Ordinal Theory.
 
-The [Chainhook SDK](https://github.com/hirosystems/chainhook) is a re-org aware transaction indexing engine for Stacks and Bitcoin. It helps developers extracting efficiently transactions from blocks, along with keeping a consistent view of the chainstate thanks to its event based architecture.
+Now that we discussed Ordinal Theory, let's dive into what **hord** attempts to solve for developers.
 
-**hord** is an indexer designed to help developers building new re-org resistant applications on top of the Ordinal theory.
+The **hord** is an indexer designed to help developers build new re-org-resistant applications on top of the Ordinal Theory. This indexer will make it easy for protocol developers and users of those protocols to trace and discover the ownership of Ordinal's inscriptions, along with a wealth of information about each inscription.
 
-Thanks to `hord`, Bitcoin developers can reliably implenent and stack protocols leveraging ordinals inscriptions and transfers.
+The **hord** uses [Chainhook SDK](https://github.com/hirosystems/chainhook/tree/develop/components/chainhook-sdk) from the [Chainhook](https://github.com/hirosystems/chainhook/tree/develop) project, which is a re-org-aware transaction indexing engine for Stacks and Bitcoin. The SDK is designed with first-class event-driven principles, so it helps developers extract transactions from blocks efficiently and keeps a consistent view of the chain state.
 
-Constistent Indexers are crucial for the **Ordinal Theory**: indexers are to the **Ordinal Theory** what Smart contracts are to blockchains: they help developers creating new protocols and new applications.
+With **hord**, Bitcoin developers can reliably implement feature-rich protocols and business models utilizing  _near-real-time_ Ordinals inscriptions and transfers events.
 
 # Quick Start
 
