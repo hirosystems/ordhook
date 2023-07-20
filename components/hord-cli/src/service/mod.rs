@@ -24,6 +24,7 @@ use chainhook_sdk::chainhooks::types::{
     ChainhookSpecification,
 };
 
+use chainhook_sdk::indexer::bitcoin::build_http_client;
 use chainhook_sdk::observer::{start_event_observer, BitcoinConfig, ObserverEvent};
 use chainhook_sdk::types::{
     BitcoinBlockData, BitcoinChainEvent, BitcoinNetwork, OrdinalInscriptionTransferData,
@@ -435,9 +436,15 @@ impl Service {
         let moved_ctx = self.ctx.clone();
         hiro_system_kit::thread_named("Block fetch")
             .spawn(move || {
+                let http_client = build_http_client();
                 for cursor in start_block..=end_block {
                     info!(moved_ctx.expect_logger(), "Fetching block {}", cursor);
-                    let future = fetch_and_standardize_block(cursor, &bitcoin_config, &moved_ctx);
+                    let future = fetch_and_standardize_block(
+                        &http_client,
+                        cursor,
+                        &bitcoin_config,
+                        &moved_ctx,
+                    );
 
                     let block = hiro_system_kit::nestable_block_on(future).unwrap();
 

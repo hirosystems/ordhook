@@ -4,12 +4,11 @@ use std::{
     hash::BuildHasherDefault,
     path::PathBuf,
     sync::{mpsc::Sender, Arc},
-    time::Duration,
 };
 
 use chainhook_sdk::{
     indexer::bitcoin::{
-        build_http_client, download_block_with_retry, parse_downloaded_block,
+        build_http_client, download_block_with_retry,
         retrieve_block_hash_with_retry,
     },
     types::{
