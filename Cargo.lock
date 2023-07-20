@@ -1720,6 +1720,7 @@ dependencies = [
  "hiro-system-kit",
  "num_cpus",
  "pprof",
+ "progressing",
  "rand 0.8.5",
  "redis",
  "reqwest",
@@ -2788,6 +2789,15 @@ dependencies = [
  "syn 2.0.18",
  "version_check",
  "yansi",
+]
+
+[[package]]
+name = "progressing"
+version = "3.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "97b7db19a74ba7c34de36558abed080568491d2b8999a34de914b1793b0b4b1b"
+dependencies = [
+ "log",
 ]
 
 [[package]]

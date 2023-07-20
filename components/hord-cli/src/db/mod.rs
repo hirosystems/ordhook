@@ -1,6 +1,5 @@
 use std::{
     collections::{BTreeMap, HashMap},
-    fs::File,
     hash::BuildHasherDefault,
     path::PathBuf,
     sync::{mpsc::Sender, Arc},

@@ -1,3 +1,4 @@
+use crate::archive::download_ordinals_dataset_if_required;
 use crate::config::generator::generate_config;
 use crate::config::Config;
 use crate::scan::bitcoin::scan_bitcoin_chainstate_via_rpc_using_predicate;
@@ -455,9 +456,13 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                     .get_sorted_entries();
 
             if let Some(ref post_to) = cmd.post_to {
+                info!(ctx.expect_logger(), "A fully synchronized bitcoind node is required for retrieving inscriptions content.");
+                info!(ctx.expect_logger(), "Checking {}...", config.network.bitcoind_rpc_url);
                 let tip = check_bitcoind_connection(&config).await?;
                 if tip < cmd.end_block {
-                    error!(ctx.expect_logger(), "unable to scan block range [{}, {}]: underlying bitcoind synchronized until block {} ", cmd.start_block, cmd.end_block, tip);
+                    error!(ctx.expect_logger(), "Unable to scan block range [{}, {}]: underlying bitcoind synchronized until block {} ", cmd.start_block, cmd.end_block, tip);
+                } else {
+                    info!(ctx.expect_logger(), "Starting scan");
                 }
 
                 let predicate_spec = build_predicate_from_cli(
@@ -470,6 +475,8 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 scan_bitcoin_chainstate_via_rpc_using_predicate(&predicate_spec, &config, &ctx)
                     .await?;
             } else {
+                let _ = download_ordinals_dataset_if_required(&config, ctx).await;
+
                 let inscriptions_db_conn =
                     open_readonly_hord_db_conn(&config.expected_cache_path(), &ctx)?;
                 while let Some(block_height) = block_range.pop_front() {
@@ -501,12 +508,13 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                             );
                         }
                     }
-                    println!(
-                        "Inscriptions revealed: {}, inscriptions transferred: {total_transfers}",
-                        inscriptions.len()
-                    );
-
-                    println!("-----");
+                    if total_transfers > 0 && inscriptions.len() > 0 {
+                        println!(
+                            "Inscriptions revealed: {}, inscriptions transferred: {total_transfers}",
+                            inscriptions.len()
+                        );
+                        println!("-----");    
+                    }
                 }
             }
         }
