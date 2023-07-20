@@ -407,6 +407,21 @@ impl Service {
 
                     // traversals_cache.clear();
                 }
+                // ObserverEvent::BitcoinChainMempoolEvent(event) => {
+                //     info!(self.ctx.expect_logger(), "{:?}", event);
+                //     match event {
+                //         chainhook_sdk::observer::BitcoinChainMempoolEvent::TransactionsAdmitted(
+                //             raw_txs,
+                //         ) => {
+                //             for tx in raw_txs.iter() {
+                //                 // retrieve_satoshi_point_using_lazy_storage
+                //             }
+                //         }
+                //         chainhook_sdk::observer::BitcoinChainMempoolEvent::TransactionDropped(
+                //             tx_id,
+                //         ) => {}
+                //     }
+                // }
                 ObserverEvent::Terminate => {
                     info!(self.ctx.expect_logger(), "Terminating runloop");
                     break;
