@@ -8,7 +8,10 @@ use std::{
 };
 
 use chainhook_sdk::{
-    indexer::bitcoin::parse_downloaded_block,
+    indexer::bitcoin::{
+        build_http_client, download_block_with_retry, parse_downloaded_block,
+        retrieve_block_hash_with_retry,
+    },
     types::{
         BitcoinBlockData, BlockIdentifier, OrdinalInscriptionRevealData,
         OrdinalInscriptionTransferData, TransactionIdentifier,
@@ -917,10 +920,7 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
     let (block_compressed_tx, block_compressed_rx) = crossbeam_channel::bounded(block_process_lim);
 
     // Thread pool #1: given a block height, retrieve the block hash
-    let http_client: HttpClient = HttpClient::builder()
-        .timeout(Duration::from_secs(20))
-        .build()
-        .expect("Unable to build http client");
+    let http_client = build_http_client();
 
     for block_cursor in start_block..=end_block {
         let block_height = block_cursor.clone();
@@ -1878,11 +1878,7 @@ pub async fn rebuild_rocks_db(
     let (block_data_tx, block_data_rx) = crossbeam_channel::bounded(block_req_lim);
     let compress_block_data_pool = ThreadPool::new(hord_config.ingestion_thread_max);
     let (block_compressed_tx, block_compressed_rx) = crossbeam_channel::bounded(block_process_lim);
-    let http_client: HttpClient = HttpClient::builder()
-        .timeout(Duration::from_secs(20))
-        .danger_accept_invalid_certs(true)
-        .build()
-        .expect("Unable to build http client");
+    let http_client = build_http_client();
 
     // Thread pool #1: given a block height, retrieve the block hash
     for block_cursor in start_block..=end_block {
@@ -2029,134 +2025,4 @@ pub async fn rebuild_rocks_db(
     retrieve_block_hash_pool.join();
 
     Ok(())
-}
-
-use reqwest::Client as HttpClient;
-
-pub async fn retrieve_block_hash_with_retry(
-    http_client: &HttpClient,
-    block_height: &u64,
-    bitcoin_config: &BitcoinConfig,
-    ctx: &Context,
-) -> Result<String, String> {
-    let mut errors_count = 0;
-    let block_hash = loop {
-        match retrieve_block_hash(http_client, block_height, bitcoin_config, ctx).await {
-            Ok(result) => break result,
-            Err(_e) => {
-                errors_count += 1;
-                if errors_count > 3 {
-                    ctx.try_log(|logger| {
-                        slog::warn!(
-                            logger,
-                            "unable to retrieve block hash #{block_height}: will retry in a few seconds (attempt #{errors_count}).",
-                        )
-                    });
-                }
-                std::thread::sleep(std::time::Duration::from_secs(2));
-            }
-        }
-    };
-    Ok(block_hash)
-}
-
-pub async fn retrieve_block_hash(
-    http_client: &HttpClient,
-    block_height: &u64,
-    bitcoin_config: &BitcoinConfig,
-    _ctx: &Context,
-) -> Result<String, String> {
-    let body = json!({
-        "jsonrpc": "1.0",
-        "id": "chainhook-cli",
-        "method": "getblockhash",
-        "params": [block_height]
-    });
-    let block_hash = http_client
-        .post(&bitcoin_config.rpc_url)
-        .basic_auth(&bitcoin_config.username, Some(&bitcoin_config.password))
-        .header("Content-Type", "application/json")
-        .header("Host", &bitcoin_config.rpc_url[7..])
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| format!("unable to send request ({})", e))?
-        .json::<chainhook_sdk::bitcoincore_rpc::jsonrpc::Response>()
-        .await
-        .map_err(|e| format!("unable to parse response ({})", e))?
-        .result::<String>()
-        .map_err(|e| format!("unable to parse response ({})", e))?;
-
-    Ok(block_hash)
-}
-
-pub async fn download_block_with_retry(
-    http_client: &HttpClient,
-    block_hash: &str,
-    bitcoin_config: &BitcoinConfig,
-    ctx: &Context,
-) -> Result<BitcoinBlockFullBreakdown, String> {
-    let mut errors_count = 0;
-    let block = loop {
-        let response = {
-            match download_block(http_client, block_hash, bitcoin_config, ctx).await {
-                Ok(result) => result,
-                Err(_e) => {
-                    errors_count += 1;
-                    ctx.try_log(|logger| {
-                        slog::warn!(
-                            logger,
-                            "unable to fetch block #{block_hash}: will retry in a few seconds (attempt #{errors_count}).",
-                        )
-                    });
-                    std::thread::sleep(std::time::Duration::from_millis(500));
-                    continue;
-                }
-            }
-        };
-
-        match parse_downloaded_block(response) {
-            Ok(result) => break result,
-            Err(e) => {
-                errors_count += 1;
-                ctx.try_log(|logger| {
-                    slog::warn!(
-                        logger,
-                        "unable to parse fetched block #{block_hash}: will retry in a few seconds (attempt #{errors_count}) ({e})",
-                    )
-                });
-                std::thread::sleep(std::time::Duration::from_millis(500));
-                continue;
-            }
-        };
-    };
-    Ok(block)
-}
-
-pub async fn download_block(
-    http_client: &HttpClient,
-    block_hash: &str,
-    bitcoin_config: &BitcoinConfig,
-    _ctx: &Context,
-) -> Result<Vec<u8>, String> {
-    let body = json!({
-        "jsonrpc": "1.0",
-        "id": "chainhook-cli",
-        "method": "getblock",
-        "params": [block_hash, 3]
-    });
-    let block = http_client
-        .post(&bitcoin_config.rpc_url)
-        .basic_auth(&bitcoin_config.username, Some(&bitcoin_config.password))
-        .header("Content-Type", "application/json")
-        .header("Host", &bitcoin_config.rpc_url[7..])
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| format!("unable to send request ({})", e))?
-        .bytes()
-        .await
-        .map_err(|e| format!("unable to get bytes ({})", e))?
-        .to_vec();
-    Ok(block)
 }
