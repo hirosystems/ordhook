@@ -285,9 +285,6 @@ enum TestCommand {
     /// Compute ordinal number of the 1st satoshi of the 1st input of a given transaction
     #[clap(name = "inscriptions", bin_name = "inscriptions")]
     Inscriptions(ScanInscriptionsCommand),
-    /// Retrieve all the transfers for a given inscription
-    #[clap(name = "transfers", bin_name = "transfers")]
-    Transfers(ScanTransfersCommand),
 }
 
 #[derive(Parser, PartialEq, Clone, Debug)]
@@ -675,70 +672,6 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                     //     traversal.ordinal_number, traversal.get_ordinal_coinbase_height(), traversal.get_ordinal_coinbase_offset(), traversal.transfers
                     // );
                 }
-            }
-        }
-        Command::Test(TestCommand::Transfers(cmd)) => {
-            let config = Config::default(cmd.regtest, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
-
-            let inscriptions_db_conn =
-                open_readonly_hord_db_conn(&config.expected_cache_path(), &ctx)?;
-
-            let blocks_db_conn =
-                open_readwrite_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
-
-            let tip_height = find_last_block_inserted(&blocks_db_conn) as u64;
-            let _end_at = match cmd.block_height {
-                Some(block_height) if block_height > tip_height => {
-                    hord::perform_hord_db_update(
-                        tip_height,
-                        block_height,
-                        &config.get_hord_config(),
-                        &config,
-                        None,
-                        &ctx,
-                    )
-                    .await?;
-                    block_height
-                }
-                _ => tip_height,
-            };
-
-            let (_start_at_height, watched_satpoint) =
-                find_watched_satpoint_for_inscription(&cmd.inscription_id, &inscriptions_db_conn)?;
-            let mut cache = BTreeMap::new();
-            cache.insert(
-                watched_satpoint.get_genesis_satpoint(),
-                vec![watched_satpoint],
-            );
-            let mut storage = Storage::Memory(cache);
-
-            let mut seq = vec![
-                784787, 781409, 781069, 781000, 780978, 780060, 777543, 777542,
-            ];
-
-            // rm -rf /hirosystems/chainhook-nodedata/hord.*
-            // cd /hirosystems/chainhook-node/ && rm data/hord.rocksdb/LOCK && chainhook hord db drop 767430 787985 --config-path ./config/config.toml
-
-            seq.reverse();
-
-            let bitcoin_config = config.get_event_observer_config().get_bitcoin_config();
-
-            for cursor in seq {
-                //start_at_height..=end_at {
-                match storage {
-                    Storage::Memory(ref c) => {
-                        info!(ctx.expect_logger(), "#{} -> {}", cursor, c.len());
-                    }
-                    _ => unreachable!(),
-                }
-
-                let mut block = fetch_and_standardize_block(cursor, &bitcoin_config, &ctx).await?;
-
-                update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
-                    &mut block,
-                    &mut storage,
-                    &ctx,
-                )?;
             }
         }
         Command::Db(HordDbCommand::Sync(cmd)) => {
