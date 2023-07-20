@@ -7,7 +7,7 @@ use crate::db::{
     delete_data_in_hord_db, find_all_inscription_transfers, find_all_inscriptions_in_block,
     find_all_transfers_in_block, find_inscription_with_id, find_last_block_inserted,
     find_latest_inscription_block_height, find_lazy_block_at_block_height,
-    find_watched_satpoint_for_inscription, initialize_hord_db, insert_entry_in_locations,
+    initialize_hord_db, insert_entry_in_locations,
     open_readonly_hord_db_conn, open_readonly_hord_db_conn_rocks_db, open_readwrite_hord_db_conn,
     open_readwrite_hord_db_conn_rocks_db, rebuild_rocks_db,
     remove_entries_from_locations_at_block_height, retrieve_satoshi_point_using_lazy_storage,
@@ -23,13 +23,14 @@ use chainhook_sdk::chainhooks::types::{
     ChainhookFullSpecification, HookAction, OrdinalOperations,
 };
 use chainhook_sdk::indexer::bitcoin::{
-    download_and_parse_block_with_retry, retrieve_block_hash_with_retry,
+    build_http_client, download_and_parse_block_with_retry, retrieve_block_hash_with_retry,
 };
 use chainhook_sdk::observer::BitcoinConfig;
+use chainhook_sdk::types::{BitcoinBlockData, BlockIdentifier, TransactionIdentifier};
 use chainhook_sdk::utils::Context;
-use chainhook_types::{BitcoinBlockData, BlockIdentifier, TransactionIdentifier};
 use clap::{Parser, Subcommand};
 use hiro_system_kit;
+use reqwest::Client as HttpClient;
 use std::collections::BTreeMap;
 use std::io::{BufReader, Read};
 use std::path::PathBuf;
@@ -285,9 +286,6 @@ enum TestCommand {
     /// Compute ordinal number of the 1st satoshi of the 1st input of a given transaction
     #[clap(name = "inscriptions", bin_name = "inscriptions")]
     Inscriptions(ScanInscriptionsCommand),
-    /// Retrieve all the transfers for a given inscription
-    #[clap(name = "transfers", bin_name = "transfers")]
-    Transfers(ScanTransfersCommand),
 }
 
 #[derive(Parser, PartialEq, Clone, Debug)]
@@ -657,9 +655,14 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                     let event_observer_config = config.get_event_observer_config();
                     let hord_config = config.get_hord_config();
                     let bitcoin_config = event_observer_config.get_bitcoin_config();
-                    let block =
-                        fetch_and_standardize_block(cmd.block_height, &bitcoin_config, &ctx)
-                            .await?;
+                    let http_client: HttpClient = build_http_client();
+                    let block = fetch_and_standardize_block(
+                        &http_client,
+                        cmd.block_height,
+                        &bitcoin_config,
+                        &ctx,
+                    )
+                    .await?;
                     let traversals_cache = Arc::new(new_traversals_lazy_cache(1024));
 
                     let _traversals = retrieve_inscribed_satoshi_points_from_block(
@@ -675,70 +678,6 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                     //     traversal.ordinal_number, traversal.get_ordinal_coinbase_height(), traversal.get_ordinal_coinbase_offset(), traversal.transfers
                     // );
                 }
-            }
-        }
-        Command::Test(TestCommand::Transfers(cmd)) => {
-            let config = Config::default(cmd.regtest, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
-
-            let inscriptions_db_conn =
-                open_readonly_hord_db_conn(&config.expected_cache_path(), &ctx)?;
-
-            let blocks_db_conn =
-                open_readwrite_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
-
-            let tip_height = find_last_block_inserted(&blocks_db_conn) as u64;
-            let _end_at = match cmd.block_height {
-                Some(block_height) if block_height > tip_height => {
-                    hord::perform_hord_db_update(
-                        tip_height,
-                        block_height,
-                        &config.get_hord_config(),
-                        &config,
-                        None,
-                        &ctx,
-                    )
-                    .await?;
-                    block_height
-                }
-                _ => tip_height,
-            };
-
-            let (_start_at_height, watched_satpoint) =
-                find_watched_satpoint_for_inscription(&cmd.inscription_id, &inscriptions_db_conn)?;
-            let mut cache = BTreeMap::new();
-            cache.insert(
-                watched_satpoint.get_genesis_satpoint(),
-                vec![watched_satpoint],
-            );
-            let mut storage = Storage::Memory(cache);
-
-            let mut seq = vec![
-                784787, 781409, 781069, 781000, 780978, 780060, 777543, 777542,
-            ];
-
-            // rm -rf /hirosystems/chainhook-nodedata/hord.*
-            // cd /hirosystems/chainhook-node/ && rm data/hord.rocksdb/LOCK && chainhook hord db drop 767430 787985 --config-path ./config/config.toml
-
-            seq.reverse();
-
-            let bitcoin_config = config.get_event_observer_config().get_bitcoin_config();
-
-            for cursor in seq {
-                //start_at_height..=end_at {
-                match storage {
-                    Storage::Memory(ref c) => {
-                        info!(ctx.expect_logger(), "#{} -> {}", cursor, c.len());
-                    }
-                    _ => unreachable!(),
-                }
-
-                let mut block = fetch_and_standardize_block(cursor, &bitcoin_config, &ctx).await?;
-
-                update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
-                    &mut block,
-                    &mut storage,
-                    &ctx,
-                )?;
             }
         }
         Command::Db(HordDbCommand::Sync(cmd)) => {
@@ -849,12 +788,18 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 };
                 let (tx, rx) = channel();
                 let moved_ctx = ctx.clone();
+                let http_client = build_http_client();
+
                 hiro_system_kit::thread_named("Block fetch")
                     .spawn(move || {
                         for cursor in cmd.start_block..=cmd.end_block {
                             println!("Fetching block {}", cursor);
-                            let future =
-                                fetch_and_standardize_block(cursor, &bitcoin_config, &moved_ctx);
+                            let future = fetch_and_standardize_block(
+                                &http_client,
+                                cursor,
+                                &bitcoin_config,
+                                &moved_ctx,
+                            );
 
                             let block = hiro_system_kit::nestable_block_on(future).unwrap();
 
@@ -968,13 +913,16 @@ pub fn load_predicate_from_path(
 }
 
 pub async fn fetch_and_standardize_block(
+    http_client: &HttpClient,
     block_height: u64,
     bitcoin_config: &BitcoinConfig,
     ctx: &Context,
 ) -> Result<BitcoinBlockData, String> {
-    let block_hash = retrieve_block_hash_with_retry(&block_height, &bitcoin_config, &ctx).await?;
+    let block_hash =
+        retrieve_block_hash_with_retry(http_client, &block_height, &bitcoin_config, &ctx).await?;
     let block_breakdown =
-        download_and_parse_block_with_retry(&block_hash, &bitcoin_config, &ctx).await?;
+        download_and_parse_block_with_retry(http_client, &block_hash, &bitcoin_config, &ctx)
+            .await?;
 
     hord::parse_ordinals_and_standardize_block(block_breakdown, &bitcoin_config.network, &ctx)
         .map_err(|(e, _)| e)

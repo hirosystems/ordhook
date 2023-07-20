@@ -24,12 +24,13 @@ use chainhook_sdk::chainhooks::types::{
     ChainhookSpecification,
 };
 
+use chainhook_sdk::indexer::bitcoin::build_http_client;
 use chainhook_sdk::observer::{start_event_observer, BitcoinConfig, ObserverEvent};
-use chainhook_sdk::utils::Context;
-use chainhook_types::{
-    BitcoinBlockData, BitcoinBlockSignaling, BitcoinChainEvent, BitcoinNetwork,
-    OrdinalInscriptionTransferData, OrdinalOperation,
+use chainhook_sdk::types::{
+    BitcoinBlockData, BitcoinChainEvent, BitcoinNetwork, OrdinalInscriptionTransferData,
+    OrdinalOperation,
 };
+use chainhook_sdk::utils::Context;
 use hiro_system_kit::slog;
 use redis::{Commands, Connection};
 
@@ -207,46 +208,13 @@ impl Service {
             });
         }
 
-        info!(
-            self.ctx.expect_logger(),
-            "Listening on port {} for Stacks chain events", event_observer_config.ingestion_port
+        let _ = start_event_observer(
+            event_observer_config.clone(),
+            observer_command_tx,
+            observer_command_rx,
+            Some(observer_event_tx),
+            self.ctx.clone(),
         );
-        match event_observer_config.bitcoin_block_signaling {
-            BitcoinBlockSignaling::ZeroMQ(ref url) => {
-                info!(
-                    self.ctx.expect_logger(),
-                    "Observing Bitcoin chain events via ZeroMQ: {}", url
-                );
-            }
-            BitcoinBlockSignaling::Stacks(ref _url) => {
-                // Start chainhook event observer
-                let context_cloned = self.ctx.clone();
-                let event_observer_config_moved = event_observer_config.clone();
-                let observer_command_tx_moved = observer_command_tx.clone();
-                let _ =
-                    hiro_system_kit::thread_named("Chainhook event observer").spawn(move || {
-                        let future = start_event_observer(
-                            event_observer_config_moved,
-                            observer_command_tx_moved,
-                            observer_command_rx,
-                            Some(observer_event_tx),
-                            context_cloned,
-                        );
-                        let _ = hiro_system_kit::nestable_block_on(future);
-                    });
-                info!(
-                    self.ctx.expect_logger(),
-                    "Listening on port {} for Stacks chain events",
-                    event_observer_config
-                        .get_stacks_node_config()
-                        .ingestion_port
-                );
-                info!(
-                    self.ctx.expect_logger(),
-                    "Observing Bitcoin chain events via Stacks node"
-                );
-            }
-        }
 
         loop {
             let event = match observer_event_rx.recv() {
@@ -468,9 +436,15 @@ impl Service {
         let moved_ctx = self.ctx.clone();
         hiro_system_kit::thread_named("Block fetch")
             .spawn(move || {
+                let http_client = build_http_client();
                 for cursor in start_block..=end_block {
                     info!(moved_ctx.expect_logger(), "Fetching block {}", cursor);
-                    let future = fetch_and_standardize_block(cursor, &bitcoin_config, &moved_ctx);
+                    let future = fetch_and_standardize_block(
+                        &http_client,
+                        cursor,
+                        &bitcoin_config,
+                        &moved_ctx,
+                    );
 
                     let block = hiro_system_kit::nestable_block_on(future).unwrap();
 

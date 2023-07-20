@@ -1,7 +1,7 @@
 use crate::config::Config;
 use crate::utils::{read_file_content_at_path, write_file_content_at_path};
+use chainhook_sdk::types::BitcoinNetwork;
 use chainhook_sdk::utils::Context;
-use chainhook_types::BitcoinNetwork;
 use flate2::read::GzDecoder;
 use futures_util::StreamExt;
 use std::fs;

@@ -4,7 +4,9 @@ pub mod generator;
 use crate::hord::HordConfig;
 pub use chainhook_sdk::indexer::IndexerConfig;
 use chainhook_sdk::observer::EventObserverConfig;
-use chainhook_types::{BitcoinBlockSignaling, BitcoinNetwork, StacksNetwork, StacksNodeConfig};
+use chainhook_sdk::types::{
+    BitcoinBlockSignaling, BitcoinNetwork, StacksNetwork, StacksNodeConfig,
+};
 pub use file::ConfigFile;
 use std::fs::File;
 use std::io::{BufReader, Read};

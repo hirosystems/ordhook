@@ -1,13 +1,20 @@
 use std::{
     collections::{BTreeMap, HashMap},
+    fs::File,
     hash::BuildHasherDefault,
     path::PathBuf,
     sync::{mpsc::Sender, Arc},
 };
 
-use chainhook_types::{
-    BitcoinBlockData, BlockIdentifier, OrdinalInscriptionRevealData,
-    OrdinalInscriptionTransferData, TransactionIdentifier,
+use chainhook_sdk::{
+    indexer::bitcoin::{
+        build_http_client, download_block_with_retry,
+        retrieve_block_hash_with_retry,
+    },
+    types::{
+        BitcoinBlockData, BlockIdentifier, OrdinalInscriptionRevealData,
+        OrdinalInscriptionTransferData, TransactionIdentifier,
+    },
 };
 use dashmap::DashMap;
 use fxhash::FxHasher;
@@ -21,11 +28,7 @@ use std::io::{Read, Write};
 use threadpool::ThreadPool;
 
 use chainhook_sdk::{
-    indexer::bitcoin::{
-        download_block_with_retry, retrieve_block_hash_with_retry, BitcoinBlockFullBreakdown,
-    },
-    observer::BitcoinConfig,
-    utils::Context,
+    indexer::bitcoin::BitcoinBlockFullBreakdown, observer::BitcoinConfig, utils::Context,
 };
 
 use crate::hord::{self, HordConfig};
@@ -916,13 +919,22 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
     let (block_compressed_tx, block_compressed_rx) = crossbeam_channel::bounded(block_process_lim);
 
     // Thread pool #1: given a block height, retrieve the block hash
+    let http_client = build_http_client();
+
     for block_cursor in start_block..=end_block {
         let block_height = block_cursor.clone();
         let block_hash_tx = block_hash_tx.clone();
         let config = bitcoin_config.clone();
         let moved_ctx = ctx.clone();
+        let moved_http_client = http_client.clone();
+
         retrieve_block_hash_pool.execute(move || {
-            let future = retrieve_block_hash_with_retry(&block_height, &config, &moved_ctx);
+            let future = retrieve_block_hash_with_retry(
+                &moved_http_client,
+                &block_height,
+                &config,
+                &moved_ctx,
+            );
             let block_hash = hiro_system_kit::nestable_block_on(future).unwrap();
             block_hash_tx
                 .send(Some((block_height, block_hash)))
@@ -941,11 +953,16 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
                 let moved_bitcoin_config = bitcoin_config.clone();
                 let block_data_tx = block_data_tx_moved.clone();
                 let moved_ctx = moved_ctx.clone();
+                let moved_http_client = http_client.clone();
                 retrieve_block_data_pool.execute(move || {
                     moved_ctx
                         .try_log(|logger| slog::debug!(logger, "Fetching block #{block_height}"));
-                    let future =
-                        download_block_with_retry(&block_hash, &moved_bitcoin_config, &moved_ctx);
+                    let future = download_block_with_retry(
+                        &moved_http_client,
+                        &block_hash,
+                        &moved_bitcoin_config,
+                        &moved_ctx,
+                    );
                     let res = match hiro_system_kit::nestable_block_on(future) {
                         Ok(block_data) => Some(block_data),
                         Err(e) => {
@@ -1841,6 +1858,16 @@ pub async fn rebuild_rocks_db(
     hord_config: &HordConfig,
     ctx: &Context,
 ) -> Result<(), String> {
+    // let guard = pprof::ProfilerGuardBuilder::default()
+    //     .frequency(20)
+    //     .blocklist(&["libc", "libgcc", "pthread", "vdso"])
+    //     .build()
+    //     .unwrap();
+
+    ctx.try_log(|logger| {
+        slog::info!(logger, "Generating report");
+    });
+
     let number_of_blocks_to_process = end_block - start_block + 1;
     let (block_hash_req_lim, block_req_lim, block_process_lim) = (256, 128, 128);
 
@@ -1850,6 +1877,7 @@ pub async fn rebuild_rocks_db(
     let (block_data_tx, block_data_rx) = crossbeam_channel::bounded(block_req_lim);
     let compress_block_data_pool = ThreadPool::new(hord_config.ingestion_thread_max);
     let (block_compressed_tx, block_compressed_rx) = crossbeam_channel::bounded(block_process_lim);
+    let http_client = build_http_client();
 
     // Thread pool #1: given a block height, retrieve the block hash
     for block_cursor in start_block..=end_block {
@@ -1857,8 +1885,15 @@ pub async fn rebuild_rocks_db(
         let block_hash_tx = block_hash_tx.clone();
         let config = bitcoin_config.clone();
         let moved_ctx = ctx.clone();
+        let moved_http_client = http_client.clone();
+
         retrieve_block_hash_pool.execute(move || {
-            let future = retrieve_block_hash_with_retry(&block_height, &config, &moved_ctx);
+            let future = retrieve_block_hash_with_retry(
+                &moved_http_client,
+                &block_height,
+                &config,
+                &moved_ctx,
+            );
             let block_hash = hiro_system_kit::nestable_block_on(future).unwrap();
             block_hash_tx
                 .send(Some((block_height, block_hash)))
@@ -1876,11 +1911,16 @@ pub async fn rebuild_rocks_db(
                 let moved_bitcoin_config = bitcoin_config.clone();
                 let block_data_tx = block_data_tx_moved.clone();
                 let moved_ctx = moved_ctx.clone();
+                let moved_http_client = http_client.clone();
                 retrieve_block_data_pool.execute(move || {
                     moved_ctx
                         .try_log(|logger| slog::debug!(logger, "Fetching block #{block_height}"));
-                    let future =
-                        download_block_with_retry(&block_hash, &moved_bitcoin_config, &moved_ctx);
+                    let future = download_block_with_retry(
+                        &moved_http_client,
+                        &block_hash,
+                        &moved_bitcoin_config,
+                        &moved_ctx,
+                    );
                     let res = match hiro_system_kit::nestable_block_on(future) {
                         Ok(block_data) => Some(block_data),
                         Err(e) => {
@@ -1943,6 +1983,22 @@ pub async fn rebuild_rocks_db(
                     "Local block storage successfully seeded with #{blocks_stored} blocks"
                 )
             });
+
+            // match guard.report().build() {
+            //     Ok(report) => {
+            //         ctx.try_log(|logger| {
+            //             slog::info!(logger, "Generating report");
+            //         });
+
+            //         let file = File::create("hord-perf.svg").unwrap();
+            //         report.flamegraph(file).unwrap();
+            //     }
+            //     Err(e) => {
+            //         ctx.try_log(|logger| {
+            //             slog::error!(logger, "Reporting failed: {}", e.to_string());
+            //         });
+            //     }
+            // }
             return Ok(());
         }
 

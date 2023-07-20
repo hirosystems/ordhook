@@ -1,4 +1,4 @@
-use chainhook_types::BitcoinNetwork;
+use chainhook_sdk::types::BitcoinNetwork;
 
 pub fn generate_config(network: &BitcoinNetwork) -> String {
     let network = format!("{:?}", network);
@@ -23,7 +23,7 @@ bitcoind_rpc_password = "devnet"
 # either through a Bitcoin node's ZeroMQ interface,
 # or through the Stacks node. Zmq is being
 # used by default:
-bitcoind_zmq_url = "http://0.0.0.0:18543"
+bitcoind_zmq_url = "tcp://0.0.0.0:18543"
 # but stacks can also be used:
 # stacks_node_rpc_url = "http://localhost:20443"
 
