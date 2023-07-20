@@ -560,6 +560,8 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
 
                 let hord_config = config.get_hord_config();
 
+                info!(ctx.expect_logger(), "Starting service...",);
+
                 let start_block = match cmd.start_at_block {
                     Some(entry) => entry,
                     None => match last_known_block {
@@ -583,8 +585,6 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 //     .iter()
                 //     .map(|p| load_predicate_from_path(p))
                 //     .collect::<Result<Vec<ChainhookFullSpecification>, _>>()?;
-
-                info!(ctx.expect_logger(), "Starting service...",);
 
                 let mut service = Service::new(config, ctx.clone());
                 return service.run(predicates).await;
