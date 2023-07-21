@@ -3,7 +3,7 @@ pub mod ordinals;
 
 use chainhook_sdk::bitcoincore_rpc::bitcoin::hashes::hex::FromHex;
 use chainhook_sdk::bitcoincore_rpc::bitcoin::{Address, Network, Script};
-use chainhook_sdk::bitcoincore_rpc_json::bitcoin::Witness;
+use chainhook_sdk::bitcoincore_rpc_json::bitcoin::{Txid, Witness};
 use chainhook_sdk::types::{
     BitcoinBlockData, BitcoinNetwork, OrdinalInscriptionCurseType, OrdinalInscriptionRevealData,
     OrdinalInscriptionTransferData, OrdinalOperation, TransactionIdentifier,
@@ -102,12 +102,16 @@ pub fn parse_ordinal_operations(
     let mut operations = vec![];
     for (input_index, input) in tx.vin.iter().enumerate() {
         if let Some(ref witness_data) = input.txinwitness {
-            let witness = Witness::from_vec(witness_data.clone());
+            let witness_data_hex: Vec<Vec<u8>> = witness_data
+                .iter()
+                .map(|w| hex::decode(w).unwrap())
+                .collect();
+            let witness = Witness::from_vec(witness_data_hex.clone());
             let mut inscription = match InscriptionParser::parse(&witness) {
                 Ok(inscription) => inscription,
                 Err(_e) => {
                     let mut cursed_inscription = None;
-                    for bytes in witness_data.iter() {
+                    for bytes in witness_data_hex.iter() {
                         let script = Script::from(bytes.to_vec());
                         let parser = InscriptionParser {
                             instructions: script.instructions().peekable(),
@@ -129,7 +133,7 @@ pub fn parse_ordinal_operations(
             };
 
             let inscription_id = InscriptionId {
-                txid: tx.txid.clone(),
+                txid: Txid::from_hex(&tx.txid).unwrap(),
                 index: input_index as u32,
             };
 

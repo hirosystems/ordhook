@@ -1727,7 +1727,7 @@ impl LazyBlock {
             for input in tx.vin.iter() {
                 // txin - 8 first bytes
                 let txin = {
-                    let txid = hex::decode(input.txid.unwrap().to_string()).unwrap();
+                    let txid = hex::decode(input.txid.as_ref().unwrap().to_string()).unwrap();
                     [
                         txid[0], txid[1], txid[2], txid[3], txid[4], txid[5], txid[6], txid[7],
                     ]

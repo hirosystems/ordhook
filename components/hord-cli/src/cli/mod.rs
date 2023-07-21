@@ -523,7 +523,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
         Command::Scan(ScanCommand::Inscription(cmd)) => {
             let config: Config =
                 Config::default(cmd.regtest, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
-            
+
             let _ = download_ordinals_dataset_if_required(&config, ctx).await;
 
             let inscriptions_db_conn =
