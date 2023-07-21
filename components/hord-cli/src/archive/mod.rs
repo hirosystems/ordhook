@@ -4,11 +4,11 @@ use chainhook_sdk::types::BitcoinNetwork;
 use chainhook_sdk::utils::Context;
 use flate2::read::GzDecoder;
 use futures_util::StreamExt;
+use progressing::mapping::Bar as MappingBar;
+use progressing::Baring;
 use std::fs;
 use std::io::{self, Cursor};
 use std::io::{Read, Write};
-use progressing::Baring;
-use progressing::mapping::Bar as MappingBar;
 
 pub fn default_sqlite_file_path(_network: &BitcoinNetwork) -> String {
     format!("hord.sqlite").to_lowercase()
@@ -18,7 +18,7 @@ pub fn default_sqlite_sha_file_path(_network: &BitcoinNetwork) -> String {
     format!("hord.sqlite.sha256").to_lowercase()
 }
 
-pub async fn download_sqlite_file(config: &Config, ctx: &Context) -> Result<(), String> {
+pub async fn download_sqlite_file(config: &Config, _ctx: &Context) -> Result<(), String> {
     let mut destination_path = config.expected_cache_path();
     std::fs::create_dir_all(&destination_path).unwrap_or_else(|e| {
         println!("{}", e.to_string());
@@ -61,29 +61,35 @@ pub async fn download_sqlite_file(config: &Config, ctx: &Context) -> Result<(), 
     });
 
     if res.status() == reqwest::StatusCode::OK {
-        let mut progress_bar = MappingBar::with_range(0i64, 4_800_001_704);
-        progress_bar.set_len(40);
-        info!(
-            ctx.expect_logger(),
-            "{}", progress_bar
-        );
+        let limit = 5_400_000_000;
+        let mut progress_bar = MappingBar::with_range(0i64, limit);
+        progress_bar.set_len(60);
+        let mut stdout = std::io::stdout();
+        print!("{}", progress_bar);
+        let _ = stdout.flush();
         let mut stream = res.bytes_stream();
         let mut progress = 0;
+        let mut steps = 0;
         while let Some(item) = stream.next().await {
             let chunk = item.or(Err(format!("Error while downloading file")))?;
             progress += chunk.len() as i64;
+            steps += chunk.len() as i64;
+            if steps > 5_000_000 {
+                steps = 0;
+            }
             progress_bar.set(progress);
-            if progress_bar.has_progressed_significantly() {
-                progress_bar.remember_significant_progress();
-                info!(
-                    ctx.expect_logger(),
-                    "{}", progress_bar
-                );
+            if steps == 0 {
+                print!("\r{}", progress_bar);
+                let _ = stdout.flush();
             }
             tx.send_async(chunk.to_vec())
                 .await
                 .map_err(|e| format!("unable to download stacks event: {}", e.to_string()))?;
         }
+        progress_bar.set(limit);
+        print!("\r{}", progress_bar);
+        let _ = stdout.flush();
+        println!();
         drop(tx);
     }
 
@@ -152,25 +158,20 @@ pub async fn download_ordinals_dataset_if_required(config: &Config, ctx: &Contex
                 (Ok(local), Ok(remote_response)) => {
                     let cache_not_expired = remote_response.starts_with(&local[0..32]) == false;
                     if cache_not_expired {
-                        info!(
-                            ctx.expect_logger(),
-                            "More recent hord.sqlite file detected"
-                        );
+                        info!(ctx.expect_logger(), "More recent hord.sqlite file detected");
                     }
                     cache_not_expired == false
                 }
-                (_, _) => {
-                    match std::fs::metadata(&sqlite_file_path) {
-                        Ok(_) => false,
-                        _ => {
-                            info!(
-                                ctx.expect_logger(),
-                                "Unable to retrieve hord.sqlite file locally"
-                            );
-                            true        
-                        }
+                (_, _) => match std::fs::metadata(&sqlite_file_path) {
+                    Ok(_) => false,
+                    _ => {
+                        info!(
+                            ctx.expect_logger(),
+                            "Unable to retrieve hord.sqlite file locally"
+                        );
+                        true
                     }
-                }
+                },
             };
             if should_download {
                 info!(ctx.expect_logger(), "Downloading {}", url);

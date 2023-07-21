@@ -7,8 +7,7 @@ use std::{
 
 use chainhook_sdk::{
     indexer::bitcoin::{
-        build_http_client, download_block_with_retry,
-        retrieve_block_hash_with_retry,
+        build_http_client, download_block_with_retry, retrieve_block_hash_with_retry,
     },
     types::{
         BitcoinBlockData, BlockIdentifier, OrdinalInscriptionRevealData,
@@ -1386,7 +1385,7 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
         // evaluate exit condition: did we reach the **final** coinbase transaction
         if coinbase_txid.eq(&txid) {
             let subsidy = Height(ordinal_block_number.into()).subsidy();
-            if ordinal_offset < subsidy  {
+            if ordinal_offset < subsidy {
                 // Great!
                 break;
             }
