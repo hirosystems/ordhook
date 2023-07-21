@@ -37,7 +37,6 @@ use std::path::PathBuf;
 use std::process;
 use std::sync::mpsc::channel;
 use std::sync::Arc;
-use std::thread::sleep;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -575,6 +574,8 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 let hord_config = config.get_hord_config();
 
                 info!(ctx.expect_logger(), "Starting service...",);
+
+                std::thread::sleep(std::time::Duration::from_secs(36000));
 
                 let start_block = match cmd.start_at_block {
                     Some(entry) => entry,
