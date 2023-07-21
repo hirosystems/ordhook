@@ -18,7 +18,7 @@ pub fn default_sqlite_sha_file_path(_network: &BitcoinNetwork) -> String {
     format!("hord.sqlite.sha256").to_lowercase()
 }
 
-pub async fn download_sqlite_file(config: &Config, ctx: &Context) -> Result<(), String> {
+pub async fn download_sqlite_file(config: &Config, _ctx: &Context) -> Result<(), String> {
     let mut destination_path = config.expected_cache_path();
     std::fs::create_dir_all(&destination_path).unwrap_or_else(|e| {
         println!("{}", e.to_string());
@@ -61,12 +61,13 @@ pub async fn download_sqlite_file(config: &Config, ctx: &Context) -> Result<(), 
     });
 
     if res.status() == reqwest::StatusCode::OK {
-        let mut progress_bar = MappingBar::with_range(0i64, 4_800_001_704);
-        progress_bar.set_len(40);
-        info!(
-            ctx.expect_logger(),
+        let mut progress_bar = MappingBar::with_range(0i64, 5_400_000_000);
+        progress_bar.set_len(60);
+        let mut stdout = std::io::stdout();
+        print!(
             "{}", progress_bar
         );
+        let _ = stdout.flush();
         let mut stream = res.bytes_stream();
         let mut progress = 0;
         while let Some(item) = stream.next().await {
@@ -75,15 +76,20 @@ pub async fn download_sqlite_file(config: &Config, ctx: &Context) -> Result<(), 
             progress_bar.set(progress);
             if progress_bar.has_progressed_significantly() {
                 progress_bar.remember_significant_progress();
-                info!(
-                    ctx.expect_logger(),
-                    "{}", progress_bar
+                print!(
+                    "\r{}", progress_bar
                 );
+                let _ = stdout.flush();
             }
             tx.send_async(chunk.to_vec())
                 .await
                 .map_err(|e| format!("unable to download stacks event: {}", e.to_string()))?;
         }
+        print!(
+            "\r"
+        );
+        let _ = stdout.flush();
+        println!();
         drop(tx);
     }
 
