@@ -148,7 +148,9 @@ impl Config {
             if let Some(dst) = source.tsv_file_path.take() {
                 let mut file_path = PathBuf::new();
                 file_path.push(dst);
-                event_sources.push(EventSourceConfig::OrdinalsSqlitePath(PathConfig { file_path }));
+                event_sources.push(EventSourceConfig::OrdinalsSqlitePath(PathConfig {
+                    file_path,
+                }));
                 continue;
             }
             if let Some(file_url) = source.tsv_file_url.take() {
@@ -228,9 +230,8 @@ impl Config {
     pub fn is_initial_ingestion_required(&self) -> bool {
         for source in self.event_sources.iter() {
             match source {
-                EventSourceConfig::OrdinalsSqlitePath(_) | EventSourceConfig::OrdinalsSqliteUrl(_) => {
-                    return true
-                }
+                EventSourceConfig::OrdinalsSqlitePath(_)
+                | EventSourceConfig::OrdinalsSqliteUrl(_) => return true,
             }
         }
         return false;
@@ -387,11 +388,9 @@ impl Config {
                 working_dir: default_cache_path(),
             },
             http_api: PredicatesApi::Off,
-            event_sources: vec![
-                EventSourceConfig::OrdinalsSqliteUrl(UrlConfig {
-                    file_url: DEFAULT_MAINNET_ORDINALS_SQLITE_ARCHIVE.into(),
-                }),
-            ],
+            event_sources: vec![EventSourceConfig::OrdinalsSqliteUrl(UrlConfig {
+                file_url: DEFAULT_MAINNET_ORDINALS_SQLITE_ARCHIVE.into(),
+            })],
             limits: LimitsConfig {
                 max_number_of_bitcoin_predicates: BITCOIN_MAX_PREDICATE_REGISTRATION,
                 max_number_of_concurrent_bitcoin_scans: BITCOIN_SCAN_THREAD_POOL_SIZE,

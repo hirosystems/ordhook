@@ -7,10 +7,9 @@ use crate::service::Service;
 use crate::db::{
     delete_data_in_hord_db, find_all_inscription_transfers, find_all_inscriptions_in_block,
     find_all_transfers_in_block, find_inscription_with_id, find_last_block_inserted,
-    find_latest_inscription_block_height, find_lazy_block_at_block_height,
-    initialize_hord_db, insert_entry_in_locations,
-    open_readonly_hord_db_conn, open_readonly_hord_db_conn_rocks_db, open_readwrite_hord_db_conn,
-    open_readwrite_hord_db_conn_rocks_db, rebuild_rocks_db,
+    find_latest_inscription_block_height, find_lazy_block_at_block_height, initialize_hord_db,
+    insert_entry_in_locations, open_readonly_hord_db_conn, open_readonly_hord_db_conn_rocks_db,
+    open_readwrite_hord_db_conn, open_readwrite_hord_db_conn_rocks_db, rebuild_rocks_db,
     remove_entries_from_locations_at_block_height, retrieve_satoshi_point_using_lazy_storage,
 };
 use crate::hord::{
@@ -457,7 +456,10 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
 
             if let Some(ref post_to) = cmd.post_to {
                 info!(ctx.expect_logger(), "A fully synchronized bitcoind node is required for retrieving inscriptions content.");
-                info!(ctx.expect_logger(), "Checking {}...", config.network.bitcoind_rpc_url);
+                info!(
+                    ctx.expect_logger(),
+                    "Checking {}...", config.network.bitcoind_rpc_url
+                );
                 let tip = check_bitcoind_connection(&config).await?;
                 if tip < cmd.end_block {
                     error!(ctx.expect_logger(), "Unable to scan block range [{}, {}]: underlying bitcoind synchronized until block {} ", cmd.start_block, cmd.end_block, tip);
@@ -513,7 +515,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                             "Inscriptions revealed: {}, inscriptions transferred: {total_transfers}",
                             inscriptions.len()
                         );
-                        println!("-----");    
+                        println!("-----");
                     }
                 }
             }
@@ -521,6 +523,9 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
         Command::Scan(ScanCommand::Inscription(cmd)) => {
             let config: Config =
                 Config::default(cmd.regtest, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
+            
+            let _ = download_ordinals_dataset_if_required(&config, ctx).await;
+
             let inscriptions_db_conn =
                 open_readonly_hord_db_conn(&config.expected_cache_path(), &ctx)?;
             let (inscription, block_height) =
