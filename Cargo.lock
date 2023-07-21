@@ -451,9 +451,9 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
 name = "chainhook-sdk"
-version = "0.7.5"
+version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7cd20bbd817e66d53e8f01f9a2cf05b65e5228392226451683ae1002fab0fc0e"
+checksum = "e4fcf1ac477e339eb470e0260746bd828930ad52cb44df85b0a3749827a41353"
 dependencies = [
  "base58 0.2.0",
  "base64",
@@ -468,6 +468,7 @@ dependencies = [
  "hex",
  "hiro-system-kit",
  "hyper",
+ "lazy_static",
  "rand 0.8.5",
  "reqwest",
  "rocket",
