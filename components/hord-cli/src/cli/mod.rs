@@ -576,8 +576,6 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
 
                 info!(ctx.expect_logger(), "Starting service...",);
 
-                sleep(std::time::Duration::from_secs(36_000));
-
                 let start_block = match cmd.start_at_block {
                     Some(entry) => entry,
                     None => match last_known_block {
