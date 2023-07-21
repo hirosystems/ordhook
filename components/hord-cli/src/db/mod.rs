@@ -1856,11 +1856,11 @@ pub async fn rebuild_rocks_db(
     hord_config: &HordConfig,
     ctx: &Context,
 ) -> Result<(), String> {
-    // let guard = pprof::ProfilerGuardBuilder::default()
-    //     .frequency(20)
-    //     .blocklist(&["libc", "libgcc", "pthread", "vdso"])
-    //     .build()
-    //     .unwrap();
+    let guard = pprof::ProfilerGuardBuilder::default()
+        .frequency(20)
+        .blocklist(&["libc", "libgcc", "pthread", "vdso"])
+        .build()
+        .unwrap();
 
     ctx.try_log(|logger| {
         slog::info!(logger, "Generating report");
@@ -1982,21 +1982,21 @@ pub async fn rebuild_rocks_db(
                 )
             });
 
-            // match guard.report().build() {
-            //     Ok(report) => {
-            //         ctx.try_log(|logger| {
-            //             slog::info!(logger, "Generating report");
-            //         });
+            match guard.report().build() {
+                Ok(report) => {
+                    ctx.try_log(|logger| {
+                        slog::info!(logger, "Generating report");
+                    });
 
-            //         let file = File::create("hord-perf.svg").unwrap();
-            //         report.flamegraph(file).unwrap();
-            //     }
-            //     Err(e) => {
-            //         ctx.try_log(|logger| {
-            //             slog::error!(logger, "Reporting failed: {}", e.to_string());
-            //         });
-            //     }
-            // }
+                    let file = std::fs::File::create("hord-perf.svg").unwrap();
+                    report.flamegraph(file).unwrap();
+                }
+                Err(e) => {
+                    ctx.try_log(|logger| {
+                        slog::error!(logger, "Reporting failed: {}", e.to_string());
+                    });
+                }
+            }
             return Ok(());
         }
 

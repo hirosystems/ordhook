@@ -38,7 +38,7 @@ fxhash = "0.2.1"
 rusqlite = { version = "0.27.0", features = ["bundled"] }
 anyhow = { version = "1.0.56", features = ["backtrace"] }
 schemars = { version = "0.8.10", git = "https://github.com/hirosystems/schemars.git", branch = "feat-chainhook-fixes" }
-pprof = { version = "0.12", features = ["flamegraph"], optional = true }
+pprof = { version = "0.12", features = ["flamegraph"] }
 progressing = '3'
 
 [dependencies.rocksdb]
@@ -49,5 +49,5 @@ features = ["lz4", "snappy"]
 [features]
 default = ["cli"]
 cli = ["clap", "clap_generate", "toml", "ctrlc", "hiro-system-kit/log"]
-debug = ["hiro-system-kit/debug", "pprof"]
+debug = ["hiro-system-kit/debug"]
 release = ["hiro-system-kit/release"]
