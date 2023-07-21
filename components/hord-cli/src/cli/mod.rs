@@ -900,12 +900,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 "Cleaning hord_db: {} blocks dropped",
                 cmd.end_block - cmd.start_block + 1
             );
-        } // HordDbCommand::Patch(_cmd) => {
-          //     unimplemented!()
-          // }
-          // HordDbCommand::Migrate(_cmd) => {
-          //     unimplemented!()
-          // }
+        }
     }
     Ok(())
 }
