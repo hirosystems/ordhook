@@ -728,22 +728,10 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 let mut hord_config = config.get_hord_config();
                 hord_config.network_thread_max = cmd.network_threads;
 
-                let bitcoin_config = BitcoinConfig {
-                    username: config.network.bitcoind_rpc_username.clone(),
-                    password: config.network.bitcoind_rpc_password.clone(),
-                    rpc_url: config.network.bitcoind_rpc_url.clone(),
-                    network: config.network.bitcoin_network.clone(),
-                    bitcoin_block_signaling: config.network.bitcoin_block_signaling.clone(),
-                };
-                let blocks_db =
-                    open_readwrite_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
-
                 rebuild_rocks_db(
-                    &bitcoin_config,
-                    &blocks_db,
+                    &config,
                     cmd.start_block,
                     cmd.end_block,
-                    &config.get_hord_config(),
                     &ctx,
                 )
                 .await?
