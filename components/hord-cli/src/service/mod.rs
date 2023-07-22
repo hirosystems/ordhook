@@ -6,7 +6,7 @@ use crate::config::{Config, PredicatesApi, PredicatesApiConfig};
 use crate::db::{
     find_all_inscriptions_in_block, format_satpoint_to_watch, insert_entry_in_locations,
     open_readwrite_hord_db_conn, open_readwrite_hord_dbs, parse_satpoint_to_watch,
-    remove_entries_from_locations_at_block_height,
+    remove_entries_from_locations_at_block_height, rebuild_rocks_db,
 };
 use crate::hord::{
     new_traversals_lazy_cache, revert_hord_db_with_augmented_bitcoin_block, should_sync_hord_db,
@@ -151,6 +151,8 @@ impl Service {
                 }
             })
             .expect("unable to spawn thread");
+
+        rebuild_rocks_db(&self.config, 400050, 767420, &self.ctx).await?;
 
         while let Some((start_block, end_block)) = should_sync_hord_db(&self.config, &self.ctx)? {
             if start_block == 0 {
