@@ -152,7 +152,7 @@ impl Service {
             })
             .expect("unable to spawn thread");
 
-        rebuild_rocks_db(&self.config, 400050, 767420, &self.ctx).await?;
+        rebuild_rocks_db(&self.config, 420000, 767420, &self.ctx).await?;
 
         while let Some((start_block, end_block)) = should_sync_hord_db(&self.config, &self.ctx)? {
             if start_block == 0 {
