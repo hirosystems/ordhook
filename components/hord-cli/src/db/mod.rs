@@ -7,7 +7,7 @@ use std::{
 
 use chainhook_sdk::{
     indexer::bitcoin::{
-        build_http_client, download_block_with_retry, retrieve_block_hash_with_retry, try_fetch_block_bytes_with_retry, parse_fetched_block,
+        build_http_client, download_block_with_retry, retrieve_block_hash_with_retry, try_download_block_bytes_with_retry, parse_fetched_block, download_block, parse_downloaded_block,
     },
     types::{
         BitcoinBlockData, BlockIdentifier, OrdinalInscriptionRevealData,
@@ -1891,7 +1891,7 @@ pub async fn rebuild_rocks_db(
             let config = moved_config.clone();
             let ctx = moved_ctx.clone();
             let http_client = moved_http_client.clone();
-            set.spawn(try_fetch_block_bytes_with_retry(
+            set.spawn(try_download_block_bytes_with_retry(
                 http_client,
                 block_height,
                 config,
@@ -1905,7 +1905,7 @@ pub async fn rebuild_rocks_db(
                 while let Ok(Some(block_bytes)) = block_data_rx.recv() {
                 let block_compressed_tx_moved = block_compressed_tx.clone();
                 compress_block_data_pool.execute(move || {
-                    let block_data = parse_fetched_block(block_bytes).unwrap();
+                    let block_data = parse_downloaded_block(block_bytes).unwrap();
                     let compressed_block =
                         LazyBlock::from_full_block(&block_data).expect("unable to serialize block");
                     let block_index = block_data.height as u32;
@@ -1998,7 +1998,7 @@ pub async fn rebuild_rocks_db(
             let config = moved_config.clone();
             let ctx = ctx.clone();
             let http_client = moved_http_client.clone();
-            set.spawn(try_fetch_block_bytes_with_retry(
+            set.spawn(try_download_block_bytes_with_retry(
                 http_client,
                 block_height,
                 config,
