@@ -247,7 +247,7 @@ pub fn get_entry_from_predicates_db(
 ) -> Result<Option<(ChainhookSpecification, PredicateStatus)>, String> {
     let entry: HashMap<String, String> = predicate_db_conn.hgetall(predicate_key).map_err(|e| {
         format!(
-            "unable to load chainhook associated with key {}: {}",
+            "unable to load predicate associated with key {}: {}",
             predicate_key,
             e.to_string()
         )
@@ -288,14 +288,14 @@ pub fn get_entries_from_predicates_db(
             Ok(None) => {
                 warn!(
                     ctx.expect_logger(),
-                    "unable to load chainhook associated with key {}", predicate_key,
+                    "unable to load predicate associated with key {}", predicate_key,
                 );
                 continue;
             }
             Err(e) => {
                 error!(
                     ctx.expect_logger(),
-                    "unable to load chainhook associated with key {}: {}",
+                    "unable to load predicate associated with key {}: {}",
                     predicate_key,
                     e.to_string()
                 );
