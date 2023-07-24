@@ -437,6 +437,10 @@ pub fn update_hord_db_and_augment_bitcoin_block(
             &inner_ctx,
         )?;
 
+    if !any_inscription_revealed && !any_inscription_transferred {
+        return Ok(());
+    }
+
     if discard_changes {
         ctx.try_log(|logger| {
             slog::info!(
@@ -462,22 +466,21 @@ pub fn update_hord_db_and_augment_bitcoin_block(
             )
         });
     }
-    if any_inscription_revealed || any_inscription_transferred {
-        let inscriptions_revealed = get_inscriptions_revealed_in_block(&new_block)
-            .iter()
-            .map(|d| d.inscription_number.to_string())
-            .collect::<Vec<String>>();
 
-        ctx.try_log(|logger| {
-            slog::info!(
-                logger,
-                "Block #{} processed through hord, revealing {} inscriptions [{}]",
-                new_block.block_identifier.index,
-                inscriptions_revealed.len(),
-                inscriptions_revealed.join(", ")
-            )
-        });
-    }
+    let inscriptions_revealed = get_inscriptions_revealed_in_block(&new_block)
+        .iter()
+        .map(|d| d.inscription_number.to_string())
+        .collect::<Vec<String>>();
+
+    ctx.try_log(|logger| {
+        slog::info!(
+            logger,
+            "Block #{} processed through hord, revealing {} inscriptions [{}]",
+            new_block.block_identifier.index,
+            inscriptions_revealed.len(),
+            inscriptions_revealed.join(", ")
+        )
+    });
     Ok(())
 }
 

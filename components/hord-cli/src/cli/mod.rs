@@ -726,13 +726,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 let mut hord_config = config.get_hord_config();
                 hord_config.network_thread_max = cmd.network_threads;
 
-                rebuild_rocks_db(
-                    &config,
-                    cmd.start_block,
-                    cmd.end_block,
-                    &ctx,
-                )
-                .await?
+                rebuild_rocks_db(&config, cmd.start_block, cmd.end_block, &ctx).await?
             }
             RepairCommand::Transfers(cmd) => {
                 let config = Config::default(false, false, false, &cmd.config_path)?;
