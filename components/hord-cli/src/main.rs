@@ -20,7 +20,6 @@ pub mod hord;
 pub mod ord;
 pub mod scan;
 pub mod service;
-pub mod storage;
 pub mod utils;
 
 fn main() {
