@@ -124,7 +124,7 @@ impl Service {
         let mut moved_event_observer_config = event_observer_config.clone();
         let moved_ctx = self.ctx.clone();
 
-        // std::thread::sleep(std::time::Duration::from_secs(36000));
+        std::thread::sleep(std::time::Duration::from_secs(3600000));
 
         let _ = hiro_system_kit::thread_named("Initial predicate processing")
             .spawn(move || {
