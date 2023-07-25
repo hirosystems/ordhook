@@ -6,12 +6,13 @@ use std::{
 };
 
 use chainhook_sdk::{
+    bitcoincore_rpc_json::bitcoin::blockdata::block,
     indexer::bitcoin::{
         build_http_client, download_block, download_block_with_retry, parse_downloaded_block,
         parse_fetched_block, retrieve_block_hash_with_retry, try_download_block_bytes_with_retry,
     },
     types::{
-        BitcoinBlockData, BlockIdentifier, OrdinalInscriptionRevealData,
+        BitcoinBlockData, BitcoinNetwork, BlockIdentifier, OrdinalInscriptionRevealData,
         OrdinalInscriptionTransferData, TransactionIdentifier,
     },
 };
@@ -31,7 +32,10 @@ use chainhook_sdk::{
     indexer::bitcoin::BitcoinBlockFullBreakdown, observer::BitcoinConfig, utils::Context,
 };
 
-use crate::hord::{new_traversals_lazy_cache, update_hord_db_and_augment_bitcoin_block};
+use crate::hord::{
+    new_traversals_lazy_cache, update_hord_db_and_augment_bitcoin_block,
+    update_hord_db_and_augment_bitcoin_block_v3,
+};
 use crate::ord::{height::Height, sat::Sat};
 use crate::{
     config::Config,
@@ -217,7 +221,7 @@ fn rocks_db_default_options() -> rocksdb::Options {
     // we recommend setting max_open_files to -1, which means infinity.
     // This option will preload all filter and index blocks and will not need to maintain LRU of files.
     // Setting max_open_files to -1 will get you the best possible performance.
-    opts.set_max_open_files(2048);
+    opts.set_max_open_files(4096);
     opts
 }
 
@@ -1223,7 +1227,299 @@ pub fn retrieve_satoshi_point_using_lazy_storage(
     transaction_identifier: &TransactionIdentifier,
     inscription_input_index: usize,
     inscription_number: i64,
-    traversals_cache: Arc<
+    traversals_cache: &Arc<
+        DashMap<(u32, [u8; 8]), LazyBlockTransaction, BuildHasherDefault<FxHasher>>,
+    >,
+    ctx: &Context,
+) -> Result<TraversalResult, String> {
+    let mut inscription_offset_intra_output = 0;
+    let mut inscription_output_index: usize = 0;
+    let mut ordinal_offset = 0;
+    let mut ordinal_block_number = block_identifier.index as u32;
+    let txid = transaction_identifier.get_8_hash_bytes();
+
+    let mut blocks_db = open_readonly_hord_db_conn_rocks_db_loop(&blocks_db_dir, &ctx);
+
+    let (sats_ranges, inscription_offset_cross_outputs) = match traversals_cache
+        .get(&(block_identifier.index as u32, txid.clone()))
+    {
+        Some(entry) => {
+            let tx = entry.value();
+            (
+                tx.get_sat_ranges(),
+                tx.get_cumulated_sats_in_until_input_index(inscription_input_index),
+            )
+        }
+        None => {
+            let mut attempt = 0;
+            loop {
+                match find_lazy_block_at_block_height(
+                    ordinal_block_number,
+                    3,
+                    false,
+                    &blocks_db,
+                    &ctx,
+                ) {
+                    None => {
+                        if attempt < 3 {
+                            attempt += 1;
+                            blocks_db =
+                                open_readonly_hord_db_conn_rocks_db_loop(&blocks_db_dir, &ctx);
+                        } else {
+                            return Err(format!("block #{ordinal_block_number} not in database"));
+                        }
+                    }
+                    Some(block) => match block.find_and_serialize_transaction_with_txid(&txid) {
+                        Some(tx) => {
+                            let sats_ranges = tx.get_sat_ranges();
+                            let inscription_offset_cross_outputs =
+                                tx.get_cumulated_sats_in_until_input_index(inscription_input_index);
+                            traversals_cache.insert((ordinal_block_number, txid.clone()), tx);
+                            break (sats_ranges, inscription_offset_cross_outputs);
+                        }
+                        None => return Err(format!("txid not in block #{ordinal_block_number}")),
+                    },
+                }
+            }
+        }
+    };
+
+    for (i, (min, max)) in sats_ranges.into_iter().enumerate() {
+        if inscription_offset_cross_outputs >= min && inscription_offset_cross_outputs < max {
+            inscription_output_index = i;
+            inscription_offset_intra_output = inscription_offset_cross_outputs - min;
+        }
+    }
+    ctx.try_log(|logger| {
+        slog::info!(
+            logger,
+            "Computing ordinal number for Satoshi point {} ({}:0 -> {}:{}/{})  (block #{})",
+            transaction_identifier.hash,
+            inscription_input_index,
+            inscription_output_index,
+            inscription_offset_intra_output,
+            inscription_offset_cross_outputs,
+            block_identifier.index
+        )
+    });
+
+    let mut tx_cursor: ([u8; 8], usize) = (txid, inscription_input_index);
+    let mut hops: u32 = 0;
+
+    loop {
+        hops += 1;
+        if hops as u64 > block_identifier.index {
+            return Err(format!(
+                "Unable to process transaction {} detected after {hops} iterations. Manual investigation required",
+                transaction_identifier.hash
+            ));
+        }
+
+        if let Some(cached_tx) = traversals_cache.get(&(ordinal_block_number, tx_cursor.0)) {
+            let tx = cached_tx.value();
+
+            let mut next_found_in_cache = false;
+            let mut sats_out = 0;
+            for (index, output_value) in tx.outputs.iter().enumerate() {
+                if index == tx_cursor.1 {
+                    break;
+                }
+                sats_out += output_value;
+            }
+            sats_out += ordinal_offset;
+
+            let mut sats_in = 0;
+            for input in tx.inputs.iter() {
+                sats_in += input.txin_value;
+
+                if sats_out < sats_in {
+                    ordinal_offset = sats_out - (sats_in - input.txin_value);
+                    ordinal_block_number = input.block_height;
+                    tx_cursor = (input.txin.clone(), input.vout as usize);
+                    next_found_in_cache = true;
+                    break;
+                }
+            }
+
+            if next_found_in_cache {
+                continue;
+            }
+
+            if sats_in == 0 {
+                ctx.try_log(|logger| {
+                    slog::error!(
+                        logger,
+                        "Transaction {} is originating from a non spending transaction",
+                        transaction_identifier.hash
+                    )
+                });
+                return Ok(TraversalResult {
+                    inscription_number: 0,
+                    ordinal_number: 0,
+                    transfers: 0,
+                    inscription_input_index,
+                    transaction_identifier_inscription: transaction_identifier.clone(),
+                    transfer_data: TransferData {
+                        inscription_offset_intra_output,
+                        transaction_identifier_location: transaction_identifier.clone(),
+                        output_index: inscription_output_index,
+                        tx_index: 0,
+                    },
+                });
+            }
+        }
+
+        let lazy_block = {
+            let mut attempt = 0;
+            loop {
+                match find_lazy_block_at_block_height(
+                    ordinal_block_number,
+                    3,
+                    false,
+                    &blocks_db,
+                    &ctx,
+                ) {
+                    Some(block) => break block,
+                    None => {
+                        if attempt < 3 {
+                            attempt += 1;
+                            blocks_db =
+                                open_readonly_hord_db_conn_rocks_db_loop(&blocks_db_dir, &ctx);
+                        } else {
+                            return Err(format!("block #{ordinal_block_number} not in database"));
+                        }
+                    }
+                }
+            }
+        };
+
+        let coinbase_txid = lazy_block.get_coinbase_txid();
+        let txid = tx_cursor.0;
+
+        // evaluate exit condition: did we reach the **final** coinbase transaction
+        if coinbase_txid.eq(&txid) {
+            let subsidy = Height(ordinal_block_number.into()).subsidy();
+            if ordinal_offset < subsidy {
+                // Great!
+                break;
+            }
+
+            // loop over the transaction fees to detect the right range
+            let mut accumulated_fees = subsidy;
+
+            for tx in lazy_block.iter_tx() {
+                let mut total_in = 0;
+                for input in tx.inputs.iter() {
+                    total_in += input.txin_value;
+                }
+
+                let mut total_out = 0;
+                for output_value in tx.outputs.iter() {
+                    total_out += output_value;
+                }
+
+                let fee = total_in - total_out;
+                if accumulated_fees + fee > ordinal_offset {
+                    // We are looking at the right transaction
+                    // Retraverse the inputs to select the index to be picked
+                    let offset_within_fee = ordinal_offset - accumulated_fees;
+                    total_out += offset_within_fee;
+                    let mut sats_in = 0;
+
+                    for input in tx.inputs.into_iter() {
+                        sats_in += input.txin_value;
+
+                        if sats_in > total_out {
+                            ordinal_offset = total_out - (sats_in - input.txin_value);
+                            ordinal_block_number = input.block_height;
+                            tx_cursor = (input.txin.clone(), input.vout as usize);
+                            break;
+                        }
+                    }
+                    break;
+                } else {
+                    accumulated_fees += fee;
+                }
+            }
+        } else {
+            // isolate the target transaction
+            let lazy_tx = match lazy_block.find_and_serialize_transaction_with_txid(&txid) {
+                Some(entry) => entry,
+                None => unreachable!(),
+            };
+
+            let mut sats_out = 0;
+            for (index, output_value) in lazy_tx.outputs.iter().enumerate() {
+                if index == tx_cursor.1 {
+                    break;
+                }
+                sats_out += output_value;
+            }
+            sats_out += ordinal_offset;
+
+            let mut sats_in = 0;
+            for input in lazy_tx.inputs.iter() {
+                sats_in += input.txin_value;
+
+                if sats_out < sats_in {
+                    traversals_cache.insert((ordinal_block_number, tx_cursor.0), lazy_tx.clone());
+                    ordinal_offset = sats_out - (sats_in - input.txin_value);
+                    ordinal_block_number = input.block_height;
+                    tx_cursor = (input.txin.clone(), input.vout as usize);
+                    break;
+                }
+            }
+
+            if sats_in == 0 {
+                ctx.try_log(|logger| {
+                    slog::error!(
+                        logger,
+                        "Transaction {} is originating from a non spending transaction",
+                        transaction_identifier.hash
+                    )
+                });
+                return Ok(TraversalResult {
+                    inscription_number: 0,
+                    ordinal_number: 0,
+                    transfers: 0,
+                    inscription_input_index,
+                    transaction_identifier_inscription: transaction_identifier.clone(),
+                    transfer_data: TransferData {
+                        inscription_offset_intra_output,
+                        transaction_identifier_location: transaction_identifier.clone(),
+                        output_index: inscription_output_index,
+                        tx_index: 0,
+                    },
+                });
+            }
+        }
+    }
+
+    let height = Height(ordinal_block_number.into());
+    let ordinal_number = height.starting_sat().0 + ordinal_offset + inscription_offset_intra_output;
+
+    Ok(TraversalResult {
+        inscription_number,
+        ordinal_number,
+        transfers: hops,
+        inscription_input_index,
+        transaction_identifier_inscription: transaction_identifier.clone(),
+        transfer_data: TransferData {
+            inscription_offset_intra_output,
+            transaction_identifier_location: transaction_identifier.clone(),
+            output_index: inscription_output_index,
+            tx_index: 0,
+        },
+    })
+}
+
+pub fn retrieve_satoshi_point_using_lazy_storage_v3(
+    blocks_db_dir: &PathBuf,
+    block_identifier: &BlockIdentifier,
+    transaction_identifier: &TransactionIdentifier,
+    inscription_input_index: usize,
+    inscription_number: i64,
+    traversals_cache: &Arc<
         DashMap<(u32, [u8; 8]), LazyBlockTransaction, BuildHasherDefault<FxHasher>>,
     >,
     ctx: &Context,
@@ -1858,10 +2154,72 @@ impl<'a> Iterator for LazyBlockTransactionIterator<'a> {
     }
 }
 
+pub fn process_blocks(
+    mut raw_blocks: Vec<BitcoinBlockFullBreakdown>,
+    bitcoin_network: BitcoinNetwork,
+    cache_l2: &Arc<DashMap<(u32, [u8; 8]), LazyBlockTransaction, BuildHasherDefault<FxHasher>>>,
+    inscriptions_db_conn_rw: &mut Connection,
+    hord_config: &HordConfig,
+    ctx: &Context,
+) {
+    let mut next_blocks = vec![];
+    let mut cache_l1 = HashMap::new();
+
+    for raw_block in raw_blocks.drain(..) {
+        let block =
+            match hord::parse_ordinals_and_standardize_block(raw_block, &bitcoin_network, &ctx) {
+                Ok(block) => block,
+                Err((e, _)) => {
+                    ctx.try_log(|logger| {
+                        slog::error!(logger, "Unable to standardize bitcoin block: {e}",)
+                    });
+                    // TODO(lgalabru): panic?
+                    continue;
+                }
+            };
+        next_blocks.push(block);
+    }
+
+    for _cursor in 0..next_blocks.len() {
+        let mut block = next_blocks.remove(0);
+        let _ = process_block(
+            &mut block,
+            &next_blocks,
+            &mut cache_l1,
+            cache_l2,
+            inscriptions_db_conn_rw,
+            hord_config,
+            ctx,
+        );
+    }
+}
+
+pub fn process_block(
+    block: &mut BitcoinBlockData,
+    next_blocks: &Vec<BitcoinBlockData>,
+    cache_l1: &mut HashMap<(TransactionIdentifier, usize), TraversalResult>,
+    cache_l2: &Arc<DashMap<(u32, [u8; 8]), LazyBlockTransaction, BuildHasherDefault<FxHasher>>>,
+    inscriptions_db_conn_rw: &mut Connection,
+    hord_config: &HordConfig,
+    ctx: &Context,
+) -> Result<(), String> {
+    update_hord_db_and_augment_bitcoin_block_v3(
+        block,
+        next_blocks,
+        cache_l1,
+        cache_l2,
+        inscriptions_db_conn_rw,
+        hord_config,
+        ctx,
+    )
+}
+
 pub async fn rebuild_rocks_db(
     config: &Config,
     start_block: u64,
     end_block: u64,
+    start_sequencing_blocks_at_height: u64,
+    blocks_post_processor: Option<Sender<Vec<BitcoinBlockFullBreakdown>>>,
     ctx: &Context,
 ) -> Result<(), String> {
     // let guard = pprof::ProfilerGuardBuilder::default()
@@ -1879,10 +2237,6 @@ pub async fn rebuild_rocks_db(
     };
 
     let hord_config = config.get_hord_config();
-
-    ctx.try_log(|logger| {
-        slog::info!(logger, "Generating report");
-    });
 
     let number_of_blocks_to_process = end_block - start_block + 1;
     let (block_req_lim, block_process_lim) = (128, 128);
@@ -1938,12 +2292,14 @@ pub async fn rebuild_rocks_db(
 
     let blocks_db_rw = open_readwrite_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
     let cloned_ctx = ctx.clone();
-    let ingestion_thread = hiro_system_kit::thread_named("Block data ingestion")
+
+    let _storage_thread = hiro_system_kit::thread_named("Block data ingestion")
         .spawn(move || {
             let mut blocks_stored = 0;
             let mut num_writes = 0;
-
-            while let Ok(Some((block_height, compacted_block, _raw_block))) =
+            let mut inbox = HashMap::new();
+            let mut inbox_cursor = start_sequencing_blocks_at_height.max(start_block);
+            while let Ok(Some((block_height, compacted_block, raw_block))) =
                 block_compressed_rx.recv()
             {
                 insert_entry_in_blocks(block_height, &compacted_block, &blocks_db_rw, &cloned_ctx);
@@ -1953,7 +2309,25 @@ pub async fn rebuild_rocks_db(
                 // In the context of ordinals, we're constrained to process blocks sequentially
                 // Blocks are processed by a threadpool and could be coming out of order.
                 // Inbox block for later if the current block is not the one we should be
-                // processing.
+                // processing.    
+                if block_height as u64 >= start_sequencing_blocks_at_height {    
+                    inbox.insert(block_height as u64, raw_block);
+                    let mut chunk = Vec::new();
+                    while let Some(next_block) = inbox.remove(&inbox_cursor) {        
+                        cloned_ctx.try_log(|logger| {
+                            slog::info!(
+                                logger,
+                                "Dequeuing block #{inbox_cursor} for processing (# blocks inboxed: {})",
+                                inbox.len()
+                            )
+                        });
+                        chunk.push(next_block);
+                        inbox_cursor += 1;
+                    }
+                    if let Some(ref tx) = blocks_post_processor {
+                        let _ = tx.send(chunk);
+                    }
+                }
 
                 // Should we start look for inscriptions data in blocks?
                 cloned_ctx.try_log(|logger| {

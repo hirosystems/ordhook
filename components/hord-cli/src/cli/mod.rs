@@ -1,6 +1,7 @@
 use crate::archive::download_ordinals_dataset_if_required;
 use crate::config::generator::generate_config;
 use crate::config::Config;
+use crate::hord::ordinals::start_ordinals_number_processor;
 use crate::scan::bitcoin::scan_bitcoin_chainstate_via_rpc_using_predicate;
 use crate::service::Service;
 
@@ -155,15 +156,18 @@ struct ScanInscriptionCommand {
 #[derive(Subcommand, PartialEq, Clone, Debug)]
 enum RepairCommand {
     /// Rewrite blocks hord db
-    #[clap(name = "blocks", bin_name = "blocks")]
-    Blocks(RepairBlocksCommand),
+    #[clap(name = "rocksdb", bin_name = "rocksdb")]
+    Rocksdb(RepairStorageCommand),
+    /// Rewrite blocks hord db
+    #[clap(name = "sqlite", bin_name = "sqlite")]
+    Sqlite(RepairStorageCommand),
     /// Rewrite blocks hord db
     #[clap(name = "transfers", bin_name = "transfers")]
     Transfers(RepairTransfersCommand),
 }
 
 #[derive(Parser, PartialEq, Clone, Debug)]
-struct RepairBlocksCommand {
+struct RepairStorageCommand {
     /// Starting block
     pub start_block: u64,
     /// Starting block
@@ -655,7 +659,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                         &transaction_identifier,
                         0,
                         0,
-                        Arc::new(traversals_cache),
+                        &Arc::new(traversals_cache),
                         &ctx,
                     )?;
                     info!(
@@ -721,12 +725,39 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
             }
         }
         Command::Repair(subcmd) => match subcmd {
-            RepairCommand::Blocks(cmd) => {
+            RepairCommand::Rocksdb(cmd) => {
                 let config = Config::default(false, false, false, &cmd.config_path)?;
                 let mut hord_config = config.get_hord_config();
                 hord_config.network_thread_max = cmd.network_threads;
 
-                rebuild_rocks_db(&config, cmd.start_block, cmd.end_block, &ctx).await?
+                rebuild_rocks_db(
+                    &config,
+                    cmd.start_block,
+                    cmd.end_block,
+                    hord_config.first_inscription_height,
+                    None,
+                    &ctx,
+                )
+                .await?
+            }
+            RepairCommand::Sqlite(cmd) => {
+                let config = Config::default(false, false, false, &cmd.config_path)?;
+                let mut hord_config = config.get_hord_config();
+                hord_config.network_thread_max = cmd.network_threads;
+
+                let (tx, handle) = start_ordinals_number_processor(&config, ctx);
+
+                rebuild_rocks_db(
+                    &config,
+                    cmd.start_block,
+                    cmd.end_block,
+                    hord_config.first_inscription_height,
+                    Some(tx),
+                    &ctx,
+                )
+                .await?;
+
+                let _ = handle.join();
             }
             RepairCommand::Transfers(cmd) => {
                 let config = Config::default(false, false, false, &cmd.config_path)?;

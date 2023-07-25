@@ -35,6 +35,7 @@ use crate::db::{
     find_inscription_with_ordinal_number, find_inscriptions_at_wached_outpoint,
     get_any_entry_in_ordinal_activities, insert_entry_in_blocks, insert_entry_in_inscriptions,
     insert_transfer_in_locations_tx, retrieve_satoshi_point_using_lazy_storage,
+    retrieve_satoshi_point_using_lazy_storage_v3,
 };
 use crate::ord::height::Height;
 
@@ -321,7 +322,7 @@ pub fn retrieve_inscribed_satoshi_points_from_block(
                     &transaction_id,
                     input_index,
                     0,
-                    local_cache,
+                    &local_cache,
                     &moved_ctx,
                 );
                 let _ = moved_traversal_tx.send(traversal);
@@ -1095,6 +1096,279 @@ fn test_ordinal_inscription_parsing() {
     println!("{:?}", inscription);
 }
 
+pub fn get_transactions_to_process(
+    block: &BitcoinBlockData,
+    cache_l1: &mut HashMap<(TransactionIdentifier, usize), TraversalResult>,
+    inscriptions_db_conn: &mut Connection,
+    ctx: &Context,
+) -> Vec<(TransactionIdentifier, usize)> {
+    let mut transactions_ids: Vec<(TransactionIdentifier, usize)> = vec![];
+
+    for tx in block.transactions.iter().skip(1) {
+        // Have a new inscription been revealed, if so, are looking at a re-inscription
+        for ordinal_event in tx.metadata.ordinal_operations.iter() {
+            let (inscription_data, _is_cursed) = match ordinal_event {
+                OrdinalOperation::InscriptionRevealed(inscription_data) => {
+                    (inscription_data, false)
+                }
+                OrdinalOperation::CursedInscriptionRevealed(inscription_data) => {
+                    (inscription_data, false)
+                }
+                OrdinalOperation::InscriptionTransferred(_) => {
+                    continue;
+                }
+            };
+
+            if cache_l1.contains_key(&(
+                tx.transaction_identifier.clone(),
+                inscription_data.inscription_input_index,
+            )) {
+                continue;
+            }
+
+            if let Ok(Some((traversal, _))) = find_inscription_with_id(
+                &inscription_data.inscription_id,
+                &inscriptions_db_conn,
+                ctx,
+            ) {
+                cache_l1.insert(
+                    (
+                        tx.transaction_identifier.clone(),
+                        inscription_data.inscription_input_index,
+                    ),
+                    traversal,
+                );
+            } else {
+                // Enqueue for traversals
+                transactions_ids.push((
+                    tx.transaction_identifier.clone(),
+                    inscription_data.inscription_input_index,
+                ));
+            }
+        }
+    }
+    transactions_ids
+}
+
+pub fn retrieve_inscribed_satoshi_points_from_block_v3(
+    block: &BitcoinBlockData,
+    next_blocks: &Vec<BitcoinBlockData>,
+    cache_l1: &mut HashMap<(TransactionIdentifier, usize), TraversalResult>,
+    cache_l2: &Arc<DashMap<(u32, [u8; 8]), LazyBlockTransaction, BuildHasherDefault<FxHasher>>>,
+    inscriptions_db_conn: &mut Connection,
+    hord_config: &HordConfig,
+    ctx: &Context,
+) -> Result<(), String> {
+    let mut transactions_ids =
+        get_transactions_to_process(block, cache_l1, inscriptions_db_conn, ctx);
+
+    if !transactions_ids.is_empty() {
+        let expected_traversals = transactions_ids.len();
+        let (traversal_tx, traversal_rx) = channel();
+        let traversal_data_pool = ThreadPool::new(hord_config.ingestion_thread_max);
+
+        let mut tx_thread_pool = vec![];
+        for thread_index in 0..hord_config.ingestion_thread_max {
+            let (tx, rx) = channel();
+            tx_thread_pool.push(tx);
+
+            let moved_traversal_tx = traversal_tx.clone();
+            let moved_ctx = ctx.clone();
+            let block_identifier = block.block_identifier.clone();
+            let moved_hord_db_path = hord_config.db_path.clone();
+            let local_cache = cache_l2.clone();
+
+            traversal_data_pool.execute(move || {
+                while let Ok(Some((transaction_id, input_index, prioritary))) = rx.recv() {
+                    let traversal: Result<TraversalResult, String> =
+                        retrieve_satoshi_point_using_lazy_storage_v3(
+                            &moved_hord_db_path,
+                            &block_identifier,
+                            &transaction_id,
+                            input_index,
+                            0,
+                            &local_cache,
+                            &moved_ctx,
+                        );
+                    let _ = moved_traversal_tx.send((traversal, prioritary, thread_index));
+                }
+            });
+        }
+
+        let mut rng = thread_rng();
+        transactions_ids.shuffle(&mut rng);
+        let mut priority_queue = VecDeque::new();
+        let mut warmup_queue = VecDeque::new();
+
+        for (transaction_id, input_index) in transactions_ids.into_iter() {
+            priority_queue.push_back((transaction_id, input_index, true));
+        }
+
+        // Feed each workers with 2 workitems each
+        for thread_index in 0..hord_config.ingestion_thread_max {
+            let _ = tx_thread_pool[thread_index].send(priority_queue.pop_front());
+        }
+        for thread_index in 0..hord_config.ingestion_thread_max {
+            let _ = tx_thread_pool[thread_index].send(priority_queue.pop_front());
+        }
+
+        let mut next_block_iter = next_blocks.iter();
+        let mut traversals_received = 0;
+        while let Ok((traversal_result, prioritary, thread_index)) = traversal_rx.recv() {
+            if prioritary {
+                traversals_received += 1;
+            }
+            match traversal_result {
+                Ok(traversal) => {
+                    ctx.try_log(|logger| {
+                        slog::info!(
+                            logger,
+                            "Satoshi #{} was minted in block #{} at offset {} and was transferred {} times (progress: {traversals_received}/{expected_traversals}).",
+                            traversal.ordinal_number, traversal.get_ordinal_coinbase_height(), traversal.get_ordinal_coinbase_offset(), traversal.transfers
+                            )
+                    });
+                    cache_l1.insert(
+                        (
+                            traversal.transaction_identifier_inscription.clone(),
+                            traversal.inscription_input_index,
+                        ),
+                        traversal,
+                    );
+                }
+                Err(e) => {
+                    ctx.try_log(|logger| {
+                        slog::error!(logger, "Unable to compute inscription's Satoshi: {e}",)
+                    });
+                }
+            }
+            if traversals_received == expected_traversals {
+                break;
+            }
+
+            if let Some(w) = priority_queue.pop_front() {
+                let _ = tx_thread_pool[thread_index].send(Some(w));
+            } else {
+                if let Some(w) = warmup_queue.pop_front() {
+                    let _ = tx_thread_pool[thread_index].send(Some(w));
+                } else {
+                    if let Some(block) = next_block_iter.next() {
+                        let mut transactions_ids =
+                            get_transactions_to_process(block, cache_l1, inscriptions_db_conn, ctx);
+                        transactions_ids.shuffle(&mut rng);
+                        for (transaction_id, input_index) in transactions_ids.into_iter() {
+                            warmup_queue.push_back((transaction_id, input_index, false));
+                        }
+                        let _ = tx_thread_pool[thread_index].send(warmup_queue.pop_front());
+                    }
+                }
+            }
+        }
+        for thread_index in 0..hord_config.ingestion_thread_max {
+            let _ = tx_thread_pool[thread_index].send(None);
+        }
+
+        let _ = hiro_system_kit::thread_named("Block data compression").spawn(move || {
+            let _ = traversal_data_pool.join();
+        });
+    }
+    Ok(())
+}
+
+pub fn update_hord_db_and_augment_bitcoin_block_v3(
+    new_block: &mut BitcoinBlockData,
+    next_blocks: &Vec<BitcoinBlockData>,
+    cache_l1: &mut HashMap<(TransactionIdentifier, usize), TraversalResult>,
+    cache_l2: &Arc<DashMap<(u32, [u8; 8]), LazyBlockTransaction, BuildHasherDefault<FxHasher>>>,
+    inscriptions_db_conn_rw: &mut Connection,
+    hord_config: &HordConfig,
+    ctx: &Context,
+) -> Result<(), String> {
+    let _ = retrieve_inscribed_satoshi_points_from_block_v3(
+        &new_block,
+        &next_blocks,
+        cache_l1,
+        cache_l2,
+        inscriptions_db_conn_rw,
+        &hord_config,
+        ctx,
+    );
+
+    let discard_changes: bool = get_any_entry_in_ordinal_activities(
+        &new_block.block_identifier.index,
+        inscriptions_db_conn_rw,
+        ctx,
+    );
+
+    let inner_ctx = if discard_changes {
+        Context::empty()
+    } else {
+        ctx.clone()
+    };
+
+    let transaction = inscriptions_db_conn_rw.transaction().unwrap();
+    let any_inscription_revealed =
+        update_storage_and_augment_bitcoin_block_with_inscription_reveal_data_tx(
+            new_block,
+            &transaction,
+            &cache_l1,
+            &inner_ctx,
+        )?;
+
+    // Have inscriptions been transfered?
+    let any_inscription_transferred =
+        update_storage_and_augment_bitcoin_block_with_inscription_transfer_data_tx(
+            new_block,
+            &transaction,
+            &inner_ctx,
+        )?;
+
+    if !any_inscription_revealed && !any_inscription_transferred {
+        return Ok(());
+    }
+
+    if discard_changes {
+        ctx.try_log(|logger| {
+            slog::info!(
+                logger,
+                "Ignoring updates for block #{}, activities present in database",
+                new_block.block_identifier.index,
+            )
+        });
+    } else {
+        ctx.try_log(|logger| {
+            slog::info!(
+                logger,
+                "Saving updates for block {}",
+                new_block.block_identifier.index,
+            )
+        });
+        transaction.commit().unwrap();
+        ctx.try_log(|logger| {
+            slog::info!(
+                logger,
+                "Updates saved for block {}",
+                new_block.block_identifier.index,
+            )
+        });
+    }
+
+    let inscriptions_revealed = get_inscriptions_revealed_in_block(&new_block)
+        .iter()
+        .map(|d| d.inscription_number.to_string())
+        .collect::<Vec<String>>();
+
+    ctx.try_log(|logger| {
+        slog::info!(
+            logger,
+            "Block #{} processed through hord, revealing {} inscriptions [{}]",
+            new_block.block_identifier.index,
+            inscriptions_revealed.len(),
+            inscriptions_revealed.join(", ")
+        )
+    });
+    Ok(())
+}
+
 pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data_tx(
     block: &mut BitcoinBlockData,
     hord_db_tx: &Transaction,
@@ -1260,7 +1534,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data_t
 pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data_tx(
     block: &mut BitcoinBlockData,
     transaction: &Transaction,
-    traversals: &HashMap<(TransactionIdentifier, usize), TraversalResult>,
+    cache_l1: &HashMap<(TransactionIdentifier, usize), TraversalResult>,
     ctx: &Context,
 ) -> Result<bool, String> {
     let mut storage_updated = false;
@@ -1309,7 +1583,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data_tx(
             };
 
             let transaction_identifier = new_tx.transaction_identifier.clone();
-            let traversal = match traversals
+            let traversal = match cache_l1
                 .get(&(transaction_identifier, inscription.inscription_input_index))
             {
                 Some(traversal) => traversal,
