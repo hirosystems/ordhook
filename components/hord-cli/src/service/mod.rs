@@ -25,7 +25,9 @@ use chainhook_sdk::chainhooks::types::{
 };
 
 use chainhook_sdk::indexer::bitcoin::build_http_client;
-use chainhook_sdk::observer::{start_event_observer, BitcoinConfig, ObserverEvent};
+use chainhook_sdk::observer::{
+    start_event_observer, BitcoinConfig, EventObserverConfig, ObserverEvent,
+};
 use chainhook_sdk::types::{
     BitcoinBlockData, BitcoinChainEvent, BitcoinNetwork, OrdinalInscriptionTransferData,
     OrdinalOperation,
@@ -35,7 +37,7 @@ use hiro_system_kit::slog;
 use redis::{Commands, Connection};
 
 use std::collections::BTreeMap;
-use std::sync::mpsc::channel;
+use std::sync::mpsc::{channel, Sender};
 use std::sync::Arc;
 
 pub struct Service {
@@ -49,138 +51,52 @@ impl Service {
     }
 
     pub async fn run(&mut self, predicates: Vec<ChainhookFullSpecification>) -> Result<(), String> {
-        let mut chainhook_config = ChainhookConfig::new();
-
-        // If no predicates passed at launch, retrieve predicates from Redis
-        if predicates.is_empty() && self.config.is_http_api_enabled() {
-            let registered_predicates = match load_predicates_from_redis(&self.config, &self.ctx) {
-                Ok(predicates) => predicates,
-                Err(e) => {
-                    error!(
-                        self.ctx.expect_logger(),
-                        "Failed loading predicate from storage: {}",
-                        e.to_string()
-                    );
-                    vec![]
-                }
-            };
-            for (predicate, _status) in registered_predicates.into_iter() {
-                let predicate_uuid = predicate.uuid().to_string();
-                match chainhook_config.register_specification(predicate) {
-                    Ok(_) => {
-                        info!(
-                            self.ctx.expect_logger(),
-                            "Predicate {} retrieved from storage and loaded", predicate_uuid,
-                        );
-                    }
-                    Err(e) => {
-                        error!(
-                            self.ctx.expect_logger(),
-                            "Failed loading predicate from storage: {}",
-                            e.to_string()
-                        );
-                    }
-                }
-            }
-        }
-
-        // For each predicate found, register in memory.
-        for predicate in predicates.into_iter() {
-            match chainhook_config.register_full_specification(
-                (
-                    &self.config.network.bitcoin_network,
-                    &self.config.network.stacks_network,
-                ),
-                predicate,
-            ) {
-                Ok(spec) => {
-                    info!(
-                        self.ctx.expect_logger(),
-                        "Predicate {} retrieved from config and loaded",
-                        spec.uuid(),
-                    );
-                }
-                Err(e) => {
-                    error!(
-                        self.ctx.expect_logger(),
-                        "Failed loading predicate from config: {}",
-                        e.to_string()
-                    );
-                }
-            }
-        }
-
-        let (observer_command_tx, observer_command_rx) = channel();
-        let (observer_event_tx, observer_event_rx) = crossbeam_channel::unbounded();
-        // let (ordinal_indexer_command_tx, ordinal_indexer_command_rx) = channel();
-
         let mut event_observer_config = self.config.get_event_observer_config();
+        let chainhook_config = create_and_consolidate_chainhook_config_with_predicates(
+            predicates,
+            &self.config,
+            &self.ctx,
+        );
         event_observer_config.chainhook_config = Some(chainhook_config);
 
         let hord_config = self.config.get_hord_config();
 
-        let (tx, rx) = channel();
-
-        let mut moved_event_observer_config = event_observer_config.clone();
-        let moved_ctx = self.ctx.clone();
-
         std::thread::sleep(std::time::Duration::from_secs(3600000));
-
-        let _ = hiro_system_kit::thread_named("Initial predicate processing")
-            .spawn(move || {
-                if let Some(mut chainhook_config) =
-                    moved_event_observer_config.chainhook_config.take()
-                {
-                    let mut bitcoin_predicates_ref: Vec<&BitcoinChainhookSpecification> = vec![];
-                    for bitcoin_predicate in chainhook_config.bitcoin_chainhooks.iter_mut() {
-                        bitcoin_predicate.enabled = false;
-                        bitcoin_predicates_ref.push(bitcoin_predicate);
-                    }
-                    while let Ok(block) = rx.recv() {
-                        let future = process_block_with_predicates(
-                            block,
-                            &bitcoin_predicates_ref,
-                            &moved_event_observer_config,
-                            &moved_ctx,
-                        );
-                        let res = hiro_system_kit::nestable_block_on(future);
-                        if let Err(_) = res {
-                            error!(moved_ctx.expect_logger(), "Initial ingestion failing");
-                        }
-                    }
-                }
-            })
-            .expect("unable to spawn thread");
-
         // rebuild_rocks_db(&self.config, 420000, 767420, &self.ctx).await?;
 
-        while let Some((start_block, end_block)) = should_sync_hord_db(&self.config, &self.ctx)? {
-            if start_block == 0 {
-                info!(
-                    self.ctx.expect_logger(),
-                    "Initializing hord indexing from block #{}", start_block
-                );
-            } else {
-                info!(
-                    self.ctx.expect_logger(),
-                    "Resuming hord indexing from block #{}", start_block
-                );
-            }
+        // Catch-up with chain tip
+        {
+            // Start predicate processor
+            let tx = start_predicate_processor(&event_observer_config, &self.ctx);
 
-            crate::hord::perform_hord_db_update(
-                start_block,
-                end_block,
-                &self.config.get_hord_config(),
-                &self.config,
-                Some(tx.clone()),
-                &self.ctx,
-            )
-            .await?;
+            while let Some((start_block, end_block)) = should_sync_hord_db(&self.config, &self.ctx)?
+            {
+                if start_block == 0 {
+                    info!(
+                        self.ctx.expect_logger(),
+                        "Initializing hord indexing from block #{}", start_block
+                    );
+                } else {
+                    info!(
+                        self.ctx.expect_logger(),
+                        "Resuming hord indexing from block #{}", start_block
+                    );
+                }
+
+                crate::hord::perform_hord_db_update(
+                    start_block,
+                    end_block,
+                    &self.config.get_hord_config(),
+                    &self.config,
+                    Some(tx.clone()),
+                    &self.ctx,
+                )
+                .await?;
+            }
         }
 
-        let traversals_cache = Arc::new(new_traversals_lazy_cache(hord_config.cache_size));
-
         // Bitcoin scan operation threadpool
+        let (observer_command_tx, observer_command_rx) = channel();
         let (bitcoin_scan_op_tx, bitcoin_scan_op_rx) = crossbeam_channel::unbounded();
         let ctx = self.ctx.clone();
         let config = self.config.clone();
@@ -211,6 +127,9 @@ impl Service {
                 let _ = hiro_system_kit::nestable_block_on(future);
             });
         }
+
+        let (observer_event_tx, observer_event_rx) = crossbeam_channel::unbounded();
+        let traversals_cache = Arc::new(new_traversals_lazy_cache(hord_config.cache_size));
 
         let _ = start_event_observer(
             event_observer_config.clone(),
@@ -689,4 +608,116 @@ pub fn open_readwrite_predicates_db_conn_or_panic(
         }
     };
     redis_con
+}
+
+// Cases to cover:
+// - Empty state
+// - State present, but not up to date
+//      - Blocks presents, no inscriptions
+//      - Blocks presents, inscription presents
+// - State up to date
+
+pub fn start_predicate_processor(
+    event_observer_config: &EventObserverConfig,
+    ctx: &Context,
+) -> Sender<BitcoinBlockData> {
+    let (tx, rx) = channel();
+
+    let mut moved_event_observer_config = event_observer_config.clone();
+    let moved_ctx = ctx.clone();
+
+    let _ = hiro_system_kit::thread_named("Initial predicate processing")
+        .spawn(move || {
+            if let Some(mut chainhook_config) = moved_event_observer_config.chainhook_config.take()
+            {
+                let mut bitcoin_predicates_ref: Vec<&BitcoinChainhookSpecification> = vec![];
+                for bitcoin_predicate in chainhook_config.bitcoin_chainhooks.iter_mut() {
+                    bitcoin_predicate.enabled = false;
+                    bitcoin_predicates_ref.push(bitcoin_predicate);
+                }
+                while let Ok(block) = rx.recv() {
+                    let future = process_block_with_predicates(
+                        block,
+                        &bitcoin_predicates_ref,
+                        &moved_event_observer_config,
+                        &moved_ctx,
+                    );
+                    let res = hiro_system_kit::nestable_block_on(future);
+                    if let Err(_) = res {
+                        error!(moved_ctx.expect_logger(), "Initial ingestion failing");
+                    }
+                }
+            }
+        })
+        .expect("unable to spawn thread");
+    tx
+}
+
+pub fn create_and_consolidate_chainhook_config_with_predicates(
+    predicates: Vec<ChainhookFullSpecification>,
+    config: &Config,
+    ctx: &Context,
+) -> ChainhookConfig {
+    let mut chainhook_config: ChainhookConfig = ChainhookConfig::new();
+
+    // If no predicates passed at launch, retrieve predicates from Redis
+    if predicates.is_empty() && config.is_http_api_enabled() {
+        let registered_predicates = match load_predicates_from_redis(&config, &ctx) {
+            Ok(predicates) => predicates,
+            Err(e) => {
+                error!(
+                    ctx.expect_logger(),
+                    "Failed loading predicate from storage: {}",
+                    e.to_string()
+                );
+                vec![]
+            }
+        };
+        for (predicate, _status) in registered_predicates.into_iter() {
+            let predicate_uuid = predicate.uuid().to_string();
+            match chainhook_config.register_specification(predicate) {
+                Ok(_) => {
+                    info!(
+                        ctx.expect_logger(),
+                        "Predicate {} retrieved from storage and loaded", predicate_uuid,
+                    );
+                }
+                Err(e) => {
+                    error!(
+                        ctx.expect_logger(),
+                        "Failed loading predicate from storage: {}",
+                        e.to_string()
+                    );
+                }
+            }
+        }
+    }
+
+    // For each predicate found, register in memory.
+    for predicate in predicates.into_iter() {
+        match chainhook_config.register_full_specification(
+            (
+                &config.network.bitcoin_network,
+                &config.network.stacks_network,
+            ),
+            predicate,
+        ) {
+            Ok(spec) => {
+                info!(
+                    ctx.expect_logger(),
+                    "Predicate {} retrieved from config and loaded",
+                    spec.uuid(),
+                );
+            }
+            Err(e) => {
+                error!(
+                    ctx.expect_logger(),
+                    "Failed loading predicate from config: {}",
+                    e.to_string()
+                );
+            }
+        }
+    }
+
+    chainhook_config
 }
