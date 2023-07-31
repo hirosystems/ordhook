@@ -1778,7 +1778,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data_tx(
 
                 if !is_cursed {
                     ordinals_events_indexes_to_curse.push_front(ordinal_event_index);
-                    latest_blessed_inscription_number += 1;
+                    latest_blessed_inscription_number -= 1;
                 }
             }
 
