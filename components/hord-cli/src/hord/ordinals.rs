@@ -60,7 +60,8 @@ pub fn start_ordinals_number_processor(
                         &blocks_db_rw,
                         &ctx,
                     );
-
+                    num_writes += 1;
+                    
                     if block.block_identifier.index >= hord_config.first_inscription_height {
                         blocks.push(block);
                     }

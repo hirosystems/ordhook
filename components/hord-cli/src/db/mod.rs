@@ -2371,15 +2371,18 @@ pub async fn rebuild_rocks_db(
                         chunk.push((block, compacted_block));
                         inbox_cursor += 1;
                     }
-                    if let Some(ref tx) = blocks_post_processor {
-                        let _ = tx.send(chunk);
+                    if chunk.is_empty() {
+                        // Early return / wait for next block
+                        cloned_ctx.try_log(|logger| {
+                            slog::info!(logger, "Inboxing compacted block #{block_index}")
+                        }); 
+                        continue;       
+                    } else {
+                        if let Some(ref tx) = blocks_post_processor {
+                            let _ = tx.send(chunk);
+                        }    
                     }
                 }
-
-                // Should we start look for inscriptions data in blocks?
-                cloned_ctx.try_log(|logger| {
-                    slog::info!(logger, "Inboxing compacted block #{block_index}")
-                });
 
                 if blocks_processed == number_of_blocks_to_process {
                     cloned_ctx.try_log(|logger| {
