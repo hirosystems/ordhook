@@ -89,7 +89,40 @@ impl Service {
         // Catch-up with chain tip
         {
             // Start predicate processor
-            let (tx, handle) = start_ordinals_number_processor(&self.config, &self.ctx);
+            let (tx_replayer, rx_replayer) = channel();
+
+            let (tx, handle) =
+                start_ordinals_number_processor(&self.config, &self.ctx, Some(tx_replayer));
+
+            let mut moved_event_observer_config = event_observer_config.clone();
+            let moved_ctx = self.ctx.clone();
+
+            let _ = hiro_system_kit::thread_named("Initial predicate processing")
+                .spawn(move || {
+                    if let Some(mut chainhook_config) =
+                        moved_event_observer_config.chainhook_config.take()
+                    {
+                        let mut bitcoin_predicates_ref: Vec<&BitcoinChainhookSpecification> =
+                            vec![];
+                        for bitcoin_predicate in chainhook_config.bitcoin_chainhooks.iter_mut() {
+                            bitcoin_predicate.enabled = false;
+                            bitcoin_predicates_ref.push(bitcoin_predicate);
+                        }
+                        while let Ok(block) = rx_replayer.recv() {
+                            let future = process_block_with_predicates(
+                                block,
+                                &bitcoin_predicates_ref,
+                                &moved_event_observer_config,
+                                &moved_ctx,
+                            );
+                            let res = hiro_system_kit::nestable_block_on(future);
+                            if let Err(_) = res {
+                                error!(moved_ctx.expect_logger(), "Initial ingestion failing");
+                            }
+                        }
+                    }
+                })
+                .expect("unable to spawn thread");
 
             while let Some((start_block, end_block)) = should_sync_hord_db(&self.config, &self.ctx)?
             {

@@ -2207,6 +2207,7 @@ pub fn process_blocks(
     inscription_height_hint: &mut InscriptionHeigthHint,
     inscriptions_db_conn_rw: &mut Connection,
     hord_config: &HordConfig,
+    post_processor: &Option<Sender<BitcoinBlockData>>,
     ctx: &Context,
 ) {
     let mut cache_l1 = HashMap::new();
@@ -2224,6 +2225,10 @@ pub fn process_blocks(
             hord_config,
             ctx,
         );
+
+        if let Some(post_processor_tx) = post_processor {
+            let _ = post_processor_tx.send(block);
+        }
     }
 }
 

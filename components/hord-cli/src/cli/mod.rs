@@ -749,7 +749,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 let mut hord_config = config.get_hord_config();
                 hord_config.network_thread_max = cmd.network_threads;
 
-                let (tx, handle) = start_ordinals_number_processor(&config, ctx);
+                let (tx, handle) = start_ordinals_number_processor(&config, ctx, None);
 
                 rebuild_rocks_db(
                     &config,

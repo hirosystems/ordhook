@@ -1,4 +1,7 @@
-use std::{sync::Arc, thread::JoinHandle};
+use std::{
+    sync::{mpsc::Sender, Arc},
+    thread::JoinHandle,
+};
 
 use chainhook_sdk::{types::BitcoinBlockData, utils::Context};
 
@@ -15,6 +18,7 @@ use super::new_traversals_lazy_cache;
 pub fn start_ordinals_number_processor(
     config: &Config,
     ctx: &Context,
+    post_processor: Option<Sender<BitcoinBlockData>>,
 ) -> (
     crossbeam_channel::Sender<Vec<(BitcoinBlockData, LazyBlock)>>,
     JoinHandle<()>,
@@ -97,6 +101,7 @@ pub fn start_ordinals_number_processor(
                     &mut inscription_height_hint,
                     &mut inscriptions_db_conn_rw,
                     &hord_config,
+                    &post_processor,
                     &ctx,
                 );
 
