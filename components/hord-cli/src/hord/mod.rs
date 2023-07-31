@@ -1629,9 +1629,11 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data_tx(
 
     let mut latest_cursed_inscription_loaded = false;
     let mut latest_cursed_inscription_number = 0;
+    let mut cursed_inscription_sequence_updated = false;
 
     let mut latest_blessed_inscription_loaded = false;
     let mut latest_blessed_inscription_number = 0;
+    let mut blessed_inscription_sequence_updated = false;
 
     let mut sats_overflow = vec![];
 
@@ -1772,7 +1774,11 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data_tx(
                 );
             });
             insert_entry_in_inscriptions(&inscription, &block.block_identifier, &transaction, &ctx);
-
+            if inscription.curse_type.is_some() {
+                cursed_inscription_sequence_updated = true;
+            } else {
+                blessed_inscription_sequence_updated = true;
+            }
             storage_updated = true;
         }
 
@@ -1797,12 +1803,17 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data_tx(
         insert_entry_in_inscriptions(&inscription, &block.block_identifier, &transaction, &ctx);
         latest_blessed_inscription_number += 1;
         storage_updated = true;
+        if inscription.curse_type.is_some() {
+            cursed_inscription_sequence_updated = true;
+        } else {
+            blessed_inscription_sequence_updated = true;
+        }
     }
 
-    if latest_cursed_inscription_loaded {
+    if cursed_inscription_sequence_updated {
         inscription_height_hint.cursed = Some(block.block_identifier.index);
     }
-    if latest_blessed_inscription_loaded {
+    if blessed_inscription_sequence_updated {
         inscription_height_hint.blessed = Some(block.block_identifier.index);
     }
 
