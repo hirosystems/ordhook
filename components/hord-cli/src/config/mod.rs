@@ -30,6 +30,12 @@ pub struct Config {
     pub event_sources: Vec<EventSourceConfig>,
     pub limits: LimitsConfig,
     pub network: IndexerConfig,
+    pub logs: LogConfig,
+}
+
+#[derive(Clone, Debug)]
+pub struct LogConfig {
+    pub ordinals_computation: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -223,6 +229,12 @@ impl Config {
                 stacks_network,
                 bitcoin_network,
             },
+            logs: LogConfig {
+                ordinals_computation: config_file
+                    .logs
+                    .and_then(|l| l.ordinals_computation)
+                    .unwrap_or(true),
+            },
         };
         Ok(config)
     }
@@ -350,6 +362,9 @@ impl Config {
                 stacks_network: StacksNetwork::Devnet,
                 bitcoin_network: BitcoinNetwork::Regtest,
             },
+            logs: LogConfig {
+                ordinals_computation: true,
+            },
         }
     }
 
@@ -378,6 +393,9 @@ impl Config {
                 ),
                 stacks_network: StacksNetwork::Testnet,
                 bitcoin_network: BitcoinNetwork::Testnet,
+            },
+            logs: LogConfig {
+                ordinals_computation: true,
             },
         }
     }
@@ -409,6 +427,9 @@ impl Config {
                 ),
                 stacks_network: StacksNetwork::Mainnet,
                 bitcoin_network: BitcoinNetwork::Mainnet,
+            },
+            logs: LogConfig {
+                ordinals_computation: false,
             },
         }
     }
