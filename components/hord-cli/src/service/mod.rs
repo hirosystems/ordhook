@@ -4,9 +4,10 @@ mod runloops;
 use crate::cli::fetch_and_standardize_block;
 use crate::config::{Config, PredicatesApi, PredicatesApiConfig};
 use crate::db::{
-    find_all_inscriptions_in_block, format_satpoint_to_watch, insert_entry_in_locations,
-    open_readwrite_hord_db_conn, open_readwrite_hord_dbs, parse_satpoint_to_watch,
-    rebuild_rocks_db, remove_entries_from_locations_at_block_height, open_readwrite_hord_db_conn_rocks_db, delete_data_in_hord_db,
+    delete_data_in_hord_db, find_all_inscriptions_in_block, format_satpoint_to_watch,
+    insert_entry_in_locations, open_readwrite_hord_db_conn, open_readwrite_hord_db_conn_rocks_db,
+    open_readwrite_hord_dbs, parse_satpoint_to_watch, rebuild_rocks_db,
+    remove_entries_from_locations_at_block_height,
 };
 use crate::hord::ordinals::start_ordinals_number_processor;
 use crate::hord::{
@@ -67,8 +68,10 @@ impl Service {
 
         // Force rebuild
         {
-            let blocks_db =
-                open_readwrite_hord_db_conn_rocks_db(&self.config.expected_cache_path(), &self.ctx)?;
+            let blocks_db = open_readwrite_hord_db_conn_rocks_db(
+                &self.config.expected_cache_path(),
+                &self.ctx,
+            )?;
             let inscriptions_db_conn_rw =
                 open_readwrite_hord_db_conn(&self.config.expected_cache_path(), &self.ctx)?;
 

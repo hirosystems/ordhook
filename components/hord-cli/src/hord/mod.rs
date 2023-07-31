@@ -1639,6 +1639,8 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data_tx(
 
     for (tx_index, new_tx) in block.transactions.iter_mut().skip(1).enumerate() {
         let mut ordinals_events_indexes_to_discard = VecDeque::new();
+        let mut ordinals_events_indexes_to_curse = VecDeque::new();
+
         // Have a new inscription been revealed, if so, are looking at a re-inscription
         for (ordinal_event_index, ordinal_event) in
             new_tx.metadata.ordinal_operations.iter_mut().enumerate()
@@ -1649,7 +1651,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data_tx(
                 OrdinalOperation::InscriptionTransferred(_) => continue,
             };
 
-            let inscription_number = if is_cursed {
+            let mut inscription_number = if is_cursed {
                 latest_cursed_inscription_number = if !latest_cursed_inscription_loaded {
                     latest_cursed_inscription_loaded = true;
                     match find_latest_cursed_inscription_number_at_block_height(
@@ -1749,7 +1751,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data_tx(
                 find_inscription_with_ordinal_number(&traversal.ordinal_number, &transaction, &ctx)
             {
                 ctx.try_log(|logger| {
-                    slog::warn!(
+                    info!(
                         logger,
                         "Transaction {} in block {} is overriding an existing inscription {}",
                         new_tx.transaction_identifier.hash,
@@ -1757,8 +1759,27 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data_tx(
                         traversal.ordinal_number
                     );
                 });
-                ordinals_events_indexes_to_discard.push_front(ordinal_event_index);
-                continue;
+
+                inscription_number = if !latest_cursed_inscription_loaded {
+                    latest_cursed_inscription_loaded = true;
+                    match find_latest_cursed_inscription_number_at_block_height(
+                        &block.block_identifier.index,
+                        &inscription_height_hint.cursed,
+                        &transaction,
+                        &ctx,
+                    )? {
+                        None => -1,
+                        Some(inscription_number) => inscription_number - 1,
+                    }
+                } else {
+                    latest_cursed_inscription_number - 1
+                };
+                inscription.curse_type = Some(OrdinalInscriptionCurseType::Reinscription);
+
+                if !is_cursed {
+                    ordinals_events_indexes_to_curse.push_front(ordinal_event_index);
+                    latest_blessed_inscription_number += 1;
+                }
             }
 
             inscription.inscription_number = inscription_number;
@@ -1780,6 +1801,27 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data_tx(
                 blessed_inscription_sequence_updated = true;
             }
             storage_updated = true;
+        }
+
+        for index in ordinals_events_indexes_to_curse.into_iter() {
+            match new_tx.metadata.ordinal_operations.remove(index) {
+                OrdinalOperation::InscriptionRevealed(inscription_data)
+                | OrdinalOperation::CursedInscriptionRevealed(inscription_data) => {
+                    ctx.try_log(|logger| {
+                        slog::info!(
+                            logger,
+                            "Inscription {} (#{}) transitioned from blessed to cursed",
+                            inscription_data.inscription_id,
+                            inscription_data.inscription_number,
+                        );
+                    });
+                    new_tx.metadata.ordinal_operations.insert(
+                        index,
+                        OrdinalOperation::CursedInscriptionRevealed(inscription_data),
+                    );
+                }
+                _ => unreachable!(),
+            }
         }
 
         for index in ordinals_events_indexes_to_discard.into_iter() {
