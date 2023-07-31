@@ -6,7 +6,7 @@ use crate::config::{Config, PredicatesApi, PredicatesApiConfig};
 use crate::db::{
     find_all_inscriptions_in_block, format_satpoint_to_watch, insert_entry_in_locations,
     open_readwrite_hord_db_conn, open_readwrite_hord_dbs, parse_satpoint_to_watch,
-    rebuild_rocks_db, remove_entries_from_locations_at_block_height,
+    rebuild_rocks_db, remove_entries_from_locations_at_block_height, open_readwrite_hord_db_conn_rocks_db, delete_data_in_hord_db,
 };
 use crate::hord::ordinals::start_ordinals_number_processor;
 use crate::hord::{
@@ -63,6 +63,21 @@ impl Service {
         let hord_config = self.config.get_hord_config();
 
         // std::thread::sleep(std::time::Duration::from_secs(3600000));
+        {
+            let blocks_db =
+                open_readwrite_hord_db_conn_rocks_db(&self.config.expected_cache_path(), &self.ctx)?;
+            let inscriptions_db_conn_rw =
+                open_readwrite_hord_db_conn(&self.config.expected_cache_path(), &self.ctx)?;
+
+            delete_data_in_hord_db(
+                767430,
+                800000,
+                &blocks_db,
+                &inscriptions_db_conn_rw,
+                &self.ctx,
+            )?;
+        }
+
         // rebuild_rocks_db(&self.config, 767400, 767429, 767400, None, &self.ctx).await?;
 
         // Catch-up with chain tip
