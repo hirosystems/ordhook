@@ -1774,7 +1774,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data_tx(
                 } else {
                     latest_cursed_inscription_number - 1
                 };
-                inscription.curse_type = Some(OrdinalInscriptionCurseType::Reinscription);
+                inscription.curse_type = Some(OrdinalInscriptionCurseType::Batch);
 
                 if !is_cursed {
                     ordinals_events_indexes_to_curse.push_front(ordinal_event_index);
