@@ -62,21 +62,24 @@ impl Service {
 
         let hord_config = self.config.get_hord_config();
 
+        // Sleep
         // std::thread::sleep(std::time::Duration::from_secs(3600000));
-        {
-            let blocks_db =
-                open_readwrite_hord_db_conn_rocks_db(&self.config.expected_cache_path(), &self.ctx)?;
-            let inscriptions_db_conn_rw =
-                open_readwrite_hord_db_conn(&self.config.expected_cache_path(), &self.ctx)?;
 
-            delete_data_in_hord_db(
-                767430,
-                800000,
-                &blocks_db,
-                &inscriptions_db_conn_rw,
-                &self.ctx,
-            )?;
-        }
+        // Force rebuild
+        // {
+        //     let blocks_db =
+        //         open_readwrite_hord_db_conn_rocks_db(&self.config.expected_cache_path(), &self.ctx)?;
+        //     let inscriptions_db_conn_rw =
+        //         open_readwrite_hord_db_conn(&self.config.expected_cache_path(), &self.ctx)?;
+
+        //     delete_data_in_hord_db(
+        //         767430,
+        //         800000,
+        //         &blocks_db,
+        //         &inscriptions_db_conn_rw,
+        //         &self.ctx,
+        //     )?;
+        // }
 
         // rebuild_rocks_db(&self.config, 767400, 767429, 767400, None, &self.ctx).await?;
 
