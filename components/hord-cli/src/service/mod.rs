@@ -62,8 +62,8 @@ impl Service {
 
         let hord_config = self.config.get_hord_config();
 
-        std::thread::sleep(std::time::Duration::from_secs(3600000));
-        // rebuild_rocks_db(&self.config, 420000, 767420, &self.ctx).await?;
+        // std::thread::sleep(std::time::Duration::from_secs(3600000));
+        rebuild_rocks_db(&self.config, 767400, 767429, 767400, None, &self.ctx).await?;
 
         // Catch-up with chain tip
         {
