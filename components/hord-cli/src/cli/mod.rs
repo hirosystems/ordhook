@@ -82,7 +82,7 @@ enum ScanCommand {
 struct ScanBlocksCommand {
     /// Starting block
     pub start_block: u64,
-    /// Starting block
+    /// Ending block
     pub end_block: u64,
     /// Target Regtest network
     #[clap(
@@ -170,7 +170,7 @@ enum RepairCommand {
 struct RepairStorageCommand {
     /// Starting block
     pub start_block: u64,
-    /// Starting block
+    /// Ending block
     pub end_block: u64,
     /// Network threads
     pub network_threads: usize,
@@ -183,7 +183,7 @@ struct RepairStorageCommand {
 struct RepairTransfersCommand {
     /// Starting block
     pub start_block: u64,
-    /// Starting block
+    /// Ending block
     pub end_block: u64,
     /// Load config file path
     #[clap(long = "config-path")]
@@ -370,7 +370,7 @@ struct ScanTransfersCommand {
 struct UpdateHordDbCommand {
     /// Starting block
     pub start_block: u64,
-    /// Starting block
+    /// Ending block
     pub end_block: u64,
     /// Load config file path
     #[clap(long = "config-path")]
@@ -390,7 +390,7 @@ struct SyncHordDbCommand {
 struct DropHordDbCommand {
     /// Starting block
     pub start_block: u64,
-    /// Starting block
+    /// Ending block
     pub end_block: u64,
     /// Load config file path
     #[clap(long = "config-path")]
@@ -413,6 +413,10 @@ struct MigrateHordDbCommand {
 
 #[derive(Parser, PartialEq, Clone, Debug)]
 struct CheckDbCommand {
+    /// Starting block
+    pub start_block: u64,
+    /// Ending block
+    pub end_block: u64,    
     /// Load config file path
     #[clap(long = "config-path")]
     pub config_path: Option<String>,
@@ -884,9 +888,10 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                     open_readonly_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
                 let tip = find_last_block_inserted(&blocks_db) as u64;
                 println!("Tip: {}", tip);
+
                 let mut missing_blocks = vec![];
-                for i in 1..=800000 {
-                    if find_lazy_block_at_block_height(i, 3, false, &blocks_db, &ctx).is_none() {
+                for i in cmd.start_block..=cmd.end_block {
+                    if find_lazy_block_at_block_height(i as u32, 0, false, &blocks_db, &ctx).is_none() {
                         println!("Missing block {i}");
                         missing_blocks.push(i);
                     }

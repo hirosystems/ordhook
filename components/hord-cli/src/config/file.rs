@@ -5,6 +5,12 @@ pub struct ConfigFile {
     pub event_source: Option<Vec<EventSourceConfigFile>>,
     pub limits: LimitsConfigFile,
     pub network: NetworkConfigFile,
+    pub logs: Option<LogConfigFile>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct LogConfigFile {
+    pub ordinals_computation: Option<bool>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
