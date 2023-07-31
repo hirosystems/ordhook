@@ -6,16 +6,16 @@ use std::{
 };
 
 use chainhook_sdk::{
-    bitcoincore_rpc_json::bitcoin::blockdata::block,
     indexer::bitcoin::{
-        build_http_client, download_block, download_block_with_retry, parse_downloaded_block,
-        parse_fetched_block, retrieve_block_hash_with_retry, try_download_block_bytes_with_retry,
+        build_http_client, download_block_with_retry, parse_downloaded_block,
+        retrieve_block_hash_with_retry, try_download_block_bytes_with_retry,
     },
     types::{
-        BitcoinBlockData, BitcoinNetwork, BlockIdentifier, OrdinalInscriptionRevealData,
+        BitcoinBlockData, BlockIdentifier, OrdinalInscriptionRevealData,
         OrdinalInscriptionTransferData, TransactionIdentifier,
     },
 };
+use crossbeam_channel::bounded;
 use dashmap::DashMap;
 use fxhash::FxHasher;
 use hiro_system_kit::slog;
@@ -41,6 +41,21 @@ use crate::{
     config::Config,
     hord::{self, HordConfig},
 };
+
+#[derive(Clone, Debug)]
+pub struct InscriptionHeigthHint {
+    pub cursed: Option<u64>,
+    pub blessed: Option<u64>,
+}
+
+impl InscriptionHeigthHint {
+    pub fn new() -> InscriptionHeigthHint {
+        InscriptionHeigthHint {
+            cursed: None,
+            blessed: None,
+        }
+    }
+}
 
 fn get_default_hord_db_file_path(base_dir: &PathBuf) -> PathBuf {
     let mut destination_path = base_dir.clone();
@@ -100,6 +115,12 @@ pub fn initialize_hord_db(path: &PathBuf, ctx: &Context) -> Connection {
 
         if let Err(e) = conn.execute(
             "CREATE INDEX IF NOT EXISTS index_inscriptions_on_ordinal_number ON inscriptions(ordinal_number);",
+            [],
+        ) {
+            ctx.try_log(|logger| slog::warn!(logger, "{}", e.to_string()));
+        }
+        if let Err(e) = conn.execute(
+            "CREATE INDEX IF NOT EXISTS index_inscriptions_on_inscription_number ON inscriptions(inscription_number);",
             [],
         ) {
             ctx.try_log(|logger| slog::warn!(logger, "{}", e.to_string()));
@@ -603,18 +624,31 @@ pub fn find_all_inscription_transfers(
 
 pub fn find_latest_inscription_number_at_block_height(
     block_height: &u64,
+    latest_blessed_inscription_heigth: &Option<u64>,
     inscriptions_db_conn: &Connection,
     _ctx: &Context,
 ) -> Result<Option<i64>, String> {
-    let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
+    let (query, params) = match latest_blessed_inscription_heigth {
+        Some(hint) => {
+            (
+                "SELECT inscription_number FROM inscriptions WHERE block_height = ? ORDER BY inscription_number DESC LIMIT 1",
+                [hint.to_sql().unwrap()]
+            )
+        }
+        None => {
+            (
+                "SELECT inscription_number FROM inscriptions WHERE block_height < ? ORDER BY inscription_number DESC LIMIT 1",
+                [block_height.to_sql().unwrap()]
+            )
+        }
+    };
     let mut stmt = inscriptions_db_conn
-        .prepare(
-            "SELECT inscription_number FROM inscriptions WHERE block_height < ? ORDER BY inscription_number DESC LIMIT 1",
-        )
+        .prepare(query)
         .map_err(|e| format!("unable to query inscriptions: {}", e.to_string()))?;
     let mut rows = stmt
-        .query(args)
+        .query(params)
         .map_err(|e| format!("unable to query inscriptions: {}", e.to_string()))?;
+
     while let Ok(Some(row)) = rows.next() {
         let inscription_number: i64 = row.get(0).unwrap();
         return Ok(Some(inscription_number));
@@ -624,18 +658,31 @@ pub fn find_latest_inscription_number_at_block_height(
 
 pub fn find_latest_cursed_inscription_number_at_block_height(
     block_height: &u64,
+    latest_cursed_inscription_heigth: &Option<u64>,
     inscriptions_db_conn: &Connection,
     _ctx: &Context,
 ) -> Result<Option<i64>, String> {
-    let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
+    let (query, params) = match latest_cursed_inscription_heigth {
+        Some(hint) => {
+            (
+                "SELECT inscription_number FROM inscriptions WHERE block_height = ? ORDER BY inscription_number ASC LIMIT 1",
+                [hint.to_sql().unwrap()]
+            )
+        }
+        None => {
+            (
+                "SELECT inscription_number FROM inscriptions WHERE block_height < ? ORDER BY inscription_number ASC LIMIT 1",
+                [block_height.to_sql().unwrap()]
+            )
+        }
+    };
     let mut stmt = inscriptions_db_conn
-        .prepare(
-            "SELECT inscription_number FROM inscriptions WHERE block_height < ? ORDER BY inscription_number ASC LIMIT 1",
-        )
+        .prepare(query)
         .map_err(|e| format!("unable to query inscriptions: {}", e.to_string()))?;
     let mut rows = stmt
-        .query(args)
+        .query(params)
         .map_err(|e| format!("unable to query inscriptions: {}", e.to_string()))?;
+
     while let Ok(Some(row)) = rows.next() {
         let inscription_number: i64 = row.get(0).unwrap();
         return Ok(Some(inscription_number));
@@ -2155,38 +2202,24 @@ impl<'a> Iterator for LazyBlockTransactionIterator<'a> {
 }
 
 pub fn process_blocks(
-    mut raw_blocks: Vec<BitcoinBlockFullBreakdown>,
-    bitcoin_network: BitcoinNetwork,
+    mut next_blocks: Vec<BitcoinBlockData>,
     cache_l2: &Arc<DashMap<(u32, [u8; 8]), LazyBlockTransaction, BuildHasherDefault<FxHasher>>>,
+    inscription_height_hint: &mut InscriptionHeigthHint,
     inscriptions_db_conn_rw: &mut Connection,
     hord_config: &HordConfig,
     ctx: &Context,
 ) {
-    let mut next_blocks = vec![];
     let mut cache_l1 = HashMap::new();
-
-    for raw_block in raw_blocks.drain(..) {
-        let block =
-            match hord::parse_ordinals_and_standardize_block(raw_block, &bitcoin_network, &ctx) {
-                Ok(block) => block,
-                Err((e, _)) => {
-                    ctx.try_log(|logger| {
-                        slog::error!(logger, "Unable to standardize bitcoin block: {e}",)
-                    });
-                    // TODO(lgalabru): panic?
-                    continue;
-                }
-            };
-        next_blocks.push(block);
-    }
 
     for _cursor in 0..next_blocks.len() {
         let mut block = next_blocks.remove(0);
+
         let _ = process_block(
             &mut block,
             &next_blocks,
             &mut cache_l1,
             cache_l2,
+            inscription_height_hint,
             inscriptions_db_conn_rw,
             hord_config,
             ctx,
@@ -2199,6 +2232,7 @@ pub fn process_block(
     next_blocks: &Vec<BitcoinBlockData>,
     cache_l1: &mut HashMap<(TransactionIdentifier, usize), TraversalResult>,
     cache_l2: &Arc<DashMap<(u32, [u8; 8]), LazyBlockTransaction, BuildHasherDefault<FxHasher>>>,
+    inscription_height_hint: &mut InscriptionHeigthHint,
     inscriptions_db_conn_rw: &mut Connection,
     hord_config: &HordConfig,
     ctx: &Context,
@@ -2208,6 +2242,7 @@ pub fn process_block(
         next_blocks,
         cache_l1,
         cache_l2,
+        inscription_height_hint,
         inscriptions_db_conn_rw,
         hord_config,
         ctx,
@@ -2219,7 +2254,7 @@ pub async fn rebuild_rocks_db(
     start_block: u64,
     end_block: u64,
     start_sequencing_blocks_at_height: u64,
-    blocks_post_processor: Option<Sender<Vec<BitcoinBlockFullBreakdown>>>,
+    blocks_post_processor: Option<crossbeam_channel::Sender<Vec<(BitcoinBlockData, LazyBlock)>>>,
     ctx: &Context,
 ) -> Result<(), String> {
     // let guard = pprof::ProfilerGuardBuilder::default()
@@ -2239,14 +2274,11 @@ pub async fn rebuild_rocks_db(
     let hord_config = config.get_hord_config();
 
     let number_of_blocks_to_process = end_block - start_block + 1;
-    let (block_req_lim, block_process_lim) = (128, 128);
 
-    let (block_data_tx, block_data_rx) = crossbeam_channel::bounded(block_req_lim);
     let compress_block_data_pool = ThreadPool::new(hord_config.ingestion_thread_max);
-    let (block_compressed_tx, block_compressed_rx) = crossbeam_channel::bounded(block_process_lim);
+    let (block_compressed_tx, block_compressed_rx) = crossbeam_channel::unbounded();
     let http_client = build_http_client();
 
-    // Thread pool #1: given a block height, retrieve the block hash
     let moved_config = bitcoin_config.clone();
     let moved_ctx = ctx.clone();
     let moved_http_client = http_client.clone();
@@ -2269,51 +2301,66 @@ pub async fn rebuild_rocks_db(
         }
     }
 
+    let moved_ctx: Context = ctx.clone();
+    let moved_bitcoin_network = bitcoin_config.network.clone();
+
+    let mut tx_thread_pool = vec![];
+    let mut rx_thread_pool = vec![];
+
+    for _ in 0..hord_config.ingestion_thread_max {
+        let (tx, rx) = bounded::<Option<Vec<u8>>>(8);
+        tx_thread_pool.push(tx);
+        rx_thread_pool.push(rx);
+    }
+
     let _ = hiro_system_kit::thread_named("Block data compression")
         .spawn(move || {
-            while let Ok(Some(block_bytes)) = block_data_rx.recv() {
+            for rx in rx_thread_pool.into_iter() {
                 let block_compressed_tx_moved = block_compressed_tx.clone();
+                let moved_ctx: Context = moved_ctx.clone();
+                let moved_bitcoin_network = moved_bitcoin_network.clone();
                 compress_block_data_pool.execute(move || {
-                    let block_data = parse_downloaded_block(block_bytes).unwrap();
-                    let compressed_block =
-                        LazyBlock::from_full_block(&block_data).expect("unable to serialize block");
-                    let block_index = block_data.height as u32;
-                    let _ = block_compressed_tx_moved.send(Some((
-                        block_index,
-                        compressed_block,
-                        block_data,
-                    )));
+                    while let Ok(Some(block_bytes)) = rx.recv() {
+                        let raw_block_data = parse_downloaded_block(block_bytes).unwrap();
+                        let compressed_block = LazyBlock::from_full_block(&raw_block_data)
+                            .expect("unable to serialize block");
+                        let block_data = hord::parse_ordinals_and_standardize_block(
+                            raw_block_data,
+                            &moved_bitcoin_network,
+                            &moved_ctx,
+                        )
+                        .expect("unable to deserialize block");
+
+                        let _ =
+                            block_compressed_tx_moved.send(Some((block_data, compressed_block)));
+                    }
                 });
             }
-            let res = compress_block_data_pool.join();
-            res
+            let _ = compress_block_data_pool.join();
         })
         .expect("unable to spawn thread");
 
-    let blocks_db_rw = open_readwrite_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
     let cloned_ctx = ctx.clone();
 
-    let _storage_thread = hiro_system_kit::thread_named("Block data ingestion")
+    let _storage_thread = hiro_system_kit::thread_named("Ordered blocks dispatcher")
         .spawn(move || {
-            let mut blocks_stored = 0;
-            let mut num_writes = 0;
             let mut inbox = HashMap::new();
             let mut inbox_cursor = start_sequencing_blocks_at_height.max(start_block);
-            while let Ok(Some((block_height, compacted_block, raw_block))) =
+            let mut blocks_processed = 0;
+            while let Ok(Some((block, compacted_block))) =
                 block_compressed_rx.recv()
             {
-                insert_entry_in_blocks(block_height, &compacted_block, &blocks_db_rw, &cloned_ctx);
-                blocks_stored += 1;
-                num_writes += 1;
+                blocks_processed += 1;
+                let block_index = block.block_identifier.index;
 
                 // In the context of ordinals, we're constrained to process blocks sequentially
                 // Blocks are processed by a threadpool and could be coming out of order.
                 // Inbox block for later if the current block is not the one we should be
                 // processing.    
-                if block_height as u64 >= start_sequencing_blocks_at_height {    
-                    inbox.insert(block_height as u64, raw_block);
+                if block_index >= start_sequencing_blocks_at_height {
+                    inbox.insert(block_index, (block, compacted_block));
                     let mut chunk = Vec::new();
-                    while let Some(next_block) = inbox.remove(&inbox_cursor) {        
+                    while let Some((block, compacted_block)) = inbox.remove(&inbox_cursor) {
                         cloned_ctx.try_log(|logger| {
                             slog::info!(
                                 logger,
@@ -2321,7 +2368,7 @@ pub async fn rebuild_rocks_db(
                                 inbox.len()
                             )
                         });
-                        chunk.push(next_block);
+                        chunk.push((block, compacted_block));
                         inbox_cursor += 1;
                     }
                     if let Some(ref tx) = blocks_post_processor {
@@ -2331,17 +2378,17 @@ pub async fn rebuild_rocks_db(
 
                 // Should we start look for inscriptions data in blocks?
                 cloned_ctx.try_log(|logger| {
-                    slog::info!(logger, "Storing compacted block #{block_height}",)
+                    slog::info!(logger, "Inboxing compacted block #{block_index}")
                 });
 
-                if blocks_stored == number_of_blocks_to_process {
+                if blocks_processed == number_of_blocks_to_process {
                     cloned_ctx.try_log(|logger| {
                         slog::info!(
                             logger,
-                            "Local block storage successfully seeded with #{blocks_stored} blocks"
+                            "Local block storage successfully seeded with #{blocks_processed} blocks"
                         )
                     });
-
+                    break;
                     // match guard.report().build() {
                     //     Ok(report) => {
                     //         ctx.try_log(|logger| {
@@ -2358,34 +2405,16 @@ pub async fn rebuild_rocks_db(
                     //     }
                     // }
                 }
-
-                if num_writes % 128 == 0 {
-                    cloned_ctx.try_log(|logger| {
-                        slog::info!(logger, "Flushing DB to disk ({num_writes} inserts)");
-                    });
-                    if let Err(e) = blocks_db_rw.flush() {
-                        cloned_ctx.try_log(|logger| {
-                            slog::error!(logger, "{}", e.to_string());
-                        });
-                    }
-                    num_writes = 0;
-                }
-            }
-
-            if let Err(e) = blocks_db_rw.flush() {
-                cloned_ctx.try_log(|logger| {
-                    slog::error!(logger, "{}", e.to_string());
-                });
             }
             ()
         })
         .expect("unable to spawn thread");
 
+    let mut thread_index = 0;
     while let Some(res) = set.join_next().await {
         let block = res.unwrap().unwrap();
 
-        let _ = block_data_tx.send(Some(block));
-
+        let _ = tx_thread_pool[thread_index].send(Some(block));
         if let Some(block_height) = block_heights.pop_front() {
             let config = moved_config.clone();
             let ctx = ctx.clone();
@@ -2397,7 +2426,9 @@ pub async fn rebuild_rocks_db(
                 ctx,
             ));
         }
+        thread_index = (thread_index + 1) % hord_config.ingestion_thread_max;
     }
 
+    let _ = set.shutdown();
     Ok(())
 }

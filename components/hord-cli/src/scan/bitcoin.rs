@@ -1,7 +1,8 @@
 use crate::archive::download_ordinals_dataset_if_required;
 use crate::config::{Config, PredicatesApi};
 use crate::db::{
-    find_all_inscriptions_in_block, get_any_entry_in_ordinal_activities, open_readonly_hord_db_conn,
+    find_all_inscriptions_in_block, get_any_entry_in_ordinal_activities,
+    open_readonly_hord_db_conn, InscriptionHeigthHint,
 };
 use crate::hord::{
     self, get_inscriptions_revealed_in_block,
@@ -99,6 +100,8 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
 
     let mut cursor = start_block.saturating_sub(1);
 
+    let mut inscription_height_hint = InscriptionHeigthHint::new();
+
     while cursor <= end_block {
         cursor += 1;
         blocks_scanned += 1;
@@ -149,6 +152,7 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
                 &mut block,
                 &transaction,
                 &traversals,
+                &mut inscription_height_hint,
                 &empty_ctx,
             )?;
 

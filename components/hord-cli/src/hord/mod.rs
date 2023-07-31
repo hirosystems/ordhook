@@ -35,7 +35,7 @@ use crate::db::{
     find_inscription_with_ordinal_number, find_inscriptions_at_wached_outpoint,
     get_any_entry_in_ordinal_activities, insert_entry_in_blocks, insert_entry_in_inscriptions,
     insert_transfer_in_locations_tx, retrieve_satoshi_point_using_lazy_storage,
-    retrieve_satoshi_point_using_lazy_storage_v3,
+    retrieve_satoshi_point_using_lazy_storage_v3, InscriptionHeigthHint,
 };
 use crate::ord::height::Height;
 
@@ -335,7 +335,7 @@ pub fn retrieve_inscribed_satoshi_points_from_block(
             match traversal_result {
                 Ok(traversal) => {
                     ctx.try_log(|logger| {
-                        slog::info!(
+                        info!(
                             logger,
                             "Satoshi #{} was minted in block #{} at offset {} and was transferred {} times (progress: {traversals_received}/{expected_traversals}).",
                             traversal.ordinal_number, traversal.get_ordinal_coinbase_height(), traversal.get_ordinal_coinbase_offset(), traversal.transfers
@@ -351,7 +351,7 @@ pub fn retrieve_inscribed_satoshi_points_from_block(
                 }
                 Err(e) => {
                     ctx.try_log(|logger| {
-                        slog::error!(logger, "Unable to compute inscription's Satoshi: {e}",)
+                        error!(logger, "Unable to compute inscription's Satoshi: {e}",)
                     });
                 }
             }
@@ -421,12 +421,15 @@ pub fn update_hord_db_and_augment_bitcoin_block(
         ctx.clone()
     };
 
+    let mut inscription_height_hint = InscriptionHeigthHint::new();
+
     let transaction = inscriptions_db_conn_rw.transaction().unwrap();
     let any_inscription_revealed =
         update_storage_and_augment_bitcoin_block_with_inscription_reveal_data_tx(
             new_block,
             &transaction,
             &traversals,
+            &mut inscription_height_hint,
             &inner_ctx,
         )?;
 
@@ -494,6 +497,7 @@ pub enum Storage<'a> {
 pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
     block: &mut BitcoinBlockData,
     storage: &mut Storage,
+    hint: InscriptionHeigthHint,
     traversals: &HashMap<(TransactionIdentifier, usize), TraversalResult>,
     inscriptions_db_conn: &Connection,
     ctx: &Context,
@@ -506,6 +510,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
     };
     let mut latest_inscription_number = match find_latest_inscription_number_at_block_height(
         &block.block_identifier.index,
+        &hint.blessed,
         &inscriptions_db_conn,
         &ctx,
     )? {
@@ -516,6 +521,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data(
     let mut latest_cursed_inscription_number =
         match find_latest_cursed_inscription_number_at_block_height(
             &block.block_identifier.index,
+            &hint.cursed,
             &inscriptions_db_conn,
             &ctx,
         )? {
@@ -944,7 +950,9 @@ pub fn should_sync_hord_db(config: &Config, ctx: &Context) -> Result<Option<(u64
         match open_readonly_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx) {
             Ok(blocks_db) => find_last_block_inserted(&blocks_db) as u64,
             Err(err) => {
-                warn!(ctx.expect_logger(), "{}", err);
+                ctx.try_log(|logger| {
+                    warn!(logger, "{}", err);
+                });
                 0
             }
         };
@@ -1158,11 +1166,13 @@ pub fn retrieve_inscribed_satoshi_points_from_block_v3(
     inscriptions_db_conn: &mut Connection,
     hord_config: &HordConfig,
     ctx: &Context,
-) -> Result<(), String> {
+) -> Result<bool, String> {
     let mut transactions_ids =
         get_transactions_to_process(block, cache_l1, inscriptions_db_conn, ctx);
 
-    if !transactions_ids.is_empty() {
+    let has_transactions_to_process = !transactions_ids.is_empty();
+
+    if has_transactions_to_process {
         let expected_traversals = transactions_ids.len();
         let (traversal_tx, traversal_rx) = channel();
         let traversal_data_pool = ThreadPool::new(hord_config.ingestion_thread_max);
@@ -1174,12 +1184,13 @@ pub fn retrieve_inscribed_satoshi_points_from_block_v3(
 
             let moved_traversal_tx = traversal_tx.clone();
             let moved_ctx = ctx.clone();
-            let block_identifier = block.block_identifier.clone();
             let moved_hord_db_path = hord_config.db_path.clone();
             let local_cache = cache_l2.clone();
 
             traversal_data_pool.execute(move || {
-                while let Ok(Some((transaction_id, input_index, prioritary))) = rx.recv() {
+                while let Ok(Some((transaction_id, block_identifier, input_index, prioritary))) =
+                    rx.recv()
+                {
                     let traversal: Result<TraversalResult, String> =
                         retrieve_satoshi_point_using_lazy_storage_v3(
                             &moved_hord_db_path,
@@ -1195,13 +1206,27 @@ pub fn retrieve_inscribed_satoshi_points_from_block_v3(
             });
         }
 
+        ctx.try_log(|logger| {
+            info!(
+                logger,
+                "Number of inscriptions in block #{} to process: {}",
+                block.block_identifier.index,
+                transactions_ids.len()
+            )
+        });
+
         let mut rng = thread_rng();
         transactions_ids.shuffle(&mut rng);
         let mut priority_queue = VecDeque::new();
         let mut warmup_queue = VecDeque::new();
 
         for (transaction_id, input_index) in transactions_ids.into_iter() {
-            priority_queue.push_back((transaction_id, input_index, true));
+            priority_queue.push_back((
+                transaction_id,
+                block.block_identifier.clone(),
+                input_index,
+                true,
+            ));
         }
 
         // Feed each workers with 2 workitems each
@@ -1221,9 +1246,9 @@ pub fn retrieve_inscribed_satoshi_points_from_block_v3(
             match traversal_result {
                 Ok(traversal) => {
                     ctx.try_log(|logger| {
-                        slog::info!(
+                        info!(
                             logger,
-                            "Satoshi #{} was minted in block #{} at offset {} and was transferred {} times (progress: {traversals_received}/{expected_traversals}).",
+                            "Satoshi #{} was minted in block #{} at offset {} and was transferred {} times (progress: {traversals_received}/{expected_traversals}) (priority queue: {prioritary}, thread: {thread_index}).",
                             traversal.ordinal_number, traversal.get_ordinal_coinbase_height(), traversal.get_ordinal_coinbase_offset(), traversal.transfers
                             )
                     });
@@ -1237,7 +1262,7 @@ pub fn retrieve_inscribed_satoshi_points_from_block_v3(
                 }
                 Err(e) => {
                     ctx.try_log(|logger| {
-                        slog::error!(logger, "Unable to compute inscription's Satoshi: {e}",)
+                        error!(logger, "Unable to compute inscription's Satoshi: {e}",)
                     });
                 }
             }
@@ -1251,12 +1276,31 @@ pub fn retrieve_inscribed_satoshi_points_from_block_v3(
                 if let Some(w) = warmup_queue.pop_front() {
                     let _ = tx_thread_pool[thread_index].send(Some(w));
                 } else {
-                    if let Some(block) = next_block_iter.next() {
-                        let mut transactions_ids =
-                            get_transactions_to_process(block, cache_l1, inscriptions_db_conn, ctx);
+                    if let Some(next_block) = next_block_iter.next() {
+                        let mut transactions_ids = get_transactions_to_process(
+                            next_block,
+                            cache_l1,
+                            inscriptions_db_conn,
+                            ctx,
+                        );
+
+                        ctx.try_log(|logger| {
+                            info!(
+                                logger,
+                                "Number of inscriptions in block #{} to pre-process: {}",
+                                block.block_identifier.index,
+                                transactions_ids.len()
+                            )
+                        });
+
                         transactions_ids.shuffle(&mut rng);
                         for (transaction_id, input_index) in transactions_ids.into_iter() {
-                            warmup_queue.push_back((transaction_id, input_index, false));
+                            warmup_queue.push_back((
+                                transaction_id,
+                                next_block.block_identifier.clone(),
+                                input_index,
+                                false,
+                            ));
                         }
                         let _ = tx_thread_pool[thread_index].send(warmup_queue.pop_front());
                     }
@@ -1267,11 +1311,18 @@ pub fn retrieve_inscribed_satoshi_points_from_block_v3(
             let _ = tx_thread_pool[thread_index].send(None);
         }
 
-        let _ = hiro_system_kit::thread_named("Block data compression").spawn(move || {
+        let _ = hiro_system_kit::thread_named("Garbage collection").spawn(move || {
             let _ = traversal_data_pool.join();
         });
+    } else {
+        ctx.try_log(|logger| {
+            info!(
+                logger,
+                "No inscriptions to index in block #{}", block.block_identifier.index
+            )
+        });
     }
-    Ok(())
+    Ok(has_transactions_to_process)
 }
 
 pub fn update_hord_db_and_augment_bitcoin_block_v3(
@@ -1279,11 +1330,12 @@ pub fn update_hord_db_and_augment_bitcoin_block_v3(
     next_blocks: &Vec<BitcoinBlockData>,
     cache_l1: &mut HashMap<(TransactionIdentifier, usize), TraversalResult>,
     cache_l2: &Arc<DashMap<(u32, [u8; 8]), LazyBlockTransaction, BuildHasherDefault<FxHasher>>>,
+    inscription_height_hint: &mut InscriptionHeigthHint,
     inscriptions_db_conn_rw: &mut Connection,
     hord_config: &HordConfig,
     ctx: &Context,
 ) -> Result<(), String> {
-    let _ = retrieve_inscribed_satoshi_points_from_block_v3(
+    let transactions_processed = retrieve_inscribed_satoshi_points_from_block_v3(
         &new_block,
         &next_blocks,
         cache_l1,
@@ -1291,7 +1343,11 @@ pub fn update_hord_db_and_augment_bitcoin_block_v3(
         inscriptions_db_conn_rw,
         &hord_config,
         ctx,
-    );
+    )?;
+
+    if !transactions_processed {
+        return Ok(());
+    }
 
     let discard_changes: bool = get_any_entry_in_ordinal_activities(
         &new_block.block_identifier.index,
@@ -1311,6 +1367,7 @@ pub fn update_hord_db_and_augment_bitcoin_block_v3(
             new_block,
             &transaction,
             &cache_l1,
+            inscription_height_hint,
             &inner_ctx,
         )?;
 
@@ -1328,7 +1385,7 @@ pub fn update_hord_db_and_augment_bitcoin_block_v3(
 
     if discard_changes {
         ctx.try_log(|logger| {
-            slog::info!(
+            info!(
                 logger,
                 "Ignoring updates for block #{}, activities present in database",
                 new_block.block_identifier.index,
@@ -1336,18 +1393,16 @@ pub fn update_hord_db_and_augment_bitcoin_block_v3(
         });
     } else {
         ctx.try_log(|logger| {
-            slog::info!(
+            info!(
                 logger,
-                "Saving updates for block {}",
-                new_block.block_identifier.index,
+                "Saving updates for block {}", new_block.block_identifier.index,
             )
         });
         transaction.commit().unwrap();
         ctx.try_log(|logger| {
-            slog::info!(
+            info!(
                 logger,
-                "Updates saved for block {}",
-                new_block.block_identifier.index,
+                "Updates saved for block {}", new_block.block_identifier.index,
             )
         });
     }
@@ -1358,7 +1413,7 @@ pub fn update_hord_db_and_augment_bitcoin_block_v3(
         .collect::<Vec<String>>();
 
     ctx.try_log(|logger| {
-        slog::info!(
+        info!(
             logger,
             "Block #{} processed through hord, revealing {} inscriptions [{}]",
             new_block.block_identifier.index,
@@ -1535,6 +1590,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data_tx(
     block: &mut BitcoinBlockData,
     transaction: &Transaction,
     cache_l1: &HashMap<(TransactionIdentifier, usize), TraversalResult>,
+    inscription_height_hint: &mut InscriptionHeigthHint,
     ctx: &Context,
 ) -> Result<bool, String> {
     let mut storage_updated = false;
@@ -1543,24 +1599,12 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data_tx(
         BitcoinNetwork::Regtest => Network::Regtest,
         BitcoinNetwork::Testnet => Network::Testnet,
     };
-    let mut latest_inscription_number = match find_latest_inscription_number_at_block_height(
-        &block.block_identifier.index,
-        &transaction,
-        &ctx,
-    )? {
-        None => 0,
-        Some(inscription_number) => inscription_number + 1,
-    };
 
-    let mut latest_cursed_inscription_number =
-        match find_latest_cursed_inscription_number_at_block_height(
-            &block.block_identifier.index,
-            &transaction,
-            &ctx,
-        )? {
-            None => -1,
-            Some(inscription_number) => inscription_number - 1,
-        };
+    let mut latest_cursed_inscription_loaded = false;
+    let mut latest_cursed_inscription_number = 0;
+
+    let mut latest_blessed_inscription_loaded = false;
+    let mut latest_blessed_inscription_number = 0;
 
     let mut sats_overflow = vec![];
 
@@ -1577,9 +1621,37 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data_tx(
             };
 
             let inscription_number = if is_cursed {
+                latest_cursed_inscription_number = if !latest_cursed_inscription_loaded {
+                    latest_cursed_inscription_loaded = true;
+                    match find_latest_cursed_inscription_number_at_block_height(
+                        &block.block_identifier.index,
+                        &inscription_height_hint.cursed,
+                        &transaction,
+                        &ctx,
+                    )? {
+                        None => -1,
+                        Some(inscription_number) => inscription_number - 1,
+                    }
+                } else {
+                    latest_cursed_inscription_number - 1
+                };
                 latest_cursed_inscription_number
             } else {
-                latest_inscription_number
+                latest_blessed_inscription_number = if !latest_blessed_inscription_loaded {
+                    latest_blessed_inscription_loaded = true;
+                    match find_latest_inscription_number_at_block_height(
+                        &block.block_identifier.index,
+                        &inscription_height_hint.blessed,
+                        &transaction,
+                        &ctx,
+                    )? {
+                        None => 0,
+                        Some(inscription_number) => inscription_number + 1,
+                    }
+                } else {
+                    latest_blessed_inscription_number + 1
+                };
+                latest_blessed_inscription_number
             };
 
             let transaction_identifier = new_tx.transaction_identifier.clone();
@@ -1660,12 +1732,6 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data_tx(
                 continue;
             }
 
-            if is_cursed {
-                latest_cursed_inscription_number -= 1;
-            } else {
-                latest_inscription_number += 1;
-            };
-
             inscription.inscription_number = inscription_number;
             ctx.try_log(|logger| {
                 slog::info!(
@@ -1689,7 +1755,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data_tx(
     }
 
     for inscription in sats_overflow.iter_mut() {
-        inscription.inscription_number = latest_inscription_number;
+        inscription.inscription_number = latest_blessed_inscription_number;
         ctx.try_log(|logger| {
             slog::info!(
                 logger,
@@ -1702,8 +1768,15 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data_tx(
             );
         });
         insert_entry_in_inscriptions(&inscription, &block.block_identifier, &transaction, &ctx);
-        latest_inscription_number += 1;
+        latest_blessed_inscription_number += 1;
         storage_updated = true;
+    }
+
+    if latest_cursed_inscription_loaded {
+        inscription_height_hint.cursed = Some(block.block_identifier.index);
+    }
+    if latest_blessed_inscription_loaded {
+        inscription_height_hint.blessed = Some(block.block_identifier.index);
     }
 
     Ok(storage_updated)

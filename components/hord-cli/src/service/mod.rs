@@ -8,6 +8,7 @@ use crate::db::{
     open_readwrite_hord_db_conn, open_readwrite_hord_dbs, parse_satpoint_to_watch,
     rebuild_rocks_db, remove_entries_from_locations_at_block_height,
 };
+use crate::hord::ordinals::start_ordinals_number_processor;
 use crate::hord::{
     new_traversals_lazy_cache, revert_hord_db_with_augmented_bitcoin_block, should_sync_hord_db,
     update_hord_db_and_augment_bitcoin_block,
@@ -67,7 +68,7 @@ impl Service {
         // Catch-up with chain tip
         {
             // Start predicate processor
-            let tx = start_predicate_processor(&event_observer_config, &self.ctx);
+            let (tx, handle) = start_ordinals_number_processor(&self.config, &self.ctx);
 
             while let Some((start_block, end_block)) = should_sync_hord_db(&self.config, &self.ctx)?
             {
@@ -83,16 +84,20 @@ impl Service {
                     );
                 }
 
-                crate::hord::perform_hord_db_update(
+                let hord_config = self.config.get_hord_config();
+
+                rebuild_rocks_db(
+                    &self.config,
                     start_block,
                     end_block,
-                    &self.config.get_hord_config(),
-                    &self.config,
+                    hord_config.first_inscription_height,
                     Some(tx.clone()),
                     &self.ctx,
                 )
                 .await?;
             }
+
+            let _ = handle.join();
         }
 
         // Bitcoin scan operation threadpool
