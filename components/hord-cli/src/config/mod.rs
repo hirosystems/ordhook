@@ -121,6 +121,7 @@ impl Config {
                 BitcoinNetwork::Testnet => 2413343,
                 // BitcoinNetwork::Signet => 112402,
             },
+            logs: self.logs.clone(),
         }
     }
 

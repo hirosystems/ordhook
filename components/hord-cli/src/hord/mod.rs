@@ -39,7 +39,7 @@ use crate::db::{
 };
 use crate::ord::height::Height;
 
-use crate::config::Config;
+use crate::config::{Config, LogConfig};
 
 use crate::db::format_outpoint_to_watch;
 use chainhook_sdk::indexer::bitcoin::{
@@ -70,6 +70,7 @@ pub struct HordConfig {
     pub cache_size: usize,
     pub db_path: PathBuf,
     pub first_inscription_height: u64,
+    pub logs: LogConfig,
 }
 
 pub fn parse_ordinals_and_standardize_block(
@@ -1109,8 +1110,12 @@ pub fn get_transactions_to_process(
     cache_l1: &mut HashMap<(TransactionIdentifier, usize), TraversalResult>,
     inscriptions_db_conn: &mut Connection,
     ctx: &Context,
-) -> Vec<(TransactionIdentifier, usize)> {
+) -> (
+    Vec<(TransactionIdentifier, usize)>,
+    Vec<(TransactionIdentifier, usize)>,
+) {
     let mut transactions_ids: Vec<(TransactionIdentifier, usize)> = vec![];
+    let mut l1_cache_hits = vec![];
 
     for tx in block.transactions.iter().skip(1) {
         // Have a new inscription been revealed, if so, are looking at a re-inscription
@@ -1126,11 +1131,12 @@ pub fn get_transactions_to_process(
                     continue;
                 }
             };
-
-            if cache_l1.contains_key(&(
+            let key = (
                 tx.transaction_identifier.clone(),
                 inscription_data.inscription_input_index,
-            )) {
+            );
+            if cache_l1.contains_key(&key) {
+                l1_cache_hits.push(key);
                 continue;
             }
 
@@ -1155,7 +1161,7 @@ pub fn get_transactions_to_process(
             }
         }
     }
-    transactions_ids
+    (transactions_ids, l1_cache_hits)
 }
 
 pub fn retrieve_inscribed_satoshi_points_from_block_v3(
@@ -1167,23 +1173,30 @@ pub fn retrieve_inscribed_satoshi_points_from_block_v3(
     hord_config: &HordConfig,
     ctx: &Context,
 ) -> Result<bool, String> {
-    let mut transactions_ids =
+    let (mut transactions_ids, l1_cache_hits) =
         get_transactions_to_process(block, cache_l1, inscriptions_db_conn, ctx);
 
-    let has_transactions_to_process = !transactions_ids.is_empty();
+    let inner_ctx = if hord_config.logs.ordinals_computation {
+        ctx.clone()
+    } else {
+        Context::empty()
+    };
+
+    let has_transactions_to_process = !transactions_ids.is_empty() || !l1_cache_hits.is_empty();
 
     if has_transactions_to_process {
-        let expected_traversals = transactions_ids.len();
+        let expected_traversals = transactions_ids.len() + l1_cache_hits.len();
         let (traversal_tx, traversal_rx) = channel();
-        let traversal_data_pool = ThreadPool::new(hord_config.ingestion_thread_max);
 
+        let traversal_data_pool = ThreadPool::new(hord_config.ingestion_thread_max);
         let mut tx_thread_pool = vec![];
+
         for thread_index in 0..hord_config.ingestion_thread_max {
             let (tx, rx) = channel();
             tx_thread_pool.push(tx);
 
             let moved_traversal_tx = traversal_tx.clone();
-            let moved_ctx = ctx.clone();
+            let moved_ctx = inner_ctx.clone();
             let moved_hord_db_path = hord_config.db_path.clone();
             let local_cache = cache_l2.clone();
 
@@ -1206,12 +1219,22 @@ pub fn retrieve_inscribed_satoshi_points_from_block_v3(
             });
         }
 
+        // Empty cache
+        let mut thread_index = 0;
+        for key in l1_cache_hits.iter() {
+            if let Some(entry) = cache_l1.remove(key) {
+                let _ = traversal_tx.send((Ok(entry), true, thread_index));
+                thread_index = (thread_index + 1) % hord_config.ingestion_thread_max;
+            }
+        }
+
         ctx.try_log(|logger| {
             info!(
                 logger,
-                "Number of inscriptions in block #{} to process: {}",
+                "Number of inscriptions in block #{} to process: {} (L1 cache hits: {})",
                 block.block_identifier.index,
-                transactions_ids.len()
+                transactions_ids.len(),
+                l1_cache_hits.len(),
             )
         });
 
@@ -1245,7 +1268,7 @@ pub fn retrieve_inscribed_satoshi_points_from_block_v3(
             }
             match traversal_result {
                 Ok(traversal) => {
-                    ctx.try_log(|logger| {
+                    inner_ctx.try_log(|logger| {
                         info!(
                             logger,
                             "Satoshi #{} was minted in block #{} at offset {} and was transferred {} times (progress: {traversals_received}/{expected_traversals}) (priority queue: {prioritary}, thread: {thread_index}).",
@@ -1277,7 +1300,7 @@ pub fn retrieve_inscribed_satoshi_points_from_block_v3(
                     let _ = tx_thread_pool[thread_index].send(Some(w));
                 } else {
                     if let Some(next_block) = next_block_iter.next() {
-                        let mut transactions_ids = get_transactions_to_process(
+                        let (mut transactions_ids, _) = get_transactions_to_process(
                             next_block,
                             cache_l1,
                             inscriptions_db_conn,
@@ -1358,7 +1381,11 @@ pub fn update_hord_db_and_augment_bitcoin_block_v3(
     let inner_ctx = if discard_changes {
         Context::empty()
     } else {
-        ctx.clone()
+        if hord_config.logs.ordinals_computation {
+            ctx.clone()
+        } else {
+            Context::empty()
+        }
     };
 
     let transaction = inscriptions_db_conn_rw.transaction().unwrap();

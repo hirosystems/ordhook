@@ -2375,12 +2375,12 @@ pub async fn rebuild_rocks_db(
                         // Early return / wait for next block
                         cloned_ctx.try_log(|logger| {
                             slog::info!(logger, "Inboxing compacted block #{block_index}")
-                        }); 
-                        continue;       
+                        });
+                        continue;
                     } else {
                         if let Some(ref tx) = blocks_post_processor {
                             let _ = tx.send(chunk);
-                        }    
+                        }
                     }
                 }
 

@@ -416,7 +416,7 @@ struct CheckDbCommand {
     /// Starting block
     pub start_block: u64,
     /// Ending block
-    pub end_block: u64,    
+    pub end_block: u64,
     /// Load config file path
     #[clap(long = "config-path")]
     pub config_path: Option<String>,
@@ -891,7 +891,9 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
 
                 let mut missing_blocks = vec![];
                 for i in cmd.start_block..=cmd.end_block {
-                    if find_lazy_block_at_block_height(i as u32, 0, false, &blocks_db, &ctx).is_none() {
+                    if find_lazy_block_at_block_height(i as u32, 0, false, &blocks_db, &ctx)
+                        .is_none()
+                    {
                         println!("Missing block {i}");
                         missing_blocks.push(i);
                     }

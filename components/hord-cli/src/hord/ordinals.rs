@@ -61,7 +61,7 @@ pub fn start_ordinals_number_processor(
                         &ctx,
                     );
                     num_writes += 1;
-                    
+
                     if block.block_identifier.index >= hord_config.first_inscription_height {
                         blocks.push(block);
                     }
@@ -91,19 +91,13 @@ pub fn start_ordinals_number_processor(
                 }
                 garbage_collect_nth_block += blocks.len();
 
-                let detailed_ctx = if config.logs.ordinals_computation {
-                    ctx.clone()
-                } else {
-                    Context::empty()
-                };
-
                 process_blocks(
                     blocks,
                     &cache_l2,
                     &mut inscription_height_hint,
                     &mut inscriptions_db_conn_rw,
                     &hord_config,
-                    &detailed_ctx,
+                    &ctx,
                 );
 
                 // Clear L2 cache on a regular basis
