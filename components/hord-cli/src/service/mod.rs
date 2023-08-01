@@ -64,7 +64,7 @@ impl Service {
         let hord_config = self.config.get_hord_config();
 
         // Sleep
-        std::thread::sleep(std::time::Duration::from_secs(180));
+        // std::thread::sleep(std::time::Duration::from_secs(180));
 
         // Force rebuild
         // {
@@ -126,7 +126,7 @@ impl Service {
 
             while let Some((start_block, end_block)) = should_sync_hord_db(&self.config, &self.ctx)?
             {
-                let end_block = end_block.min(start_block + 256);
+                // let end_block = end_block.min(start_block + 256);
                 info!(
                     self.ctx.expect_logger(),
                     "Indexing inscriptions from block #{start_block} to block #{end_block}"

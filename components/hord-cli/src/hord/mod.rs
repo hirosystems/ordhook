@@ -1473,7 +1473,7 @@ pub fn update_hord_db_and_augment_bitcoin_block_v3(
     ctx.try_log(|logger| {
         info!(
             logger,
-            "Block #{} processed through hord, revealing {} inscriptions [{}]",
+            "Block #{} revealed {} inscriptions [{}]",
             new_block.block_identifier.index,
             inscriptions_revealed.len(),
             inscriptions_revealed.join(", ")
@@ -1723,7 +1723,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data_tx(
                 Some(traversal) => traversal,
                 None => {
                     ctx.try_log(|logger| {
-                        slog::info!(
+                        info!(
                             logger,
                             "Unable to retrieve cached inscription data for inscription {}",
                             new_tx.transaction_identifier.hash
@@ -1761,7 +1761,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data_tx(
                 };
             } else {
                 ctx.try_log(|logger| {
-                    slog::warn!(
+                    warn!(
                         logger,
                         "Database corrupted, skipping cursed inscription => {:?} / {:?}",
                         traversal,
@@ -1815,7 +1815,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data_tx(
 
             inscription.inscription_number = inscription_number;
             ctx.try_log(|logger| {
-                slog::info!(
+                info!(
                     logger,
                     "Inscription {} (#{}) detected on Satoshi {} (block {}, {} transfers)",
                     inscription.inscription_id,
@@ -1839,7 +1839,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_reveal_data_tx(
                 OrdinalOperation::InscriptionRevealed(inscription_data)
                 | OrdinalOperation::CursedInscriptionRevealed(inscription_data) => {
                     ctx.try_log(|logger| {
-                        slog::info!(
+                        info!(
                             logger,
                             "Inscription {} (#{}) transitioned from blessed to cursed",
                             inscription_data.inscription_id,
