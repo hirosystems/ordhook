@@ -126,24 +126,18 @@ impl Service {
 
             while let Some((start_block, end_block)) = should_sync_hord_db(&self.config, &self.ctx)?
             {
-                if start_block == 0 {
-                    info!(
-                        self.ctx.expect_logger(),
-                        "Initializing hord indexing from block #{}", start_block
-                    );
-                } else {
-                    info!(
-                        self.ctx.expect_logger(),
-                        "Resuming hord indexing from block #{}", start_block
-                    );
-                }
+                let end_block = end_block.min(start_block + 256);
+                info!(
+                    self.ctx.expect_logger(),
+                    "Indexing inscriptions from block #{start_block} to block #{end_block}"
+                );
 
                 let hord_config = self.config.get_hord_config();
 
                 rebuild_rocks_db(
                     &self.config,
                     start_block,
-                    end_block.min(start_block + 256),
+                    end_block,
                     hord_config.first_inscription_height,
                     Some(tx.clone()),
                     &self.ctx,
