@@ -18,6 +18,9 @@ use rusqlite::{Connection, Transaction};
 use std::sync::mpsc::Sender;
 
 use crate::{
+    core::{
+        compute_next_satpoint_data, get_inscriptions_revealed_in_block, HordConfig, SatPosition,
+    },
     db::{
         find_inscription_with_ordinal_number, find_inscriptions_at_wached_outpoint,
         find_latest_cursed_inscription_number_at_block_height,
@@ -29,10 +32,7 @@ use crate::{
     ord::height::Height,
 };
 
-use super::{
-    compute_next_satpoint_data, get_inscriptions_revealed_in_block,
-    protocol::retrieve_inscribed_satoshi_points_from_block_v3, HordConfig, SatPosition,
-};
+use super::numbering::retrieve_inscribed_satoshi_points_from_block_v3;
 
 pub fn process_blocks(
     mut next_blocks: Vec<BitcoinBlockData>,

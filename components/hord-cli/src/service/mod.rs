@@ -3,12 +3,12 @@ mod runloops;
 
 use crate::cli::fetch_and_standardize_block;
 use crate::config::{Config, PredicatesApi, PredicatesApiConfig};
-use crate::core::block::{
+use crate::core::pipeline::download_and_pipeline_blocks;
+use crate::core::pipeline::processors::start_ordinals_number_processor;
+use crate::core::protocol::sequencing::{
     update_hord_db_and_augment_bitcoin_block_v3,
     update_storage_and_augment_bitcoin_block_with_inscription_transfer_data_tx,
 };
-use crate::core::pipeline::download_and_pipeline_blocks;
-use crate::core::pipeline::processors::start_ordinals_number_processor;
 use crate::core::{
     new_traversals_lazy_cache, revert_hord_db_with_augmented_bitcoin_block, should_sync_hord_db,
 };

@@ -7,7 +7,7 @@ use chainhook_sdk::{types::BitcoinBlockData, utils::Context};
 
 use crate::{
     config::Config,
-    core::{block::process_blocks, new_traversals_lazy_cache},
+    core::{new_traversals_lazy_cache, protocol::sequencing::process_blocks},
     db::{
         insert_entry_in_blocks, open_readwrite_hord_db_conn, open_readwrite_hord_db_conn_rocks_db,
         InscriptionHeigthHint, LazyBlock,

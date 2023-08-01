@@ -10,11 +10,10 @@ use std::hash::BuildHasherDefault;
 use std::sync::mpsc::channel;
 use std::sync::Arc;
 
+use crate::core::HordConfig;
 use crate::db::{find_all_inscriptions_in_block, retrieve_satoshi_point_using_lazy_storage_v3};
 
 use crate::db::{LazyBlockTransaction, TraversalResult};
-
-use super::HordConfig;
 
 pub fn retrieve_inscribed_satoshi_points_from_block_v3(
     block: &BitcoinBlockData,

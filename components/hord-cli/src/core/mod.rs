@@ -1,5 +1,3 @@
-pub mod block;
-pub mod inscription;
 pub mod pipeline;
 pub mod protocol;
 
@@ -35,12 +33,13 @@ use crate::db::{
     open_readonly_hord_db_conn, open_readonly_hord_db_conn_rocks_db,
 };
 
-use self::inscription::InscriptionParser;
 use crate::db::{
     insert_transfer_in_locations, remove_entry_from_blocks, remove_entry_from_inscriptions,
     LazyBlockTransaction,
 };
 use crate::ord::inscription_id::InscriptionId;
+
+use self::protocol::inscribing::InscriptionParser;
 
 #[derive(Clone, Debug)]
 pub struct HordConfig {

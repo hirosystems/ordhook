@@ -1,6 +1,6 @@
 use crate::archive::download_ordinals_dataset_if_required;
 use crate::config::{Config, PredicatesApi};
-use crate::core::block::{
+use crate::core::protocol::sequencing::{
     update_storage_and_augment_bitcoin_block_with_inscription_reveal_data_tx,
     update_storage_and_augment_bitcoin_block_with_inscription_transfer_data_tx,
 };
