@@ -9,8 +9,9 @@ use crate::{
     config::Config,
     db::{
         insert_entry_in_blocks, open_readwrite_hord_db_conn, open_readwrite_hord_db_conn_rocks_db,
-        process_blocks, InscriptionHeigthHint, LazyBlock,
+        InscriptionHeigthHint, LazyBlock,
     },
+    hord::block::process_blocks,
 };
 
 use super::new_traversals_lazy_cache;

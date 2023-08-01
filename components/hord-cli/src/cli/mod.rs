@@ -2,6 +2,7 @@ use crate::archive::download_ordinals_dataset_if_required;
 use crate::config::generator::generate_config;
 use crate::config::Config;
 use crate::hord::ordinals::start_ordinals_number_processor;
+use crate::hord::{self, download_and_pipeline_blocks};
 use crate::scan::bitcoin::scan_bitcoin_chainstate_via_rpc_using_predicate;
 use crate::service::Service;
 
@@ -9,13 +10,8 @@ use crate::db::{
     delete_data_in_hord_db, find_all_inscription_transfers, find_all_inscriptions_in_block,
     find_all_transfers_in_block, find_inscription_with_id, find_last_block_inserted,
     find_latest_inscription_block_height, find_lazy_block_at_block_height, initialize_hord_db,
-    insert_entry_in_locations, open_readonly_hord_db_conn, open_readonly_hord_db_conn_rocks_db,
-    open_readwrite_hord_db_conn, open_readwrite_hord_db_conn_rocks_db, rebuild_rocks_db,
-    remove_entries_from_locations_at_block_height, retrieve_satoshi_point_using_lazy_storage,
-};
-use crate::hord::{
-    self, new_traversals_lazy_cache, retrieve_inscribed_satoshi_points_from_block,
-    update_storage_and_augment_bitcoin_block_with_inscription_transfer_data, Storage,
+    open_readonly_hord_db_conn, open_readonly_hord_db_conn_rocks_db, open_readwrite_hord_db_conn,
+    open_readwrite_hord_db_conn_rocks_db,
 };
 use chainhook_sdk::bitcoincore_rpc::{Auth, Client, RpcApi};
 use chainhook_sdk::chainhooks::types::HttpHook;
@@ -24,10 +20,10 @@ use chainhook_sdk::chainhooks::types::{
     ChainhookFullSpecification, HookAction, OrdinalOperations,
 };
 use chainhook_sdk::indexer::bitcoin::{
-    build_http_client, download_and_parse_block_with_retry, retrieve_block_hash_with_retry,
+    download_and_parse_block_with_retry, retrieve_block_hash_with_retry,
 };
 use chainhook_sdk::observer::BitcoinConfig;
-use chainhook_sdk::types::{BitcoinBlockData, BlockIdentifier, TransactionIdentifier};
+use chainhook_sdk::types::BitcoinBlockData;
 use chainhook_sdk::utils::Context;
 use clap::{Parser, Subcommand};
 use hiro_system_kit;
@@ -36,8 +32,6 @@ use std::collections::BTreeMap;
 use std::io::{BufReader, Read};
 use std::path::PathBuf;
 use std::process;
-use std::sync::mpsc::channel;
-use std::sync::Arc;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -60,12 +54,6 @@ enum Command {
     /// Perform maintenance operations on local databases
     #[clap(subcommand)]
     Db(HordDbCommand),
-    /// Test inscriptions and transfers computation algorithms
-    #[clap(subcommand)]
-    Test(TestCommand),
-    /// Db maintenance related commands
-    #[clap(subcommand)]
-    Repair(RepairCommand),
 }
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
@@ -155,13 +143,13 @@ struct ScanInscriptionCommand {
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
 enum RepairCommand {
-    /// Rewrite blocks hord db
-    #[clap(name = "rocksdb", bin_name = "rocksdb")]
-    Rocksdb(RepairStorageCommand),
-    /// Rewrite blocks hord db
-    #[clap(name = "sqlite", bin_name = "sqlite")]
-    Sqlite(RepairStorageCommand),
-    /// Rewrite blocks hord db
+    /// Rewrite blocks data in hord.rocksdb
+    #[clap(name = "blocks", bin_name = "blocks")]
+    Blocks(RepairStorageCommand),
+    /// Rewrite inscriptions data in hord.sqlite
+    #[clap(name = "inscriptions", bin_name = "inscriptions")]
+    Inscriptions(RepairStorageCommand),
+    /// Rewrite transfers data in hord.sqlite
     #[clap(name = "transfers", bin_name = "transfers")]
     Transfers(RepairTransfersCommand),
 }
@@ -271,9 +259,6 @@ struct StartCommand {
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
 enum HordDbCommand {
-    /// Rewrite hord db
-    #[clap(name = "rewrite", bin_name = "rewrite")]
-    Rewrite(UpdateHordDbCommand),
     /// Catch-up hord db
     #[clap(name = "sync", bin_name = "sync")]
     Sync(SyncHordDbCommand),
@@ -283,6 +268,9 @@ enum HordDbCommand {
     /// Check integrity
     #[clap(name = "check", bin_name = "check")]
     Check(CheckDbCommand),
+    /// Db maintenance related commands
+    #[clap(subcommand)]
+    Repair(RepairCommand),
 }
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
@@ -626,115 +614,14 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 println!("Created file Hord.toml");
             }
         },
-        Command::Test(TestCommand::Inscriptions(cmd)) => {
-            let config = Config::default(cmd.regtest, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
-
-            let tip_height = {
-                let hord_db_conn =
-                    open_readonly_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx)
-                        .unwrap();
-                find_last_block_inserted(&hord_db_conn) as u64
-            };
-            if cmd.block_height > tip_height {
-                hord::perform_hord_db_update(
-                    tip_height,
-                    cmd.block_height,
-                    &config.get_hord_config(),
-                    &config,
-                    None,
-                    &ctx,
-                )
-                .await?;
-            }
-
-            match cmd.txid {
-                Some(txid) => {
-                    // let global_block_cache = HashMap::new();
-                    let block_identifier = BlockIdentifier {
-                        index: cmd.block_height,
-                        hash: "".into(),
-                    };
-
-                    let transaction_identifier = TransactionIdentifier { hash: txid.clone() };
-                    let traversals_cache = new_traversals_lazy_cache(1024);
-                    let traversal = retrieve_satoshi_point_using_lazy_storage(
-                        &config.expected_cache_path(),
-                        &block_identifier,
-                        &transaction_identifier,
-                        0,
-                        0,
-                        &Arc::new(traversals_cache),
-                        &ctx,
-                    )?;
-                    info!(
-                            ctx.expect_logger(),
-                            "Satoshi #{} was minted in block #{} at offset {} and was transferred {} times.",
-                            traversal.ordinal_number, traversal.get_ordinal_coinbase_height(), traversal.get_ordinal_coinbase_offset(), traversal.transfers
-                        );
-                }
-                None => {
-                    let event_observer_config = config.get_event_observer_config();
-                    let hord_config = config.get_hord_config();
-                    let bitcoin_config = event_observer_config.get_bitcoin_config();
-                    let http_client: HttpClient = build_http_client();
-                    let block = fetch_and_standardize_block(
-                        &http_client,
-                        cmd.block_height,
-                        &bitcoin_config,
-                        &ctx,
-                    )
-                    .await?;
-                    let traversals_cache = Arc::new(new_traversals_lazy_cache(1024));
-
-                    let _traversals = retrieve_inscribed_satoshi_points_from_block(
-                        &block,
-                        None,
-                        &hord_config,
-                        &traversals_cache,
-                        &ctx,
-                    );
-                    // info!(
-                    //     ctx.expect_logger(),
-                    //     "Satoshi #{} was minted in block #{} at offset {} and was transferred {} times.",
-                    //     traversal.ordinal_number, traversal.get_ordinal_coinbase_height(), traversal.get_ordinal_coinbase_offset(), traversal.transfers
-                    // );
-                }
-            }
-        }
-        Command::Db(HordDbCommand::Sync(cmd)) => {
-            let config = Config::default(false, false, false, &cmd.config_path)?;
-            if let Some((start_block, end_block)) = hord::should_sync_hord_db(&config, &ctx)? {
-                if start_block == 0 {
-                    info!(
-                        ctx.expect_logger(),
-                        "Initializing hord indexing from block #{}", start_block
-                    );
-                } else {
-                    info!(
-                        ctx.expect_logger(),
-                        "Resuming hord indexing from block #{}", start_block
-                    );
-                }
-                hord::perform_hord_db_update(
-                    start_block,
-                    end_block,
-                    &config.get_hord_config(),
-                    &config,
-                    None,
-                    &ctx,
-                )
-                .await?;
-            } else {
-                info!(ctx.expect_logger(), "Database hord up to date");
-            }
-        }
-        Command::Repair(subcmd) => match subcmd {
-            RepairCommand::Rocksdb(cmd) => {
+        Command::Db(HordDbCommand::Sync(_cmd)) => unimplemented!(),
+        Command::Db(HordDbCommand::Repair(subcmd)) => match subcmd {
+            RepairCommand::Blocks(cmd) => {
                 let config = Config::default(false, false, false, &cmd.config_path)?;
                 let mut hord_config = config.get_hord_config();
                 hord_config.network_thread_max = cmd.network_threads;
 
-                rebuild_rocks_db(
+                download_and_pipeline_blocks(
                     &config,
                     cmd.start_block,
                     cmd.end_block,
@@ -744,14 +631,14 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 )
                 .await?
             }
-            RepairCommand::Sqlite(cmd) => {
+            RepairCommand::Inscriptions(cmd) => {
                 let config = Config::default(false, false, false, &cmd.config_path)?;
                 let mut hord_config = config.get_hord_config();
                 hord_config.network_thread_max = cmd.network_threads;
 
                 let (tx, handle) = start_ordinals_number_processor(&config, ctx, None);
 
-                rebuild_rocks_db(
+                download_and_pipeline_blocks(
                     &config,
                     cmd.start_block,
                     cmd.end_block,
@@ -769,118 +656,6 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 service.replay_transfers(cmd.start_block, cmd.end_block, None)?;
             }
         },
-        Command::Db(HordDbCommand::Rewrite(cmd)) => {
-            let config = Config::default(false, false, false, &cmd.config_path)?;
-            let transfers_only = cmd.transfers_only.unwrap_or(true);
-            if transfers_only {
-                println!("Transfers only");
-                let mut inscriptions_db_conn_rw =
-                    open_readwrite_hord_db_conn(&config.expected_cache_path(), &ctx)?;
-                let inscriptions_db_conn =
-                    open_readonly_hord_db_conn(&config.expected_cache_path(), &ctx)?;
-
-                for cursor in cmd.start_block..=cmd.end_block {
-                    println!("Cleaning transfers from block {}", cursor);
-                    let inscriptions =
-                        find_all_inscriptions_in_block(&cursor, &inscriptions_db_conn, &ctx);
-                    println!(
-                        "{} inscriptions retrieved at block {}",
-                        inscriptions.len(),
-                        cursor
-                    );
-
-                    let transaction = inscriptions_db_conn_rw.transaction().unwrap();
-
-                    remove_entries_from_locations_at_block_height(&cursor, &transaction, &ctx);
-
-                    for (_, entry) in inscriptions.iter() {
-                        let inscription_id = entry.get_inscription_id();
-                        println!("Processing inscription {}", inscription_id);
-                        insert_entry_in_locations(
-                            &inscription_id,
-                            cursor,
-                            &entry.transfer_data,
-                            &transaction,
-                            &ctx,
-                        )
-                    }
-                    transaction.commit().unwrap();
-                }
-
-                println!("Fetching blocks");
-
-                let bitcoin_config = BitcoinConfig {
-                    username: config.network.bitcoind_rpc_username.clone(),
-                    password: config.network.bitcoind_rpc_password.clone(),
-                    rpc_url: config.network.bitcoind_rpc_url.clone(),
-                    network: config.network.bitcoin_network.clone(),
-                    bitcoin_block_signaling: config.network.bitcoin_block_signaling.clone(),
-                };
-                let (tx, rx) = channel();
-                let moved_ctx = ctx.clone();
-                let http_client = build_http_client();
-
-                hiro_system_kit::thread_named("Block fetch")
-                    .spawn(move || {
-                        for cursor in cmd.start_block..=cmd.end_block {
-                            println!("Fetching block {}", cursor);
-                            let future = fetch_and_standardize_block(
-                                &http_client,
-                                cursor,
-                                &bitcoin_config,
-                                &moved_ctx,
-                            );
-
-                            let block = hiro_system_kit::nestable_block_on(future).unwrap();
-
-                            let _ = tx.send(block);
-                        }
-                    })
-                    .unwrap();
-
-                let inscriptions_db_conn_rw =
-                    open_readwrite_hord_db_conn(&config.expected_cache_path(), &ctx)?;
-                let mut storage = Storage::Sqlite(&inscriptions_db_conn_rw);
-                while let Ok(mut block) = rx.recv() {
-                    println!(
-                        "Rewriting transfers for block {}",
-                        block.block_identifier.index
-                    );
-                    update_storage_and_augment_bitcoin_block_with_inscription_transfer_data(
-                        &mut block,
-                        &mut storage,
-                        &ctx,
-                    )
-                    .unwrap();
-                }
-            } else {
-                // Delete data, if any
-                {
-                    let blocks_db_rw =
-                        open_readwrite_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
-                    let inscriptions_db_conn_rw =
-                        open_readwrite_hord_db_conn(&config.expected_cache_path(), &ctx)?;
-
-                    delete_data_in_hord_db(
-                        cmd.start_block,
-                        cmd.end_block,
-                        &blocks_db_rw,
-                        &inscriptions_db_conn_rw,
-                        &ctx,
-                    )?;
-                }
-                // Update data
-                hord::perform_hord_db_update(
-                    cmd.start_block,
-                    cmd.end_block,
-                    &config.get_hord_config(),
-                    &config,
-                    None,
-                    &ctx,
-                )
-                .await?;
-            }
-        }
         Command::Db(HordDbCommand::Check(cmd)) => {
             let config = Config::default(false, false, false, &cmd.config_path)?;
             {

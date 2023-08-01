@@ -4,16 +4,18 @@ mod runloops;
 use crate::cli::fetch_and_standardize_block;
 use crate::config::{Config, PredicatesApi, PredicatesApiConfig};
 use crate::db::{
-    delete_data_in_hord_db, find_all_inscriptions_in_block, format_satpoint_to_watch,
-    insert_entry_in_locations, open_readwrite_hord_db_conn, open_readwrite_hord_db_conn_rocks_db,
-    open_readwrite_hord_dbs, parse_satpoint_to_watch, rebuild_rocks_db,
-    remove_entries_from_locations_at_block_height,
+    find_all_inscriptions_in_block, format_satpoint_to_watch, insert_entry_in_locations,
+    open_readwrite_hord_db_conn, open_readwrite_hord_dbs, parse_satpoint_to_watch,
+    remove_entries_from_locations_at_block_height, InscriptionHeigthHint,
+};
+use crate::hord::block::{
+    update_hord_db_and_augment_bitcoin_block_v3,
+    update_storage_and_augment_bitcoin_block_with_inscription_transfer_data_tx,
 };
 use crate::hord::ordinals::start_ordinals_number_processor;
+use crate::hord::pipeline::download_and_pipeline_blocks;
 use crate::hord::{
     new_traversals_lazy_cache, revert_hord_db_with_augmented_bitcoin_block, should_sync_hord_db,
-    update_hord_db_and_augment_bitcoin_block,
-    update_storage_and_augment_bitcoin_block_with_inscription_transfer_data_tx,
 };
 use crate::scan::bitcoin::process_block_with_predicates;
 use crate::service::http_api::{load_predicates_from_redis, start_predicate_api_server};
@@ -38,7 +40,7 @@ use chainhook_sdk::utils::Context;
 use hiro_system_kit::slog;
 use redis::{Commands, Connection};
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::mpsc::{channel, Sender};
 use std::sync::Arc;
 
@@ -84,7 +86,7 @@ impl Service {
         //     )?;
         // }
 
-        // rebuild_rocks_db(&self.config, 767400, 767429, 767400, None, &self.ctx).await?;
+        // download_and_pipeline_blocks(&self.config, 767400, 767429, 767400, None, &self.ctx).await?;
 
         // Catch-up with chain tip
         {
@@ -134,7 +136,7 @@ impl Service {
 
                 let hord_config = self.config.get_hord_config();
 
-                rebuild_rocks_db(
+                download_and_pipeline_blocks(
                     &self.config,
                     start_block,
                     end_block,
@@ -315,13 +317,16 @@ impl Service {
                     match chain_update {
                         BitcoinChainEvent::ChainUpdatedWithBlocks(ref mut data) => {
                             for block in data.new_blocks.iter_mut() {
-                                if let Err(e) = update_hord_db_and_augment_bitcoin_block(
+                                let mut cache_l1 = HashMap::new();
+                                let mut hint = InscriptionHeigthHint::new();
+                                if let Err(e) = update_hord_db_and_augment_bitcoin_block_v3(
                                     block,
-                                    &blocks_db,
-                                    &mut inscriptions_db_conn_rw,
-                                    true,
-                                    &hord_config,
+                                    &vec![],
+                                    &mut cache_l1,
                                     &traversals_cache,
+                                    &mut hint,
+                                    &mut inscriptions_db_conn_rw,
+                                    &hord_config,
                                     &self.ctx,
                                 ) {
                                     self.ctx.try_log(|logger| {
@@ -353,13 +358,16 @@ impl Service {
                             }
 
                             for block in data.blocks_to_apply.iter_mut() {
-                                if let Err(e) = update_hord_db_and_augment_bitcoin_block(
+                                let mut cache_l1 = HashMap::new();
+                                let mut hint = InscriptionHeigthHint::new();
+                                if let Err(e) = update_hord_db_and_augment_bitcoin_block_v3(
                                     block,
-                                    &blocks_db,
-                                    &mut inscriptions_db_conn_rw,
-                                    true,
-                                    &hord_config,
+                                    &vec![],
+                                    &mut cache_l1,
                                     &traversals_cache,
+                                    &mut hint,
+                                    &mut inscriptions_db_conn_rw,
+                                    &hord_config,
                                     &self.ctx,
                                 ) {
                                     self.ctx.try_log(|logger| {

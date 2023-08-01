@@ -4,11 +4,11 @@ use crate::db::{
     find_all_inscriptions_in_block, get_any_entry_in_ordinal_activities,
     open_readonly_hord_db_conn, InscriptionHeigthHint,
 };
-use crate::hord::{
-    self, get_inscriptions_revealed_in_block,
+use crate::hord::block::{
     update_storage_and_augment_bitcoin_block_with_inscription_reveal_data_tx,
     update_storage_and_augment_bitcoin_block_with_inscription_transfer_data_tx,
 };
+use crate::hord::{self, get_inscriptions_revealed_in_block};
 use crate::service::{
     open_readwrite_predicates_db_conn_or_panic, update_predicate_status, PredicateStatus,
     ScanningData,
@@ -30,6 +30,7 @@ use chainhook_sdk::types::{
 use chainhook_sdk::utils::{file_append, send_request, Context};
 use std::collections::HashMap;
 
+// TODO(lgalabru): Re-introduce support for blocks[] !!! gracefully handle hints for non consecutive blocks
 pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
     predicate_spec: &BitcoinChainhookSpecification,
     config: &Config,
