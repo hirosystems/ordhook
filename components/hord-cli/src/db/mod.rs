@@ -1010,7 +1010,7 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
                 let moved_http_client = http_client.clone();
                 retrieve_block_data_pool.execute(move || {
                     moved_ctx
-                        .try_log(|logger| slog::debug!(logger, "Fetching block #{block_height}"));
+                        .try_log(|logger| debug!(logger, "Fetching block #{block_height}"));
                     let future = download_block_with_retry(
                         &moved_http_client,
                         &block_hash,
@@ -1021,7 +1021,7 @@ pub async fn fetch_and_cache_blocks_in_hord_db(
                         Ok(block_data) => Some(block_data),
                         Err(e) => {
                             moved_ctx.try_log(|logger| {
-                                slog::error!(logger, "unable to fetch block #{block_height}: {e}")
+                                error!(logger, "unable to fetch block #{block_height}: {e}")
                             });
                             None
                         }
@@ -2292,7 +2292,7 @@ pub async fn rebuild_rocks_db(
 
     let mut block_heights = VecDeque::from((start_block..=end_block).collect::<Vec<u64>>());
 
-    for _ in 0..hord_config.network_thread_max {
+    for _ in 0..8 {
         if let Some(block_height) = block_heights.pop_front() {
             let config = moved_config.clone();
             let ctx = moved_ctx.clone();

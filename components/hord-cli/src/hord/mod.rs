@@ -1186,7 +1186,7 @@ pub fn retrieve_inscribed_satoshi_points_from_block_v3(
 
     let has_transactions_to_process = !transactions_ids.is_empty() || !l1_cache_hits.is_empty();
 
-    let thread_max = hord_config.ingestion_thread_max * 3;
+    let thread_max = hord_config.ingestion_thread_max * 2;
 
     if has_transactions_to_process {
         let expected_traversals = transactions_ids.len() + l1_cache_hits.len();
