@@ -1233,10 +1233,11 @@ pub fn retrieve_inscribed_satoshi_points_from_block_v3(
         ctx.try_log(|logger| {
             info!(
                 logger,
-                "Number of inscriptions in block #{} to process: {} (L1 cache hits: {})",
+                "Number of inscriptions in block #{} to process: {} (L1 cache hits: {}, queue len: {})",
                 block.block_identifier.index,
                 transactions_ids.len(),
                 l1_cache_hits.len(),
+                next_blocks.len(),
             )
         });
 
