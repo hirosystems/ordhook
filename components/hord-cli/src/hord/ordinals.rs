@@ -23,13 +23,7 @@ pub fn start_ordinals_number_processor(
     crossbeam_channel::Sender<Vec<(BitcoinBlockData, LazyBlock)>>,
     JoinHandle<()>,
 ) {
-    // let mut batches = HashMap::new();
-    let hord_config = config.get_hord_config();
-
-    let (tx, rx) = crossbeam_channel::bounded::<Vec<(BitcoinBlockData, LazyBlock)>>(
-        hord_config.ingestion_thread_max,
-    );
-    // let (inner_tx, inner_rx) = channel();
+    let (tx, rx) = crossbeam_channel::bounded::<Vec<(BitcoinBlockData, LazyBlock)>>(1);
 
     let config = config.clone();
     let ctx = ctx.clone();

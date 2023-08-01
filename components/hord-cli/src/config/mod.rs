@@ -113,6 +113,7 @@ impl Config {
         HordConfig {
             network_thread_max: self.limits.max_number_of_networking_threads,
             ingestion_thread_max: self.limits.max_number_of_processing_threads,
+            ingestion_thread_queue_size: 4,
             cache_size: self.limits.max_caching_memory_size_mb,
             db_path: self.expected_cache_path(),
             first_inscription_height: match self.network.bitcoin_network {

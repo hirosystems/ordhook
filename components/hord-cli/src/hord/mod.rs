@@ -32,10 +32,11 @@ use chainhook_sdk::{
 };
 
 use crate::db::{
-    find_inscription_with_ordinal_number, find_inscriptions_at_wached_outpoint,
-    get_any_entry_in_ordinal_activities, insert_entry_in_blocks, insert_entry_in_inscriptions,
-    insert_transfer_in_locations_tx, retrieve_satoshi_point_using_lazy_storage,
-    retrieve_satoshi_point_using_lazy_storage_v3, InscriptionHeigthHint,
+    find_all_inscriptions_in_block, find_inscription_with_ordinal_number,
+    find_inscriptions_at_wached_outpoint, get_any_entry_in_ordinal_activities,
+    insert_entry_in_blocks, insert_entry_in_inscriptions, insert_transfer_in_locations_tx,
+    retrieve_satoshi_point_using_lazy_storage, retrieve_satoshi_point_using_lazy_storage_v3,
+    InscriptionHeigthHint,
 };
 use crate::ord::height::Height;
 
@@ -67,6 +68,7 @@ use crate::ord::inscription_id::InscriptionId;
 pub struct HordConfig {
     pub network_thread_max: usize,
     pub ingestion_thread_max: usize,
+    pub ingestion_thread_queue_size: usize,
     pub cache_size: usize,
     pub db_path: PathBuf,
     pub first_inscription_height: u64,
@@ -248,6 +250,7 @@ pub fn new_traversals_lazy_cache(
     )
 }
 
+// TODO(lgalabru): deprecate
 pub fn retrieve_inscribed_satoshi_points_from_block(
     block: &BitcoinBlockData,
     inscriptions_db_conn: Option<&Connection>,
@@ -482,7 +485,7 @@ pub fn update_hord_db_and_augment_bitcoin_block(
     ctx.try_log(|logger| {
         slog::info!(
             logger,
-            "Block #{} processed through hord, revealing {} inscriptions [{}]",
+            "Block #{} revealed {} inscriptions [{}]",
             new_block.block_identifier.index,
             inscriptions_revealed.len(),
             inscriptions_revealed.join(", ")
@@ -992,6 +995,7 @@ pub fn should_sync_hord_db(config: &Config, ctx: &Context) -> Result<Option<(u64
     }
 }
 
+// TODO(lgalabru): Deprecate
 pub async fn perform_hord_db_update(
     start_block: u64,
     end_block: u64,
@@ -1119,16 +1123,15 @@ pub fn get_transactions_to_process(
     let mut transactions_ids: Vec<(TransactionIdentifier, usize)> = vec![];
     let mut l1_cache_hits = vec![];
 
+    let mut known_transactions =
+        find_all_inscriptions_in_block(&block.block_identifier.index, inscriptions_db_conn, ctx);
+
     for tx in block.transactions.iter().skip(1) {
         // Have a new inscription been revealed, if so, are looking at a re-inscription
         for ordinal_event in tx.metadata.ordinal_operations.iter() {
-            let (inscription_data, _is_cursed) = match ordinal_event {
-                OrdinalOperation::InscriptionRevealed(inscription_data) => {
-                    (inscription_data, false)
-                }
-                OrdinalOperation::CursedInscriptionRevealed(inscription_data) => {
-                    (inscription_data, false)
-                }
+            let inscription_data = match ordinal_event {
+                OrdinalOperation::InscriptionRevealed(inscription_data) => inscription_data,
+                OrdinalOperation::CursedInscriptionRevealed(inscription_data) => inscription_data,
                 OrdinalOperation::InscriptionTransferred(_) => {
                     continue;
                 }
@@ -1142,25 +1145,17 @@ pub fn get_transactions_to_process(
                 continue;
             }
 
-            if let Ok(Some((traversal, _))) = find_inscription_with_id(
-                &inscription_data.inscription_id,
-                &inscriptions_db_conn,
-                ctx,
-            ) {
-                cache_l1.insert(
-                    (
-                        tx.transaction_identifier.clone(),
-                        inscription_data.inscription_input_index,
-                    ),
-                    traversal,
-                );
-            } else {
-                // Enqueue for traversals
-                transactions_ids.push((
-                    tx.transaction_identifier.clone(),
-                    inscription_data.inscription_input_index,
-                ));
+            if let Some(entry) = known_transactions.remove(&key) {
+                l1_cache_hits.push(key.clone());
+                cache_l1.insert(key, entry);
+                continue;
             }
+
+            // Enqueue for traversals
+            transactions_ids.push((
+                tx.transaction_identifier.clone(),
+                inscription_data.inscription_input_index,
+            ));
         }
     }
     (transactions_ids, l1_cache_hits)
@@ -1242,11 +1237,13 @@ pub fn retrieve_inscribed_satoshi_points_from_block_v3(
         ctx.try_log(|logger| {
             info!(
                 logger,
-                "Number of inscriptions in block #{} to process: {} (L1 cache hits: {}, queue len: {})",
+                "Number of inscriptions in block #{} to process: {} (L1 cache hits: {}, queue len: {}, L1 cache len: {}, L2 cache len: {})",
                 block.block_identifier.index,
                 transactions_ids.len(),
                 l1_cache_hits.len(),
                 next_blocks.len(),
+                cache_l1.len(),
+                cache_l2.len(),
             )
         });
 
@@ -1342,7 +1339,27 @@ pub fn retrieve_inscribed_satoshi_points_from_block_v3(
                 }
             }
         }
+
         for tx in tx_thread_pool.iter() {
+            // Empty the queue
+            if let Ok((traversal_result, prioritary, thread_index)) = traversal_rx.try_recv() {
+                if let Ok(traversal) = traversal_result {
+                    inner_ctx.try_log(|logger| {
+                            info!(
+                                logger,
+                                "Satoshi #{} was minted in block #{} at offset {} and was transferred {} times (progress: {traversals_received}/{expected_traversals}) (priority queue: {prioritary}, thread: {thread_index}).",
+                                traversal.ordinal_number, traversal.get_ordinal_coinbase_height(), traversal.get_ordinal_coinbase_offset(), traversal.transfers
+                                )
+                        });
+                    cache_l1.insert(
+                        (
+                            traversal.transaction_identifier_inscription.clone(),
+                            traversal.inscription_input_index,
+                        ),
+                        traversal,
+                    );
+                }
+            }
             let _ = tx.send(None);
         }
 
