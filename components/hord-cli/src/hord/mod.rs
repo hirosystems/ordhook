@@ -1186,11 +1186,11 @@ pub fn retrieve_inscribed_satoshi_points_from_block_v3(
 
     let has_transactions_to_process = !transactions_ids.is_empty() || !l1_cache_hits.is_empty();
 
+    let thread_max = hord_config.ingestion_thread_max * 3;
+
     if has_transactions_to_process {
         let expected_traversals = transactions_ids.len() + l1_cache_hits.len();
         let (traversal_tx, traversal_rx) = channel();
-
-        let thread_max = hord_config.ingestion_thread_max * 3;
 
         let traversal_data_pool = ThreadPool::new(thread_max);
         let mut tx_thread_pool = vec![];
@@ -1228,7 +1228,7 @@ pub fn retrieve_inscribed_satoshi_points_from_block_v3(
         for key in l1_cache_hits.iter() {
             if let Some(entry) = cache_l1.remove(key) {
                 let _ = traversal_tx.send((Ok(entry), true, thread_index));
-                thread_index = (thread_index + 1) % hord_config.ingestion_thread_max;
+                thread_index = (thread_index + 1) % thread_max;
             }
         }
 
@@ -1258,10 +1258,10 @@ pub fn retrieve_inscribed_satoshi_points_from_block_v3(
         }
 
         // Feed each workers with 2 workitems each
-        for thread_index in 0..hord_config.ingestion_thread_max {
+        for thread_index in 0..thread_max {
             let _ = tx_thread_pool[thread_index].send(priority_queue.pop_front());
         }
-        for thread_index in 0..hord_config.ingestion_thread_max {
+        for thread_index in 0..thread_max {
             let _ = tx_thread_pool[thread_index].send(priority_queue.pop_front());
         }
 
@@ -1335,7 +1335,7 @@ pub fn retrieve_inscribed_satoshi_points_from_block_v3(
                 }
             }
         }
-        for thread_index in 0..hord_config.ingestion_thread_max {
+        for thread_index in 0..thread_max {
             let _ = tx_thread_pool[thread_index].send(None);
         }
 
