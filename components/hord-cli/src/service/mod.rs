@@ -64,7 +64,7 @@ impl Service {
         let hord_config = self.config.get_hord_config();
 
         // Sleep
-        // std::thread::sleep(std::time::Duration::from_secs(3600000));
+        std::thread::sleep(std::time::Duration::from_secs(180));
 
         // Force rebuild
         // {

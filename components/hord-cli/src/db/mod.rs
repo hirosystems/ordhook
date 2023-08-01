@@ -2326,7 +2326,7 @@ pub async fn rebuild_rocks_db(
                 let moved_bitcoin_network = moved_bitcoin_network.clone();
                 compress_block_data_pool.execute(move || {
                     while let Ok(Some(block_bytes)) = rx.recv() {
-                        let raw_block_data = parse_downloaded_block(block_bytes).unwrap();
+                        let raw_block_data = parse_downloaded_block(block_bytes).expect("unable to parse block");
                         let compressed_block = LazyBlock::from_full_block(&raw_block_data)
                             .expect("unable to compress block");
                         let block_data = hord::parse_ordinals_and_standardize_block(
