@@ -2295,12 +2295,12 @@ pub async fn rebuild_rocks_db(
 
     let mut block_heights = VecDeque::from((start_block..=end_block).collect::<Vec<u64>>());
 
-    for _ in 0..hord_config.network_thread_max {
+    for _ in 0..4 {
         if let Some(block_height) = block_heights.pop_front() {
             let config = moved_config.clone();
             let ctx = moved_ctx.clone();
             let http_client = moved_http_client.clone();
-            sleep(Duration::from_millis(200));
+            sleep(Duration::from_millis(500));
             set.spawn(try_download_block_bytes_with_retry(
                 http_client,
                 block_height,
