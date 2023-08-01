@@ -126,7 +126,7 @@ impl Service {
 
             while let Some((start_block, end_block)) = should_sync_hord_db(&self.config, &self.ctx)?
             {
-                let end_block = end_block.min(start_block + 512);
+                let end_block = end_block.min(start_block + 256);
                 info!(
                     self.ctx.expect_logger(),
                     "Indexing inscriptions from block #{start_block} to block #{end_block}"

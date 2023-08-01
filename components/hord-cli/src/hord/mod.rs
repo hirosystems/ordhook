@@ -1190,10 +1190,12 @@ pub fn retrieve_inscribed_satoshi_points_from_block_v3(
         let expected_traversals = transactions_ids.len() + l1_cache_hits.len();
         let (traversal_tx, traversal_rx) = channel();
 
-        let traversal_data_pool = ThreadPool::new(hord_config.ingestion_thread_max);
+        let thread_max = hord_config.ingestion_thread_max * 3;
+
+        let traversal_data_pool = ThreadPool::new(thread_max);
         let mut tx_thread_pool = vec![];
 
-        for thread_index in 0..hord_config.ingestion_thread_max {
+        for thread_index in 0..thread_max {
             let (tx, rx) = channel();
             tx_thread_pool.push(tx);
 
