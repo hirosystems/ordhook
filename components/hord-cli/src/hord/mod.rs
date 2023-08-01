@@ -1192,8 +1192,8 @@ pub fn retrieve_inscribed_satoshi_points_from_block_v3(
         let expected_traversals = transactions_ids.len() + l1_cache_hits.len();
         let (traversal_tx, traversal_rx) = channel();
 
-        let traversal_data_pool = ThreadPool::new(thread_max);
         let mut tx_thread_pool = vec![];
+        let mut thread_pool_handles = vec![];
 
         for thread_index in 0..thread_max {
             let (tx, rx) = channel();
@@ -1204,23 +1204,30 @@ pub fn retrieve_inscribed_satoshi_points_from_block_v3(
             let moved_hord_db_path = hord_config.db_path.clone();
             let local_cache = cache_l2.clone();
 
-            traversal_data_pool.execute(move || {
-                while let Ok(Some((transaction_id, block_identifier, input_index, prioritary))) =
-                    rx.recv()
-                {
-                    let traversal: Result<TraversalResult, String> =
-                        retrieve_satoshi_point_using_lazy_storage_v3(
-                            &moved_hord_db_path,
-                            &block_identifier,
-                            &transaction_id,
-                            input_index,
-                            0,
-                            &local_cache,
-                            &moved_ctx,
-                        );
-                    let _ = moved_traversal_tx.send((traversal, prioritary, thread_index));
-                }
-            });
+            let handle = hiro_system_kit::thread_named("Worker")
+                .spawn(move || {
+                    while let Ok(Some((
+                        transaction_id,
+                        block_identifier,
+                        input_index,
+                        prioritary,
+                    ))) = rx.recv()
+                    {
+                        let traversal: Result<TraversalResult, String> =
+                            retrieve_satoshi_point_using_lazy_storage_v3(
+                                &moved_hord_db_path,
+                                &block_identifier,
+                                &transaction_id,
+                                input_index,
+                                0,
+                                &local_cache,
+                                &moved_ctx,
+                            );
+                        let _ = moved_traversal_tx.send((traversal, prioritary, thread_index));
+                    }
+                })
+                .expect("unable to spawn thread");
+            thread_pool_handles.push(handle);
         }
 
         // Empty cache
@@ -1335,12 +1342,14 @@ pub fn retrieve_inscribed_satoshi_points_from_block_v3(
                 }
             }
         }
-        for thread_index in 0..thread_max {
-            let _ = tx_thread_pool[thread_index].send(None);
+        for tx in tx_thread_pool.iter() {
+            let _ = tx.send(None);
         }
 
         let _ = hiro_system_kit::thread_named("Garbage collection").spawn(move || {
-            let _ = traversal_data_pool.join();
+            for handle in thread_pool_handles.into_iter() {
+                let _ = handle.join();
+            }
         });
     } else {
         ctx.try_log(|logger| {

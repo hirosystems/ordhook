@@ -2326,7 +2326,8 @@ pub async fn rebuild_rocks_db(
                 let moved_bitcoin_network = moved_bitcoin_network.clone();
                 compress_block_data_pool.execute(move || {
                     while let Ok(Some(block_bytes)) = rx.recv() {
-                        let raw_block_data = parse_downloaded_block(block_bytes).expect("unable to parse block");
+                        let raw_block_data =
+                            parse_downloaded_block(block_bytes).expect("unable to parse block");
                         let compressed_block = LazyBlock::from_full_block(&raw_block_data)
                             .expect("unable to compress block");
                         let block_data = hord::parse_ordinals_and_standardize_block(
@@ -2422,12 +2423,7 @@ pub async fn rebuild_rocks_db(
         thread_index = (thread_index + 1) % hord_config.ingestion_thread_max;
     }
 
-    ctx.try_log(|logger| {
-        info!(
-            logger,
-            "Gargbage collecting will start"
-        )
-    });
+    ctx.try_log(|logger| info!(logger, "Gargbage collecting will start"));
 
     for tx in tx_thread_pool.iter() {
         let _ = tx.send(None);
@@ -2436,12 +2432,7 @@ pub async fn rebuild_rocks_db(
     let _ = storage_thread.join();
     let _ = set.shutdown();
 
-    ctx.try_log(|logger| {
-        info!(
-            logger,
-            "Gargbage collecting did finish"
-        )
-    });
+    ctx.try_log(|logger| info!(logger, "Gargbage collecting did finish"));
 
     // match guard.report().build() {
     //     Ok(report) => {
