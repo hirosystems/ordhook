@@ -3,19 +3,19 @@ mod runloops;
 
 use crate::cli::fetch_and_standardize_block;
 use crate::config::{Config, PredicatesApi, PredicatesApiConfig};
+use crate::core::block::{
+    update_hord_db_and_augment_bitcoin_block_v3,
+    update_storage_and_augment_bitcoin_block_with_inscription_transfer_data_tx,
+};
+use crate::core::pipeline::download_and_pipeline_blocks;
+use crate::core::pipeline::processors::start_ordinals_number_processor;
+use crate::core::{
+    new_traversals_lazy_cache, revert_hord_db_with_augmented_bitcoin_block, should_sync_hord_db,
+};
 use crate::db::{
     find_all_inscriptions_in_block, format_satpoint_to_watch, insert_entry_in_locations,
     open_readwrite_hord_db_conn, open_readwrite_hord_dbs, parse_satpoint_to_watch,
     remove_entries_from_locations_at_block_height, InscriptionHeigthHint,
-};
-use crate::hord::block::{
-    update_hord_db_and_augment_bitcoin_block_v3,
-    update_storage_and_augment_bitcoin_block_with_inscription_transfer_data_tx,
-};
-use crate::hord::ordinals::start_ordinals_number_processor;
-use crate::hord::pipeline::download_and_pipeline_blocks;
-use crate::hord::{
-    new_traversals_lazy_cache, revert_hord_db_with_augmented_bitcoin_block, should_sync_hord_db,
 };
 use crate::scan::bitcoin::process_block_with_predicates;
 use crate::service::http_api::{load_predicates_from_redis, start_predicate_api_server};

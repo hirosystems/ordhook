@@ -30,8 +30,8 @@ use crate::{
 };
 
 use super::{
-    compute_next_satpoint_data, core::retrieve_inscribed_satoshi_points_from_block_v3,
-    get_inscriptions_revealed_in_block, HordConfig, SatPosition,
+    compute_next_satpoint_data, get_inscriptions_revealed_in_block,
+    protocol::retrieve_inscribed_satoshi_points_from_block_v3, HordConfig, SatPosition,
 };
 
 pub fn process_blocks(

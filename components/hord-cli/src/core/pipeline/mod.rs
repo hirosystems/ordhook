@@ -1,3 +1,5 @@
+pub mod processors;
+
 use chainhook_sdk::observer::BitcoinConfig;
 use chainhook_sdk::types::BitcoinBlockData;
 use chainhook_sdk::utils::Context;

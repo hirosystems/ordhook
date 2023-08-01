@@ -7,14 +7,12 @@ use chainhook_sdk::{types::BitcoinBlockData, utils::Context};
 
 use crate::{
     config::Config,
+    core::{block::process_blocks, new_traversals_lazy_cache},
     db::{
         insert_entry_in_blocks, open_readwrite_hord_db_conn, open_readwrite_hord_db_conn_rocks_db,
         InscriptionHeigthHint, LazyBlock,
     },
-    hord::block::process_blocks,
 };
-
-use super::new_traversals_lazy_cache;
 
 pub fn start_ordinals_number_processor(
     config: &Config,

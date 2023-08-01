@@ -1,14 +1,14 @@
 use crate::archive::download_ordinals_dataset_if_required;
 use crate::config::{Config, PredicatesApi};
+use crate::core::block::{
+    update_storage_and_augment_bitcoin_block_with_inscription_reveal_data_tx,
+    update_storage_and_augment_bitcoin_block_with_inscription_transfer_data_tx,
+};
+use crate::core::{self, get_inscriptions_revealed_in_block};
 use crate::db::{
     find_all_inscriptions_in_block, get_any_entry_in_ordinal_activities,
     open_readonly_hord_db_conn, InscriptionHeigthHint,
 };
-use crate::hord::block::{
-    update_storage_and_augment_bitcoin_block_with_inscription_reveal_data_tx,
-    update_storage_and_augment_bitcoin_block_with_inscription_transfer_data_tx,
-};
-use crate::hord::{self, get_inscriptions_revealed_in_block};
 use crate::service::{
     open_readwrite_predicates_db_conn_or_panic, update_predicate_status, PredicateStatus,
     ScanningData,
@@ -118,7 +118,7 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
         let block_breakdown =
             download_and_parse_block_with_retry(&http_client, &block_hash, &bitcoin_config, ctx)
                 .await?;
-        let mut block = match hord::parse_ordinals_and_standardize_block(
+        let mut block = match core::parse_ordinals_and_standardize_block(
             block_breakdown,
             &event_observer_config.bitcoin_network,
             ctx,

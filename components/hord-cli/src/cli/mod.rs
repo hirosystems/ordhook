@@ -1,8 +1,9 @@
 use crate::archive::download_ordinals_dataset_if_required;
 use crate::config::generator::generate_config;
 use crate::config::Config;
-use crate::hord::ordinals::start_ordinals_number_processor;
-use crate::hord::{self, download_and_pipeline_blocks};
+use crate::core::pipeline::download_and_pipeline_blocks;
+use crate::core::pipeline::processors::start_ordinals_number_processor;
+use crate::core::{self};
 use crate::scan::bitcoin::scan_bitcoin_chainstate_via_rpc_using_predicate;
 use crate::service::Service;
 
@@ -727,7 +728,7 @@ pub async fn fetch_and_standardize_block(
         download_and_parse_block_with_retry(http_client, &block_hash, &bitcoin_config, &ctx)
             .await?;
 
-    hord::parse_ordinals_and_standardize_block(block_breakdown, &bitcoin_config.network, &ctx)
+    core::parse_ordinals_and_standardize_block(block_breakdown, &bitcoin_config.network, &ctx)
         .map_err(|(e, _)| e)
 }
 

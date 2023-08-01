@@ -1,55 +1,18 @@
-use chainhook_sdk::bitcoincore_rpc::bitcoin::hashes::hex::FromHex;
-use chainhook_sdk::bitcoincore_rpc::bitcoin::Script;
-use chainhook_sdk::bitcoincore_rpc_json::bitcoin::{Txid, Witness};
-use chainhook_sdk::observer::BitcoinConfig;
-use chainhook_sdk::types::{
-    BitcoinBlockData, BitcoinNetwork, OrdinalInscriptionCurseType, OrdinalInscriptionRevealData,
-    OrdinalOperation, TransactionIdentifier,
-};
-use crossbeam_channel::bounded;
+use chainhook_sdk::types::{BitcoinBlockData, OrdinalOperation, TransactionIdentifier};
+use chainhook_sdk::utils::Context;
 use dashmap::DashMap;
-use fxhash::{FxBuildHasher, FxHasher};
+use fxhash::FxHasher;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
-use rocksdb::DB;
 use rusqlite::Connection;
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::hash::BuildHasherDefault;
-use std::ops::Div;
-use std::path::PathBuf;
 use std::sync::mpsc::channel;
 use std::sync::Arc;
-use std::thread::sleep;
-use std::time::Duration;
-use tokio::task::JoinSet;
 
-use chainhook_sdk::{
-    bitcoincore_rpc::{Auth, Client, RpcApi},
-    utils::Context,
-};
+use crate::db::{find_all_inscriptions_in_block, retrieve_satoshi_point_using_lazy_storage_v3};
 
-use crate::db::{
-    find_all_inscriptions_in_block, retrieve_satoshi_point_using_lazy_storage_v3, LazyBlock,
-};
-
-use crate::config::{Config, LogConfig};
-
-use chainhook_sdk::indexer::bitcoin::{
-    build_http_client, parse_downloaded_block, standardize_bitcoin_block,
-    try_download_block_bytes_with_retry, BitcoinBlockFullBreakdown,
-    BitcoinTransactionFullBreakdown,
-};
-
-use crate::db::{
-    find_last_block_inserted, find_latest_inscription_block_height, initialize_hord_db,
-    open_readonly_hord_db_conn, open_readonly_hord_db_conn_rocks_db,
-};
-
-use crate::db::{
-    insert_transfer_in_locations, remove_entry_from_blocks, remove_entry_from_inscriptions,
-    LazyBlockTransaction, TraversalResult,
-};
-use crate::ord::inscription_id::InscriptionId;
+use crate::db::{LazyBlockTransaction, TraversalResult};
 
 use super::HordConfig;
 

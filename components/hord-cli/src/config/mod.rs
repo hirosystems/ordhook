@@ -1,7 +1,7 @@
 pub mod file;
 pub mod generator;
 
-use crate::hord::HordConfig;
+use crate::core::HordConfig;
 pub use chainhook_sdk::indexer::IndexerConfig;
 use chainhook_sdk::observer::EventObserverConfig;
 use chainhook_sdk::types::{
