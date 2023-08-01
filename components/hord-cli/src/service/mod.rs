@@ -143,7 +143,7 @@ impl Service {
                 rebuild_rocks_db(
                     &self.config,
                     start_block,
-                    end_block,
+                    end_block.min(start_block + 256),
                     hord_config.first_inscription_height,
                     Some(tx.clone()),
                     &self.ctx,
