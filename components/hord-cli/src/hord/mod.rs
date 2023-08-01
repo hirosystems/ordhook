@@ -145,10 +145,12 @@ pub fn parse_ordinal_operations(
 
             let no_content_bytes = vec![];
             let inscription_content_bytes = inscription.body().take().unwrap_or(&no_content_bytes);
+            let mut content_bytes = "0x".to_string();
+            content_bytes.push_str(&hex::encode(&inscription_content_bytes));
 
             let payload = OrdinalInscriptionRevealData {
                 content_type: inscription.content_type().unwrap_or("unknown").to_string(),
-                content_bytes: format!("0x{}", hex::encode(&inscription_content_bytes)),
+                content_bytes,
                 content_length: inscription_content_bytes.len(),
                 inscription_id: inscription_id.to_string(),
                 inscription_input_index: input_index,
