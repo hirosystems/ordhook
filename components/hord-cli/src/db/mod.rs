@@ -2,7 +2,7 @@ use std::{
     collections::{BTreeMap, HashMap, VecDeque},
     hash::BuildHasherDefault,
     path::PathBuf,
-    sync::{mpsc::Sender, Arc},
+    sync::{mpsc::Sender, Arc}, thread::sleep, time::Duration,
 };
 
 use chainhook_sdk::{
@@ -2297,6 +2297,7 @@ pub async fn rebuild_rocks_db(
             let config = moved_config.clone();
             let ctx = moved_ctx.clone();
             let http_client = moved_http_client.clone();
+            sleep(Duration::from_millis(500));
             set.spawn(try_download_block_bytes_with_retry(
                 http_client,
                 block_height,
