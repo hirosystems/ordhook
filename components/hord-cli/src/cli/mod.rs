@@ -1,4 +1,4 @@
-use crate::archive::download_ordinals_dataset_if_required;
+use crate::download::download_ordinals_dataset_if_required;
 use crate::config::generator::generate_config;
 use crate::config::Config;
 use crate::core::pipeline::download_and_pipeline_blocks;

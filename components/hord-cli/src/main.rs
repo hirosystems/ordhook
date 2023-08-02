@@ -12,7 +12,7 @@ extern crate serde_derive;
 
 extern crate serde;
 
-pub mod archive;
+pub mod download;
 pub mod cli;
 pub mod config;
 pub mod core;

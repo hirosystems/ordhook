@@ -1,8 +1,13 @@
 use std::collections::BTreeMap;
 use std::str::FromStr;
 
-use chainhook_sdk::bitcoincore_rpc::bitcoin::Transaction;
-use chainhook_sdk::types::OrdinalInscriptionCurseType;
+use chainhook_sdk::bitcoincore_rpc_json::bitcoin::Txid;
+use chainhook_sdk::bitcoincore_rpc_json::bitcoin::hashes::hex::FromHex;
+use chainhook_sdk::utils::Context;
+use chainhook_sdk::{bitcoincore_rpc::bitcoin::Transaction, indexer::bitcoin::BitcoinTransactionFullBreakdown};
+use chainhook_sdk::types::{OrdinalInscriptionCurseType, OrdinalOperation, OrdinalInscriptionRevealData};
+
+use crate::ord::inscription_id::InscriptionId;
 use {
     chainhook_sdk::bitcoincore_rpc::bitcoin::{
         blockdata::{
@@ -234,4 +239,102 @@ impl FromStr for Media {
 
         Err("unknown content type: {s}".to_string())
     }
+}
+
+
+pub fn parse_ordinal_operations(
+    tx: &BitcoinTransactionFullBreakdown,
+    _ctx: &Context,
+) -> Vec<OrdinalOperation> {
+    // This should eventually become a loop once/if there is settlement on https://github.com/casey/ord/issues/2000.
+    let mut operations = vec![];
+    for (input_index, input) in tx.vin.iter().enumerate() {
+        if let Some(ref witness_data) = input.txinwitness {
+            let witness_data_hex: Vec<Vec<u8>> = witness_data
+                .iter()
+                .map(|w| hex::decode(w).unwrap())
+                .collect();
+            let witness = Witness::from_vec(witness_data_hex.clone());
+            let mut inscription = match InscriptionParser::parse(&witness) {
+                Ok(inscription) => inscription,
+                Err(_e) => {
+                    let mut cursed_inscription = None;
+                    for bytes in witness_data_hex.iter() {
+                        let script = Script::from(bytes.to_vec());
+                        let parser = InscriptionParser {
+                            instructions: script.instructions().peekable(),
+                        };
+
+                        let mut inscription = match parser.parse_script() {
+                            Ok(inscription) => inscription,
+                            Err(_) => continue,
+                        };
+                        inscription.curse = Some(OrdinalInscriptionCurseType::P2wsh);
+                        cursed_inscription = Some(inscription);
+                        break;
+                    }
+                    match cursed_inscription {
+                        Some(inscription) => inscription,
+                        None => continue,
+                    }
+                }
+            };
+
+            let inscription_id = InscriptionId {
+                txid: Txid::from_hex(&tx.txid).unwrap(),
+                index: input_index as u32,
+            };
+
+            if input_index > 0 {
+                inscription.curse = Some(OrdinalInscriptionCurseType::Batch);
+            }
+
+            let no_content_bytes = vec![];
+            let inscription_content_bytes = inscription.body().take().unwrap_or(&no_content_bytes);
+            let mut content_bytes = "0x".to_string();
+            content_bytes.push_str(&hex::encode(&inscription_content_bytes));
+
+            let payload = OrdinalInscriptionRevealData {
+                content_type: inscription.content_type().unwrap_or("unknown").to_string(),
+                content_bytes,
+                content_length: inscription_content_bytes.len(),
+                inscription_id: inscription_id.to_string(),
+                inscription_input_index: input_index,
+                tx_index: 0,
+                inscription_output_value: 0,
+                inscription_fee: 0,
+                inscription_number: 0,
+                inscriber_address: None,
+                ordinal_number: 0,
+                ordinal_block_height: 0,
+                ordinal_offset: 0,
+                transfers_pre_inscription: 0,
+                satpoint_post_inscription: format!(""),
+                curse_type: inscription.curse.take(),
+            };
+
+            operations.push(match &payload.curse_type {
+                Some(_) => OrdinalOperation::CursedInscriptionRevealed(payload),
+                None => OrdinalOperation::InscriptionRevealed(payload),
+            });
+        }
+    }
+    operations
+}
+
+#[test]
+fn test_ordinal_inscription_parsing() {
+    let bytes = hex::decode("208737bc46923c3e64c7e6768c0346879468bf3aba795a5f5f56efca288f50ed2aac0063036f7264010118746578742f706c61696e3b636861727365743d7574662d38004c9948656c6c6f2030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030300a68").unwrap();
+
+    let script = Script::from(bytes);
+    let parser = InscriptionParser {
+        instructions: script.instructions().peekable(),
+    };
+
+    let inscription = match parser.parse_script() {
+        Ok(inscription) => inscription,
+        Err(_) => panic!(),
+    };
+
+    println!("{:?}", inscription);
 }
