@@ -2,8 +2,7 @@ pub mod pipeline;
 pub mod protocol;
 
 use chainhook_sdk::types::{
-    BitcoinBlockData, BitcoinNetwork, OrdinalInscriptionRevealData,
-    OrdinalOperation,
+    BitcoinBlockData, BitcoinNetwork, OrdinalInscriptionRevealData, OrdinalOperation,
 };
 use dashmap::DashMap;
 use fxhash::{FxBuildHasher, FxHasher};
@@ -21,9 +20,7 @@ use chainhook_sdk::{
 
 use crate::config::{Config, LogConfig};
 
-use chainhook_sdk::indexer::bitcoin::{
-    standardize_bitcoin_block, BitcoinBlockFullBreakdown,
-};
+use chainhook_sdk::indexer::bitcoin::{standardize_bitcoin_block, BitcoinBlockFullBreakdown};
 
 use crate::db::{
     find_last_block_inserted, find_latest_inscription_block_height, initialize_hord_db,
@@ -35,7 +32,9 @@ use crate::db::{
     LazyBlockTransaction,
 };
 
-use self::protocol::inscribing::parse_ordinal_operations;
+use self::protocol::inscribing::{
+    get_inscriptions_from_full_tx, get_inscriptions_from_standardized_tx,
+};
 
 #[derive(Clone, Debug)]
 pub struct HordConfig {
@@ -56,7 +55,7 @@ pub fn parse_ordinals_and_standardize_block(
     let mut ordinal_operations = BTreeMap::new();
 
     for tx in raw_block.tx.iter() {
-        ordinal_operations.insert(tx.txid.to_string(), parse_ordinal_operations(&tx, ctx));
+        ordinal_operations.insert(tx.txid.to_string(), get_inscriptions_from_full_tx(&tx, ctx));
     }
 
     let mut block = standardize_bitcoin_block(raw_block, network, ctx)?;
@@ -69,6 +68,12 @@ pub fn parse_ordinals_and_standardize_block(
         }
     }
     Ok(block)
+}
+
+pub fn parse_inscriptions_in_standardized_block(block: &mut BitcoinBlockData, ctx: &Context) {
+    for tx in block.transactions.iter_mut() {
+        tx.metadata.ordinal_operations = get_inscriptions_from_standardized_tx(tx, ctx);
+    }
 }
 
 pub fn get_inscriptions_revealed_in_block(
@@ -232,6 +237,8 @@ pub fn should_sync_hord_db(config: &Config, ctx: &Context) -> Result<Option<(u64
             ));
         }
     };
+
+    start_block += 1;
 
     if start_block < end_block {
         Ok(Some((start_block, end_block)))
