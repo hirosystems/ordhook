@@ -1,3 +1,4 @@
+pub mod block_ingestion;
 pub mod inscription_indexing;
 
-pub use inscription_indexing::start_ordinals_number_processor;
+pub use inscription_indexing::start_inscription_indexing_processor;

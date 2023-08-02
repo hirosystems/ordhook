@@ -2,7 +2,8 @@ use crate::archive::download_ordinals_dataset_if_required;
 use crate::config::generator::generate_config;
 use crate::config::Config;
 use crate::core::pipeline::download_and_pipeline_blocks;
-use crate::core::pipeline::processors::start_ordinals_number_processor;
+use crate::core::pipeline::processors::block_ingestion::start_block_ingestion_processor;
+use crate::core::pipeline::processors::start_inscription_indexing_processor;
 use crate::core::{self};
 use crate::scan::bitcoin::scan_bitcoin_chainstate_via_rpc_using_predicate;
 use crate::service::Service;
@@ -622,12 +623,14 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 let mut hord_config = config.get_hord_config();
                 hord_config.network_thread_max = cmd.network_threads;
 
+                let blocks_post_processor = start_block_ingestion_processor(&config, ctx, None);
+
                 download_and_pipeline_blocks(
                     &config,
                     cmd.start_block,
                     cmd.end_block,
                     hord_config.first_inscription_height,
-                    None,
+                    Some(&blocks_post_processor),
                     &ctx,
                 )
                 .await?
@@ -637,19 +640,18 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 let mut hord_config = config.get_hord_config();
                 hord_config.network_thread_max = cmd.network_threads;
 
-                let (tx, handle) = start_ordinals_number_processor(&config, ctx, None);
+                let blocks_post_processor =
+                    start_inscription_indexing_processor(&config, ctx, None);
 
                 download_and_pipeline_blocks(
                     &config,
                     cmd.start_block,
                     cmd.end_block,
                     hord_config.first_inscription_height,
-                    Some(tx),
+                    Some(&blocks_post_processor),
                     &ctx,
                 )
                 .await?;
-
-                let _ = handle.join();
             }
             RepairCommand::Transfers(cmd) => {
                 let config = Config::default(false, false, false, &cmd.config_path)?;

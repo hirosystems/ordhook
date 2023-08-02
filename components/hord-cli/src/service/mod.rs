@@ -4,7 +4,7 @@ mod runloops;
 use crate::cli::fetch_and_standardize_block;
 use crate::config::{Config, PredicatesApi, PredicatesApiConfig};
 use crate::core::pipeline::download_and_pipeline_blocks;
-use crate::core::pipeline::processors::start_ordinals_number_processor;
+use crate::core::pipeline::processors::start_inscription_indexing_processor;
 use crate::core::protocol::sequencing::{
     update_hord_db_and_augment_bitcoin_block_v3,
     update_storage_and_augment_bitcoin_block_with_inscription_transfer_data_tx,
@@ -93,8 +93,8 @@ impl Service {
             // Start predicate processor
             let (tx_replayer, rx_replayer) = channel();
 
-            let (tx, handle) =
-                start_ordinals_number_processor(&self.config, &self.ctx, Some(tx_replayer));
+            let blocks_post_processor =
+                start_inscription_indexing_processor(&self.config, &self.ctx, Some(tx_replayer));
 
             let mut moved_event_observer_config = event_observer_config.clone();
             let moved_ctx = self.ctx.clone();
@@ -141,13 +141,11 @@ impl Service {
                     start_block,
                     end_block,
                     hord_config.first_inscription_height,
-                    Some(tx.clone()),
+                    Some(&blocks_post_processor),
                     &self.ctx,
                 )
                 .await?;
             }
-
-            let _ = handle.join();
         }
 
         // Bitcoin scan operation threadpool

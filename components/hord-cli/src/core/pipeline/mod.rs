@@ -5,7 +5,7 @@ use chainhook_sdk::types::BitcoinBlockData;
 use chainhook_sdk::utils::Context;
 use crossbeam_channel::bounded;
 use std::collections::{HashMap, VecDeque};
-use std::thread::sleep;
+use std::thread::{sleep, JoinHandle};
 use std::time::Duration;
 use tokio::task::JoinSet;
 
@@ -18,12 +18,27 @@ use chainhook_sdk::indexer::bitcoin::{
 
 use super::parse_ordinals_and_standardize_block;
 
+pub enum PostProcessorCommand {
+    ProcessBlocks(Vec<(BitcoinBlockData, LazyBlock)>),
+    Terminate,
+}
+
+pub enum PostProcessorEvent {
+    EmptyQueue,
+}
+
+pub struct PostProcessorController {
+    pub commands_tx: crossbeam_channel::Sender<PostProcessorCommand>,
+    pub events_rx: crossbeam_channel::Receiver<PostProcessorEvent>,
+    pub thread_handle: JoinHandle<()>,
+}
+
 pub async fn download_and_pipeline_blocks(
     config: &Config,
     start_block: u64,
     end_block: u64,
     start_sequencing_blocks_at_height: u64,
-    blocks_post_processor: Option<crossbeam_channel::Sender<Vec<(BitcoinBlockData, LazyBlock)>>>,
+    blocks_post_processor: Option<&PostProcessorController>,
     ctx: &Context,
 ) -> Result<(), String> {
     // let guard = pprof::ProfilerGuardBuilder::default()
@@ -111,6 +126,10 @@ pub async fn download_and_pipeline_blocks(
 
     let cloned_ctx = ctx.clone();
 
+    let post_processor_commands_tx = blocks_post_processor
+        .as_ref()
+        .and_then(|p| Some(p.commands_tx.clone()));
+
     let storage_thread = hiro_system_kit::thread_named("Ordered blocks dispatcher")
         .spawn(move || {
             let mut inbox = HashMap::new();
@@ -151,8 +170,8 @@ pub async fn download_and_pipeline_blocks(
                     inbox_cursor += 1;
                 }
                 if !chunk.is_empty() {
-                    if let Some(ref tx) = blocks_post_processor {
-                        let _ = tx.send(chunk);
+                    if let Some(ref blocks_tx) = post_processor_commands_tx {
+                        let _ = blocks_tx.send(PostProcessorCommand::ProcessBlocks(chunk));
                     }
                 } else {
                     if blocks_processed == number_of_blocks_to_process {
@@ -198,6 +217,14 @@ pub async fn download_and_pipeline_blocks(
 
     for handle in thread_pool_handles.into_iter() {
         let _ = handle.join();
+    }
+
+    if let Some(post_processor) = blocks_post_processor {
+        loop {
+            if let Ok(PostProcessorEvent::EmptyQueue) = post_processor.events_rx.recv() {
+                break;
+            }
+        }
     }
 
     let _ = storage_thread.join();

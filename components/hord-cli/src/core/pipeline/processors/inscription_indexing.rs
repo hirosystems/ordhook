@@ -1,28 +1,32 @@
 use std::{
     sync::{mpsc::Sender, Arc},
-    thread::JoinHandle,
+    thread::{sleep, JoinHandle},
+    time::Duration,
 };
 
 use chainhook_sdk::{types::BitcoinBlockData, utils::Context};
+use crossbeam_channel::TryRecvError;
 
 use crate::{
     config::Config,
-    core::{new_traversals_lazy_cache, protocol::sequencing::process_blocks},
+    core::{
+        new_traversals_lazy_cache,
+        pipeline::{PostProcessorCommand, PostProcessorController, PostProcessorEvent},
+        protocol::sequencing::process_blocks,
+    },
     db::{
         insert_entry_in_blocks, open_readwrite_hord_db_conn, open_readwrite_hord_db_conn_rocks_db,
-        InscriptionHeigthHint, LazyBlock,
+        InscriptionHeigthHint,
     },
 };
 
-pub fn start_ordinals_number_processor(
+pub fn start_inscription_indexing_processor(
     config: &Config,
     ctx: &Context,
     post_processor: Option<Sender<BitcoinBlockData>>,
-) -> (
-    crossbeam_channel::Sender<Vec<(BitcoinBlockData, LazyBlock)>>,
-    JoinHandle<()>,
-) {
-    let (tx, rx) = crossbeam_channel::bounded::<Vec<(BitcoinBlockData, LazyBlock)>>(1);
+) -> PostProcessorController {
+    let (commands_tx, commands_rx) = crossbeam_channel::bounded::<PostProcessorCommand>(2);
+    let (events_tx, events_rx) = crossbeam_channel::unbounded::<PostProcessorEvent>();
 
     let config = config.clone();
     let ctx = ctx.clone();
@@ -41,16 +45,39 @@ pub fn start_ordinals_number_processor(
                 open_readwrite_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx).unwrap();
 
             let mut inscription_height_hint = InscriptionHeigthHint::new();
+            let mut empty_cycles = 0;
 
-            while let Ok(raw_blocks) = rx.recv() {
+            loop {
+                let blocks_to_process = match commands_rx.try_recv() {
+                    Ok(PostProcessorCommand::ProcessBlocks(blocks)) => blocks,
+                    Ok(PostProcessorCommand::Terminate) => break,
+                    Err(e) => match e {
+                        TryRecvError::Empty => {
+                            empty_cycles += 1;
+
+                            if empty_cycles == 30 {
+                                let _ = events_tx.send(PostProcessorEvent::EmptyQueue);
+                            }
+                            sleep(Duration::from_secs(1));
+                            if empty_cycles > 120 {
+                                break;
+                            }
+                            continue;
+                        }
+                        _ => {
+                            break;
+                        }
+                    },
+                };
+
                 info!(
                     ctx.expect_logger(),
                     "Processing {} blocks",
-                    raw_blocks.len()
+                    blocks_to_process.len()
                 );
 
                 let mut blocks = vec![];
-                for (block, compacted_block) in raw_blocks.into_iter() {
+                for (block, compacted_block) in blocks_to_process.into_iter() {
                     insert_entry_in_blocks(
                         block.block_identifier.index as u32,
                         &compacted_block,
@@ -118,5 +145,9 @@ pub fn start_ordinals_number_processor(
         })
         .expect("unable to spawn thread");
 
-    (tx, handle)
+    PostProcessorController {
+        commands_tx,
+        events_rx,
+        thread_handle: handle,
+    }
 }
