@@ -186,7 +186,7 @@ impl Service {
         let (observer_event_tx, observer_event_rx) = crossbeam_channel::unbounded();
         let traversals_cache = Arc::new(new_traversals_lazy_cache(hord_config.cache_size));
 
-        let inner_ctx = if hord_config.logs.chainhook {
+        let inner_ctx = if hord_config.logs.chainhook_internals {
             self.ctx.clone()
         } else {
             Context::empty()

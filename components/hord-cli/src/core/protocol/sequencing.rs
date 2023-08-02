@@ -57,7 +57,7 @@ pub fn retrieve_inscribed_satoshi_points_from_block_v3(
         ctx,
     );
 
-    let inner_ctx = if hord_config.logs.ordinals_computation {
+    let inner_ctx = if hord_config.logs.ordinals_internals {
         ctx.clone()
     } else {
         Context::empty()
@@ -350,7 +350,7 @@ pub fn update_hord_db_and_augment_bitcoin_block_v3(
     let inner_ctx = if discard_changes {
         Context::empty()
     } else {
-        if hord_config.logs.ordinals_computation {
+        if hord_config.logs.ordinals_internals {
             ctx.clone()
         } else {
             Context::empty()

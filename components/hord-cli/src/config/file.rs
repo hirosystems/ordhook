@@ -10,8 +10,8 @@ pub struct ConfigFile {
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct LogConfigFile {
-    pub ordinals_computation: Option<bool>,
-    pub chainhook: Option<bool>,
+    pub ordinals_internals: Option<bool>,
+    pub chainhook_internals: Option<bool>,
 }
 
 #[derive(Deserialize, Debug, Clone)]

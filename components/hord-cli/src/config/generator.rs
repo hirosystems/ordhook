@@ -35,8 +35,8 @@ max_number_of_networking_threads = 16
 max_caching_memory_size_mb = 32000
 
 [logs]
-ordinals_computation = true
-chainhook = true
+ordinals_internals = true
+chainhook_internals = true
 "#,
         network = network.to_lowercase(),
     );

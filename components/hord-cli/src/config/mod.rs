@@ -35,8 +35,8 @@ pub struct Config {
 
 #[derive(Clone, Debug)]
 pub struct LogConfig {
-    pub ordinals_computation: bool,
-    pub chainhook: bool,
+    pub ordinals_internals: bool,
+    pub chainhook_internals: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -233,15 +233,15 @@ impl Config {
                 bitcoin_network,
             },
             logs: LogConfig {
-                ordinals_computation: config_file
+                ordinals_internals: config_file
                     .logs
                     .as_ref()
-                    .and_then(|l| l.ordinals_computation)
+                    .and_then(|l| l.ordinals_internals)
                     .unwrap_or(true),
-                chainhook: config_file
+                chainhook_internals: config_file
                     .logs
                     .as_ref()
-                    .and_then(|l| l.chainhook)
+                    .and_then(|l| l.chainhook_internals)
                     .unwrap_or(true),
             },
         };
@@ -372,8 +372,8 @@ impl Config {
                 bitcoin_network: BitcoinNetwork::Regtest,
             },
             logs: LogConfig {
-                ordinals_computation: true,
-                chainhook: false,
+                ordinals_internals: true,
+                chainhook_internals: false,
             },
         }
     }
@@ -405,8 +405,8 @@ impl Config {
                 bitcoin_network: BitcoinNetwork::Testnet,
             },
             logs: LogConfig {
-                ordinals_computation: true,
-                chainhook: false,
+                ordinals_internals: true,
+                chainhook_internals: false,
             },
         }
     }
@@ -440,8 +440,8 @@ impl Config {
                 bitcoin_network: BitcoinNetwork::Mainnet,
             },
             logs: LogConfig {
-                ordinals_computation: true,
-                chainhook: false,
+                ordinals_internals: true,
+                chainhook_internals: false,
             },
         }
     }
