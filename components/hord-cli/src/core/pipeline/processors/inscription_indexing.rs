@@ -4,15 +4,27 @@ use std::{
     time::Duration,
 };
 
-use chainhook_sdk::{types::BitcoinBlockData, utils::Context};
+use chainhook_sdk::{
+    types::{BitcoinBlockData, TransactionIdentifier},
+    utils::Context,
+};
 use crossbeam_channel::TryRecvError;
+
+use dashmap::DashMap;
+use fxhash::FxHasher;
+use rusqlite::Connection;
+use std::collections::HashMap;
+use std::hash::BuildHasherDefault;
+
+use crate::core::{protocol::sequencing::update_hord_db_and_augment_bitcoin_block_v3, HordConfig};
+
+use crate::db::{LazyBlockTransaction, TraversalResult};
 
 use crate::{
     config::Config,
     core::{
         new_traversals_lazy_cache,
         pipeline::{PostProcessorCommand, PostProcessorController, PostProcessorEvent},
-        protocol::sequencing::process_blocks,
     },
     db::{
         insert_entry_in_blocks, open_readwrite_hord_db_conn, open_readwrite_hord_db_conn_rocks_db,
@@ -150,4 +162,57 @@ pub fn start_inscription_indexing_processor(
         events_rx,
         thread_handle: handle,
     }
+}
+
+pub fn process_blocks(
+    mut next_blocks: Vec<BitcoinBlockData>,
+    cache_l2: &Arc<DashMap<(u32, [u8; 8]), LazyBlockTransaction, BuildHasherDefault<FxHasher>>>,
+    inscription_height_hint: &mut InscriptionHeigthHint,
+    inscriptions_db_conn_rw: &mut Connection,
+    hord_config: &HordConfig,
+    post_processor: &Option<Sender<BitcoinBlockData>>,
+    ctx: &Context,
+) {
+    let mut cache_l1 = HashMap::new();
+
+    for _cursor in 0..next_blocks.len() {
+        let mut block = next_blocks.remove(0);
+
+        let _ = process_block(
+            &mut block,
+            &next_blocks,
+            &mut cache_l1,
+            cache_l2,
+            inscription_height_hint,
+            inscriptions_db_conn_rw,
+            hord_config,
+            ctx,
+        );
+
+        if let Some(post_processor_tx) = post_processor {
+            let _ = post_processor_tx.send(block);
+        }
+    }
+}
+
+pub fn process_block(
+    block: &mut BitcoinBlockData,
+    next_blocks: &Vec<BitcoinBlockData>,
+    cache_l1: &mut HashMap<(TransactionIdentifier, usize), TraversalResult>,
+    cache_l2: &Arc<DashMap<(u32, [u8; 8]), LazyBlockTransaction, BuildHasherDefault<FxHasher>>>,
+    inscription_height_hint: &mut InscriptionHeigthHint,
+    inscriptions_db_conn_rw: &mut Connection,
+    hord_config: &HordConfig,
+    ctx: &Context,
+) -> Result<(), String> {
+    update_hord_db_and_augment_bitcoin_block_v3(
+        block,
+        next_blocks,
+        cache_l1,
+        cache_l2,
+        inscription_height_hint,
+        inscriptions_db_conn_rw,
+        hord_config,
+        ctx,
+    )
 }
