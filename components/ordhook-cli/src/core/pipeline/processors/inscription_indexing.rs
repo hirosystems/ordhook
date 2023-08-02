@@ -52,7 +52,7 @@ pub fn start_inscription_indexing_processor(
                 open_readwrite_hord_db_conn(&config.expected_cache_path(), &ctx).unwrap();
             let hord_config = config.get_hord_config();
             let mut num_writes = 0;
-
+            let mut total_writes = 0;
             let blocks_db_rw =
                 open_readwrite_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx).unwrap();
 
@@ -60,8 +60,10 @@ pub fn start_inscription_indexing_processor(
             let mut empty_cycles = 0;
 
             loop {
-                let blocks_to_process = match commands_rx.try_recv() {
-                    Ok(PostProcessorCommand::ProcessBlocks(blocks)) => blocks,
+                let (compacted_blocks, mut blocks) = match commands_rx.try_recv() {
+                    Ok(PostProcessorCommand::ProcessBlocks(compacted_blocks, blocks)) => {
+                        (compacted_blocks, blocks)
+                    }
                     Ok(PostProcessorCommand::Terminate) => break,
                     Err(e) => match e {
                         TryRecvError::Empty => {
@@ -82,26 +84,17 @@ pub fn start_inscription_indexing_processor(
                     },
                 };
 
-                info!(
-                    ctx.expect_logger(),
-                    "Processing {} blocks",
-                    blocks_to_process.len()
-                );
-
-                let mut blocks = vec![];
-                for (block, compacted_block) in blocks_to_process.into_iter() {
+                for (block_height, compacted_block) in compacted_blocks.into_iter() {
                     insert_entry_in_blocks(
-                        block.block_identifier.index as u32,
+                        block_height as u32,
                         &compacted_block,
                         &blocks_db_rw,
                         &ctx,
                     );
                     num_writes += 1;
-
-                    if block.block_identifier.index >= hord_config.first_inscription_height {
-                        blocks.push(block);
-                    }
+                    total_writes += 1;
                 }
+                info!(ctx.expect_logger(), "{total_writes} blocks saved to disk");
 
                 // Early return
                 if blocks.is_empty() {
@@ -118,6 +111,8 @@ pub fn start_inscription_indexing_processor(
                     }
                     continue;
                 }
+
+                info!(ctx.expect_logger(), "Processing {} blocks", blocks.len());
 
                 // Write blocks to disk, before traversals
                 if let Err(e) = blocks_db_rw.flush() {

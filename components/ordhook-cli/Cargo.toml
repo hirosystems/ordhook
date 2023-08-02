@@ -1,5 +1,5 @@
 [package]
-name = "hord"
+name = "ordhook"
 version = "0.16.0"
 edition = "2021"
 
@@ -47,6 +47,9 @@ futures = "0.3.28"
 version = "0.20.1"
 default-features = false
 features = ["lz4", "snappy"]
+
+[profile.release]
+debug = true
 
 [features]
 default = ["cli"]

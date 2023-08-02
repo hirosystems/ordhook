@@ -578,7 +578,11 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                     None => match last_known_block {
                         Some(entry) => entry,
                         None => {
-                            warn!(ctx.expect_logger(), "Inscription ingestion will start at block {} once hord internal indexes are built", hord_config.first_inscription_height);
+                            warn!(
+                                ctx.expect_logger(),
+                                "Inscription ingestion will start at block {}",
+                                hord_config.first_inscription_height
+                            );
                             hord_config.first_inscription_height
                         }
                     },
@@ -623,14 +627,16 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 let mut hord_config = config.get_hord_config();
                 hord_config.network_thread_max = cmd.network_threads;
 
-                let blocks_post_processor = start_block_ingestion_processor(&config, ctx, None);
+                let block_ingestion_processor = start_block_ingestion_processor(&config, ctx, None);
 
                 download_and_pipeline_blocks(
                     &config,
                     cmd.start_block,
                     cmd.end_block,
                     hord_config.first_inscription_height,
-                    Some(&blocks_post_processor),
+                    Some(&block_ingestion_processor),
+                    Some(&block_ingestion_processor),
+                    10_000,
                     &ctx,
                 )
                 .await?
@@ -640,15 +646,19 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 let mut hord_config = config.get_hord_config();
                 hord_config.network_thread_max = cmd.network_threads;
 
-                let blocks_post_processor =
+                let inscription_indexing_processor =
                     start_inscription_indexing_processor(&config, ctx, None);
+
+                let block_ingestion_processor = start_block_ingestion_processor(&config, ctx, None);
 
                 download_and_pipeline_blocks(
                     &config,
                     cmd.start_block,
                     cmd.end_block,
                     hord_config.first_inscription_height,
-                    Some(&blocks_post_processor),
+                    Some(&block_ingestion_processor),
+                    Some(&inscription_indexing_processor),
+                    10_000,
                     &ctx,
                 )
                 .await?;

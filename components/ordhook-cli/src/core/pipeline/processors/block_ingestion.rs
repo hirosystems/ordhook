@@ -25,6 +25,7 @@ pub fn start_block_ingestion_processor(
     let ctx = ctx.clone();
     let handle: JoinHandle<()> = hiro_system_kit::thread_named("Processor Runloop")
         .spawn(move || {
+            let mut total_writes = 0;
             let mut num_writes = 0;
             let blocks_db_rw =
                 open_readwrite_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx).unwrap();
@@ -32,8 +33,10 @@ pub fn start_block_ingestion_processor(
             let mut empty_cycles = 0;
 
             loop {
-                let blocks = match commands_rx.try_recv() {
-                    Ok(PostProcessorCommand::ProcessBlocks(blocks)) => blocks,
+                let (compacted_blocks, _) = match commands_rx.try_recv() {
+                    Ok(PostProcessorCommand::ProcessBlocks(compacted_blocks, blocks)) => {
+                        (compacted_blocks, blocks)
+                    }
                     Ok(PostProcessorCommand::Terminate) => break,
                     Err(e) => match e {
                         TryRecvError::Empty => {
@@ -54,17 +57,17 @@ pub fn start_block_ingestion_processor(
                     },
                 };
 
-                info!(ctx.expect_logger(), "Storing {} blocks", blocks.len());
-
-                for (block, compacted_block) in blocks.into_iter() {
+                for (block_height, compacted_block) in compacted_blocks.into_iter() {
                     insert_entry_in_blocks(
-                        block.block_identifier.index as u32,
+                        block_height as u32,
                         &compacted_block,
                         &blocks_db_rw,
                         &ctx,
                     );
                     num_writes += 1;
+                    total_writes += 1;
                 }
+                info!(ctx.expect_logger(), "{total_writes} blocks saved to disk");
 
                 // Early return
                 if num_writes % 128 == 0 {

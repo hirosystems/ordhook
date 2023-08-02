@@ -124,7 +124,7 @@ impl Service {
                 })
                 .expect("unable to spawn thread");
 
-            while let Some((start_block, end_block)) = should_sync_hord_db(&self.config, &self.ctx)?
+            while let Some((start_block, end_block, speed)) = should_sync_hord_db(&self.config, &self.ctx)?
             {
                 info!(
                     self.ctx.expect_logger(),
@@ -139,6 +139,8 @@ impl Service {
                     end_block,
                     hord_config.first_inscription_height,
                     Some(&blocks_post_processor),
+                    Some(&blocks_post_processor),
+                    speed,
                     &self.ctx,
                 )
                 .await?;
