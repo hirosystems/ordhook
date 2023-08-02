@@ -44,12 +44,13 @@ pub fn retrieve_inscribed_satoshi_points_from_block_v3(
     next_blocks: &Vec<BitcoinBlockData>,
     cache_l1: &mut HashMap<(TransactionIdentifier, usize), TraversalResult>,
     cache_l2: &Arc<DashMap<(u32, [u8; 8]), LazyBlockTransaction, BuildHasherDefault<FxHasher>>>,
+    existing_inscriptions: &mut HashMap<(TransactionIdentifier, usize), TraversalResult>,
     inscriptions_db_conn: &mut Connection,
     hord_config: &HordConfig,
     ctx: &Context,
 ) -> Result<bool, String> {
     let (mut transactions_ids, l1_cache_hits) =
-        get_transactions_to_process(block, cache_l1, inscriptions_db_conn, ctx);
+        get_transactions_to_process(block, cache_l1, existing_inscriptions, inscriptions_db_conn, ctx);
 
     let inner_ctx = if hord_config.logs.ordinals_computation {
         ctx.clone()
@@ -190,6 +191,7 @@ pub fn retrieve_inscribed_satoshi_points_from_block_v3(
                         let (mut transactions_ids, _) = get_transactions_to_process(
                             next_block,
                             cache_l1,
+                            existing_inscriptions,
                             inscriptions_db_conn,
                             ctx,
                         );
@@ -260,6 +262,7 @@ pub fn retrieve_inscribed_satoshi_points_from_block_v3(
 fn get_transactions_to_process(
     block: &BitcoinBlockData,
     cache_l1: &mut HashMap<(TransactionIdentifier, usize), TraversalResult>,
+    existing_inscriptions: &mut HashMap<(TransactionIdentifier, usize), TraversalResult>,
     inscriptions_db_conn: &mut Connection,
     ctx: &Context,
 ) -> (
@@ -292,8 +295,7 @@ fn get_transactions_to_process(
             }
 
             if let Some(entry) = known_transactions.remove(&key) {
-                l1_cache_hits.push(key.clone());
-                cache_l1.insert(key, entry);
+                existing_inscriptions.insert(key, entry);
                 continue;
             }
 
@@ -317,11 +319,15 @@ pub fn update_hord_db_and_augment_bitcoin_block_v3(
     hord_config: &HordConfig,
     ctx: &Context,
 ) -> Result<(), String> {
+
+    let mut existing_inscriptions = HashMap::new();
+
     let transactions_processed = retrieve_inscribed_satoshi_points_from_block_v3(
         &new_block,
         &next_blocks,
         cache_l1,
         cache_l2,
+        &mut existing_inscriptions,
         inscriptions_db_conn_rw,
         &hord_config,
         ctx,
