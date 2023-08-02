@@ -3,7 +3,7 @@ mod runloops;
 
 use crate::cli::fetch_and_standardize_block;
 use crate::config::{Config, PredicatesApi, PredicatesApiConfig};
-use crate::core::pipeline::processors::inscription_indexing::{process_blocks};
+use crate::core::pipeline::processors::inscription_indexing::process_blocks;
 use crate::core::pipeline::processors::start_inscription_indexing_processor;
 use crate::core::pipeline::{download_and_pipeline_blocks, PostProcessorCommand};
 use crate::core::protocol::sequencing::update_storage_and_augment_bitcoin_block_with_inscription_transfer_data_tx;
@@ -30,17 +30,15 @@ use chainhook_sdk::chainhooks::types::{
 
 use chainhook_sdk::indexer::bitcoin::build_http_client;
 use chainhook_sdk::observer::{
-    start_event_observer, BitcoinConfig, EventObserverConfig, HandleBlock,
-    ObserverEvent,
+    start_event_observer, BitcoinConfig, EventObserverConfig, HandleBlock, ObserverEvent,
 };
 use chainhook_sdk::types::{
-    BitcoinBlockData, BitcoinNetwork, OrdinalInscriptionTransferData,
-    OrdinalOperation,
+    BitcoinBlockData, BitcoinNetwork, OrdinalInscriptionTransferData, OrdinalOperation,
 };
 use chainhook_sdk::utils::Context;
 use redis::{Commands, Connection};
 
-use std::collections::{BTreeMap};
+use std::collections::BTreeMap;
 use std::sync::mpsc::{channel, Sender};
 use std::sync::Arc;
 

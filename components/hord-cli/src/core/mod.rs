@@ -240,7 +240,7 @@ pub fn should_sync_hord_db(config: &Config, ctx: &Context) -> Result<Option<(u64
 
     start_block += 1;
 
-    if start_block < end_block {
+    if start_block <= end_block {
         Ok(Some((start_block, end_block)))
     } else {
         Ok(None)
