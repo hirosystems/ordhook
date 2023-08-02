@@ -130,7 +130,7 @@ pub async fn download_and_pipeline_blocks(
         .as_ref()
         .and_then(|p| Some(p.commands_tx.clone()));
 
-    let storage_thread = hiro_system_kit::thread_named("Ordered blocks dispatcher")
+    let storage_thread = hiro_system_kit::thread_named("Block processor dispatcher")
         .spawn(move || {
             let mut inbox = HashMap::new();
             let mut inbox_cursor = start_sequencing_blocks_at_height.max(start_block);
@@ -144,7 +144,7 @@ pub async fn download_and_pipeline_blocks(
                     blocks_processed += 1;
                     new_blocks.push((block, compacted_block))
                 }
-                // 
+                // Todo
                 let mut ooo_processing = vec![];
                 for (block, compacted_block) in new_blocks.into_iter() {
                     let block_index = block.block_identifier.index;
@@ -209,7 +209,12 @@ pub async fn download_and_pipeline_blocks(
         thread_index = (thread_index + 1) % hord_config.ingestion_thread_max;
     }
 
-    ctx.try_log(|logger| info!(logger, "Pipeline successfully fed with sequence of blocks ({} to {})", start_block, end_block));
+    ctx.try_log(|logger| {
+        info!(
+            logger,
+            "Pipeline successfully fed with sequence of blocks ({} to {})", start_block, end_block
+        )
+    });
 
     for tx in tx_thread_pool.iter() {
         let _ = tx.send(None);
@@ -230,7 +235,12 @@ pub async fn download_and_pipeline_blocks(
     let _ = storage_thread.join();
     let _ = set.shutdown();
 
-    ctx.try_log(|logger| info!(logger, "Pipeline successfully processed sequence of blocks ({} to {})", start_block, end_block));
+    ctx.try_log(|logger| {
+        info!(
+            logger,
+            "Pipeline successfully processed sequence of blocks ({} to {})", start_block, end_block
+        )
+    });
 
     // match guard.report().build() {
     //     Ok(report) => {

@@ -220,8 +220,7 @@ fn handle_delete_bitcoin_predicate(
     ctx.try_log(|logger| {
         info!(
             logger,
-            "Handling HTTP DELETE /v1/observers/{}",
-            predicate_uuid
+            "Handling HTTP DELETE /v1/observers/{}", predicate_uuid
         )
     });
 

@@ -12,11 +12,11 @@ extern crate serde_derive;
 
 extern crate serde;
 
-pub mod download;
 pub mod cli;
 pub mod config;
 pub mod core;
 pub mod db;
+pub mod download;
 pub mod ord;
 pub mod scan;
 pub mod service;

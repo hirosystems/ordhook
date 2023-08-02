@@ -49,8 +49,13 @@ pub fn retrieve_inscribed_satoshi_points_from_block_v3(
     hord_config: &HordConfig,
     ctx: &Context,
 ) -> Result<bool, String> {
-    let (mut transactions_ids, l1_cache_hits) =
-        get_transactions_to_process(block, cache_l1, existing_inscriptions, inscriptions_db_conn, ctx);
+    let (mut transactions_ids, l1_cache_hits) = get_transactions_to_process(
+        block,
+        cache_l1,
+        existing_inscriptions,
+        inscriptions_db_conn,
+        ctx,
+    );
 
     let inner_ctx = if hord_config.logs.ordinals_computation {
         ctx.clone()
@@ -319,7 +324,6 @@ pub fn update_hord_db_and_augment_bitcoin_block_v3(
     hord_config: &HordConfig,
     ctx: &Context,
 ) -> Result<(), String> {
-
     let mut existing_inscriptions = HashMap::new();
 
     let transactions_processed = retrieve_inscribed_satoshi_points_from_block_v3(

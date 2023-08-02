@@ -234,14 +234,15 @@ impl Config {
             },
             logs: LogConfig {
                 ordinals_computation: config_file
-                    .logs.as_ref()
+                    .logs
+                    .as_ref()
                     .and_then(|l| l.ordinals_computation)
                     .unwrap_or(true),
                 chainhook: config_file
-                    .logs.as_ref()
+                    .logs
+                    .as_ref()
                     .and_then(|l| l.chainhook)
                     .unwrap_or(true),
-
             },
         };
         Ok(config)
