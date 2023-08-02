@@ -3,7 +3,7 @@ mod runloops;
 
 use crate::cli::fetch_and_standardize_block;
 use crate::config::{Config, PredicatesApi, PredicatesApiConfig};
-use crate::core::pipeline::download_and_pipeline_blocks;
+use crate::core::pipeline::{download_and_pipeline_blocks, PostProcessorCommand};
 use crate::core::pipeline::processors::start_inscription_indexing_processor;
 use crate::core::protocol::sequencing::{
     update_hord_db_and_augment_bitcoin_block_v3,
@@ -37,7 +37,6 @@ use chainhook_sdk::types::{
     OrdinalOperation,
 };
 use chainhook_sdk::utils::Context;
-use hiro_system_kit::slog;
 use redis::{Commands, Connection};
 
 use std::collections::{BTreeMap, HashMap};
@@ -128,7 +127,6 @@ impl Service {
 
             while let Some((start_block, end_block)) = should_sync_hord_db(&self.config, &self.ctx)?
             {
-                // let end_block = end_block.min(start_block + 256);
                 info!(
                     self.ctx.expect_logger(),
                     "Indexing inscriptions from block #{start_block} to block #{end_block}"
@@ -146,6 +144,8 @@ impl Service {
                 )
                 .await?;
             }
+
+            let _ = blocks_post_processor.commands_tx.send(PostProcessorCommand::Terminate);
         }
 
         // Bitcoin scan operation threadpool
@@ -184,12 +184,23 @@ impl Service {
         let (observer_event_tx, observer_event_rx) = crossbeam_channel::unbounded();
         let traversals_cache = Arc::new(new_traversals_lazy_cache(hord_config.cache_size));
 
+        let inner_ctx = if hord_config.logs.chainhook {
+            self.ctx.clone()
+        } else {
+            Context::empty()
+        };
+
+        info!(
+            self.ctx.expect_logger(),
+            "Database successfully updated, service will start streaming blocks"
+        );
+
         let _ = start_event_observer(
             event_observer_config.clone(),
             observer_command_tx,
             observer_command_rx,
             Some(observer_event_tx),
-            self.ctx.clone(),
+            inner_ctx,
         );
 
         loop {
@@ -305,7 +316,7 @@ impl Service {
                         Ok(dbs) => dbs,
                         Err(e) => {
                             self.ctx.try_log(|logger| {
-                                slog::error!(logger, "Unable to open readwtite connection: {e}",)
+                                error!(logger, "Unable to open readwtite connection: {e}",)
                             });
                             continue;
                         }
@@ -315,6 +326,11 @@ impl Service {
                     match chain_update {
                         BitcoinChainEvent::ChainUpdatedWithBlocks(ref mut data) => {
                             for block in data.new_blocks.iter_mut() {
+                                info!(
+                                    self.ctx.expect_logger(),
+                                    "Block #{} received, starting processing", block.block_identifier.index
+                                );
+
                                 let mut cache_l1 = HashMap::new();
                                 let mut hint = InscriptionHeigthHint::new();
                                 if let Err(e) = update_hord_db_and_augment_bitcoin_block_v3(
@@ -328,7 +344,7 @@ impl Service {
                                     &self.ctx,
                                 ) {
                                     self.ctx.try_log(|logger| {
-                                        slog::error!(
+                                        error!(
                                             logger,
                                             "Unable to insert bitcoin block {} in hord_db: {e}",
                                             block.block_identifier.index
@@ -338,6 +354,11 @@ impl Service {
                             }
                         }
                         BitcoinChainEvent::ChainUpdatedWithReorg(ref mut data) => {
+                            info!(
+                                self.ctx.expect_logger(),
+                                "Re-org detected"
+                            );
+        
                             for block in data.blocks_to_rollback.iter() {
                                 if let Err(e) = revert_hord_db_with_augmented_bitcoin_block(
                                     block,
@@ -346,7 +367,7 @@ impl Service {
                                     &self.ctx,
                                 ) {
                                     self.ctx.try_log(|logger| {
-                                        slog::error!(
+                                        error!(
                                             logger,
                                             "Unable to rollback bitcoin block {}: {e}",
                                             block.block_identifier
@@ -369,7 +390,7 @@ impl Service {
                                     &self.ctx,
                                 ) {
                                     self.ctx.try_log(|logger| {
-                                        slog::error!(
+                                        error!(
                                             logger,
                                             "Unable to apply bitcoin block {} with hord_db: {e}",
                                             block.block_identifier.index
@@ -380,7 +401,7 @@ impl Service {
                         }
                     };
                     self.ctx.try_log(|logger| {
-                        slog::info!(
+                        info!(
                             logger,
                             "Flushing traversals_cache ({} entries)",
                             traversals_cache.len()

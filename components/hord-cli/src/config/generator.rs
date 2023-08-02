@@ -33,6 +33,10 @@ max_number_of_concurrent_bitcoin_scans = 100
 max_number_of_processing_threads = 16
 max_number_of_networking_threads = 16
 max_caching_memory_size_mb = 32000
+
+[logs]
+ordinals_computation = true
+chainhook = true
 "#,
         network = network.to_lowercase(),
     );

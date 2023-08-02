@@ -9,7 +9,6 @@ use chainhook_sdk::{
     observer::ObserverCommand,
     utils::Context,
 };
-use hiro_system_kit::slog;
 use redis::{Commands, Connection};
 use rocket::config::{self, Config, LogLevel};
 use rocket::serde::json::{json, Json, Value as JsonValue};
@@ -72,7 +71,7 @@ pub async fn start_predicate_api_server(
 
 #[get("/ping")]
 fn handle_ping(ctx: &State<Context>) -> Json<JsonValue> {
-    ctx.try_log(|logger| slog::info!(logger, "Handling HTTP GET /ping"));
+    ctx.try_log(|logger| info!(logger, "Handling HTTP GET /ping"));
     Json(json!({
         "status": 200,
         "result": "chainhook service up and running",
@@ -84,13 +83,13 @@ fn handle_get_predicates(
     api_config: &State<PredicatesApiConfig>,
     ctx: &State<Context>,
 ) -> Json<JsonValue> {
-    ctx.try_log(|logger| slog::info!(logger, "Handling HTTP GET /v1/observers"));
+    ctx.try_log(|logger| info!(logger, "Handling HTTP GET /v1/observers"));
     match open_readwrite_predicates_db_conn(api_config) {
         Ok(mut predicates_db_conn) => {
             let predicates = match get_entries_from_predicates_db(&mut predicates_db_conn, &ctx) {
                 Ok(predicates) => predicates,
                 Err(e) => {
-                    ctx.try_log(|logger| slog::warn!(logger, "unable to retrieve predicates: {e}"));
+                    ctx.try_log(|logger| warn!(logger, "unable to retrieve predicates: {e}"));
                     return Json(json!({
                         "status": 500,
                         "message": "unable to retrieve predicates",
@@ -122,7 +121,7 @@ fn handle_create_predicate(
     background_job_tx: &State<Arc<Mutex<Sender<ObserverCommand>>>>,
     ctx: &State<Context>,
 ) -> Json<JsonValue> {
-    ctx.try_log(|logger| slog::info!(logger, "Handling HTTP POST /v1/observers"));
+    ctx.try_log(|logger| info!(logger, "Handling HTTP POST /v1/observers"));
     let predicate = predicate.into_inner();
     if let Err(e) = predicate.validate() {
         return Json(json!({
@@ -169,7 +168,7 @@ fn handle_get_predicate(
     api_config: &State<PredicatesApiConfig>,
     ctx: &State<Context>,
 ) -> Json<JsonValue> {
-    ctx.try_log(|logger| slog::info!(logger, "Handling HTTP GET /v1/observers/{}", predicate_uuid));
+    ctx.try_log(|logger| info!(logger, "Handling HTTP GET /v1/observers/{}", predicate_uuid));
 
     match open_readwrite_predicates_db_conn(api_config) {
         Ok(mut predicates_db_conn) => {
@@ -219,7 +218,7 @@ fn handle_delete_bitcoin_predicate(
     ctx: &State<Context>,
 ) -> Json<JsonValue> {
     ctx.try_log(|logger| {
-        slog::info!(
+        info!(
             logger,
             "Handling HTTP DELETE /v1/observers/{}",
             predicate_uuid

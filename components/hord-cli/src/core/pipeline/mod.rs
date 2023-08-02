@@ -209,7 +209,7 @@ pub async fn download_and_pipeline_blocks(
         thread_index = (thread_index + 1) % hord_config.ingestion_thread_max;
     }
 
-    ctx.try_log(|logger| info!(logger, "Gargbage collecting will start"));
+    ctx.try_log(|logger| info!(logger, "Pipeline successfully fed with sequence of blocks ({} to {})", start_block, end_block));
 
     for tx in tx_thread_pool.iter() {
         let _ = tx.send(None);
@@ -230,7 +230,7 @@ pub async fn download_and_pipeline_blocks(
     let _ = storage_thread.join();
     let _ = set.shutdown();
 
-    ctx.try_log(|logger| info!(logger, "Gargbage collecting did finish"));
+    ctx.try_log(|logger| info!(logger, "Pipeline successfully processed sequence of blocks ({} to {})", start_block, end_block));
 
     // match guard.report().build() {
     //     Ok(report) => {

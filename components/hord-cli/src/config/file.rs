@@ -11,6 +11,7 @@ pub struct ConfigFile {
 #[derive(Deserialize, Debug, Clone)]
 pub struct LogConfigFile {
     pub ordinals_computation: Option<bool>,
+    pub chainhook: Option<bool>,
 }
 
 #[derive(Deserialize, Debug, Clone)]

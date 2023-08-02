@@ -36,6 +36,7 @@ pub struct Config {
 #[derive(Clone, Debug)]
 pub struct LogConfig {
     pub ordinals_computation: bool,
+    pub chainhook: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -233,9 +234,14 @@ impl Config {
             },
             logs: LogConfig {
                 ordinals_computation: config_file
-                    .logs
+                    .logs.as_ref()
                     .and_then(|l| l.ordinals_computation)
                     .unwrap_or(true),
+                chainhook: config_file
+                    .logs.as_ref()
+                    .and_then(|l| l.chainhook)
+                    .unwrap_or(true),
+
             },
         };
         Ok(config)
@@ -366,6 +372,7 @@ impl Config {
             },
             logs: LogConfig {
                 ordinals_computation: true,
+                chainhook: false,
             },
         }
     }
@@ -398,6 +405,7 @@ impl Config {
             },
             logs: LogConfig {
                 ordinals_computation: true,
+                chainhook: false,
             },
         }
     }
@@ -431,7 +439,8 @@ impl Config {
                 bitcoin_network: BitcoinNetwork::Mainnet,
             },
             logs: LogConfig {
-                ordinals_computation: false,
+                ordinals_computation: true,
+                chainhook: false,
             },
         }
     }
