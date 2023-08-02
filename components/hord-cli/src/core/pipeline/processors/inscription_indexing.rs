@@ -128,7 +128,7 @@ pub fn start_inscription_indexing_processor(
                 garbage_collect_nth_block += blocks.len();
 
                 process_blocks(
-                    blocks,
+                    &mut blocks,
                     &cache_l2,
                     &mut inscription_height_hint,
                     &mut inscriptions_db_conn_rw,
@@ -165,7 +165,7 @@ pub fn start_inscription_indexing_processor(
 }
 
 pub fn process_blocks(
-    mut next_blocks: Vec<BitcoinBlockData>,
+    next_blocks: &mut Vec<BitcoinBlockData>,
     cache_l2: &Arc<DashMap<(u32, [u8; 8]), LazyBlockTransaction, BuildHasherDefault<FxHasher>>>,
     inscription_height_hint: &mut InscriptionHeigthHint,
     inscriptions_db_conn_rw: &mut Connection,

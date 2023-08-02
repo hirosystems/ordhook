@@ -3,7 +3,7 @@ mod runloops;
 
 use crate::cli::fetch_and_standardize_block;
 use crate::config::{Config, PredicatesApi, PredicatesApiConfig};
-use crate::core::pipeline::processors::inscription_indexing::process_block;
+use crate::core::pipeline::processors::inscription_indexing::{process_block, process_blocks};
 use crate::core::pipeline::processors::start_inscription_indexing_processor;
 use crate::core::pipeline::{download_and_pipeline_blocks, PostProcessorCommand};
 use crate::core::protocol::sequencing::update_storage_and_augment_bitcoin_block_with_inscription_transfer_data_tx;
@@ -30,7 +30,8 @@ use chainhook_sdk::chainhooks::types::{
 
 use chainhook_sdk::indexer::bitcoin::build_http_client;
 use chainhook_sdk::observer::{
-    start_event_observer, BitcoinConfig, EventObserverConfig, ObserverEvent,
+    start_event_observer, BitcoinConfig, EventObserverConfig, HandleBlock, ObserverCommand,
+    ObserverEvent,
 };
 use chainhook_sdk::types::{
     BitcoinBlockData, BitcoinChainEvent, BitcoinNetwork, OrdinalInscriptionTransferData,
@@ -152,6 +153,9 @@ impl Service {
 
         // Bitcoin scan operation threadpool
         let (observer_command_tx, observer_command_rx) = channel();
+        let (block_processor_in_tx, block_processor_in_rx) = channel();
+        let (block_processor_out_tx, block_processor_out_rx) = channel();
+
         let (bitcoin_scan_op_tx, bitcoin_scan_op_rx) = crossbeam_channel::unbounded();
         let ctx = self.ctx.clone();
         let config = self.config.clone();
@@ -202,8 +206,105 @@ impl Service {
             observer_command_tx,
             observer_command_rx,
             Some(observer_event_tx),
+            Some((block_processor_in_tx, block_processor_out_rx)),
             inner_ctx,
         );
+
+        let ctx = self.ctx.clone();
+        let config = self.config.clone();
+        let moved_traversals_cache = traversals_cache.clone();
+        let _ = hiro_system_kit::thread_named("Block pre-processor").spawn(move || loop {
+            let command = match block_processor_in_rx.recv() {
+                Ok(cmd) => cmd,
+                Err(e) => {
+                    error!(
+                        ctx.expect_logger(),
+                        "Error: broken channel {}",
+                        e.to_string()
+                    );
+                    break;
+                }
+            };
+
+            let (blocks_db_rw, mut inscriptions_db_conn_rw) =
+                match open_readwrite_hord_dbs(&config.expected_cache_path(), &ctx) {
+                    Ok(dbs) => dbs,
+                    Err(e) => {
+                        ctx.try_log(|logger| {
+                            error!(logger, "Unable to open readwtite connection: {e}",)
+                        });
+                        continue;
+                    }
+                };
+
+            match command {
+                HandleBlock::UndoBlocks(mut blocks) => {
+                    for block in blocks.iter_mut() {
+                        // Todo: first we need to "augment" the blocks with predicate data
+                        info!(
+                            ctx.expect_logger(),
+                            "Re-org handling: reverting changes in block #{}",
+                            block.block_identifier.index
+                        );
+
+                        if let Err(e) = revert_hord_db_with_augmented_bitcoin_block(
+                            block,
+                            &blocks_db_rw,
+                            &inscriptions_db_conn_rw,
+                            &ctx,
+                        ) {
+                            ctx.try_log(|logger| {
+                                error!(
+                                    logger,
+                                    "Unable to rollback bitcoin block {}: {e}",
+                                    block.block_identifier
+                                )
+                            });
+                        }
+                    }
+                    let _ = block_processor_out_tx.send(blocks);
+                }
+                HandleBlock::ApplyBlocks(mut blocks) => {
+                    for block in blocks.iter_mut() {
+                        let compressed_block: LazyBlock =
+                            match LazyBlock::from_standardized_block(&block) {
+                                Ok(block) => block,
+                                Err(e) => {
+                                    error!(
+                                        ctx.expect_logger(),
+                                        "Unable to compress block #{}: #{}",
+                                        block.block_identifier.index,
+                                        e.to_string()
+                                    );
+                                    continue;
+                                }
+                            };
+                        insert_entry_in_blocks(
+                            block.block_identifier.index as u32,
+                            &compressed_block,
+                            &blocks_db_rw,
+                            &ctx,
+                        );
+                        let _ = blocks_db_rw.flush();
+
+                        parse_inscriptions_in_standardized_block(block, &ctx);
+                    }
+
+                    let mut hint = InscriptionHeigthHint::new();
+                    process_blocks(
+                        &mut blocks,
+                        &moved_traversals_cache,
+                        &mut hint,
+                        &mut inscriptions_db_conn_rw,
+                        &config.get_hord_config(),
+                        &None,
+                        &ctx,
+                    );
+
+                    let _ = block_processor_out_tx.send(blocks);
+                }
+            }
+        });
 
         loop {
             let event = match observer_event_rx.recv() {
@@ -308,109 +409,6 @@ impl Service {
                             );
                         }
                     }
-                }
-                ObserverEvent::BitcoinChainEvent((mut chain_update, _report)) => {
-                    //
-                    let (blocks_db, mut inscriptions_db_conn_rw) = match open_readwrite_hord_dbs(
-                        &self.config.expected_cache_path(),
-                        &self.ctx,
-                    ) {
-                        Ok(dbs) => dbs,
-                        Err(e) => {
-                            self.ctx.try_log(|logger| {
-                                error!(logger, "Unable to open readwtite connection: {e}",)
-                            });
-                            continue;
-                        }
-                    };
-
-                    // Update Chain event before propagation
-                    match chain_update {
-                        BitcoinChainEvent::ChainUpdatedWithBlocks(ref mut data) => {
-                            for block in data.new_blocks.iter_mut() {
-                                info!(
-                                    self.ctx.expect_logger(),
-                                    "Block #{} received, starting processing", block.block_identifier.index
-                                );
-
-                                let mut cache_l1 = HashMap::new();
-                                let mut hint = InscriptionHeigthHint::new();
-                                if let Err(e) = update_hord_db_and_augment_bitcoin_block_v3(
-                                    block,
-                                    &vec![],
-                                    &mut cache_l1,
-                                    &traversals_cache,
-                                    &mut hint,
-                                    &mut inscriptions_db_conn_rw,
-                                    &hord_config,
-                                    &self.ctx,
-                                ) {
-                                    self.ctx.try_log(|logger| {
-                                        error!(
-                                            logger,
-                                            "Unable to insert bitcoin block {} in hord_db: {e}",
-                                            block.block_identifier.index
-                                        )
-                                    });
-                                }
-                            }
-                        }
-                        BitcoinChainEvent::ChainUpdatedWithReorg(ref mut data) => {
-                            info!(
-                                self.ctx.expect_logger(),
-                                "Re-org detected"
-                            );
-        
-                            for block in data.blocks_to_rollback.iter() {
-                                if let Err(e) = revert_hord_db_with_augmented_bitcoin_block(
-                                    block,
-                                    &blocks_db,
-                                    &inscriptions_db_conn_rw,
-                                    &self.ctx,
-                                ) {
-                                    self.ctx.try_log(|logger| {
-                                        error!(
-                                            logger,
-                                            "Unable to rollback bitcoin block {}: {e}",
-                                            block.block_identifier
-                                        )
-                                    });
-                                }
-                            }
-
-                            for block in data.blocks_to_apply.iter_mut() {
-                                let mut cache_l1 = HashMap::new();
-                                let mut hint = InscriptionHeigthHint::new();
-                                if let Err(e) = update_hord_db_and_augment_bitcoin_block_v3(
-                                    block,
-                                    &vec![],
-                                    &mut cache_l1,
-                                    &traversals_cache,
-                                    &mut hint,
-                                    &mut inscriptions_db_conn_rw,
-                                    &hord_config,
-                                    &self.ctx,
-                                ) {
-                                    self.ctx.try_log(|logger| {
-                                        error!(
-                                            logger,
-                                            "Unable to apply bitcoin block {} with hord_db: {e}",
-                                            block.block_identifier.index
-                                        )
-                                    });
-                                }
-                            }
-                        }
-                    };
-                    self.ctx.try_log(|logger| {
-                        info!(
-                            logger,
-                            "Flushing traversals_cache ({} entries)",
-                            traversals_cache.len()
-                        )
-                    });
-
-                    // traversals_cache.clear();
                 }
                 ObserverEvent::Terminate => {
                     info!(self.ctx.expect_logger(), "Terminating runloop");
