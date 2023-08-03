@@ -189,7 +189,10 @@ pub fn compute_next_satpoint_data(
     SatPosition::Output((output_index, (offset_cross_inputs - offset_intra_outputs)))
 }
 
-pub fn should_sync_hord_db(config: &Config, ctx: &Context) -> Result<Option<(u64, u64, usize)>, String> {
+pub fn should_sync_hord_db(
+    config: &Config,
+    ctx: &Context,
+) -> Result<Option<(u64, u64, usize)>, String> {
     let auth = Auth::UserPass(
         config.network.bitcoind_rpc_username.clone(),
         config.network.bitcoind_rpc_password.clone(),
