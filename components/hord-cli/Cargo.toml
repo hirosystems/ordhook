@@ -48,8 +48,8 @@ version = "0.20.1"
 default-features = false
 features = ["lz4", "snappy"]
 
-[profile.release]
-debug = true
+# [profile.release]
+# debug = true
 
 [features]
 default = ["cli"]
