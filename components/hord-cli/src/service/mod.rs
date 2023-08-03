@@ -66,7 +66,7 @@ impl Service {
         let hord_config = self.config.get_hord_config();
 
         // Sleep
-        std::thread::sleep(std::time::Duration::from_secs(600));
+        std::thread::sleep(std::time::Duration::from_secs(1200));
 
         let _ = initialize_hord_db(&self.config.expected_cache_path(), &self.ctx);
 
