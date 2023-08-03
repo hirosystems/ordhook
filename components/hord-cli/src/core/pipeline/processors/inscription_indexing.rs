@@ -49,7 +49,7 @@ pub fn start_inscription_indexing_processor(
 
     let config = config.clone();
     let ctx = ctx.clone();
-    let handle: JoinHandle<()> = hiro_system_kit::thread_named("Batch receiver")
+    let handle: JoinHandle<()> = hiro_system_kit::thread_named("Inscription indexing runloop")
         .spawn(move || {
             let cache_l2 = Arc::new(new_traversals_lazy_cache(1024));
             let garbage_collect_every_n_blocks = 100;
@@ -66,23 +66,26 @@ pub fn start_inscription_indexing_processor(
             let mut inscription_height_hint = InscriptionHeigthHint::new();
             let mut empty_cycles = 0;
 
+            if let Ok(PostProcessorCommand::Start) = commands_rx.recv() {
+                info!(ctx.expect_logger(), "Start inscription indexing runloop");
+            }
+
             loop {
                 let (compacted_blocks, mut blocks) = match commands_rx.try_recv() {
                     Ok(PostProcessorCommand::ProcessBlocks(compacted_blocks, blocks)) => {
+                        empty_cycles = 0;
                         (compacted_blocks, blocks)
                     }
                     Ok(PostProcessorCommand::Terminate) => break,
+                    Ok(PostProcessorCommand::Start) => continue,
                     Err(e) => match e {
                         TryRecvError::Empty => {
                             empty_cycles += 1;
-
-                            if empty_cycles == 30 {
+                            if empty_cycles == 10 {
+                                empty_cycles = 0;
                                 let _ = events_tx.send(PostProcessorEvent::EmptyQueue);
                             }
                             sleep(Duration::from_secs(1));
-                            if empty_cycles > 120 {
-                                break;
-                            }
                             continue;
                         }
                         _ => {

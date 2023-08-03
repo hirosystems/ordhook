@@ -32,12 +32,17 @@ pub fn start_block_ingestion_processor(
 
             let mut empty_cycles = 0;
 
+            if let Ok(PostProcessorCommand::Start) = commands_rx.recv() {
+                info!(ctx.expect_logger(), "Start block indexing runloop");
+            }
+
             loop {
                 let (compacted_blocks, _) = match commands_rx.try_recv() {
                     Ok(PostProcessorCommand::ProcessBlocks(compacted_blocks, blocks)) => {
                         (compacted_blocks, blocks)
                     }
                     Ok(PostProcessorCommand::Terminate) => break,
+                    Ok(PostProcessorCommand::Start) => continue,
                     Err(e) => match e {
                         TryRecvError::Empty => {
                             empty_cycles += 1;

@@ -19,6 +19,7 @@ use chainhook_sdk::indexer::bitcoin::{
 use super::parse_ordinals_and_standardize_block;
 
 pub enum PostProcessorCommand {
+    Start,
     ProcessBlocks(Vec<(u64, LazyBlock)>, Vec<BitcoinBlockData>),
     Terminate,
 }
@@ -150,6 +151,8 @@ pub async fn download_and_pipeline_blocks(
             let mut inbox = HashMap::new();
             let mut inbox_cursor = start_sequencing_blocks_at_height.max(start_block);
             let mut blocks_processed = 0;
+            let mut pre_seq_processor_started = false;
+            let mut post_seq_processor_started = false;
 
             loop {
                 // Dequeue all the blocks available
@@ -173,6 +176,11 @@ pub async fn download_and_pipeline_blocks(
 
                 if !ooo_compacted_blocks.is_empty() {
                     if let Some(ref blocks_tx) = blocks_post_processor_pre_sequence_commands_tx {
+                        if !pre_seq_processor_started {
+                            pre_seq_processor_started = true;
+                            let _ = blocks_tx.send(PostProcessorCommand::Start);
+                        }
+
                         let _ = blocks_tx.send(PostProcessorCommand::ProcessBlocks(ooo_compacted_blocks, vec![]));
                     }
                 }
@@ -194,6 +202,10 @@ pub async fn download_and_pipeline_blocks(
                 }
                 if !blocks.is_empty() {
                     if let Some(ref blocks_tx) = blocks_post_processor_post_sequence_commands_tx {
+                        if !post_seq_processor_started {
+                            post_seq_processor_started = true;
+                            let _ = blocks_tx.send(PostProcessorCommand::Start);
+                        }
                         let _ = blocks_tx.send(PostProcessorCommand::ProcessBlocks(compacted_blocks, blocks));
                     }
                 } else {

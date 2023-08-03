@@ -139,7 +139,7 @@ impl Service {
                     start_block,
                     end_block,
                     hord_config.first_inscription_height,
-                    Some(&blocks_post_processor),
+                    None,
                     Some(&blocks_post_processor),
                     speed,
                     &self.ctx,
