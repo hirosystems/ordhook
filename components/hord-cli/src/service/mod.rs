@@ -56,9 +56,8 @@ impl Service {
         let hord_config = self.config.get_hord_config();
 
         // Sleep
-        // std::thread::sleep(std::time::Duration::from_secs(1200));
+        std::thread::sleep(std::time::Duration::from_secs(1200));
 
-        let _ = initialize_hord_db(&self.config.expected_cache_path(), &self.ctx);
         // Force rebuild
         // {
         //     let blocks_db = open_readwrite_hord_db_conn_rocks_db(
