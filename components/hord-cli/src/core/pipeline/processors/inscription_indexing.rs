@@ -177,9 +177,9 @@ pub fn process_blocks(
     hord_config: &HordConfig,
     post_processor: &Option<Sender<BitcoinBlockData>>,
     ctx: &Context,
-) {
+) -> Vec<BitcoinBlockData> {
     let mut cache_l1 = HashMap::new();
-
+    let mut updated_blocks = vec![];
     for _cursor in 0..next_blocks.len() {
         let mut block = next_blocks.remove(0);
 
@@ -195,9 +195,11 @@ pub fn process_blocks(
         );
 
         if let Some(post_processor_tx) = post_processor {
-            let _ = post_processor_tx.send(block);
+            let _ = post_processor_tx.send(block.clone());
         }
+        updated_blocks.push(block);
     }
+    updated_blocks
 }
 
 pub fn process_block(

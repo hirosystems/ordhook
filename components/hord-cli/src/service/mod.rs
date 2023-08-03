@@ -105,7 +105,6 @@ impl Service {
                         let mut bitcoin_predicates_ref: Vec<&BitcoinChainhookSpecification> =
                             vec![];
                         for bitcoin_predicate in chainhook_config.bitcoin_chainhooks.iter_mut() {
-                            bitcoin_predicate.enabled = false;
                             bitcoin_predicates_ref.push(bitcoin_predicate);
                         }
                         while let Ok(block) = rx_replayer.recv() {
@@ -292,7 +291,7 @@ impl Service {
                     }
 
                     let mut hint = InscriptionHeigthHint::new();
-                    process_blocks(
+                    let updated_blocks = process_blocks(
                         &mut blocks,
                         &moved_traversals_cache,
                         &mut hint,
@@ -302,7 +301,7 @@ impl Service {
                         &ctx,
                     );
 
-                    let _ = block_processor_out_tx.send(blocks);
+                    let _ = block_processor_out_tx.send(updated_blocks);
                 }
             }
         });

@@ -134,7 +134,7 @@ fn handle_create_predicate(
 
     if let Ok(mut predicates_db_conn) = open_readwrite_predicates_db_conn(api_config) {
         let key: String = format!(
-            "hord::{}",
+            "{}",
             ChainhookSpecification::bitcoin_key(&predicate_uuid)
         );
         match get_entry_from_predicates_db(&key, &mut predicates_db_conn, &ctx) {
@@ -173,7 +173,7 @@ fn handle_get_predicate(
     match open_readwrite_predicates_db_conn(api_config) {
         Ok(mut predicates_db_conn) => {
             let key: String = format!(
-                "hord::{}",
+                "{}",
                 ChainhookSpecification::bitcoin_key(&predicate_uuid)
             );
             let entry = match get_entry_from_predicates_db(&key, &mut predicates_db_conn, &ctx) {
@@ -272,7 +272,7 @@ pub fn get_entries_from_predicates_db(
     predicate_db_conn: &mut Connection,
     ctx: &Context,
 ) -> Result<Vec<(ChainhookSpecification, PredicateStatus)>, String> {
-    let key: String = format!("hord::{}", ChainhookSpecification::bitcoin_key("*"));
+    let key: String = format!("{}", ChainhookSpecification::bitcoin_key("*"));
     let chainhooks_to_load: Vec<String> = predicate_db_conn
         .scan_match(key)
         .map_err(|e| format!("unable to connect to redis: {}", e.to_string()))?
