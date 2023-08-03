@@ -143,7 +143,7 @@ pub fn start_transfers_recomputing_processor(
                         "Rewriting transfers for block {}", block.block_identifier.index
                     );
 
-                    for tx in block.transactions.iter_mut() {
+                    for (tx_index, tx) in block.transactions.iter_mut().enumerate() {
                         tx.metadata.ordinal_operations.clear();
                         if let Some(mut entry) = operations.remove(&tx.transaction_identifier) {
                             let (_, output_index, _) =
@@ -164,7 +164,7 @@ pub fn start_transfers_recomputing_processor(
                             entry.updated_address = updated_address;
                             entry.post_transfer_output_value =
                                 Some(tx.metadata.outputs[output_index].value);
-
+                            entry.tx_index = tx_index;
                             tx.metadata
                                 .ordinal_operations
                                 .push(OrdinalOperation::InscriptionTransferred(entry));

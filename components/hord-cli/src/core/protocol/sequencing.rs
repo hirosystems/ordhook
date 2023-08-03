@@ -443,7 +443,7 @@ pub fn update_storage_and_augment_bitcoin_block_with_inscription_transfer_data_t
     };
     for (tx_index, new_tx) in block.transactions.iter_mut().skip(1).enumerate() {
         for (input_index, input) in new_tx.metadata.inputs.iter().enumerate() {
-            // input.previous_output.txid
+
             let outpoint_pre_transfer = format_outpoint_to_watch(
                 &input.previous_output.txid,
                 input.previous_output.vout as usize,

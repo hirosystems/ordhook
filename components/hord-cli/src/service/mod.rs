@@ -66,7 +66,7 @@ impl Service {
         let hord_config = self.config.get_hord_config();
 
         // Sleep
-        std::thread::sleep(std::time::Duration::from_secs(1200));
+        // std::thread::sleep(std::time::Duration::from_secs(1200));
 
         let _ = initialize_hord_db(&self.config.expected_cache_path(), &self.ctx);
 
@@ -126,7 +126,7 @@ impl Service {
             }
         };
 
-        self.replay_transfers(767430, tip, Some(tx_replayer.clone())).await?;
+        self.replay_transfers(775808, tip, Some(tx_replayer.clone())).await?;
         self.update_state(Some(tx_replayer.clone())).await?;
 
         // Catch-up with chain tip
@@ -406,7 +406,7 @@ impl Service {
     ) -> Result<(), String> {
         // Start predicate processor
         let blocks_post_processor =
-            start_transfers_recomputing_processor(&self.config, &self.ctx, block_post_processor);
+            start_inscription_indexing_processor(&self.config, &self.ctx, block_post_processor);
 
         while let Some((start_block, end_block, speed)) =
             should_sync_hord_db(&self.config, &self.ctx)?

@@ -111,19 +111,19 @@ pub fn initialize_hord_db(path: &PathBuf, ctx: &Context) -> Connection {
         });
     } else {
         if let Err(e) = conn.execute(
-            "CREATE INDEX IF NOT EXISTS index_locations_on_block_height ON locations(block_height);",
+            "CREATE INDEX IF NOT EXISTS locations_indexed_on_block_height ON locations(block_height);",
             [],
         ) {
             ctx.try_log(|logger| warn!(logger, "{}", e.to_string()));
         }
         if let Err(e) = conn.execute(
-            "CREATE INDEX IF NOT EXISTS index_locations_on_outpoint_to_watch ON locations(outpoint_to_watch);",
+            "CREATE INDEX IF NOT EXISTS locations_indexed_on_outpoint_to_watch ON locations(outpoint_to_watch);",
             [],
         ) {
             ctx.try_log(|logger| warn!(logger, "{}", e.to_string()));
         }
         if let Err(e) = conn.execute(
-            "CREATE INDEX IF NOT EXISTS index_locations_on_inscription_id ON locations(inscription_id);",
+            "CREATE INDEX IF NOT EXISTS locations_indexed_on_inscription_id ON locations(inscription_id);",
             [],
         ) {
             ctx.try_log(|logger| warn!(logger, "{}", e.to_string()));
