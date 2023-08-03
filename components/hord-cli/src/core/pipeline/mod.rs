@@ -73,7 +73,7 @@ pub async fn download_and_pipeline_blocks(
 
     let mut block_heights = VecDeque::from((start_block..=end_block).collect::<Vec<u64>>());
 
-    for _ in 0..4 {
+    for _ in 0..hord_config.ingestion_thread_queue_size {
         if let Some(block_height) = block_heights.pop_front() {
             let config = moved_config.clone();
             let ctx = moved_ctx.clone();
@@ -166,6 +166,7 @@ pub async fn download_and_pipeline_blocks(
                         break;
                     }
                 }
+
                 let mut ooo_compacted_blocks = vec![];
                 for (block_height, block_opt, compacted_block) in new_blocks.into_iter() {
                     if let Some(block) = block_opt {
@@ -204,7 +205,20 @@ pub async fn download_and_pipeline_blocks(
                     blocks.push(block);
                     inbox_cursor += 1;
                 }
-                if !blocks.is_empty() {
+
+                if blocks.is_empty() {
+                    if blocks_processed == number_of_blocks_to_process {
+                        cloned_ctx.try_log(|logger| {
+                            info!(
+                                logger,
+                                "#{blocks_processed} blocks successfully sent to processor"
+                            )
+                        });
+                        break;
+                    } else {
+                        sleep(Duration::from_secs(1));
+                    }
+                } else {
                     if let Some(ref blocks_tx) = blocks_post_processor_post_sequence_commands_tx {
                         if !post_seq_processor_started {
                             post_seq_processor_started = true;
@@ -215,18 +229,7 @@ pub async fn download_and_pipeline_blocks(
                             blocks,
                         ));
                     }
-                } else {
-                    if blocks_processed == number_of_blocks_to_process {
-                        cloned_ctx.try_log(|logger| {
-                            info!(
-                                logger,
-                                "#{blocks_processed} blocks successfully sent to processor"
-                            )
-                        });
-                        break;
-                    }
                 }
-                sleep(Duration::from_secs(3));
             }
             ()
         })

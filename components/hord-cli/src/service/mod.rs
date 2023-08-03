@@ -107,17 +107,17 @@ impl Service {
             .expect("unable to spawn thread");
 
 
-        let (cursor, tip) = {
-            let inscriptions_db_conn =
-                open_readonly_hord_db_conn(&self.config.expected_cache_path(), &self.ctx)?;
-            let cursor = find_latest_transfers_block_height(&inscriptions_db_conn, &self.ctx).unwrap_or(1);
-            match find_latest_inscription_block_height(&inscriptions_db_conn, &self.ctx)? {
-                Some(height) => (cursor, height),
-                None => panic!(),
-            }
-        };
-        self.replay_transfers(cursor, tip, Some(tx_replayer.clone()))
-            .await?;
+        // let (cursor, tip) = {
+        //     let inscriptions_db_conn =
+        //         open_readonly_hord_db_conn(&self.config.expected_cache_path(), &self.ctx)?;
+        //     let cursor = find_latest_transfers_block_height(&inscriptions_db_conn, &self.ctx).unwrap_or(1);
+        //     match find_latest_inscription_block_height(&inscriptions_db_conn, &self.ctx)? {
+        //         Some(height) => (cursor, height),
+        //         None => panic!(),
+        //     }
+        // };
+        // self.replay_transfers(cursor, tip, Some(tx_replayer.clone()))
+        //     .await?;
         self.update_state(Some(tx_replayer.clone())).await?;
 
         // Catch-up with chain tip
@@ -414,12 +414,12 @@ impl Service {
                 start_block,
                 end_block,
                 first_inscription_height,
-                if end_block < first_inscription_height {
+                if end_block <= first_inscription_height {
                     Some(&blocks_post_processor)
                 } else {
                     None
                 },
-                if end_block < first_inscription_height {
+                if start_block >= first_inscription_height {
                     None
                 } else {
                     Some(&blocks_post_processor)

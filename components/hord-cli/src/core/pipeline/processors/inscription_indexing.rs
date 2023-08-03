@@ -94,21 +94,22 @@ pub fn start_inscription_indexing_processor(
                     },
                 };
 
+                let batch_size = compacted_blocks.len();
+                num_writes += batch_size;
                 for (block_height, compacted_block) in compacted_blocks.into_iter() {
+                    tip = tip.max(block_height);
                     insert_entry_in_blocks(
                         block_height as u32,
                         &compacted_block,
                         &blocks_db_rw,
                         &ctx,
                     );
-                    num_writes += 1;
-                    total_writes += 1;
                 }
-                info!(ctx.expect_logger(), "{total_writes} blocks saved to disk");
+                info!(ctx.expect_logger(), "{batch_size} blocks saved to disk (total: {tip})");
 
                 // Early return
                 if blocks.is_empty() {
-                    if num_writes % 128 == 0 {
+                    if num_writes >= 512 {
                         ctx.try_log(|logger| {
                             info!(logger, "Flushing DB to disk ({num_writes} inserts)");
                         });
