@@ -419,9 +419,9 @@ impl Service {
                     None
                 },
                 if start_block >= first_inscription_height {
-                    None
-                } else {
                     Some(&blocks_post_processor)
+                } else {
+                    None
                 },
                 speed,
                 &self.ctx,
