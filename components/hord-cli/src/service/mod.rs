@@ -595,10 +595,10 @@ pub enum PredicateStatus {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScanningData {
-    pub start_block: u64,
-    pub cursor: u64,
-    pub end_block: u64,
-    pub occurrences_found: u64,
+    pub number_of_blocks_to_scan: u64,
+    pub number_of_blocks_scanned: u64,
+    pub number_of_blocks_sent: u64,
+    pub current_block_height: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
