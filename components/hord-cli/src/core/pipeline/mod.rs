@@ -157,12 +157,13 @@ pub async fn download_and_pipeline_blocks(
             loop {
                 // Dequeue all the blocks available
                 let mut new_blocks = vec![];
-                while let Ok(Some((block_height, block, compacted_block))) = block_compressed_rx.try_recv()
+                while let Ok(Some((block_height, block, compacted_block))) =
+                    block_compressed_rx.try_recv()
                 {
                     blocks_processed += 1;
                     new_blocks.push((block_height, block, compacted_block));
                     if new_blocks.len() >= 10_000 {
-                        break
+                        break;
                     }
                 }
                 let mut ooo_compacted_blocks = vec![];
@@ -181,7 +182,10 @@ pub async fn download_and_pipeline_blocks(
                             let _ = blocks_tx.send(PostProcessorCommand::Start);
                         }
 
-                        let _ = blocks_tx.send(PostProcessorCommand::ProcessBlocks(ooo_compacted_blocks, vec![]));
+                        let _ = blocks_tx.send(PostProcessorCommand::ProcessBlocks(
+                            ooo_compacted_blocks,
+                            vec![],
+                        ));
                     }
                 }
 
@@ -206,14 +210,17 @@ pub async fn download_and_pipeline_blocks(
                             post_seq_processor_started = true;
                             let _ = blocks_tx.send(PostProcessorCommand::Start);
                         }
-                        let _ = blocks_tx.send(PostProcessorCommand::ProcessBlocks(compacted_blocks, blocks));
+                        let _ = blocks_tx.send(PostProcessorCommand::ProcessBlocks(
+                            compacted_blocks,
+                            blocks,
+                        ));
                     }
                 } else {
                     if blocks_processed == number_of_blocks_to_process {
                         cloned_ctx.try_log(|logger| {
                             info!(
                                 logger,
-                                "Local block storage successfully seeded with #{blocks_processed} blocks"
+                                "#{blocks_processed} blocks successfully sent to processor"
                             )
                         });
                         break;

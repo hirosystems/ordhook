@@ -1,46 +1,36 @@
 mod http_api;
 mod runloops;
 
-use crate::cli::fetch_and_standardize_block;
 use crate::config::{Config, PredicatesApi, PredicatesApiConfig};
 use crate::core::pipeline::processors::inscription_indexing::process_blocks;
 use crate::core::pipeline::processors::start_inscription_indexing_processor;
 use crate::core::pipeline::processors::transfers_recomputing::start_transfers_recomputing_processor;
 use crate::core::pipeline::{download_and_pipeline_blocks, PostProcessorCommand};
-use crate::core::protocol::sequencing::update_storage_and_augment_bitcoin_block_with_inscription_transfer_data_tx;
 use crate::core::{
     new_traversals_lazy_cache, parse_inscriptions_in_standardized_block,
     revert_hord_db_with_augmented_bitcoin_block, should_sync_hord_db,
 };
 use crate::db::{
-    find_all_inscriptions_in_block, find_latest_inscription_block_height, format_satpoint_to_watch,
-    insert_entry_in_blocks, insert_entry_in_locations, open_readonly_hord_db_conn,
-    open_readwrite_hord_db_conn, open_readwrite_hord_dbs, parse_satpoint_to_watch,
-    remove_entries_from_locations_at_block_height, InscriptionHeigthHint, LazyBlock, initialize_hord_db,
+    find_latest_inscription_block_height, initialize_hord_db, insert_entry_in_blocks,
+    open_readonly_hord_db_conn, open_readwrite_hord_dbs, InscriptionHeigthHint, LazyBlock,
 };
 use crate::scan::bitcoin::process_block_with_predicates;
 use crate::service::http_api::{load_predicates_from_redis, start_predicate_api_server};
 use crate::service::runloops::start_bitcoin_scan_runloop;
 
-use chainhook_sdk::bitcoincore_rpc_json::bitcoin::hashes::hex::FromHex;
-use chainhook_sdk::bitcoincore_rpc_json::bitcoin::{Address, Network, Script};
 use chainhook_sdk::chainhooks::types::{
     BitcoinChainhookSpecification, ChainhookConfig, ChainhookFullSpecification,
     ChainhookSpecification,
 };
 
-use chainhook_sdk::indexer::bitcoin::build_http_client;
 use chainhook_sdk::observer::{
-    start_event_observer, BitcoinConfig, EventObserverConfig, HandleBlock, ObserverEvent,
+    start_event_observer, EventObserverConfig, HandleBlock, ObserverEvent,
 };
-use chainhook_sdk::types::{
-    BitcoinBlockData, BitcoinNetwork, OrdinalInscriptionTransferData, OrdinalOperation,
-};
+use chainhook_sdk::types::BitcoinBlockData;
 use chainhook_sdk::utils::Context;
 use crossbeam_channel::unbounded;
 use redis::{Commands, Connection};
 
-use std::collections::BTreeMap;
 use std::sync::mpsc::{channel, Sender};
 use std::sync::Arc;
 
@@ -126,7 +116,8 @@ impl Service {
             }
         };
 
-        self.replay_transfers(775808, tip, Some(tx_replayer.clone())).await?;
+        self.replay_transfers(775808, tip, Some(tx_replayer.clone()))
+            .await?;
         self.update_state(Some(tx_replayer.clone())).await?;
 
         // Catch-up with chain tip

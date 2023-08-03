@@ -751,19 +751,25 @@ pub fn find_all_inscriptions_in_block(
         let inscription_id: String = row.get(2).unwrap();
         let (transaction_identifier_inscription, inscription_input_index) =
             { parse_inscription_id(&inscription_id) };
-        let transfer_data = transfers_data
+        let Some(transfer_data) = transfers_data
             .get(&inscription_id)
-            .unwrap()
-            .first()
-            .unwrap()
-            .clone();
+            .and_then(|entries| entries.first()) else {
+                ctx.try_log(|logger| {
+                    error!(
+                        logger,
+                        "unable to retrieve inscription genesis transfer data: {}",
+                        inscription_id,
+                    )
+                });
+                continue;
+        };
         let traversal = TraversalResult {
             inscription_number,
             ordinal_number,
             inscription_input_index,
             transfers: 0,
             transaction_identifier_inscription: transaction_identifier_inscription.clone(),
-            transfer_data: transfer_data,
+            transfer_data: transfer_data.clone(),
         };
         results.insert(
             (transaction_identifier_inscription, inscription_input_index),

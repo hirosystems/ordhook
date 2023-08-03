@@ -1,5 +1,5 @@
 use std::{
-    sync::{Arc},
+    sync::Arc,
     thread::{sleep, JoinHandle},
     time::Duration,
 };
@@ -12,7 +12,7 @@ use chainhook_sdk::{
     },
     utils::Context,
 };
-use crossbeam_channel::{TryRecvError, Sender};
+use crossbeam_channel::{Sender, TryRecvError};
 
 use dashmap::DashMap;
 use fxhash::FxHasher;
