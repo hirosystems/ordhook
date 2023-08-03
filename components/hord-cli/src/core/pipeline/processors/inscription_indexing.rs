@@ -5,7 +5,11 @@ use std::{
 };
 
 use chainhook_sdk::{
-    types::{BitcoinBlockData, TransactionIdentifier},
+    bitcoincore_rpc_json::bitcoin::{hashes::hex::FromHex, Address, Network, Script},
+    types::{
+        BitcoinBlockData, BitcoinNetwork, OrdinalInscriptionCurseType, OrdinalOperation,
+        TransactionIdentifier, OrdinalInscriptionTransferData,
+    },
     utils::Context,
 };
 use crossbeam_channel::TryRecvError;
@@ -16,7 +20,10 @@ use rusqlite::Connection;
 use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
 
-use crate::core::{protocol::sequencing::update_hord_db_and_augment_bitcoin_block_v3, HordConfig};
+use crate::{
+    core::{protocol::sequencing::update_hord_db_and_augment_bitcoin_block_v3, HordConfig},
+    db::{find_all_inscriptions_in_block, find_all_transfers_in_block, format_satpoint_to_watch},
+};
 
 use crate::db::{LazyBlockTransaction, TraversalResult};
 
@@ -210,4 +217,84 @@ pub fn process_block(
         hord_config,
         ctx,
     )
+}
+
+pub fn re_augment_block_with_ordinals_operations(
+    block: &mut BitcoinBlockData,
+    inscriptions_db_conn: &Connection,
+    ctx: &Context,
+) {
+    let network = match block.metadata.network {
+        BitcoinNetwork::Mainnet => Network::Bitcoin,
+        BitcoinNetwork::Regtest => Network::Regtest,
+        BitcoinNetwork::Testnet => Network::Testnet,
+    };
+
+    // Restore inscriptions data
+    let mut inscriptions =
+        find_all_inscriptions_in_block(&block.block_identifier.index, inscriptions_db_conn, ctx);
+    
+    let mut should_become_cursed = vec![];
+    for (tx_index, tx) in block.transactions.iter_mut().enumerate() {
+        for (op_index, operation) in tx.metadata.ordinal_operations.iter_mut().enumerate() {
+            let (inscription, is_cursed) = match operation {
+                OrdinalOperation::CursedInscriptionRevealed(ref mut inscription) => {
+                    (inscription, true)
+                }
+                OrdinalOperation::InscriptionRevealed(ref mut inscription) => (inscription, false),
+                OrdinalOperation::InscriptionTransferred(_) => continue,
+            };
+
+            let Some(traversal) = inscriptions.remove(&(tx.transaction_identifier.clone(), inscription.inscription_input_index)) else {
+                continue;
+            };
+
+            inscription.ordinal_offset = traversal.get_ordinal_coinbase_offset();
+            inscription.ordinal_block_height = traversal.get_ordinal_coinbase_height();
+            inscription.ordinal_number = traversal.ordinal_number;
+            inscription.inscription_number = traversal.inscription_number;
+            inscription.transfers_pre_inscription = traversal.transfers;
+            inscription.inscription_fee = tx.metadata.fee;
+            inscription.tx_index = tx_index;
+            inscription.satpoint_post_inscription = format_satpoint_to_watch(
+                &traversal.transfer_data.transaction_identifier_location,
+                traversal.transfer_data.output_index,
+                traversal.transfer_data.inscription_offset_intra_output,
+            );
+
+            let Some(output) = tx.metadata.outputs.get(traversal.transfer_data.output_index) else {
+                continue;
+            };
+            inscription.inscription_output_value = output.value;
+            inscription.inscriber_address = {
+                let script_pub_key = output.get_script_pubkey_hex();
+                match Script::from_hex(&script_pub_key) {
+                    Ok(script) => match Address::from_script(&script, network.clone()) {
+                        Ok(a) => Some(a.to_string()),
+                        _ => None,
+                    },
+                    _ => None,
+                }
+            };
+
+            if !is_cursed && inscription.inscription_number < 0 {
+                inscription.curse_type = Some(OrdinalInscriptionCurseType::Reinscription);
+                should_become_cursed.push((tx_index, op_index));
+            }
+        }
+    }
+
+    for (tx_index, op_index) in should_become_cursed.into_iter() {
+        let Some(tx) = block.transactions.get_mut(tx_index) else {
+            continue;
+        };
+        let OrdinalOperation::InscriptionRevealed(inscription) = tx.metadata.ordinal_operations.remove(op_index) else {
+            continue;
+        };
+        tx.metadata.ordinal_operations.insert(op_index, OrdinalOperation::CursedInscriptionRevealed(inscription));
+    }
+
+    // TODO: Handle transfers
+
+
 }
