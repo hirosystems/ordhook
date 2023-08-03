@@ -798,7 +798,7 @@ pub async fn check_bitcoind_connection(config: &Config) -> Result<u64, String> {
     };
 
     let end_block = match bitcoin_rpc.get_blockchain_info() {
-        Ok(result) => result.blocks.saturating_sub(1),
+        Ok(result) => result.blocks,
         Err(e) => {
             return Err(format!("unable to connect to bitcoind: {}", e.to_string()));
         }

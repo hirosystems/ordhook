@@ -60,7 +60,7 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
         let (end_block, update_end_block) = match predicate_spec.end_block {
             Some(end_block) => (end_block, false),
             None => match bitcoin_rpc.get_blockchain_info() {
-                Ok(result) => (result.blocks - 1, true),
+                Ok(result) => (result.blocks, true),
                 Err(e) => {
                     return Err(format!(
                         "unable to retrieve Bitcoin chain tip ({})",
@@ -177,7 +177,7 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
         if block_heights_to_scan.is_empty() && floating_end_block {
             match bitcoin_rpc.get_blockchain_info() {
                 Ok(result) => {
-                    for entry in (current_block_height + 1)..result.blocks {
+                    for entry in (current_block_height + 1)..=result.blocks {
                         block_heights_to_scan.push_back(entry);
                     }
                 }
