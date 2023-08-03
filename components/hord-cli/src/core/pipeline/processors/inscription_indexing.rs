@@ -59,7 +59,7 @@ pub fn start_inscription_indexing_processor(
                 open_readwrite_hord_db_conn(&config.expected_cache_path(), &ctx).unwrap();
             let hord_config = config.get_hord_config();
             let mut num_writes = 0;
-            let mut total_writes = 0;
+            let mut tip: u64 = 0;
             let blocks_db_rw =
                 open_readwrite_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx).unwrap();
 
