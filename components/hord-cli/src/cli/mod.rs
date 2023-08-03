@@ -666,7 +666,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
             RepairCommand::Transfers(cmd) => {
                 let config = Config::default(false, false, false, &cmd.config_path)?;
                 let service = Service::new(config, ctx.clone());
-                service.replay_transfers(cmd.start_block, cmd.end_block, None)?;
+                service.replay_transfers(cmd.start_block, cmd.end_block, None).await?;
             }
         },
         Command::Db(HordDbCommand::Check(cmd)) => {

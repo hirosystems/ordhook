@@ -7,8 +7,8 @@ use std::{
 use chainhook_sdk::{
     bitcoincore_rpc_json::bitcoin::{hashes::hex::FromHex, Address, Network, Script},
     types::{
-        BitcoinBlockData, BitcoinNetwork, OrdinalInscriptionCurseType, OrdinalOperation,
-        TransactionIdentifier, OrdinalInscriptionTransferData,
+        BitcoinBlockData, BitcoinNetwork, OrdinalInscriptionCurseType,
+        OrdinalInscriptionTransferData, OrdinalOperation, TransactionIdentifier,
     },
     utils::Context,
 };
@@ -238,7 +238,7 @@ pub fn re_augment_block_with_ordinals_operations(
     // Restore inscriptions data
     let mut inscriptions =
         find_all_inscriptions_in_block(&block.block_identifier.index, inscriptions_db_conn, ctx);
-    
+
     let mut should_become_cursed = vec![];
     for (tx_index, tx) in block.transactions.iter_mut().enumerate() {
         for (op_index, operation) in tx.metadata.ordinal_operations.iter_mut().enumerate() {
@@ -296,7 +296,10 @@ pub fn re_augment_block_with_ordinals_operations(
         let OrdinalOperation::InscriptionRevealed(inscription) = tx.metadata.ordinal_operations.remove(op_index) else {
             continue;
         };
-        tx.metadata.ordinal_operations.insert(op_index, OrdinalOperation::CursedInscriptionRevealed(inscription));
+        tx.metadata.ordinal_operations.insert(
+            op_index,
+            OrdinalOperation::CursedInscriptionRevealed(inscription),
+        );
     }
 
     // TODO: Handle transfers

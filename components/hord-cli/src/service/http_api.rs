@@ -133,10 +133,7 @@ fn handle_create_predicate(
     let predicate_uuid = predicate.get_uuid().to_string();
 
     if let Ok(mut predicates_db_conn) = open_readwrite_predicates_db_conn(api_config) {
-        let key: String = format!(
-            "{}",
-            ChainhookSpecification::bitcoin_key(&predicate_uuid)
-        );
+        let key: String = format!("{}", ChainhookSpecification::bitcoin_key(&predicate_uuid));
         match get_entry_from_predicates_db(&key, &mut predicates_db_conn, &ctx) {
             Ok(Some(_)) => {
                 return Json(json!({
@@ -172,10 +169,7 @@ fn handle_get_predicate(
 
     match open_readwrite_predicates_db_conn(api_config) {
         Ok(mut predicates_db_conn) => {
-            let key: String = format!(
-                "{}",
-                ChainhookSpecification::bitcoin_key(&predicate_uuid)
-            );
+            let key: String = format!("{}", ChainhookSpecification::bitcoin_key(&predicate_uuid));
             let entry = match get_entry_from_predicates_db(&key, &mut predicates_db_conn, &ctx) {
                 Ok(Some((ChainhookSpecification::Stacks(spec), status))) => json!({
                     "chain": "stacks",

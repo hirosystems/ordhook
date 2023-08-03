@@ -77,22 +77,6 @@ pub fn initialize_hord_db(path: &PathBuf, ctx: &Context) -> Connection {
         });
     } else {
         if let Err(e) = conn.execute(
-            "CREATE TABLE IF NOT EXISTS locations (
-                inscription_id TEXT NOT NULL,
-                block_height INTEGER NOT NULL,
-                tx_index INTEGER NOT NULL,
-                outpoint_to_watch TEXT NOT NULL,
-                offset INTEGER NOT NULL,
-                UNIQUE(outpoint_to_watch,offset)
-            )",
-            [],
-        ) {
-            ctx.try_log(|logger| {
-                warn!(logger, "Unable to create table locations:{}", e.to_string())
-            });
-        }
-
-        if let Err(e) = conn.execute(
             "CREATE INDEX IF NOT EXISTS index_inscriptions_on_ordinal_number ON inscriptions(ordinal_number);",
             [],
         ) {
@@ -110,7 +94,22 @@ pub fn initialize_hord_db(path: &PathBuf, ctx: &Context) -> Connection {
             [],
         ) {
             ctx.try_log(|logger| warn!(logger, "{}", e.to_string()));
-        }
+        }    
+    }
+    if let Err(e) = conn.execute(
+        "CREATE TABLE IF NOT EXISTS locations (
+            inscription_id TEXT NOT NULL,
+            block_height INTEGER NOT NULL,
+            tx_index INTEGER NOT NULL,
+            outpoint_to_watch TEXT NOT NULL,
+            offset INTEGER NOT NULL
+        )",
+        [],
+    ) {
+        ctx.try_log(|logger| {
+            warn!(logger, "Unable to create table locations: {}", e.to_string())
+        });
+    } else {
         if let Err(e) = conn.execute(
             "CREATE INDEX IF NOT EXISTS index_locations_on_block_height ON locations(block_height);",
             [],
@@ -128,8 +127,9 @@ pub fn initialize_hord_db(path: &PathBuf, ctx: &Context) -> Connection {
             [],
         ) {
             ctx.try_log(|logger| warn!(logger, "{}", e.to_string()));
-        }
+        }    
     }
+
     conn
 }
 
