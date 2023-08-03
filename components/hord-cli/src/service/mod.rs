@@ -12,7 +12,7 @@ use crate::core::{
 };
 use crate::db::{
     find_latest_inscription_block_height, initialize_hord_db, insert_entry_in_blocks,
-    open_readonly_hord_db_conn, open_readwrite_hord_dbs, InscriptionHeigthHint, LazyBlock,
+    open_readonly_hord_db_conn, open_readwrite_hord_dbs, InscriptionHeigthHint, LazyBlock, find_latest_transfers_block_height,
 };
 use crate::scan::bitcoin::process_block_with_predicates;
 use crate::service::http_api::{load_predicates_from_redis, start_predicate_api_server};
@@ -59,7 +59,6 @@ impl Service {
         // std::thread::sleep(std::time::Duration::from_secs(1200));
 
         let _ = initialize_hord_db(&self.config.expected_cache_path(), &self.ctx);
-
         // Force rebuild
         // {
         //     let blocks_db = open_readwrite_hord_db_conn_rocks_db(
@@ -107,16 +106,17 @@ impl Service {
             })
             .expect("unable to spawn thread");
 
-        let tip = {
+
+        let (cursor, tip) = {
             let inscriptions_db_conn =
                 open_readonly_hord_db_conn(&self.config.expected_cache_path(), &self.ctx)?;
+            let cursor = find_latest_transfers_block_height(&inscriptions_db_conn, &self.ctx).unwrap_or(1);
             match find_latest_inscription_block_height(&inscriptions_db_conn, &self.ctx)? {
-                Some(height) => height,
+                Some(height) => (cursor, height),
                 None => panic!(),
             }
         };
-
-        self.replay_transfers(775808, tip, Some(tx_replayer.clone()))
+        self.replay_transfers(cursor, tip, Some(tx_replayer.clone()))
             .await?;
         self.update_state(Some(tx_replayer.clone())).await?;
 

@@ -528,6 +528,22 @@ pub fn find_latest_inscription_transfer_data(
     Ok(None)
 }
 
+pub fn find_latest_transfers_block_height(
+    inscriptions_db_conn: &Connection,
+    _ctx: &Context,
+) -> Option<u64> {
+    let args: &[&dyn ToSql] = &[];
+    let mut stmt = inscriptions_db_conn
+        .prepare("SELECT block_height FROM locations ORDER BY block_height DESC LIMIT 1")
+        .unwrap();
+    let mut rows = stmt.query(args).unwrap();
+    while let Ok(Some(row)) = rows.next() {
+        let block_height: u64 = row.get(0).unwrap();
+        return Some(block_height)
+    }
+    None
+}
+
 #[derive(Debug, Clone)]
 pub struct TransferData {
     pub inscription_offset_intra_output: u64,
