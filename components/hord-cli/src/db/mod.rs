@@ -559,7 +559,7 @@ pub fn find_all_transfers_in_block(
 ) -> BTreeMap<String, Vec<TransferData>> {
     let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
     let mut stmt = inscriptions_db_conn
-    .prepare("SELECT inscription_id, offset, outpoint_to_watch, tx_index FROM legacy_locations WHERE block_height = ? ORDER BY tx_index ASC")
+    .prepare("SELECT inscription_id, offset, outpoint_to_watch, tx_index FROM locations WHERE block_height = ? ORDER BY tx_index ASC")
     .unwrap();
     let mut results: BTreeMap<String, Vec<TransferData>> = BTreeMap::new();
     let mut rows = stmt.query(args).unwrap();
