@@ -99,11 +99,12 @@ pub fn start_inscription_indexing_processor(
                     },
                 };
 
-                store_compacted_blocks(compacted_blocks, &blocks_db_rw, &Context::empty());
-
                 // Early return
                 if blocks.is_empty() {
+                    store_compacted_blocks(compacted_blocks, &blocks_db_rw, &ctx);
                     continue;
+                } else {
+                    store_compacted_blocks(compacted_blocks, &blocks_db_rw, &Context::empty());
                 }
 
                 info!(ctx.expect_logger(), "Processing {} blocks", blocks.len());
