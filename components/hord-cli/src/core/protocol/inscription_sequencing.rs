@@ -470,8 +470,31 @@ pub fn augment_block_with_ordinals_inscriptions_data(
     }
 
     // Handle sats overflow
-    while let Some(sats_overlow) = sats_overflows.pop_front() {
-        // TODO
+    while let Some((tx_index, op_index)) = sats_overflows.pop_front() {
+        let OrdinalOperation::InscriptionRevealed(ref mut inscription_data) = block.transactions[tx_index].metadata.ordinal_operations[op_index] else {
+            continue;
+        };
+        let is_curse = inscription_data.curse_type.is_some();
+        let inscription_number = sequence_cursor.pick_next(is_curse, block.block_identifier.index);
+        inscription_data.inscription_number = inscription_number;
+
+        if is_curse {
+            sequence_cursor.increment_cursed();
+        } else {
+            sequence_cursor.increment_blessed();
+        };
+
+        ctx.try_log(|logger| {
+            info!(
+                logger,
+                "Unbound inscription {} (#{}) detected on Satoshi {} (block {}, {} transfers)",
+                inscription_data.inscription_id,
+                inscription_data.inscription_number,
+                inscription_data.ordinal_number,
+                block.block_identifier.index,
+                inscription_data.transfers_pre_inscription,
+            );
+        });
     }
     any_event
 }
