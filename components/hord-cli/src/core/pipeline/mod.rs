@@ -194,13 +194,6 @@ pub async fn download_and_pipeline_blocks(
                 let mut compacted_blocks = vec![];
                 let mut blocks = vec![];
                 while let Some((block, compacted_block)) = inbox.remove(&inbox_cursor) {
-                    cloned_ctx.try_log(|logger| {
-                        info!(
-                            logger,
-                            "Adding block #{inbox_cursor} to next sequence (# blocks inboxed: {})",
-                            inbox.len()
-                        )
-                    });
                     compacted_blocks.push((inbox_cursor, compacted_block));
                     blocks.push(block);
                     inbox_cursor += 1;

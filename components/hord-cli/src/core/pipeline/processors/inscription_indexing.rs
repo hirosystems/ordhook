@@ -101,6 +101,11 @@ pub fn start_inscription_indexing_processor(
 
                 store_compacted_blocks(compacted_blocks, &blocks_db_rw, &Context::empty());
 
+                // Early return
+                if blocks.is_empty() {
+                    continue;
+                }
+
                 info!(ctx.expect_logger(), "Processing {} blocks", blocks.len());
 
                 blocks = process_blocks(
@@ -182,7 +187,7 @@ pub fn process_blocks(
         ctx.try_log(|logger| {
             info!(
                 logger,
-                "Block #{} revealed {} inscriptions [{}]",
+                "Block #{} processed and revealed {} inscriptions [{}]",
                 block.block_identifier.index,
                 inscriptions_revealed.len(),
                 inscriptions_revealed.join(", ")
@@ -201,12 +206,12 @@ pub fn process_blocks(
         } else {
             match inscriptions_db_tx.commit() {
                 Ok(_) => {
-                    ctx.try_log(|logger| {
-                        info!(
-                            logger,
-                            "Updates saved for block {}", block.block_identifier.index,
-                        )
-                    });
+                    // ctx.try_log(|logger| {
+                    //     info!(
+                    //         logger,
+                    //         "Updates saved for block {}", block.block_identifier.index,
+                    //     )
+                    // });
                 }
                 Err(e) => {
                     ctx.try_log(|logger| {

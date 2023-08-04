@@ -86,7 +86,9 @@ pub fn store_compacted_blocks(
 
     for (block_height, compacted_block) in compacted_blocks.into_iter() {
         insert_entry_in_blocks(block_height as u32, &compacted_block, &blocks_db_rw, &ctx);
-        info!(ctx.expect_logger(), "Block #{block_height} saved to disk");
+        ctx.try_log(|logger| {
+            info!(logger, "Block #{block_height} saved to disk");
+        });
     }
 
     if let Err(e) = blocks_db_rw.flush() {

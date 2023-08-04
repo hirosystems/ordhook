@@ -245,13 +245,6 @@ pub fn parallelize_inscription_data_computations(
                 let _ = handle.join();
             }
         });
-    } else {
-        ctx.try_log(|logger| {
-            info!(
-                logger,
-                "No inscriptions to index in block #{}", block.block_identifier.index
-            )
-        });
     }
     Ok(has_transactions_to_process)
 }
