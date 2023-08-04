@@ -1,6 +1,8 @@
 use crate::config::{Config, PredicatesApi};
-use crate::core::pipeline::processors::inscription_indexing::re_augment_block_with_ordinals_operations;
-use crate::core::{self, get_inscriptions_revealed_in_block};
+use crate::core::protocol::inscription_parsing::{
+    get_inscriptions_revealed_in_block, parse_ordinals_and_standardize_block,
+};
+use crate::core::protocol::inscription_sequencing::consolidate_block_with_pre_computed_ordinals_data;
 use crate::db::{get_any_entry_in_ordinal_activities, open_readonly_hord_db_conn};
 use crate::download::download_ordinals_dataset_if_required;
 use crate::service::{
@@ -75,7 +77,7 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
 
     // Are we dealing with an ordinals-based predicate?
     // If so, we could use the ordinal storage to provide a set of hints.
-    let inscriptions_db_conn = open_readonly_hord_db_conn(&config.expected_cache_path(), ctx)?;
+    let mut inscriptions_db_conn = open_readonly_hord_db_conn(&config.expected_cache_path(), ctx)?;
 
     info!(
         ctx.expect_logger(),
@@ -109,7 +111,7 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
         let block_breakdown =
             download_and_parse_block_with_retry(&http_client, &block_hash, &bitcoin_config, ctx)
                 .await?;
-        let mut block = match core::parse_ordinals_and_standardize_block(
+        let mut block = match parse_ordinals_and_standardize_block(
             block_breakdown,
             &event_observer_config.bitcoin_network,
             ctx,
@@ -124,8 +126,15 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
             }
         };
 
-        let empty_ctx = Context::empty();
-        re_augment_block_with_ordinals_operations(&mut block, &inscriptions_db_conn, &empty_ctx);
+        {
+            let inscriptions_db_tx = inscriptions_db_conn.transaction().unwrap();
+            consolidate_block_with_pre_computed_ordinals_data(
+                &mut block,
+                &inscriptions_db_tx,
+                true,
+                &ctx,
+            );
+        }
 
         let inscriptions_revealed = get_inscriptions_revealed_in_block(&block)
             .iter()

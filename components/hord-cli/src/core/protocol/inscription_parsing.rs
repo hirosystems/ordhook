@@ -3,9 +3,10 @@ use std::str::FromStr;
 
 use chainhook_sdk::bitcoincore_rpc_json::bitcoin::hashes::hex::FromHex;
 use chainhook_sdk::bitcoincore_rpc_json::bitcoin::Txid;
+use chainhook_sdk::indexer::bitcoin::{standardize_bitcoin_block, BitcoinBlockFullBreakdown};
 use chainhook_sdk::types::{
-    BitcoinTransactionData, OrdinalInscriptionCurseType, OrdinalInscriptionRevealData,
-    OrdinalOperation,
+    BitcoinBlockData, BitcoinNetwork, BitcoinTransactionData, OrdinalInscriptionCurseType,
+    OrdinalInscriptionRevealData, OrdinalOperation,
 };
 use chainhook_sdk::utils::Context;
 use chainhook_sdk::{
@@ -310,10 +311,7 @@ pub fn get_inscriptions_from_witness(
         curse_type: inscription.curse.take(),
     };
 
-    match &payload.curse_type {
-        Some(_) => Some(OrdinalOperation::CursedInscriptionRevealed(payload)),
-        None => Some(OrdinalOperation::InscriptionRevealed(payload)),
-    }
+    Some(OrdinalOperation::InscriptionRevealed(payload))
 }
 
 pub fn get_inscriptions_from_standardized_tx(
@@ -376,4 +374,47 @@ fn test_ordinal_inscription_parsing() {
     };
 
     println!("{:?}", inscription);
+}
+
+pub fn parse_ordinals_and_standardize_block(
+    raw_block: BitcoinBlockFullBreakdown,
+    network: &BitcoinNetwork,
+    ctx: &Context,
+) -> Result<BitcoinBlockData, (String, bool)> {
+    let mut ordinal_operations = BTreeMap::new();
+
+    for tx in raw_block.tx.iter() {
+        ordinal_operations.insert(tx.txid.to_string(), get_inscriptions_from_full_tx(&tx, ctx));
+    }
+
+    let mut block = standardize_bitcoin_block(raw_block, network, ctx)?;
+
+    for tx in block.transactions.iter_mut() {
+        if let Some(ordinal_operations) =
+            ordinal_operations.remove(tx.transaction_identifier.get_hash_bytes_str())
+        {
+            tx.metadata.ordinal_operations = ordinal_operations;
+        }
+    }
+    Ok(block)
+}
+
+pub fn parse_inscriptions_in_standardized_block(block: &mut BitcoinBlockData, ctx: &Context) {
+    for tx in block.transactions.iter_mut() {
+        tx.metadata.ordinal_operations = get_inscriptions_from_standardized_tx(tx, ctx);
+    }
+}
+
+pub fn get_inscriptions_revealed_in_block(
+    block: &BitcoinBlockData,
+) -> Vec<&OrdinalInscriptionRevealData> {
+    let mut ops = vec![];
+    for tx in block.transactions.iter() {
+        for op in tx.metadata.ordinal_operations.iter() {
+            if let OrdinalOperation::InscriptionRevealed(op) = op {
+                ops.push(op);
+            }
+        }
+    }
+    ops
 }

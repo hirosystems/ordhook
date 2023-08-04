@@ -16,7 +16,7 @@ use chainhook_sdk::indexer::bitcoin::{
     build_http_client, parse_downloaded_block, try_download_block_bytes_with_retry,
 };
 
-use super::parse_ordinals_and_standardize_block;
+use super::protocol::inscription_parsing::parse_ordinals_and_standardize_block;
 
 pub enum PostProcessorCommand {
     Start,

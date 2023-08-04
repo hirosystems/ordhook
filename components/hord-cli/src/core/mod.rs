@@ -1,14 +1,11 @@
 pub mod pipeline;
 pub mod protocol;
 
-use chainhook_sdk::types::{
-    BitcoinBlockData, BitcoinNetwork, OrdinalInscriptionRevealData, OrdinalOperation,
-};
+use chainhook_sdk::types::{BitcoinBlockData, OrdinalOperation};
 use dashmap::DashMap;
 use fxhash::{FxBuildHasher, FxHasher};
 use rocksdb::DB;
 use rusqlite::Connection;
-use std::collections::BTreeMap;
 use std::hash::BuildHasherDefault;
 use std::ops::Div;
 use std::path::PathBuf;
@@ -20,8 +17,6 @@ use chainhook_sdk::{
 
 use crate::config::{Config, LogConfig};
 
-use chainhook_sdk::indexer::bitcoin::{standardize_bitcoin_block, BitcoinBlockFullBreakdown};
-
 use crate::db::{
     find_last_block_inserted, find_latest_inscription_block_height, initialize_hord_db,
     open_readonly_hord_db_conn, open_readonly_hord_db_conn_rocks_db,
@@ -30,10 +25,6 @@ use crate::db::{
 use crate::db::{
     insert_transfer_in_locations, remove_entry_from_blocks, remove_entry_from_inscriptions,
     LazyBlockTransaction,
-};
-
-use self::protocol::inscribing::{
-    get_inscriptions_from_full_tx, get_inscriptions_from_standardized_tx,
 };
 
 #[derive(Clone, Debug)]
@@ -45,52 +36,6 @@ pub struct HordConfig {
     pub db_path: PathBuf,
     pub first_inscription_height: u64,
     pub logs: LogConfig,
-}
-
-pub fn parse_ordinals_and_standardize_block(
-    raw_block: BitcoinBlockFullBreakdown,
-    network: &BitcoinNetwork,
-    ctx: &Context,
-) -> Result<BitcoinBlockData, (String, bool)> {
-    let mut ordinal_operations = BTreeMap::new();
-
-    for tx in raw_block.tx.iter() {
-        ordinal_operations.insert(tx.txid.to_string(), get_inscriptions_from_full_tx(&tx, ctx));
-    }
-
-    let mut block = standardize_bitcoin_block(raw_block, network, ctx)?;
-
-    for tx in block.transactions.iter_mut() {
-        if let Some(ordinal_operations) =
-            ordinal_operations.remove(tx.transaction_identifier.get_hash_bytes_str())
-        {
-            tx.metadata.ordinal_operations = ordinal_operations;
-        }
-    }
-    Ok(block)
-}
-
-pub fn parse_inscriptions_in_standardized_block(block: &mut BitcoinBlockData, ctx: &Context) {
-    for tx in block.transactions.iter_mut() {
-        tx.metadata.ordinal_operations = get_inscriptions_from_standardized_tx(tx, ctx);
-    }
-}
-
-pub fn get_inscriptions_revealed_in_block(
-    block: &BitcoinBlockData,
-) -> Vec<&OrdinalInscriptionRevealData> {
-    let mut ops = vec![];
-    for tx in block.transactions.iter() {
-        for op in tx.metadata.ordinal_operations.iter() {
-            if let OrdinalOperation::InscriptionRevealed(op) = op {
-                ops.push(op);
-            }
-            if let OrdinalOperation::CursedInscriptionRevealed(op) = op {
-                ops.push(op);
-            }
-        }
-    }
-    ops
 }
 
 pub fn revert_hord_db_with_augmented_bitcoin_block(
@@ -106,8 +51,7 @@ pub fn revert_hord_db_with_augmented_bitcoin_block(
         let tx = &block.transactions[block.transactions.len() - tx_index];
         for ordinal_event in tx.metadata.ordinal_operations.iter() {
             match ordinal_event {
-                OrdinalOperation::InscriptionRevealed(data)
-                | OrdinalOperation::CursedInscriptionRevealed(data) => {
+                OrdinalOperation::InscriptionRevealed(data) => {
                     // We remove any new inscription created
                     remove_entry_from_inscriptions(
                         &data.inscription_id,
@@ -248,13 +192,13 @@ pub fn should_sync_hord_db(
         (end_block.min(200_000), 10_000)
     } else if start_block < 550_000 {
         (end_block.min(550_000), 1_000)
-    } else  {
+    } else {
         (end_block, 100)
     };
 
     if start_block < 767430 && end_block > 767430 {
         end_block = 767430;
-    } 
+    }
 
     if start_block <= end_block {
         Ok(Some((start_block, end_block, speed)))

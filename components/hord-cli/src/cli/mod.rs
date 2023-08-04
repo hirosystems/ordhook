@@ -3,7 +3,7 @@ use crate::config::Config;
 use crate::core::pipeline::download_and_pipeline_blocks;
 use crate::core::pipeline::processors::block_ingestion::start_block_ingestion_processor;
 use crate::core::pipeline::processors::start_inscription_indexing_processor;
-use crate::core::{self};
+use crate::core::protocol::inscription_parsing::parse_ordinals_and_standardize_block;
 use crate::download::download_ordinals_dataset_if_required;
 use crate::scan::bitcoin::scan_bitcoin_chainstate_via_rpc_using_predicate;
 use crate::service::Service;
@@ -11,7 +11,7 @@ use crate::service::Service;
 use crate::db::{
     delete_data_in_hord_db, find_all_inscription_transfers, find_all_inscriptions_in_block,
     find_all_transfers_in_block, find_inscription_with_id, find_last_block_inserted,
-    find_latest_inscription_block_height, find_lazy_block_at_block_height, initialize_hord_db,
+    find_latest_inscription_block_height, find_lazy_block_at_block_height,
     open_readonly_hord_db_conn, open_readonly_hord_db_conn_rocks_db, open_readwrite_hord_db_conn,
     open_readwrite_hord_db_conn_rocks_db,
 };
@@ -742,7 +742,7 @@ pub async fn fetch_and_standardize_block(
         download_and_parse_block_with_retry(http_client, &block_hash, &bitcoin_config, &ctx)
             .await?;
 
-    core::parse_ordinals_and_standardize_block(block_breakdown, &bitcoin_config.network, &ctx)
+    parse_ordinals_and_standardize_block(block_breakdown, &bitcoin_config.network, &ctx)
         .map_err(|(e, _)| e)
 }
 

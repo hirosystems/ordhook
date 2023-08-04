@@ -1,28 +1,36 @@
 use std::{
+    collections::BTreeMap,
     sync::Arc,
     thread::{sleep, JoinHandle},
     time::Duration,
 };
 
 use chainhook_sdk::{
-    bitcoincore_rpc_json::bitcoin::{hashes::hex::FromHex, Address, Network, Script},
-    types::{
-        BitcoinBlockData, BitcoinNetwork, OrdinalInscriptionCurseType,
-        OrdinalInscriptionTransferData, OrdinalOperation, TransactionIdentifier,
-    },
+    types::{BitcoinBlockData, TransactionIdentifier},
     utils::Context,
 };
 use crossbeam_channel::{Sender, TryRecvError};
+use rusqlite::Transaction;
 
 use dashmap::DashMap;
 use fxhash::FxHasher;
 use rusqlite::Connection;
-use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
 
 use crate::{
-    core::{protocol::sequencing::update_hord_db_and_augment_bitcoin_block_v3, HordConfig},
-    db::{find_all_inscriptions_in_block, find_all_transfers_in_block, format_satpoint_to_watch},
+    core::{
+        pipeline::processors::block_ingestion::store_compacted_blocks,
+        protocol::{
+            inscription_parsing::get_inscriptions_revealed_in_block,
+            inscription_sequencing::{
+                augment_block_with_ordinals_inscriptions_data_and_write_to_db_tx,
+                retrieve_inscribed_satoshi_points_from_block_v3, SequenceCursor,
+            },
+            inscription_tracking::augment_block_with_ordinals_transfer_data,
+        },
+        HordConfig,
+    },
+    db::{get_any_entry_in_ordinal_activities, open_readonly_hord_db_conn},
 };
 
 use crate::db::{LazyBlockTransaction, TraversalResult};
@@ -33,10 +41,7 @@ use crate::{
         new_traversals_lazy_cache,
         pipeline::{PostProcessorCommand, PostProcessorController, PostProcessorEvent},
     },
-    db::{
-        insert_entry_in_blocks, open_readwrite_hord_db_conn, open_readwrite_hord_db_conn_rocks_db,
-        InscriptionHeigthHint,
-    },
+    db::{open_readwrite_hord_db_conn, open_readwrite_hord_db_conn_rocks_db},
 };
 
 pub fn start_inscription_indexing_processor(
@@ -58,13 +63,13 @@ pub fn start_inscription_indexing_processor(
             let mut inscriptions_db_conn_rw =
                 open_readwrite_hord_db_conn(&config.expected_cache_path(), &ctx).unwrap();
             let hord_config = config.get_hord_config();
-            let mut num_writes = 0;
-            let mut tip: u64 = 0;
             let blocks_db_rw =
                 open_readwrite_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx).unwrap();
-
-            let mut inscription_height_hint = InscriptionHeigthHint::new();
             let mut empty_cycles = 0;
+            
+            let inscriptions_db_conn =
+                open_readonly_hord_db_conn(&config.expected_cache_path(), &ctx).unwrap();
+            let mut sequence_cursor = SequenceCursor::new(inscriptions_db_conn);
 
             if let Ok(PostProcessorCommand::Start) = commands_rx.recv() {
                 info!(ctx.expect_logger(), "Start inscription indexing runloop");
@@ -94,54 +99,21 @@ pub fn start_inscription_indexing_processor(
                     },
                 };
 
-                let batch_size = compacted_blocks.len();
-                num_writes += batch_size;
-                for (block_height, compacted_block) in compacted_blocks.into_iter() {
-                    tip = tip.max(block_height);
-                    insert_entry_in_blocks(
-                        block_height as u32,
-                        &compacted_block,
-                        &blocks_db_rw,
-                        &ctx,
-                    );
-                }
-                info!(ctx.expect_logger(), "{batch_size} blocks saved to disk (total: {tip})");
-
-                // Early return
-                if blocks.is_empty() {
-                    if num_writes >= 512 {
-                        ctx.try_log(|logger| {
-                            info!(logger, "Flushing DB to disk ({num_writes} inserts)");
-                        });
-                        if let Err(e) = blocks_db_rw.flush() {
-                            ctx.try_log(|logger| {
-                                error!(logger, "{}", e.to_string());
-                            });
-                        }
-                        num_writes = 0;
-                    }
-                    continue;
-                }
+                store_compacted_blocks(compacted_blocks, &blocks_db_rw, &Context::empty());
 
                 info!(ctx.expect_logger(), "Processing {} blocks", blocks.len());
 
-                // Write blocks to disk, before traversals
-                if let Err(e) = blocks_db_rw.flush() {
-                    ctx.try_log(|logger| {
-                        error!(logger, "{}", e.to_string());
-                    });
-                }
-                garbage_collect_nth_block += blocks.len();
-
-                process_blocks(
+                blocks = process_blocks(
                     &mut blocks,
+                    &mut sequence_cursor,
                     &cache_l2,
-                    &mut inscription_height_hint,
                     &mut inscriptions_db_conn_rw,
                     &hord_config,
                     &post_processor,
                     &ctx,
                 );
+
+                garbage_collect_nth_block += blocks.len();
 
                 // Clear L2 cache on a regular basis
                 if garbage_collect_nth_block > garbage_collect_every_n_blocks {
@@ -153,12 +125,6 @@ pub fn start_inscription_indexing_processor(
                     cache_l2.clear();
                     garbage_collect_nth_block = 0;
                 }
-            }
-
-            if let Err(e) = blocks_db_rw.flush() {
-                ctx.try_log(|logger| {
-                    error!(logger, "{}", e.to_string());
-                });
             }
         })
         .expect("unable to spawn thread");
@@ -172,28 +138,87 @@ pub fn start_inscription_indexing_processor(
 
 pub fn process_blocks(
     next_blocks: &mut Vec<BitcoinBlockData>,
+    sequence_cursor: &mut SequenceCursor,
     cache_l2: &Arc<DashMap<(u32, [u8; 8]), LazyBlockTransaction, BuildHasherDefault<FxHasher>>>,
-    inscription_height_hint: &mut InscriptionHeigthHint,
     inscriptions_db_conn_rw: &mut Connection,
     hord_config: &HordConfig,
     post_processor: &Option<Sender<BitcoinBlockData>>,
     ctx: &Context,
 ) -> Vec<BitcoinBlockData> {
-    let mut cache_l1 = HashMap::new();
+    let mut cache_l1 = BTreeMap::new();
+
     let mut updated_blocks = vec![];
+
     for _cursor in 0..next_blocks.len() {
+        let inscriptions_db_tx: rusqlite::Transaction<'_> =
+            inscriptions_db_conn_rw.transaction().unwrap();
+
         let mut block = next_blocks.remove(0);
+
+        // We check before hand if some data were pre-existing, before processing
+        let any_existing_activity = get_any_entry_in_ordinal_activities(
+            &block.block_identifier.index,
+            &inscriptions_db_tx,
+            ctx,
+        );
 
         let _ = process_block(
             &mut block,
             &next_blocks,
+            sequence_cursor,
             &mut cache_l1,
             cache_l2,
-            inscription_height_hint,
-            inscriptions_db_conn_rw,
+            &inscriptions_db_tx,
             hord_config,
             ctx,
         );
+
+        let inscriptions_revealed = get_inscriptions_revealed_in_block(&block)
+            .iter()
+            .map(|d| d.inscription_number.to_string())
+            .collect::<Vec<String>>();
+
+        ctx.try_log(|logger| {
+            info!(
+                logger,
+                "Block #{} revealed {} inscriptions [{}]",
+                block.block_identifier.index,
+                inscriptions_revealed.len(),
+                inscriptions_revealed.join(", ")
+            )
+        });
+
+        if any_existing_activity {
+            ctx.try_log(|logger| {
+                warn!(
+                    logger,
+                    "Dropping updates for block #{}, activities present in database",
+                    block.block_identifier.index,
+                )
+            });
+            let _ = inscriptions_db_tx.rollback();
+        } else {
+            match inscriptions_db_tx.commit() {
+                Ok(_) => {
+                    ctx.try_log(|logger| {
+                        info!(
+                            logger,
+                            "Updates saved for block {}", block.block_identifier.index,
+                        )
+                    });
+                }
+                Err(e) => {
+                    ctx.try_log(|logger| {
+                        error!(
+                            logger,
+                            "Unable to update changes in block #{}: {}",
+                            block.block_identifier.index,
+                            e.to_string()
+                        )
+                    });
+                }
+            }
+        }
 
         if let Some(post_processor_tx) = post_processor {
             let _ = post_processor_tx.send(block.clone());
@@ -206,104 +231,45 @@ pub fn process_blocks(
 pub fn process_block(
     block: &mut BitcoinBlockData,
     next_blocks: &Vec<BitcoinBlockData>,
-    cache_l1: &mut HashMap<(TransactionIdentifier, usize), TraversalResult>,
+    sequence_cursor: &mut SequenceCursor,
+    cache_l1: &mut BTreeMap<(TransactionIdentifier, usize), TraversalResult>,
     cache_l2: &Arc<DashMap<(u32, [u8; 8]), LazyBlockTransaction, BuildHasherDefault<FxHasher>>>,
-    inscription_height_hint: &mut InscriptionHeigthHint,
-    inscriptions_db_conn_rw: &mut Connection,
+    inscriptions_db_tx: &Transaction,
     hord_config: &HordConfig,
     ctx: &Context,
 ) -> Result<(), String> {
-    update_hord_db_and_augment_bitcoin_block_v3(
-        block,
-        next_blocks,
+    let any_processable_transactions = retrieve_inscribed_satoshi_points_from_block_v3(
+        &block,
+        &next_blocks,
         cache_l1,
         cache_l2,
-        inscription_height_hint,
-        inscriptions_db_conn_rw,
-        hord_config,
+        inscriptions_db_tx,
+        &hord_config,
         ctx,
-    )
-}
+    )?;
 
-pub fn re_augment_block_with_ordinals_operations(
-    block: &mut BitcoinBlockData,
-    inscriptions_db_conn: &Connection,
-    ctx: &Context,
-) {
-    let network = match block.metadata.network {
-        BitcoinNetwork::Mainnet => Network::Bitcoin,
-        BitcoinNetwork::Regtest => Network::Regtest,
-        BitcoinNetwork::Testnet => Network::Testnet,
+    if !any_processable_transactions {
+        return Ok(());
+    }
+
+    // Always discard if we have some existing content at this block height (inscription or transfers)
+    let inner_ctx = if hord_config.logs.ordinals_internals {
+        ctx.clone()
+    } else {
+        Context::empty()
     };
 
-    // Restore inscriptions data
-    let mut inscriptions =
-        find_all_inscriptions_in_block(&block.block_identifier.index, inscriptions_db_conn, ctx);
+    // Handle inscriptions
+    let _ = augment_block_with_ordinals_inscriptions_data_and_write_to_db_tx(
+        block,
+        sequence_cursor,
+        cache_l1,
+        &inscriptions_db_tx,
+        &inner_ctx,
+    );
 
-    let mut should_become_cursed = vec![];
-    for (tx_index, tx) in block.transactions.iter_mut().enumerate() {
-        for (op_index, operation) in tx.metadata.ordinal_operations.iter_mut().enumerate() {
-            let (inscription, is_cursed) = match operation {
-                OrdinalOperation::CursedInscriptionRevealed(ref mut inscription) => {
-                    (inscription, true)
-                }
-                OrdinalOperation::InscriptionRevealed(ref mut inscription) => (inscription, false),
-                OrdinalOperation::InscriptionTransferred(_) => continue,
-            };
+    // Handle transfers
+    let _ = augment_block_with_ordinals_transfer_data(block, inscriptions_db_tx, true, &inner_ctx);
 
-            let Some(traversal) = inscriptions.remove(&(tx.transaction_identifier.clone(), inscription.inscription_input_index)) else {
-                continue;
-            };
-
-            inscription.ordinal_offset = traversal.get_ordinal_coinbase_offset();
-            inscription.ordinal_block_height = traversal.get_ordinal_coinbase_height();
-            inscription.ordinal_number = traversal.ordinal_number;
-            inscription.inscription_number = traversal.inscription_number;
-            inscription.transfers_pre_inscription = traversal.transfers;
-            inscription.inscription_fee = tx.metadata.fee;
-            inscription.tx_index = tx_index;
-            inscription.satpoint_post_inscription = format_satpoint_to_watch(
-                &traversal.transfer_data.transaction_identifier_location,
-                traversal.transfer_data.output_index,
-                traversal.transfer_data.inscription_offset_intra_output,
-            );
-
-            let Some(output) = tx.metadata.outputs.get(traversal.transfer_data.output_index) else {
-                continue;
-            };
-            inscription.inscription_output_value = output.value;
-            inscription.inscriber_address = {
-                let script_pub_key = output.get_script_pubkey_hex();
-                match Script::from_hex(&script_pub_key) {
-                    Ok(script) => match Address::from_script(&script, network.clone()) {
-                        Ok(a) => Some(a.to_string()),
-                        _ => None,
-                    },
-                    _ => None,
-                }
-            };
-
-            if !is_cursed && inscription.inscription_number < 0 {
-                inscription.curse_type = Some(OrdinalInscriptionCurseType::Reinscription);
-                should_become_cursed.push((tx_index, op_index));
-            }
-        }
-    }
-
-    for (tx_index, op_index) in should_become_cursed.into_iter() {
-        let Some(tx) = block.transactions.get_mut(tx_index) else {
-            continue;
-        };
-        let OrdinalOperation::InscriptionRevealed(inscription) = tx.metadata.ordinal_operations.remove(op_index) else {
-            continue;
-        };
-        tx.metadata.ordinal_operations.insert(
-            op_index,
-            OrdinalOperation::CursedInscriptionRevealed(inscription),
-        );
-    }
-
-    // TODO: Handle transfers
-
-
+    Ok(())
 }

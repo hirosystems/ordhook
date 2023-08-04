@@ -6,13 +6,13 @@ use crate::core::pipeline::processors::inscription_indexing::process_blocks;
 use crate::core::pipeline::processors::start_inscription_indexing_processor;
 use crate::core::pipeline::processors::transfers_recomputing::start_transfers_recomputing_processor;
 use crate::core::pipeline::{download_and_pipeline_blocks, PostProcessorCommand};
+use crate::core::protocol::inscription_parsing::parse_inscriptions_in_standardized_block;
+use crate::core::protocol::inscription_sequencing::SequenceCursor;
 use crate::core::{
-    new_traversals_lazy_cache, parse_inscriptions_in_standardized_block,
-    revert_hord_db_with_augmented_bitcoin_block, should_sync_hord_db,
+    new_traversals_lazy_cache, revert_hord_db_with_augmented_bitcoin_block, should_sync_hord_db,
 };
 use crate::db::{
-    find_latest_inscription_block_height, initialize_hord_db, insert_entry_in_blocks,
-    open_readonly_hord_db_conn, open_readwrite_hord_dbs, InscriptionHeigthHint, LazyBlock, find_latest_transfers_block_height,
+    insert_entry_in_blocks, open_readonly_hord_db_conn, open_readwrite_hord_dbs, LazyBlock,
 };
 use crate::scan::bitcoin::process_block_with_predicates;
 use crate::service::http_api::{load_predicates_from_redis, start_predicate_api_server};
@@ -105,7 +105,6 @@ impl Service {
             })
             .expect("unable to spawn thread");
 
-
         // let (cursor, tip) = {
         //     let inscriptions_db_conn =
         //         open_readonly_hord_db_conn(&self.config.expected_cache_path(), &self.ctx)?;
@@ -117,6 +116,7 @@ impl Service {
         // };
         // self.replay_transfers(cursor, tip, Some(tx_replayer.clone()))
         //     .await?;
+
         self.update_state(Some(tx_replayer.clone())).await?;
 
         // Catch-up with chain tip
@@ -259,12 +259,15 @@ impl Service {
 
                         parse_inscriptions_in_standardized_block(block, &ctx);
                     }
+                    let inscriptions_db_conn =
+                        open_readonly_hord_db_conn(&config.expected_cache_path(), &ctx)
+                            .expect("unable to open inscriptions db");
+                    let mut sequence_cursor = SequenceCursor::new(inscriptions_db_conn);
 
-                    let mut hint = InscriptionHeigthHint::new();
                     let updated_blocks = process_blocks(
                         &mut blocks,
+                        &mut sequence_cursor,
                         &moved_traversals_cache,
-                        &mut hint,
                         &mut inscriptions_db_conn_rw,
                         &config.get_hord_config(),
                         &None,

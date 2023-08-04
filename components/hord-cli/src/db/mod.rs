@@ -19,22 +19,9 @@ use chainhook_sdk::{
     utils::Context,
 };
 
-use crate::ord::sat::Sat;
-
-#[derive(Clone, Debug)]
-pub struct InscriptionHeigthHint {
-    pub cursed: Option<u64>,
-    pub blessed: Option<u64>,
-}
-
-impl InscriptionHeigthHint {
-    pub fn new() -> InscriptionHeigthHint {
-        InscriptionHeigthHint {
-            cursed: None,
-            blessed: None,
-        }
-    }
-}
+use crate::{
+    core::protocol::inscription_parsing::get_inscriptions_revealed_in_block, ord::sat::Sat,
+};
 
 fn get_default_hord_db_file_path(base_dir: &PathBuf) -> PathBuf {
     let mut destination_path = base_dir.clone();
@@ -94,7 +81,7 @@ pub fn initialize_hord_db(path: &PathBuf, ctx: &Context) -> Connection {
             [],
         ) {
             ctx.try_log(|logger| warn!(logger, "{}", e.to_string()));
-        }    
+        }
     }
     if let Err(e) = conn.execute(
         "CREATE TABLE IF NOT EXISTS locations (
@@ -107,7 +94,11 @@ pub fn initialize_hord_db(path: &PathBuf, ctx: &Context) -> Connection {
         [],
     ) {
         ctx.try_log(|logger| {
-            warn!(logger, "Unable to create table locations: {}", e.to_string())
+            warn!(
+                logger,
+                "Unable to create table locations: {}",
+                e.to_string()
+            )
         });
     } else {
         if let Err(e) = conn.execute(
@@ -127,7 +118,7 @@ pub fn initialize_hord_db(path: &PathBuf, ctx: &Context) -> Connection {
             [],
         ) {
             ctx.try_log(|logger| warn!(logger, "{}", e.to_string()));
-        }    
+        }
     }
 
     conn
@@ -379,12 +370,42 @@ pub fn insert_entry_in_inscriptions(
     ) {
         ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
     }
-    insert_inscription_in_locations(
-        &inscription_data,
-        &block_identifier,
-        &inscriptions_db_conn_rw,
-        ctx,
-    );
+}
+
+pub fn insert_new_inscriptions_from_block_in_inscriptions_and_locations(
+    block: &BitcoinBlockData,
+    inscriptions_db_conn_rw: &Connection,
+    ctx: &Context,
+) {
+    for inscription_data in get_inscriptions_revealed_in_block(&block).iter() {
+        insert_entry_in_inscriptions(
+            inscription_data,
+            &block.block_identifier,
+            inscriptions_db_conn_rw,
+            &ctx,
+        );
+        insert_inscription_in_locations(
+            &inscription_data,
+            &block.block_identifier,
+            &inscriptions_db_conn_rw,
+            ctx,
+        );
+    }
+}
+
+pub fn insert_new_inscriptions_from_block_in_locations(
+    block: &BitcoinBlockData,
+    inscriptions_db_conn_rw: &Connection,
+    ctx: &Context,
+) {
+    for inscription_data in get_inscriptions_revealed_in_block(&block).iter() {
+        insert_inscription_in_locations(
+            inscription_data,
+            &block.block_identifier,
+            inscriptions_db_conn_rw,
+            &ctx,
+        );
+    }
 }
 
 pub fn insert_inscription_in_locations(
@@ -438,18 +459,18 @@ pub fn insert_transfer_in_locations(
 
 pub fn get_any_entry_in_ordinal_activities(
     block_height: &u64,
-    inscriptions_db_conn: &Connection,
+    inscriptions_db_tx: &Connection,
     _ctx: &Context,
 ) -> bool {
     let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
-    let mut stmt = inscriptions_db_conn
+    let mut stmt = inscriptions_db_tx
         .prepare("SELECT DISTINCT block_height FROM inscriptions WHERE block_height = ?")
         .unwrap();
     let mut rows = stmt.query(args).unwrap();
     while let Ok(Some(_)) = rows.next() {
         return true;
     }
-    let mut stmt = inscriptions_db_conn
+    let mut stmt = inscriptions_db_tx
         .prepare("SELECT DISTINCT block_height FROM locations WHERE block_height = ?")
         .unwrap();
     let mut rows = stmt.query(args).unwrap();
@@ -539,7 +560,7 @@ pub fn find_latest_transfers_block_height(
     let mut rows = stmt.query(args).unwrap();
     while let Ok(Some(row)) = rows.next() {
         let block_height: u64 = row.get(0).unwrap();
-        return Some(block_height)
+        return Some(block_height);
     }
     None
 }
@@ -682,14 +703,14 @@ pub fn find_latest_cursed_inscription_number_at_block_height(
     Ok(None)
 }
 
-pub fn find_inscription_with_ordinal_number(
+pub fn find_blessed_inscription_with_ordinal_number(
     ordinal_number: &u64,
     inscriptions_db_conn: &Connection,
     _ctx: &Context,
 ) -> Option<String> {
     let args: &[&dyn ToSql] = &[&ordinal_number.to_sql().unwrap()];
     let mut stmt = inscriptions_db_conn
-        .prepare("SELECT inscription_id FROM inscriptions WHERE ordinal_number = ? AND inscription_number > 0")
+        .prepare("SELECT inscription_id FROM inscriptions WHERE ordinal_number = ? AND inscription_number >= 0")
         .unwrap();
     let mut rows = stmt.query(args).unwrap();
     while let Ok(Some(row)) = rows.next() {
@@ -750,17 +771,17 @@ pub fn find_inscription_with_id(
 
 pub fn find_all_inscriptions_in_block(
     block_height: &u64,
-    inscriptions_db_conn: &Connection,
+    inscriptions_db_tx: &Connection,
     ctx: &Context,
 ) -> BTreeMap<(TransactionIdentifier, usize), TraversalResult> {
     let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
-    let mut stmt = inscriptions_db_conn
+    let mut stmt = inscriptions_db_tx
         .prepare("SELECT inscription_number, ordinal_number, inscription_id FROM inscriptions where block_height = ? ORDER BY inscription_number ASC")
         .unwrap();
     let mut results = BTreeMap::new();
     let mut rows = stmt.query(args).unwrap();
 
-    let transfers_data = find_all_transfers_in_block(block_height, inscriptions_db_conn, ctx);
+    let transfers_data = find_all_transfers_in_block(block_height, inscriptions_db_tx, ctx);
     while let Ok(Some(row)) = rows.next() {
         let inscription_number: i64 = row.get(0).unwrap();
         let ordinal_number: u64 = row.get(1).unwrap();

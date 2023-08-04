@@ -13,7 +13,7 @@ use crate::db::{
 use crate::db::{LazyBlockTransaction, TraversalResult};
 use crate::ord::height::Height;
 
-pub fn retrieve_satoshi_point_using_lazy_storage_v3(
+pub fn compute_satoshi_number(
     blocks_db_dir: &PathBuf,
     block_identifier: &BlockIdentifier,
     transaction_identifier: &TransactionIdentifier,

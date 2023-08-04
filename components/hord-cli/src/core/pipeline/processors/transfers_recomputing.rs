@@ -1,28 +1,24 @@
 use std::{
-    collections::BTreeMap,
     thread::{sleep, JoinHandle},
     time::Duration,
 };
 
-use chainhook_sdk::{
-    bitcoincore_rpc_json::bitcoin::{hashes::hex::FromHex, Address, Network, Script},
-    types::{BitcoinBlockData, BitcoinNetwork, OrdinalInscriptionTransferData, OrdinalOperation},
-    utils::Context,
-};
+use chainhook_sdk::{types::BitcoinBlockData, utils::Context};
 use crossbeam_channel::{Sender, TryRecvError};
 
 use crate::{
-    core::protocol::sequencing::update_storage_and_augment_bitcoin_block_with_inscription_transfer_data_tx,
-    db::{
-        find_all_inscriptions_in_block, format_satpoint_to_watch, insert_entry_in_locations,
-        parse_satpoint_to_watch, remove_entries_from_locations_at_block_height,
-    },
-};
-
-use crate::{
     config::Config,
-    core::pipeline::{PostProcessorCommand, PostProcessorController, PostProcessorEvent},
-    db::open_readwrite_hord_db_conn,
+    core::{
+        pipeline::{PostProcessorCommand, PostProcessorController, PostProcessorEvent},
+        protocol::{
+            inscription_sequencing::consolidate_block_with_pre_computed_ordinals_data,
+            inscription_tracking::augment_block_with_ordinals_transfer_data,
+        },
+    },
+    db::{
+        insert_new_inscriptions_from_block_in_locations, open_readwrite_hord_db_conn,
+        remove_entries_from_locations_at_block_height,
+    },
 };
 
 pub fn start_transfers_recomputing_processor(
@@ -70,123 +66,33 @@ pub fn start_transfers_recomputing_processor(
                 };
 
                 info!(ctx.expect_logger(), "Processing {} blocks", blocks.len());
+                let inscriptions_db_tx = inscriptions_db_conn_rw.transaction().unwrap();
 
                 for block in blocks.iter_mut() {
-                    let network = match block.metadata.network {
-                        BitcoinNetwork::Mainnet => Network::Bitcoin,
-                        BitcoinNetwork::Regtest => Network::Regtest,
-                        BitcoinNetwork::Testnet => Network::Testnet,
-                    };
-
-                    info!(
-                        ctx.expect_logger(),
-                        "Cleaning transfers from block {}", block.block_identifier.index
-                    );
-                    let inscriptions = find_all_inscriptions_in_block(
-                        &block.block_identifier.index,
-                        &inscriptions_db_conn_rw,
+                    consolidate_block_with_pre_computed_ordinals_data(
+                        block,
+                        &inscriptions_db_tx,
+                        false,
                         &ctx,
                     );
-                    info!(
-                        ctx.expect_logger(),
-                        "{} inscriptions retrieved at block {}",
-                        inscriptions.len(),
-                        block.block_identifier.index
-                    );
-                    let mut operations = BTreeMap::new();
-
-                    let transaction = inscriptions_db_conn_rw.transaction().unwrap();
 
                     remove_entries_from_locations_at_block_height(
                         &block.block_identifier.index,
-                        &transaction,
+                        &inscriptions_db_tx,
                         &ctx,
                     );
 
-                    for (_, entry) in inscriptions.iter() {
-                        let inscription_id = entry.get_inscription_id();
-                        info!(
-                            ctx.expect_logger(),
-                            "Processing inscription {}", inscription_id
-                        );
-                        insert_entry_in_locations(
-                            &inscription_id,
-                            block.block_identifier.index,
-                            &entry.transfer_data,
-                            &transaction,
-                            &ctx,
-                        );
-
-                        operations.insert(
-                            entry.transaction_identifier_inscription.clone(),
-                            OrdinalInscriptionTransferData {
-                                inscription_id: entry.get_inscription_id(),
-                                updated_address: None,
-                                satpoint_pre_transfer: format_satpoint_to_watch(
-                                    &entry.transaction_identifier_inscription,
-                                    entry.inscription_input_index,
-                                    0,
-                                ),
-                                satpoint_post_transfer: format_satpoint_to_watch(
-                                    &entry.transfer_data.transaction_identifier_location,
-                                    entry.transfer_data.output_index,
-                                    entry.transfer_data.inscription_offset_intra_output,
-                                ),
-                                post_transfer_output_value: None,
-                                tx_index: 0,
-                            },
-                        );
-                    }
-
-                    info!(
-                        ctx.expect_logger(),
-                        "Rewriting transfers for block {}", block.block_identifier.index
-                    );
-
-                    for (tx_index, tx) in block.transactions.iter_mut().enumerate() {
-                        tx.metadata.ordinal_operations.clear();
-                        if let Some(mut entry) = operations.remove(&tx.transaction_identifier) {
-                            let (_, output_index, _) =
-                                parse_satpoint_to_watch(&entry.satpoint_post_transfer);
-
-                            let script_pub_key_hex =
-                                tx.metadata.outputs[output_index].get_script_pubkey_hex();
-                            let updated_address = match Script::from_hex(&script_pub_key_hex) {
-                                Ok(script) => {
-                                    match Address::from_script(&script, network.clone()) {
-                                        Ok(address) => Some(address.to_string()),
-                                        Err(_e) => None,
-                                    }
-                                }
-                                Err(_e) => None,
-                            };
-
-                            entry.updated_address = updated_address;
-                            entry.post_transfer_output_value =
-                                Some(tx.metadata.outputs[output_index].value);
-                            entry.tx_index = tx_index;
-                            tx.metadata
-                                .ordinal_operations
-                                .push(OrdinalOperation::InscriptionTransferred(entry));
-                        }
-                    }
-
-                    update_storage_and_augment_bitcoin_block_with_inscription_transfer_data_tx(
+                    insert_new_inscriptions_from_block_in_locations(
                         block,
-                        &transaction,
+                        &inscriptions_db_tx,
                         &ctx,
-                    )
-                    .unwrap();
-
-                    info!(
-                        ctx.expect_logger(),
-                        "Saving supdates for block {}", block.block_identifier.index
                     );
-                    transaction.commit().unwrap();
 
-                    info!(
-                        ctx.expect_logger(),
-                        "Transfers in block {} repaired", block.block_identifier.index
+                    augment_block_with_ordinals_transfer_data(
+                        block,
+                        &inscriptions_db_tx,
+                        true,
+                        &ctx,
                     );
 
                     if let Some(ref post_processor) = post_processor {
