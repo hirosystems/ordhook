@@ -132,71 +132,62 @@ impl Read for ChannelRead {
 }
 
 pub async fn download_ordinals_dataset_if_required(config: &Config, ctx: &Context) -> bool {
-    if config.is_initial_ingestion_required() {
-        // Download default tsv.
-        if config.rely_on_remote_ordinals_sqlite()
-            && config.should_download_remote_ordinals_sqlite()
-        {
-            let url = config.expected_remote_ordinals_sqlite_url();
-            let mut sqlite_file_path = config.expected_cache_path();
-            sqlite_file_path.push(default_sqlite_file_path(&config.network.bitcoin_network));
-            let mut sqlite_sha_file_path = config.expected_cache_path();
-            sqlite_sha_file_path.push(default_sqlite_sha_file_path(
-                &config.network.bitcoin_network,
-            ));
+    if config.should_bootstrap_through_download() {
+        let url = config.expected_remote_ordinals_sqlite_url();
+        let mut sqlite_file_path = config.expected_cache_path();
+        sqlite_file_path.push(default_sqlite_file_path(&config.network.bitcoin_network));
+        let mut sqlite_sha_file_path = config.expected_cache_path();
+        sqlite_sha_file_path.push(default_sqlite_sha_file_path(
+            &config.network.bitcoin_network,
+        ));
 
-            // Download archive if not already present in cache
-            // Load the local
-            let local_sha_file = read_file_content_at_path(&sqlite_sha_file_path);
-            let sha_url = config.expected_remote_ordinals_sqlite_sha256();
+        // Download archive if not already present in cache
+        // Load the local
+        let local_sha_file = read_file_content_at_path(&sqlite_sha_file_path);
+        let sha_url = config.expected_remote_ordinals_sqlite_sha256();
 
-            let remote_sha_file = match reqwest::get(&sha_url).await {
-                Ok(response) => response.bytes().await,
-                Err(e) => Err(e),
-            };
-            let should_download = match (local_sha_file, remote_sha_file) {
-                (Ok(local), Ok(remote_response)) => {
-                    let cache_not_expired = remote_response.starts_with(&local[0..32]) == false;
-                    if cache_not_expired {
-                        info!(ctx.expect_logger(), "More recent hord.sqlite file detected");
-                    }
-                    cache_not_expired == false
+        let remote_sha_file = match reqwest::get(&sha_url).await {
+            Ok(response) => response.bytes().await,
+            Err(e) => Err(e),
+        };
+        let should_download = match (local_sha_file, remote_sha_file) {
+            (Ok(local), Ok(remote_response)) => {
+                let cache_not_expired = remote_response.starts_with(&local[0..32]) == false;
+                if cache_not_expired {
+                    info!(ctx.expect_logger(), "More recent hord.sqlite file detected");
                 }
-                (_, _) => match std::fs::metadata(&sqlite_file_path) {
-                    Ok(_) => false,
-                    _ => {
-                        info!(
-                            ctx.expect_logger(),
-                            "Unable to retrieve hord.sqlite file locally"
-                        );
-                        true
-                    }
-                },
-            };
-            if should_download {
-                info!(ctx.expect_logger(), "Downloading {}", url);
-                match download_sqlite_file(&config, &ctx).await {
-                    Ok(_) => {}
-                    Err(e) => {
-                        error!(ctx.expect_logger(), "{}", e);
-                        std::process::exit(1);
-                    }
-                }
-            } else {
-                info!(
-                    ctx.expect_logger(),
-                    "Basing ordinals evaluation on database {}",
-                    sqlite_file_path.display()
-                );
+                cache_not_expired == false
             }
-            // config.add_local_ordinals_sqlite_source(&sqlite_file_path);
+            (_, _) => match std::fs::metadata(&sqlite_file_path) {
+                Ok(_) => false,
+                _ => {
+                    info!(
+                        ctx.expect_logger(),
+                        "Unable to retrieve hord.sqlite file locally"
+                    );
+                    true
+                }
+            },
+        };
+        if should_download {
+            info!(ctx.expect_logger(), "Downloading {}", url);
+            match download_sqlite_file(&config, &ctx).await {
+                Ok(_) => {}
+                Err(e) => {
+                    error!(ctx.expect_logger(), "{}", e);
+                    std::process::exit(1);
+                }
+            }
+        } else {
+            info!(
+                ctx.expect_logger(),
+                "Basing ordinals evaluation on database {}",
+                sqlite_file_path.display()
+            );
         }
+        // config.add_local_ordinals_sqlite_source(&sqlite_file_path);
         true
     } else {
-        info!(
-            ctx.expect_logger(),
-            "Streaming blocks from bitcoind {}", config.network.bitcoind_rpc_url
-        );
         false
     }
 }

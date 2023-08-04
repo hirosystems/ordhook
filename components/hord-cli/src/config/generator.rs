@@ -34,6 +34,11 @@ max_number_of_processing_threads = 16
 bitcoin_concurrent_http_requests_max = 16
 max_caching_memory_size_mb = 32000
 
+# Disable the following section if the state
+# must be built locally
+[bootstrap]
+download_url = "https://archive.hiro.so/mainnet/chainhooks/hord.sqlite"
+
 [logs]
 ordinals_internals = true
 chainhook_internals = true

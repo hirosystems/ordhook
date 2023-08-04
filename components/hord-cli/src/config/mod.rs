@@ -27,9 +27,9 @@ pub const BITCOIN_MAX_PREDICATE_REGISTRATION: usize = 50;
 pub struct Config {
     pub storage: StorageConfig,
     pub http_api: PredicatesApi,
-    pub event_sources: Vec<EventSourceConfig>,
     pub limits: LimitsConfig,
     pub network: IndexerConfig,
+    pub bootstrap: BootstrapConfig,
     pub logs: LogConfig,
 }
 
@@ -58,9 +58,9 @@ pub struct PredicatesApiConfig {
 }
 
 #[derive(Clone, Debug)]
-pub enum EventSourceConfig {
-    OrdinalsSqlitePath(PathConfig),
-    OrdinalsSqliteUrl(UrlConfig),
+pub enum BootstrapConfig {
+    Build,
+    Download(String),
 }
 
 #[derive(Clone, Debug)]
@@ -152,21 +152,13 @@ impl Config {
             _ => return Err("network.mode not supported".to_string()),
         };
 
-        let mut event_sources = vec![];
-        for source in config_file.event_source.unwrap_or(vec![]).iter_mut() {
-            if let Some(dst) = source.tsv_file_path.take() {
-                let mut file_path = PathBuf::new();
-                file_path.push(dst);
-                event_sources.push(EventSourceConfig::OrdinalsSqlitePath(PathConfig {
-                    file_path,
-                }));
-                continue;
+        let bootstrap = match config_file.bootstrap {
+            Some(bootstrap) => match bootstrap.download_url {
+                Some(ref url) => BootstrapConfig::Download(url.to_string()),
+                None => BootstrapConfig::Build
             }
-            if let Some(file_url) = source.tsv_file_url.take() {
-                event_sources.push(EventSourceConfig::OrdinalsSqliteUrl(UrlConfig { file_url }));
-                continue;
-            }
-        }
+            None => BootstrapConfig::Build
+        };
 
         let config = Config {
             storage: StorageConfig {
@@ -185,7 +177,7 @@ impl Config {
                     }),
                 },
             },
-            event_sources,
+            bootstrap,
             limits: LimitsConfig {
                 max_number_of_stacks_predicates: config_file
                     .limits
@@ -248,28 +240,11 @@ impl Config {
         Ok(config)
     }
 
-    pub fn is_initial_ingestion_required(&self) -> bool {
-        for source in self.event_sources.iter() {
-            match source {
-                EventSourceConfig::OrdinalsSqlitePath(_)
-                | EventSourceConfig::OrdinalsSqliteUrl(_) => return true,
-            }
+    pub fn should_bootstrap_through_download(&self) -> bool {
+        match &self.bootstrap {
+            BootstrapConfig::Build => false,
+            BootstrapConfig::Download(_) => true
         }
-        return false;
-    }
-
-    pub fn add_ordinals_sqlite_remote_source_url(&mut self, file_url: &str) {
-        self.event_sources
-            .push(EventSourceConfig::OrdinalsSqliteUrl(UrlConfig {
-                file_url: file_url.to_string(),
-            }));
-    }
-
-    pub fn add_local_ordinals_sqlite_source(&mut self, file_path: &PathBuf) {
-        self.event_sources
-            .push(EventSourceConfig::OrdinalsSqlitePath(PathConfig {
-                file_path: file_path.clone(),
-            }));
     }
 
     pub fn expected_api_database_uri(&self) -> &str {
@@ -289,13 +264,11 @@ impl Config {
         destination_path
     }
 
-    fn expected_remote_ordinals_sqlite_base_url(&self) -> &String {
-        for source in self.event_sources.iter() {
-            if let EventSourceConfig::OrdinalsSqliteUrl(config) = source {
-                return &config.file_url;
-            }
+    fn expected_remote_ordinals_sqlite_base_url(&self) -> &str {
+        match &self.bootstrap {
+            BootstrapConfig::Build => unreachable!(),
+            BootstrapConfig::Download(url) => &url
         }
-        panic!("expected remote-tsv source")
     }
 
     pub fn expected_remote_ordinals_sqlite_sha256(&self) -> String {
@@ -304,29 +277,6 @@ impl Config {
 
     pub fn expected_remote_ordinals_sqlite_url(&self) -> String {
         format!("{}.gz", self.expected_remote_ordinals_sqlite_base_url())
-    }
-
-    pub fn rely_on_remote_ordinals_sqlite(&self) -> bool {
-        for source in self.event_sources.iter() {
-            if let EventSourceConfig::OrdinalsSqliteUrl(_config) = source {
-                return true;
-            }
-        }
-        false
-    }
-
-    pub fn should_download_remote_ordinals_sqlite(&self) -> bool {
-        let mut rely_on_remote_tsv = false;
-        let mut remote_tsv_present_locally = false;
-        for source in self.event_sources.iter() {
-            if let EventSourceConfig::OrdinalsSqliteUrl(_config) = source {
-                rely_on_remote_tsv = true;
-            }
-            if let EventSourceConfig::OrdinalsSqlitePath(_config) = source {
-                remote_tsv_present_locally = true;
-            }
-        }
-        rely_on_remote_tsv == true && remote_tsv_present_locally == false
     }
 
     pub fn default(
@@ -351,7 +301,7 @@ impl Config {
                 working_dir: default_cache_path(),
             },
             http_api: PredicatesApi::Off,
-            event_sources: vec![],
+            bootstrap: BootstrapConfig::Build,
             limits: LimitsConfig {
                 max_number_of_bitcoin_predicates: BITCOIN_MAX_PREDICATE_REGISTRATION,
                 max_number_of_concurrent_bitcoin_scans: BITCOIN_SCAN_THREAD_POOL_SIZE,
@@ -384,7 +334,7 @@ impl Config {
                 working_dir: default_cache_path(),
             },
             http_api: PredicatesApi::Off,
-            event_sources: vec![],
+            bootstrap: BootstrapConfig::Build,
             limits: LimitsConfig {
                 max_number_of_bitcoin_predicates: BITCOIN_MAX_PREDICATE_REGISTRATION,
                 max_number_of_concurrent_bitcoin_scans: BITCOIN_SCAN_THREAD_POOL_SIZE,
@@ -417,9 +367,7 @@ impl Config {
                 working_dir: default_cache_path(),
             },
             http_api: PredicatesApi::Off,
-            event_sources: vec![EventSourceConfig::OrdinalsSqliteUrl(UrlConfig {
-                file_url: DEFAULT_MAINNET_ORDINALS_SQLITE_ARCHIVE.into(),
-            })],
+            bootstrap: BootstrapConfig::Download(DEFAULT_MAINNET_ORDINALS_SQLITE_ARCHIVE.to_string()),
             limits: LimitsConfig {
                 max_number_of_bitcoin_predicates: BITCOIN_MAX_PREDICATE_REGISTRATION,
                 max_number_of_concurrent_bitcoin_scans: BITCOIN_SCAN_THREAD_POOL_SIZE,
