@@ -23,7 +23,7 @@ use crate::{
     core::protocol::inscription_parsing::get_inscriptions_revealed_in_block, ord::sat::Sat,
 };
 
-fn get_default_hord_db_file_path(base_dir: &PathBuf) -> PathBuf {
+pub fn get_default_hord_db_file_path(base_dir: &PathBuf) -> PathBuf {
     let mut destination_path = base_dir.clone();
     destination_path.push("hord.sqlite");
     destination_path
@@ -124,7 +124,7 @@ pub fn initialize_hord_db(path: &PathBuf, ctx: &Context) -> Connection {
     conn
 }
 
-fn create_or_open_readwrite_db(cache_path: &PathBuf, ctx: &Context) -> Connection {
+pub fn create_or_open_readwrite_db(cache_path: &PathBuf, ctx: &Context) -> Connection {
     let path = get_default_hord_db_file_path(&cache_path);
     let open_flags = match std::fs::metadata(&path) {
         Err(e) => {

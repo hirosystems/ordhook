@@ -2,10 +2,10 @@
 pub struct ConfigFile {
     pub storage: StorageConfigFile,
     pub http_api: Option<PredicatesApiConfigFile>,
-    pub event_source: Option<Vec<EventSourceConfigFile>>,
     pub limits: LimitsConfigFile,
     pub network: NetworkConfigFile,
     pub logs: Option<LogConfigFile>,
+    pub bootstrap: Option<BootstrapConfigFile>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -28,13 +28,8 @@ pub struct PredicatesApiConfigFile {
 }
 
 #[derive(Deserialize, Debug, Clone)]
-pub struct EventSourceConfigFile {
-    pub source_type: Option<String>,
-    pub stacks_node_url: Option<String>,
-    pub chainhook_node_url: Option<String>,
-    pub polling_delay: Option<u32>,
-    pub tsv_file_path: Option<String>,
-    pub tsv_file_url: Option<String>,
+pub struct BootstrapConfigFile {
+    pub download_url: Option<String>,
 }
 
 #[derive(Deserialize, Debug, Clone)]

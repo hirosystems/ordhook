@@ -13,7 +13,7 @@ use crate::db::{
     find_all_transfers_in_block, find_inscription_with_id, find_last_block_inserted,
     find_latest_inscription_block_height, find_lazy_block_at_block_height,
     open_readonly_hord_db_conn, open_readonly_hord_db_conn_rocks_db, open_readwrite_hord_db_conn,
-    open_readwrite_hord_db_conn_rocks_db,
+    open_readwrite_hord_db_conn_rocks_db, initialize_hord_db, get_default_hord_db_file_path,
 };
 use chainhook_sdk::bitcoincore_rpc::{Auth, Client, RpcApi};
 use chainhook_sdk::chainhooks::types::HttpHook;
@@ -261,6 +261,9 @@ struct StartCommand {
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
 enum HordDbCommand {
+    /// Initialize a new hord db
+    #[clap(name = "new", bin_name = "new")]
+    New(SyncHordDbCommand),    
     /// Catch-up hord db
     #[clap(name = "sync", bin_name = "sync")]
     Sync(SyncHordDbCommand),
@@ -476,21 +479,25 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                     .await?;
             } else {
                 let _ = download_ordinals_dataset_if_required(&config, ctx).await;
+                let mut total_inscriptions = 0;
+                let mut total_transfers = 0;
 
                 let inscriptions_db_conn =
-                    open_readonly_hord_db_conn(&config.expected_cache_path(), &ctx)?;
+                    initialize_hord_db(&config.expected_cache_path(), &ctx);
                 while let Some(block_height) = block_range.pop_front() {
-                    let mut total_transfers = 0;
                     let inscriptions =
                         find_all_inscriptions_in_block(&block_height, &inscriptions_db_conn, &ctx);
                     let mut locations =
                         find_all_transfers_in_block(&block_height, &inscriptions_db_conn, &ctx);
+
+                    let mut total_transfers_in_block = 0;
+
                     for (_, inscription) in inscriptions.iter() {
                         println!("Inscription {} revealed at block #{} (inscription_number {}, ordinal_number {})", inscription.get_inscription_id(), block_height, inscription.inscription_number, inscription.ordinal_number);
                         if let Some(transfers) = locations.remove(&inscription.get_inscription_id())
                         {
                             for t in transfers.iter().skip(1) {
-                                total_transfers += 1;
+                                total_transfers_in_block += 1;
                                 println!(
                                     "\t→ Transferred in transaction {}",
                                     t.transaction_identifier_location.hash
@@ -501,21 +508,28 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                     for (inscription_id, transfers) in locations.iter() {
                         println!("Inscription {}", inscription_id);
                         for t in transfers.iter() {
-                            total_transfers += 1;
+                            total_transfers_in_block += 1;
                             println!(
                                 "\t→ Transferred in transaction {}",
                                 t.transaction_identifier_location.hash
                             );
                         }
                     }
-                    if total_transfers > 0 && inscriptions.len() > 0 {
+                    if total_transfers_in_block > 0 && inscriptions.len() > 0 {
                         println!(
-                            "Inscriptions revealed: {}, inscriptions transferred: {total_transfers}",
+                            "Inscriptions revealed: {}, inscriptions transferred: {total_transfers_in_block}",
                             inscriptions.len()
                         );
                         println!("-----");
                     }
+
+                    total_inscriptions += inscriptions.len();
+                    total_transfers += total_transfers_in_block;
                 }
+                if total_transfers == 0 && total_inscriptions == 0 {
+                    let db_file_path = get_default_hord_db_file_path(&config.expected_cache_path());
+                    warn!(ctx.expect_logger(), "No data available. Check the validity of the range being scanned and the validity of your local database {}", db_file_path.display());
+                }    
             }
         }
         Command::Scan(ScanCommand::Inscription(cmd)) => {
@@ -619,6 +633,10 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                     .map_err(|e| format!("unable to write file {}\n{}", file_path.display(), e))?;
                 println!("Created file Hord.toml");
             }
+        },
+        Command::Db(HordDbCommand::New(cmd)) => {
+            let config = Config::default(false, false, false, &cmd.config_path)?;
+            initialize_hord_db(&config.expected_cache_path(), &ctx);
         },
         Command::Db(HordDbCommand::Sync(_cmd)) => unimplemented!(),
         Command::Db(HordDbCommand::Repair(subcmd)) => match subcmd {
