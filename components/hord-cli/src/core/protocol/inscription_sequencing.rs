@@ -289,7 +289,7 @@ fn get_transactions_to_process(
                 continue;
             }
 
-            if let Some(entry) = known_transactions.remove(&key) {
+            if let Some(_) = known_transactions.remove(&key) {
                 continue;
             }
 
@@ -637,6 +637,8 @@ pub fn augment_transaction_with_ordinals_inscriptions_data(
 pub fn consolidate_transaction_with_pre_computed_inscription_data(
     tx: &mut BitcoinTransactionData,
     tx_index: usize,
+    coinbase_txid: &TransactionIdentifier,
+    network: &Network,
     inscriptions_data: &mut BTreeMap<(TransactionIdentifier, usize), TraversalResult>,
     _ctx: &Context,
 ) {
@@ -662,9 +664,29 @@ pub fn consolidate_transaction_with_pre_computed_inscription_data(
             traversal.transfer_data.output_index,
             traversal.transfer_data.inscription_offset_intra_output,
         );
+
         if inscription.inscription_number < 0 {
             inscription.curse_type = Some(OrdinalInscriptionCurseType::Unknown);
         }
+
+        if traversal.transfer_data.transaction_identifier_location.eq(coinbase_txid) {
+            continue;
+        }
+
+        if let Some(output) = tx.metadata.outputs.get(traversal.transfer_data.output_index) {
+            inscription.inscription_output_value = output.value;
+            inscription.inscriber_address = {
+                let script_pub_key = output.get_script_pubkey_hex();
+                match Script::from_hex(&script_pub_key) {
+                    Ok(script) => match Address::from_script(&script, network.clone()) {
+                        Ok(a) => Some(a.to_string()),
+                        _ => None,
+                    },
+                    _ => None,
+                }
+            };
+        }
+
     }
 }
 
@@ -690,6 +712,8 @@ pub fn consolidate_block_with_pre_computed_ordinals_data(
         consolidate_transaction_with_pre_computed_inscription_data(
             tx,
             tx_index,
+            coinbase_txid,
+            &network,
             &mut inscriptions_data,
             ctx,
         );

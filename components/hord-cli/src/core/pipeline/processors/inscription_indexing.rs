@@ -156,6 +156,7 @@ pub fn process_blocks(
         let mut block = next_blocks.remove(0);
 
         // We check before hand if some data were pre-existing, before processing
+        // Always discard if we have some existing content at this block height (inscription or transfers)
         let any_existing_activity = get_any_entry_in_ordinal_activities(
             &block.block_identifier.index,
             &inscriptions_db_tx,
@@ -252,7 +253,6 @@ pub fn process_block(
         return Ok(());
     }
 
-    // Always discard if we have some existing content at this block height (inscription or transfers)
     let inner_ctx = if hord_config.logs.ordinals_internals {
         ctx.clone()
     } else {
