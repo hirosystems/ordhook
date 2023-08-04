@@ -1,2 +1,2 @@
 [alias]
-ordhook-install = "install --path components/hord-cli --locked --force"
+hord-install = "install --path components/hord-cli --locked --force"
