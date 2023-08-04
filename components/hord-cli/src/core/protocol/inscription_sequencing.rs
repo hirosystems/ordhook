@@ -353,7 +353,6 @@ impl SequenceCursor {
                         inscription_number + 1
                     }
                     _ => {
-                        self.blessed = Some(0);
                         0
                     }
                 }
@@ -376,7 +375,6 @@ impl SequenceCursor {
                         inscription_number - 1
                     }
                     _ => {
-                        self.cursed = Some(-1);
                         -1
                     }
                 }
@@ -514,8 +512,6 @@ pub fn augment_transaction_with_ordinals_inscriptions_data(
             OrdinalOperation::InscriptionTransferred(_) => continue,
         };
 
-        let mut inscription_number = sequence_cursor.pick_next(is_cursed, block_identifier.index);
-
         let transaction_identifier = tx.transaction_identifier.clone();
         let traversal = match inscriptions_data
             .remove(&(transaction_identifier, inscription.inscription_input_index))
@@ -534,9 +530,8 @@ pub fn augment_transaction_with_ordinals_inscriptions_data(
             }
         };
 
+        // Do we need to curse the inscription because of re-inscription?
         let mut curse_type_override = None;
-
-        // Do we need to curse the inscription?
         if !is_cursed {
             // Is this inscription re-inscribing an existing blessed inscription?
             if let Some(exisiting_inscription_id) =
@@ -557,6 +552,8 @@ pub fn augment_transaction_with_ordinals_inscriptions_data(
                 curse_type_override = Some(OrdinalInscriptionCurseType::Reinscription)
             }
         };
+
+        let mut inscription_number = sequence_cursor.pick_next(is_cursed, block_identifier.index);
 
         let outputs = &tx.metadata.outputs;
         inscription.inscription_number = inscription_number;
