@@ -24,7 +24,7 @@ use crate::{
             inscription_parsing::get_inscriptions_revealed_in_block,
             inscription_sequencing::{
                 augment_block_with_ordinals_inscriptions_data_and_write_to_db_tx,
-                retrieve_inscribed_satoshi_points_from_block_v3, SequenceCursor,
+                parallelize_inscription_data_computations, SequenceCursor,
             },
             inscription_tracking::augment_block_with_ordinals_transfer_data,
         },
@@ -66,7 +66,7 @@ pub fn start_inscription_indexing_processor(
             let blocks_db_rw =
                 open_readwrite_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx).unwrap();
             let mut empty_cycles = 0;
-            
+
             let inscriptions_db_conn =
                 open_readonly_hord_db_conn(&config.expected_cache_path(), &ctx).unwrap();
             let mut sequence_cursor = SequenceCursor::new(inscriptions_db_conn);
@@ -238,7 +238,7 @@ pub fn process_block(
     hord_config: &HordConfig,
     ctx: &Context,
 ) -> Result<(), String> {
-    let any_processable_transactions = retrieve_inscribed_satoshi_points_from_block_v3(
+    let any_processable_transactions = parallelize_inscription_data_computations(
         &block,
         &next_blocks,
         cache_l1,

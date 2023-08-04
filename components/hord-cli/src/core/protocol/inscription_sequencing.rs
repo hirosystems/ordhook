@@ -39,7 +39,7 @@ use super::{
     satoshi_numbering::compute_satoshi_number,
 };
 
-pub fn retrieve_inscribed_satoshi_points_from_block_v3(
+pub fn parallelize_inscription_data_computations(
     block: &BitcoinBlockData,
     next_blocks: &Vec<BitcoinBlockData>,
     cache_l1: &mut BTreeMap<(TransactionIdentifier, usize), TraversalResult>,
