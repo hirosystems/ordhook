@@ -12,15 +12,14 @@ extern crate serde_derive;
 
 extern crate serde;
 
-pub mod archive;
 pub mod cli;
 pub mod config;
+pub mod core;
 pub mod db;
-pub mod hord;
+pub mod download;
 pub mod ord;
 pub mod scan;
 pub mod service;
-pub mod storage;
 pub mod utils;
 
 fn main() {

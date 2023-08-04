@@ -16,7 +16,7 @@ working_dir = "cache"
 
 [network]
 mode = "{network}"
-bitcoind_rpc_url = "http://localhost:8332"
+bitcoind_rpc_url = "http://0.0.0.0:8332"
 bitcoind_rpc_username = "devnet"
 bitcoind_rpc_password = "devnet"
 # Bitcoin block events can be received by Chainhook
@@ -25,14 +25,18 @@ bitcoind_rpc_password = "devnet"
 # used by default:
 bitcoind_zmq_url = "tcp://0.0.0.0:18543"
 # but stacks can also be used:
-# stacks_node_rpc_url = "http://localhost:20443"
+# stacks_node_rpc_url = "http://0.0.0.0:20443"
 
 [limits]
 max_number_of_bitcoin_predicates = 100
 max_number_of_concurrent_bitcoin_scans = 100
 max_number_of_processing_threads = 16
-max_number_of_networking_threads = 16
+bitcoin_concurrent_http_requests_max = 16
 max_caching_memory_size_mb = 32000
+
+[logs]
+ordinals_internals = true
+chainhook_internals = true
 "#,
         network = network.to_lowercase(),
     );

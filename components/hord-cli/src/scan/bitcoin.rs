@@ -1,13 +1,10 @@
-use crate::archive::download_ordinals_dataset_if_required;
 use crate::config::{Config, PredicatesApi};
-use crate::db::{
-    find_all_inscriptions_in_block, get_any_entry_in_ordinal_activities, open_readonly_hord_db_conn,
+use crate::core::protocol::inscription_parsing::{
+    get_inscriptions_revealed_in_block, parse_ordinals_and_standardize_block,
 };
-use crate::hord::{
-    self, get_inscriptions_revealed_in_block,
-    update_storage_and_augment_bitcoin_block_with_inscription_reveal_data_tx,
-    update_storage_and_augment_bitcoin_block_with_inscription_transfer_data_tx,
-};
+use crate::core::protocol::inscription_sequencing::consolidate_block_with_pre_computed_ordinals_data;
+use crate::db::{get_any_entry_in_ordinal_activities, open_readonly_hord_db_conn};
+use crate::download::download_ordinals_dataset_if_required;
 use crate::service::{
     open_readwrite_predicates_db_conn_or_panic, update_predicate_status, PredicateStatus,
     ScanningData,
@@ -18,7 +15,7 @@ use chainhook_sdk::chainhooks::bitcoin::{
     evaluate_bitcoin_chainhooks_on_chain_event, handle_bitcoin_hook_action,
     BitcoinChainhookOccurrence, BitcoinTriggerChainhook,
 };
-use chainhook_sdk::chainhooks::types::{BitcoinChainhookSpecification, BitcoinPredicateType};
+use chainhook_sdk::chainhooks::types::BitcoinChainhookSpecification;
 use chainhook_sdk::indexer::bitcoin::{
     build_http_client, download_and_parse_block_with_retry, retrieve_block_hash_with_retry,
 };
@@ -26,9 +23,10 @@ use chainhook_sdk::observer::{gather_proofs, EventObserverConfig};
 use chainhook_sdk::types::{
     BitcoinBlockData, BitcoinChainEvent, BitcoinChainUpdatedWithBlocksData,
 };
-use chainhook_sdk::utils::{file_append, send_request, Context};
+use chainhook_sdk::utils::{file_append, send_request, BlockHeights, Context};
 use std::collections::HashMap;
 
+// TODO(lgalabru): Re-introduce support for blocks[] !!! gracefully handle hints for non consecutive blocks
 pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
     predicate_spec: &BitcoinChainhookSpecification,
     config: &Config,
@@ -47,74 +45,73 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
             return Err(format!("Bitcoin RPC error: {}", message.to_string()));
         }
     };
+    let mut floating_end_block = false;
 
-    let start_block = match predicate_spec.start_block {
-        Some(start_block) => start_block,
-        None => {
-            return Err(
-                "Bitcoin chainhook specification must include a field start_block in replay mode"
-                    .into(),
-            );
-        }
-    };
-
-    let (mut end_block, floating_end_block) = match predicate_spec.end_block {
-        Some(end_block) => (end_block, false),
-        None => match bitcoin_rpc.get_blockchain_info() {
-            Ok(result) => (result.blocks - 1, true),
-            Err(e) => {
-                return Err(format!(
-                    "unable to retrieve Bitcoin chain tip ({})",
-                    e.to_string()
-                ));
+    let mut block_heights_to_scan = if let Some(ref blocks) = predicate_spec.blocks {
+        BlockHeights::Blocks(blocks.clone()).get_sorted_entries()
+    } else {
+        let start_block = match predicate_spec.start_block {
+            Some(start_block) => start_block,
+            None => {
+                return Err(
+                    "Bitcoin chainhook specification must include a field start_block in replay mode"
+                        .into(),
+                );
             }
-        },
+        };
+        let (end_block, update_end_block) = match predicate_spec.end_block {
+            Some(end_block) => (end_block, false),
+            None => match bitcoin_rpc.get_blockchain_info() {
+                Ok(result) => (result.blocks, true),
+                Err(e) => {
+                    return Err(format!(
+                        "unable to retrieve Bitcoin chain tip ({})",
+                        e.to_string()
+                    ));
+                }
+            },
+        };
+        floating_end_block = update_end_block;
+        BlockHeights::BlockRange(start_block, end_block).get_sorted_entries()
     };
 
     // Are we dealing with an ordinals-based predicate?
     // If so, we could use the ordinal storage to provide a set of hints.
-    let mut inscriptions_db_conn = None;
-
-    if let BitcoinPredicateType::OrdinalsProtocol(_) = &predicate_spec.predicate {
-        inscriptions_db_conn = Some(open_readonly_hord_db_conn(
-            &config.expected_cache_path(),
-            ctx,
-        )?);
-    }
+    let mut inscriptions_db_conn = open_readonly_hord_db_conn(&config.expected_cache_path(), ctx)?;
 
     info!(
         ctx.expect_logger(),
         "Starting predicate evaluation on Bitcoin blocks",
     );
-
-    let mut blocks_scanned = 0;
     let mut actions_triggered = 0;
-    let occurrences_found = 0u64;
     let mut err_count = 0;
 
     let event_observer_config = config.get_event_observer_config();
     let bitcoin_config = event_observer_config.get_bitcoin_config();
-    let mut traversals = HashMap::new();
+    let number_of_blocks_to_scan = block_heights_to_scan.len() as u64;
+    let mut number_of_blocks_scanned = 0;
+    let mut number_of_blocks_sent = 0u64;
     let http_client = build_http_client();
 
-    let mut cursor = start_block.saturating_sub(1);
+    while let Some(current_block_height) = block_heights_to_scan.pop_front() {
+        number_of_blocks_scanned += 1;
 
-    while cursor <= end_block {
-        cursor += 1;
-        blocks_scanned += 1;
-
-        if let Some(ref inscriptions_db_conn) = inscriptions_db_conn {
-            if !get_any_entry_in_ordinal_activities(&cursor, &inscriptions_db_conn, &ctx) {
-                continue;
-            }
+        if !get_any_entry_in_ordinal_activities(&current_block_height, &inscriptions_db_conn, &ctx)
+        {
+            continue;
         }
 
-        let block_hash =
-            retrieve_block_hash_with_retry(&http_client, &cursor, &bitcoin_config, ctx).await?;
+        let block_hash = retrieve_block_hash_with_retry(
+            &http_client,
+            &current_block_height,
+            &bitcoin_config,
+            ctx,
+        )
+        .await?;
         let block_breakdown =
             download_and_parse_block_with_retry(&http_client, &block_hash, &bitcoin_config, ctx)
                 .await?;
-        let mut block = match hord::parse_ordinals_and_standardize_block(
+        let mut block = match parse_ordinals_and_standardize_block(
             block_breakdown,
             &event_observer_config.bitcoin_network,
             ctx,
@@ -123,54 +120,33 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
             Err((e, _)) => {
                 warn!(
                     ctx.expect_logger(),
-                    "Unable to standardize block#{} {}: {}", cursor, block_hash, e
+                    "Unable to standardize block#{} {}: {}", current_block_height, block_hash, e
                 );
                 continue;
             }
         };
 
-        if let Some(ref mut inscriptions_db_conn) = inscriptions_db_conn {
-            // Evaluating every single block is required for also keeping track of transfers.
-            let local_traverals =
-                find_all_inscriptions_in_block(&cursor, &inscriptions_db_conn, &ctx);
-            for (transaction_identifier, traversal_result) in local_traverals.into_iter() {
-                traversals.insert(
-                    (
-                        transaction_identifier,
-                        traversal_result.inscription_input_index,
-                    ),
-                    traversal_result,
-                );
-            }
-
-            let transaction = inscriptions_db_conn.transaction().unwrap();
-            let empty_ctx = Context::empty();
-            let _ = update_storage_and_augment_bitcoin_block_with_inscription_reveal_data_tx(
+        {
+            let inscriptions_db_tx = inscriptions_db_conn.transaction().unwrap();
+            consolidate_block_with_pre_computed_ordinals_data(
                 &mut block,
-                &transaction,
-                &traversals,
-                &empty_ctx,
-            )?;
-
-            let _ = update_storage_and_augment_bitcoin_block_with_inscription_transfer_data_tx(
-                &mut block,
-                &transaction,
-                &empty_ctx,
-            )?;
-
-            let inscriptions_revealed = get_inscriptions_revealed_in_block(&block)
-                .iter()
-                .map(|d| d.inscription_number.to_string())
-                .collect::<Vec<String>>();
-
-            info!(
-                ctx.expect_logger(),
-                "Processing block #{} through {} predicate (inscriptions revealed: [{}])",
-                cursor,
-                predicate_spec.uuid,
-                inscriptions_revealed.join(", ")
+                &inscriptions_db_tx,
+                true,
+                &ctx,
             );
         }
+
+        let inscriptions_revealed = get_inscriptions_revealed_in_block(&block)
+            .iter()
+            .map(|d| d.inscription_number.to_string())
+            .collect::<Vec<String>>();
+
+        info!(
+            ctx.expect_logger(),
+            "Processing block #{current_block_height} through {} predicate (inscriptions revealed: [{}])",
+            predicate_spec.uuid,
+            inscriptions_revealed.join(", ")
+        );
 
         match process_block_with_predicates(
             block,
@@ -180,7 +156,12 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
         )
         .await
         {
-            Ok(actions) => actions_triggered += actions,
+            Ok(actions) => {
+                if actions > 0 {
+                    number_of_blocks_sent += 1;
+                }
+                actions_triggered += actions
+            },
             Err(_) => err_count += 1,
         }
 
@@ -189,12 +170,12 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
         }
 
         if let PredicatesApi::On(ref api_config) = config.http_api {
-            if blocks_scanned % 50 == 0 {
+            if number_of_blocks_scanned % 50 == 0 {
                 let status = PredicateStatus::Scanning(ScanningData {
-                    start_block,
-                    end_block,
-                    cursor,
-                    occurrences_found,
+                    number_of_blocks_to_scan,
+                    number_of_blocks_scanned,
+                    number_of_blocks_sent,
+                    current_block_height,
                 });
                 let mut predicates_db_conn =
                     open_readwrite_predicates_db_conn_or_panic(api_config, &ctx);
@@ -207,9 +188,13 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
             }
         }
 
-        if cursor == end_block && floating_end_block {
-            end_block = match bitcoin_rpc.get_blockchain_info() {
-                Ok(result) => result.blocks - 1,
+        if block_heights_to_scan.is_empty() && floating_end_block {
+            match bitcoin_rpc.get_blockchain_info() {
+                Ok(result) => {
+                    for entry in (current_block_height + 1)..=result.blocks {
+                        block_heights_to_scan.push_back(entry);
+                    }
+                }
                 Err(_e) => {
                     continue;
                 }
@@ -218,15 +203,15 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
     }
     info!(
         ctx.expect_logger(),
-        "{blocks_scanned} blocks scanned, {actions_triggered} actions triggered"
+        "{number_of_blocks_scanned} blocks scanned, {actions_triggered} actions triggered"
     );
 
     if let PredicatesApi::On(ref api_config) = config.http_api {
         let status = PredicateStatus::Scanning(ScanningData {
-            start_block,
-            end_block,
-            cursor,
-            occurrences_found,
+            number_of_blocks_to_scan,
+            number_of_blocks_scanned,
+            number_of_blocks_sent,
+            current_block_height: 0,
         });
         let mut predicates_db_conn = open_readwrite_predicates_db_conn_or_panic(api_config, &ctx);
         update_predicate_status(&predicate_spec.key(), status, &mut predicates_db_conn, &ctx)
@@ -272,7 +257,7 @@ pub async fn execute_predicates_action<'a>(
                 actions_triggered += 1;
                 match action {
                     BitcoinChainhookOccurrence::Http(request) => {
-                        send_request(request, 3, 1, &ctx).await?
+                        send_request(request, 60, 3, &ctx).await?
                     }
                     BitcoinChainhookOccurrence::File(path, bytes) => {
                         file_append(path, bytes, &ctx)?

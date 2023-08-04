@@ -5,6 +5,13 @@ pub struct ConfigFile {
     pub event_source: Option<Vec<EventSourceConfigFile>>,
     pub limits: LimitsConfigFile,
     pub network: NetworkConfigFile,
+    pub logs: Option<LogConfigFile>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct LogConfigFile {
+    pub ordinals_internals: Option<bool>,
+    pub chainhook_internals: Option<bool>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -37,8 +44,8 @@ pub struct LimitsConfigFile {
     pub max_number_of_stacks_predicates: Option<usize>,
     pub max_number_of_concurrent_stacks_scans: Option<usize>,
     pub max_number_of_processing_threads: Option<usize>,
-    pub max_number_of_networking_threads: Option<usize>,
     pub max_caching_memory_size_mb: Option<usize>,
+    pub bitcoin_concurrent_http_requests_max: Option<usize>,
 }
 
 #[derive(Deserialize, Debug, Clone)]

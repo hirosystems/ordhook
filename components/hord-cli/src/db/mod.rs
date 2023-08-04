@@ -1,37 +1,27 @@
 use std::{
-    collections::{BTreeMap, HashMap},
-    hash::BuildHasherDefault,
+    collections::BTreeMap,
+    io::{Read, Write},
     path::PathBuf,
-    sync::{mpsc::Sender, Arc},
 };
 
-use chainhook_sdk::{
-    indexer::bitcoin::{
-        build_http_client, download_block_with_retry, retrieve_block_hash_with_retry,
-    },
-    types::{
-        BitcoinBlockData, BlockIdentifier, OrdinalInscriptionRevealData,
-        OrdinalInscriptionTransferData, TransactionIdentifier,
-    },
-};
-use dashmap::DashMap;
-use fxhash::FxHasher;
-use hiro_system_kit::slog;
 use rand::{thread_rng, Rng};
 
 use rocksdb::DB;
 use rusqlite::{Connection, OpenFlags, ToSql, Transaction};
 use std::io::Cursor;
-use std::io::{Read, Write};
-use threadpool::ThreadPool;
 
 use chainhook_sdk::{
-    indexer::bitcoin::BitcoinBlockFullBreakdown, observer::BitcoinConfig, utils::Context,
+    indexer::bitcoin::BitcoinBlockFullBreakdown,
+    types::{
+        BitcoinBlockData, BlockIdentifier, OrdinalInscriptionRevealData,
+        OrdinalInscriptionTransferData, TransactionIdentifier,
+    },
+    utils::Context,
 };
 
-use crate::hord::{self, HordConfig};
-use crate::hord::{new_traversals_lazy_cache, update_hord_db_and_augment_bitcoin_block};
-use crate::ord::{height::Height, sat::Sat};
+use crate::{
+    core::protocol::inscription_parsing::get_inscriptions_revealed_in_block, ord::sat::Sat,
+};
 
 fn get_default_hord_db_file_path(base_dir: &PathBuf) -> PathBuf {
     let mut destination_path = base_dir.clone();
@@ -66,7 +56,7 @@ pub fn initialize_hord_db(path: &PathBuf, ctx: &Context) -> Connection {
         [],
     ) {
         ctx.try_log(|logger| {
-            slog::warn!(
+            warn!(
                 logger,
                 "Unable to create table inscriptions: {}",
                 e.to_string()
@@ -74,53 +64,63 @@ pub fn initialize_hord_db(path: &PathBuf, ctx: &Context) -> Connection {
         });
     } else {
         if let Err(e) = conn.execute(
-            "CREATE TABLE IF NOT EXISTS locations (
-                inscription_id TEXT NOT NULL,
-                block_height INTEGER NOT NULL,
-                tx_index INTEGER NOT NULL,
-                outpoint_to_watch TEXT NOT NULL,
-                offset INTEGER NOT NULL,
-                UNIQUE(outpoint_to_watch,offset)
-            )",
-            [],
-        ) {
-            ctx.try_log(|logger| {
-                slog::warn!(logger, "Unable to create table locations:{}", e.to_string())
-            });
-        }
-
-        if let Err(e) = conn.execute(
             "CREATE INDEX IF NOT EXISTS index_inscriptions_on_ordinal_number ON inscriptions(ordinal_number);",
             [],
         ) {
-            ctx.try_log(|logger| slog::warn!(logger, "{}", e.to_string()));
+            ctx.try_log(|logger| warn!(logger, "{}", e.to_string()));
+        }
+        if let Err(e) = conn.execute(
+            "CREATE INDEX IF NOT EXISTS index_inscriptions_on_inscription_number ON inscriptions(inscription_number);",
+            [],
+        ) {
+            ctx.try_log(|logger| warn!(logger, "{}", e.to_string()));
         }
 
         if let Err(e) = conn.execute(
             "CREATE INDEX IF NOT EXISTS index_inscriptions_on_block_height ON inscriptions(block_height);",
             [],
         ) {
-            ctx.try_log(|logger| slog::warn!(logger, "{}", e.to_string()));
-        }
-        if let Err(e) = conn.execute(
-            "CREATE INDEX IF NOT EXISTS index_locations_on_block_height ON locations(block_height);",
-            [],
-        ) {
-            ctx.try_log(|logger| slog::warn!(logger, "{}", e.to_string()));
-        }
-        if let Err(e) = conn.execute(
-            "CREATE INDEX IF NOT EXISTS index_locations_on_outpoint_to_watch ON locations(outpoint_to_watch);",
-            [],
-        ) {
-            ctx.try_log(|logger| slog::warn!(logger, "{}", e.to_string()));
-        }
-        if let Err(e) = conn.execute(
-            "CREATE INDEX IF NOT EXISTS index_locations_on_inscription_id ON locations(inscription_id);",
-            [],
-        ) {
-            ctx.try_log(|logger| slog::warn!(logger, "{}", e.to_string()));
+            ctx.try_log(|logger| warn!(logger, "{}", e.to_string()));
         }
     }
+    if let Err(e) = conn.execute(
+        "CREATE TABLE IF NOT EXISTS locations (
+            inscription_id TEXT NOT NULL,
+            block_height INTEGER NOT NULL,
+            tx_index INTEGER NOT NULL,
+            outpoint_to_watch TEXT NOT NULL,
+            offset INTEGER NOT NULL
+        )",
+        [],
+    ) {
+        ctx.try_log(|logger| {
+            warn!(
+                logger,
+                "Unable to create table locations: {}",
+                e.to_string()
+            )
+        });
+    } else {
+        if let Err(e) = conn.execute(
+            "CREATE INDEX IF NOT EXISTS locations_indexed_on_block_height ON locations(block_height);",
+            [],
+        ) {
+            ctx.try_log(|logger| warn!(logger, "{}", e.to_string()));
+        }
+        if let Err(e) = conn.execute(
+            "CREATE INDEX IF NOT EXISTS locations_indexed_on_outpoint_to_watch ON locations(outpoint_to_watch);",
+            [],
+        ) {
+            ctx.try_log(|logger| warn!(logger, "{}", e.to_string()));
+        }
+        if let Err(e) = conn.execute(
+            "CREATE INDEX IF NOT EXISTS locations_indexed_on_inscription_id ON locations(inscription_id);",
+            [],
+        ) {
+            ctx.try_log(|logger| warn!(logger, "{}", e.to_string()));
+        }
+    }
+
     conn
 }
 
@@ -132,7 +132,7 @@ fn create_or_open_readwrite_db(cache_path: &PathBuf, ctx: &Context) -> Connectio
                 // need to create
                 if let Some(dirp) = PathBuf::from(&path).parent() {
                     std::fs::create_dir_all(dirp).unwrap_or_else(|e| {
-                        ctx.try_log(|logger| slog::error!(logger, "{}", e.to_string()));
+                        ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
                     });
                 }
                 OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE
@@ -150,7 +150,7 @@ fn create_or_open_readwrite_db(cache_path: &PathBuf, ctx: &Context) -> Connectio
         match Connection::open_with_flags(&path, open_flags) {
             Ok(conn) => break conn,
             Err(e) => {
-                ctx.try_log(|logger| slog::error!(logger, "{}", e.to_string()));
+                ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
             }
         };
         std::thread::sleep(std::time::Duration::from_secs(1));
@@ -184,7 +184,7 @@ fn open_existing_readonly_db(path: &PathBuf, ctx: &Context) -> Connection {
         match Connection::open_with_flags(path, open_flags) {
             Ok(conn) => break conn,
             Err(e) => {
-                ctx.try_log(|logger| slog::error!(logger, "{}", e.to_string()));
+                ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
             }
         };
         std::thread::sleep(std::time::Duration::from_secs(1));
@@ -212,7 +212,7 @@ fn rocks_db_default_options() -> rocksdb::Options {
     // we recommend setting max_open_files to -1, which means infinity.
     // This option will preload all filter and index blocks and will not need to maintain LRU of files.
     // Setting max_open_files to -1 will get you the best possible performance.
-    opts.set_max_open_files(2048);
+    opts.set_max_open_files(4096);
     opts
 }
 
@@ -235,7 +235,7 @@ pub fn open_readonly_hord_db_conn_rocks_db_loop(base_dir: &PathBuf, ctx: &Contex
             Ok(db) => break db,
             Err(e) => {
                 ctx.try_log(|logger| {
-                    slog::warn!(logger, "Unable to open db: {e}",);
+                    warn!(logger, "Unable to open db: {e}",);
                 });
                 continue;
             }
@@ -306,10 +306,9 @@ pub fn find_lazy_block_at_block_height(
             _ => {
                 if attempt == 1 && try_iterator {
                     ctx.try_log(|logger| {
-                        slog::warn!(
+                        warn!(
                             logger,
-                            "Attempt to retrieve block {} through iterator",
-                            block_height,
+                            "Attempt to retrieve block {} through iterator", block_height,
                         )
                     });
                     let mut iter = blocks_db.iterator(rocksdb::IteratorMode::End);
@@ -324,11 +323,9 @@ pub fn find_lazy_block_at_block_height(
                 backoff = 2.0 * backoff + (backoff * rng.gen_range(0.0..1.0));
                 let duration = std::time::Duration::from_millis((backoff * 1_000.0) as u64);
                 ctx.try_log(|logger| {
-                    slog::warn!(
+                    warn!(
                         logger,
-                        "Unable to find block {}, will retry in {:?}",
-                        block_height,
-                        duration
+                        "Unable to find block {}, will retry in {:?}", block_height, duration
                     )
                 });
                 std::thread::sleep(duration);
@@ -342,7 +339,7 @@ pub fn find_lazy_block_at_block_height(
 
 pub fn remove_entry_from_blocks(block_height: u32, blocks_db_rw: &DB, ctx: &Context) {
     if let Err(e) = blocks_db_rw.delete(block_height.to_be_bytes()) {
-        ctx.try_log(|logger| slog::error!(logger, "{}", e.to_string()));
+        ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
     }
 }
 
@@ -371,14 +368,44 @@ pub fn insert_entry_in_inscriptions(
         "INSERT INTO inscriptions (inscription_id, ordinal_number, inscription_number, block_height) VALUES (?1, ?2, ?3, ?4)",
         rusqlite::params![&inscription_data.inscription_id, &inscription_data.ordinal_number, &inscription_data.inscription_number, &block_identifier.index],
     ) {
-        ctx.try_log(|logger| slog::error!(logger, "{}", e.to_string()));
+        ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
     }
-    insert_inscription_in_locations(
-        &inscription_data,
-        &block_identifier,
-        &inscriptions_db_conn_rw,
-        ctx,
-    );
+}
+
+pub fn insert_new_inscriptions_from_block_in_inscriptions_and_locations(
+    block: &BitcoinBlockData,
+    inscriptions_db_conn_rw: &Connection,
+    ctx: &Context,
+) {
+    for inscription_data in get_inscriptions_revealed_in_block(&block).iter() {
+        insert_entry_in_inscriptions(
+            inscription_data,
+            &block.block_identifier,
+            inscriptions_db_conn_rw,
+            &ctx,
+        );
+        insert_inscription_in_locations(
+            &inscription_data,
+            &block.block_identifier,
+            &inscriptions_db_conn_rw,
+            ctx,
+        );
+    }
+}
+
+pub fn insert_new_inscriptions_from_block_in_locations(
+    block: &BitcoinBlockData,
+    inscriptions_db_conn_rw: &Connection,
+    ctx: &Context,
+) {
+    for inscription_data in get_inscriptions_revealed_in_block(&block).iter() {
+        insert_inscription_in_locations(
+            inscription_data,
+            &block.block_identifier,
+            inscriptions_db_conn_rw,
+            &ctx,
+        );
+    }
 }
 
 pub fn insert_inscription_in_locations(
@@ -394,7 +421,7 @@ pub fn insert_inscription_in_locations(
         "INSERT INTO locations (inscription_id, outpoint_to_watch, offset, block_height, tx_index) VALUES (?1, ?2, ?3, ?4, ?5)",
         rusqlite::params![&inscription_data.inscription_id, &outpoint_to_watch, offset, &block_identifier.index, &inscription_data.tx_index],
     ) {
-        ctx.try_log(|logger| slog::error!(logger, "{}", e.to_string()));
+        ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
     }
 }
 
@@ -410,7 +437,7 @@ pub fn insert_transfer_in_locations_tx(
         "INSERT INTO locations (inscription_id, outpoint_to_watch, offset, block_height, tx_index) VALUES (?1, ?2, ?3, ?4, ?5)",
         rusqlite::params![&transfer_data.inscription_id, &outpoint_to_watch, offset, &block_identifier.index, &transfer_data.tx_index],
     ) {
-        ctx.try_log(|logger| slog::error!(logger, "{}", e.to_string()));
+        ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
     }
 }
 
@@ -426,24 +453,24 @@ pub fn insert_transfer_in_locations(
         "INSERT INTO locations (inscription_id, outpoint_to_watch, offset, block_height, tx_index) VALUES (?1, ?2, ?3, ?4, ?5)",
         rusqlite::params![&transfer_data.inscription_id, &outpoint_to_watch, offset, &block_identifier.index, &transfer_data.tx_index],
     ) {
-        ctx.try_log(|logger| slog::error!(logger, "{}", e.to_string()));
+        ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
     }
 }
 
 pub fn get_any_entry_in_ordinal_activities(
     block_height: &u64,
-    inscriptions_db_conn: &Connection,
+    inscriptions_db_tx: &Connection,
     _ctx: &Context,
 ) -> bool {
     let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
-    let mut stmt = inscriptions_db_conn
+    let mut stmt = inscriptions_db_tx
         .prepare("SELECT DISTINCT block_height FROM inscriptions WHERE block_height = ?")
         .unwrap();
     let mut rows = stmt.query(args).unwrap();
     while let Ok(Some(_)) = rows.next() {
         return true;
     }
-    let mut stmt = inscriptions_db_conn
+    let mut stmt = inscriptions_db_tx
         .prepare("SELECT DISTINCT block_height FROM locations WHERE block_height = ?")
         .unwrap();
     let mut rows = stmt.query(args).unwrap();
@@ -522,6 +549,22 @@ pub fn find_latest_inscription_transfer_data(
     Ok(None)
 }
 
+pub fn find_latest_transfers_block_height(
+    inscriptions_db_conn: &Connection,
+    _ctx: &Context,
+) -> Option<u64> {
+    let args: &[&dyn ToSql] = &[];
+    let mut stmt = inscriptions_db_conn
+        .prepare("SELECT block_height FROM locations ORDER BY block_height DESC LIMIT 1")
+        .unwrap();
+    let mut rows = stmt.query(args).unwrap();
+    while let Ok(Some(row)) = rows.next() {
+        let block_height: u64 = row.get(0).unwrap();
+        return Some(block_height);
+    }
+    None
+}
+
 #[derive(Debug, Clone)]
 pub struct TransferData {
     pub inscription_offset_intra_output: u64,
@@ -594,18 +637,31 @@ pub fn find_all_inscription_transfers(
 
 pub fn find_latest_inscription_number_at_block_height(
     block_height: &u64,
+    latest_blessed_inscription_heigth: &Option<u64>,
     inscriptions_db_conn: &Connection,
     _ctx: &Context,
 ) -> Result<Option<i64>, String> {
-    let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
+    let (query, params) = match latest_blessed_inscription_heigth {
+        Some(hint) => {
+            (
+                "SELECT inscription_number FROM inscriptions WHERE block_height = ? ORDER BY inscription_number DESC LIMIT 1",
+                [hint.to_sql().unwrap()]
+            )
+        }
+        None => {
+            (
+                "SELECT inscription_number FROM inscriptions WHERE block_height < ? ORDER BY inscription_number DESC LIMIT 1",
+                [block_height.to_sql().unwrap()]
+            )
+        }
+    };
     let mut stmt = inscriptions_db_conn
-        .prepare(
-            "SELECT inscription_number FROM inscriptions WHERE block_height < ? ORDER BY inscription_number DESC LIMIT 1",
-        )
+        .prepare(query)
         .map_err(|e| format!("unable to query inscriptions: {}", e.to_string()))?;
     let mut rows = stmt
-        .query(args)
+        .query(params)
         .map_err(|e| format!("unable to query inscriptions: {}", e.to_string()))?;
+
     while let Ok(Some(row)) = rows.next() {
         let inscription_number: i64 = row.get(0).unwrap();
         return Ok(Some(inscription_number));
@@ -615,18 +671,31 @@ pub fn find_latest_inscription_number_at_block_height(
 
 pub fn find_latest_cursed_inscription_number_at_block_height(
     block_height: &u64,
+    latest_cursed_inscription_heigth: &Option<u64>,
     inscriptions_db_conn: &Connection,
     _ctx: &Context,
 ) -> Result<Option<i64>, String> {
-    let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
+    let (query, params) = match latest_cursed_inscription_heigth {
+        Some(hint) => {
+            (
+                "SELECT inscription_number FROM inscriptions WHERE block_height = ? ORDER BY inscription_number ASC LIMIT 1",
+                [hint.to_sql().unwrap()]
+            )
+        }
+        None => {
+            (
+                "SELECT inscription_number FROM inscriptions WHERE block_height < ? ORDER BY inscription_number ASC LIMIT 1",
+                [block_height.to_sql().unwrap()]
+            )
+        }
+    };
     let mut stmt = inscriptions_db_conn
-        .prepare(
-            "SELECT inscription_number FROM inscriptions WHERE block_height < ? ORDER BY inscription_number ASC LIMIT 1",
-        )
+        .prepare(query)
         .map_err(|e| format!("unable to query inscriptions: {}", e.to_string()))?;
     let mut rows = stmt
-        .query(args)
+        .query(params)
         .map_err(|e| format!("unable to query inscriptions: {}", e.to_string()))?;
+
     while let Ok(Some(row)) = rows.next() {
         let inscription_number: i64 = row.get(0).unwrap();
         return Ok(Some(inscription_number));
@@ -634,14 +703,14 @@ pub fn find_latest_cursed_inscription_number_at_block_height(
     Ok(None)
 }
 
-pub fn find_inscription_with_ordinal_number(
+pub fn find_blessed_inscription_with_ordinal_number(
     ordinal_number: &u64,
     inscriptions_db_conn: &Connection,
     _ctx: &Context,
 ) -> Option<String> {
     let args: &[&dyn ToSql] = &[&ordinal_number.to_sql().unwrap()];
     let mut stmt = inscriptions_db_conn
-        .prepare("SELECT inscription_id FROM inscriptions WHERE ordinal_number = ? AND inscription_number > 0")
+        .prepare("SELECT inscription_id FROM inscriptions WHERE ordinal_number = ? AND inscription_number >= 0")
         .unwrap();
     let mut rows = stmt.query(args).unwrap();
     while let Ok(Some(row)) = rows.next() {
@@ -664,7 +733,7 @@ pub fn find_inscription_with_id(
             Ok(stmt) => break stmt,
             Err(e) => {
                 ctx.try_log(|logger| {
-                    slog::warn!(
+                    warn!(
                         logger,
                         "unable to retrieve inscription with id: {}",
                         e.to_string(),
@@ -702,38 +771,47 @@ pub fn find_inscription_with_id(
 
 pub fn find_all_inscriptions_in_block(
     block_height: &u64,
-    inscriptions_db_conn: &Connection,
+    inscriptions_db_tx: &Connection,
     ctx: &Context,
-) -> Vec<(TransactionIdentifier, TraversalResult)> {
+) -> BTreeMap<(TransactionIdentifier, usize), TraversalResult> {
     let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
-    let mut stmt = inscriptions_db_conn
+    let mut stmt = inscriptions_db_tx
         .prepare("SELECT inscription_number, ordinal_number, inscription_id FROM inscriptions where block_height = ? ORDER BY inscription_number ASC")
         .unwrap();
-    let mut results = vec![];
+    let mut results = BTreeMap::new();
     let mut rows = stmt.query(args).unwrap();
 
-    let transfers_data = find_all_transfers_in_block(block_height, inscriptions_db_conn, ctx);
+    let transfers_data = find_all_transfers_in_block(block_height, inscriptions_db_tx, ctx);
     while let Ok(Some(row)) = rows.next() {
         let inscription_number: i64 = row.get(0).unwrap();
         let ordinal_number: u64 = row.get(1).unwrap();
         let inscription_id: String = row.get(2).unwrap();
         let (transaction_identifier_inscription, inscription_input_index) =
             { parse_inscription_id(&inscription_id) };
-        let transfer_data = transfers_data
+        let Some(transfer_data) = transfers_data
             .get(&inscription_id)
-            .unwrap()
-            .first()
-            .unwrap()
-            .clone();
+            .and_then(|entries| entries.first()) else {
+                ctx.try_log(|logger| {
+                    error!(
+                        logger,
+                        "unable to retrieve inscription genesis transfer data: {}",
+                        inscription_id,
+                    )
+                });
+                continue;
+        };
         let traversal = TraversalResult {
             inscription_number,
             ordinal_number,
             inscription_input_index,
             transfers: 0,
             transaction_identifier_inscription: transaction_identifier_inscription.clone(),
-            transfer_data: transfer_data,
+            transfer_data: transfer_data.clone(),
         };
-        results.push((transaction_identifier_inscription, traversal));
+        results.insert(
+            (transaction_identifier_inscription, inscription_input_index),
+            traversal,
+        );
     }
     return results;
 }
@@ -813,13 +891,13 @@ pub fn delete_inscriptions_in_block_range(
         "DELETE FROM inscriptions WHERE block_height >= ?1 AND block_height <= ?2",
         rusqlite::params![&start_block, &end_block],
     ) {
-        ctx.try_log(|logger| slog::error!(logger, "{}", e.to_string()));
+        ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
     }
     if let Err(e) = inscriptions_db_conn_rw.execute(
         "DELETE FROM locations WHERE block_height >= ?1 AND block_height <= ?2",
         rusqlite::params![&start_block, &end_block],
     ) {
-        ctx.try_log(|logger| slog::error!(logger, "{}", e.to_string()));
+        ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
     }
 }
 
@@ -832,13 +910,13 @@ pub fn remove_entry_from_inscriptions(
         "DELETE FROM inscriptions WHERE inscription_id = ?1",
         rusqlite::params![&inscription_id],
     ) {
-        ctx.try_log(|logger| slog::error!(logger, "{}", e.to_string()));
+        ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
     }
     if let Err(e) = inscriptions_db_rw_conn.execute(
         "DELETE FROM locations WHERE inscription_id = ?1",
         rusqlite::params![&inscription_id],
     ) {
-        ctx.try_log(|logger| slog::error!(logger, "{}", e.to_string()));
+        ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
     }
 }
 
@@ -851,7 +929,7 @@ pub fn remove_entries_from_locations_at_block_height(
         "DELETE FROM locations WHERE block_height = ?1",
         rusqlite::params![&block_height],
     ) {
-        ctx.try_log(|logger| slog::error!(logger, "{}", e.to_string()));
+        ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
     }
 }
 
@@ -870,7 +948,7 @@ pub fn insert_entry_in_locations(
         "INSERT INTO locations (inscription_id, outpoint_to_watch, offset, block_height, tx_index) VALUES (?1, ?2, ?3, ?4, ?5)",
         rusqlite::params![&inscription_id, &outpoint_to_watch, &transfer_data.inscription_offset_intra_output, &block_height, &transfer_data.tx_index],
     ) {
-        ctx.try_log(|logger| slog::error!(logger, "{}", e.to_string()));
+        ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
     }
 }
 
@@ -888,246 +966,6 @@ pub fn delete_data_in_hord_db(
         inscriptions_db_conn_rw,
         &ctx,
     );
-    Ok(())
-}
-
-pub async fn fetch_and_cache_blocks_in_hord_db(
-    bitcoin_config: &BitcoinConfig,
-    blocks_db_rw: &DB,
-    inscriptions_db_conn_rw: &mut Connection,
-    start_block: u64,
-    end_block: u64,
-    hord_config: &HordConfig,
-    block_post_processor: Option<Sender<BitcoinBlockData>>,
-    ctx: &Context,
-) -> Result<(), String> {
-    let ordinal_computing_height = hord_config.first_inscription_height;
-    let number_of_blocks_to_process = end_block - start_block + 1;
-    let (block_hash_req_lim, block_req_lim, block_process_lim) =
-        if start_block >= ordinal_computing_height {
-            (32, 24, 24)
-        } else {
-            (256, 128, 128)
-        };
-    let retrieve_block_hash_pool = ThreadPool::new(hord_config.network_thread_max);
-    let (block_hash_tx, block_hash_rx) = crossbeam_channel::bounded(block_hash_req_lim);
-    let retrieve_block_data_pool = ThreadPool::new(hord_config.network_thread_max);
-    let (block_data_tx, block_data_rx) = crossbeam_channel::bounded(block_req_lim);
-    let compress_block_data_pool = ThreadPool::new(hord_config.ingestion_thread_max);
-    let (block_compressed_tx, block_compressed_rx) = crossbeam_channel::bounded(block_process_lim);
-
-    // Thread pool #1: given a block height, retrieve the block hash
-    let http_client = build_http_client();
-
-    for block_cursor in start_block..=end_block {
-        let block_height = block_cursor.clone();
-        let block_hash_tx = block_hash_tx.clone();
-        let config = bitcoin_config.clone();
-        let moved_ctx = ctx.clone();
-        let moved_http_client = http_client.clone();
-
-        retrieve_block_hash_pool.execute(move || {
-            let future = retrieve_block_hash_with_retry(
-                &moved_http_client,
-                &block_height,
-                &config,
-                &moved_ctx,
-            );
-            let block_hash = hiro_system_kit::nestable_block_on(future).unwrap();
-            block_hash_tx
-                .send(Some((block_height, block_hash)))
-                .expect("unable to channel block_hash");
-        })
-    }
-
-    // Thread pool #2: given a block hash, retrieve the full block (verbosity max, including prevout)
-    let bitcoin_network = bitcoin_config.network.clone();
-    let bitcoin_config = bitcoin_config.clone();
-    let moved_ctx = ctx.clone();
-    let block_data_tx_moved = block_data_tx.clone();
-    let _ = hiro_system_kit::thread_named("Block data retrieval")
-        .spawn(move || {
-            while let Ok(Some((block_height, block_hash))) = block_hash_rx.recv() {
-                let moved_bitcoin_config = bitcoin_config.clone();
-                let block_data_tx = block_data_tx_moved.clone();
-                let moved_ctx = moved_ctx.clone();
-                let moved_http_client = http_client.clone();
-                retrieve_block_data_pool.execute(move || {
-                    moved_ctx
-                        .try_log(|logger| slog::debug!(logger, "Fetching block #{block_height}"));
-                    let future = download_block_with_retry(
-                        &moved_http_client,
-                        &block_hash,
-                        &moved_bitcoin_config,
-                        &moved_ctx,
-                    );
-                    let res = match hiro_system_kit::nestable_block_on(future) {
-                        Ok(block_data) => Some(block_data),
-                        Err(e) => {
-                            moved_ctx.try_log(|logger| {
-                                slog::error!(logger, "unable to fetch block #{block_height}: {e}")
-                            });
-                            None
-                        }
-                    };
-                    let _ = block_data_tx.send(res);
-                });
-                // TODO: remove this join?
-                if block_height >= ordinal_computing_height {
-                    let _ = retrieve_block_data_pool.join();
-                }
-            }
-            let res = retrieve_block_data_pool.join();
-            res
-        })
-        .expect("unable to spawn thread");
-
-    let _ = hiro_system_kit::thread_named("Block data compression")
-        .spawn(move || {
-            while let Ok(Some(block_data)) = block_data_rx.recv() {
-                let block_compressed_tx_moved = block_compressed_tx.clone();
-                let block_height = block_data.height as u64;
-                compress_block_data_pool.execute(move || {
-                    let compressed_block =
-                        LazyBlock::from_full_block(&block_data).expect("unable to serialize block");
-                    let block_index = block_data.height as u32;
-                    let _ = block_compressed_tx_moved.send(Some((
-                        block_index,
-                        compressed_block,
-                        block_data,
-                    )));
-                });
-                if block_height >= ordinal_computing_height {
-                    let _ = compress_block_data_pool.join();
-                }
-            }
-            let res = compress_block_data_pool.join();
-            res
-        })
-        .expect("unable to spawn thread");
-
-    let mut blocks_stored = 0;
-    let mut cursor = start_block as usize;
-    let mut inbox = HashMap::new();
-    let mut num_writes = 0;
-    let traversals_cache = Arc::new(new_traversals_lazy_cache(hord_config.cache_size));
-
-    while let Ok(Some((block_height, compacted_block, raw_block))) = block_compressed_rx.recv() {
-        insert_entry_in_blocks(block_height, &compacted_block, &blocks_db_rw, &ctx);
-        blocks_stored += 1;
-        num_writes += 1;
-
-        // In the context of ordinals, we're constrained to process blocks sequentially
-        // Blocks are processed by a threadpool and could be coming out of order.
-        // Inbox block for later if the current block is not the one we should be
-        // processing.
-
-        // Should we start look for inscriptions data in blocks?
-        if raw_block.height as u64 >= ordinal_computing_height {
-            if cursor == 0 {
-                cursor = raw_block.height;
-            }
-            ctx.try_log(|logger| slog::info!(logger, "Queueing compacted block #{block_height}",));
-            // Is the action of processing a block allows us
-            // to process more blocks present in the inbox?
-            inbox.insert(raw_block.height, raw_block);
-            while let Some(next_block) = inbox.remove(&cursor) {
-                ctx.try_log(|logger| {
-                    slog::info!(
-                        logger,
-                        "Dequeuing block #{cursor} for processing (# blocks inboxed: {})",
-                        inbox.len()
-                    )
-                });
-                let mut new_block = match hord::parse_ordinals_and_standardize_block(
-                    next_block,
-                    &bitcoin_network,
-                    &ctx,
-                ) {
-                    Ok(block) => block,
-                    Err((e, _)) => {
-                        ctx.try_log(|logger| {
-                            slog::error!(logger, "Unable to standardize bitcoin block: {e}",)
-                        });
-                        return Err(e);
-                    }
-                };
-
-                let _ = blocks_db_rw.flush();
-                if let Err(e) = update_hord_db_and_augment_bitcoin_block(
-                    &mut new_block,
-                    blocks_db_rw,
-                    inscriptions_db_conn_rw,
-                    false,
-                    &hord_config,
-                    &traversals_cache,
-                    &ctx,
-                ) {
-                    ctx.try_log(|logger| {
-                        slog::error!(
-                            logger,
-                            "Unable to augment bitcoin block {} with hord_db: {e}",
-                            new_block.block_identifier.index
-                        )
-                    });
-                    return Err(e);
-                }
-
-                if let Some(ref tx) = block_post_processor {
-                    let _ = tx.send(new_block);
-                }
-                cursor += 1;
-            }
-        } else {
-            ctx.try_log(|logger| slog::info!(logger, "Storing compacted block #{block_height}",));
-        }
-
-        if blocks_stored == number_of_blocks_to_process {
-            let _ = block_data_tx.send(None);
-            let _ = block_hash_tx.send(None);
-            ctx.try_log(|logger| {
-                slog::info!(
-                    logger,
-                    "Local ordinals storage successfully seeded with #{blocks_stored} blocks"
-                )
-            });
-            return Ok(());
-        }
-
-        if !traversals_cache.is_empty() {
-            if num_writes % 24 == 0 {
-                ctx.try_log(|logger| {
-                    slog::info!(
-                        logger,
-                        "Flushing traversals cache (#{} entries)",
-                        traversals_cache.len()
-                    );
-                });
-                traversals_cache.clear();
-            }
-        }
-
-        if num_writes % 128 == 0 {
-            ctx.try_log(|logger| {
-                slog::info!(logger, "Flushing DB to disk ({num_writes} inserts)");
-            });
-            if let Err(e) = blocks_db_rw.flush() {
-                ctx.try_log(|logger| {
-                    slog::error!(logger, "{}", e.to_string());
-                });
-            }
-            num_writes = 0;
-        }
-    }
-
-    if let Err(e) = blocks_db_rw.flush() {
-        ctx.try_log(|logger| {
-            slog::error!(logger, "{}", e.to_string());
-        });
-    }
-
-    retrieve_block_hash_pool.join();
-
     Ok(())
 }
 
@@ -1205,298 +1043,6 @@ pub fn parse_outpoint_to_watch(outpoint_to_watch: &str) -> (TransactionIdentifie
     let tx = TransactionIdentifier::new(&comps[0]);
     let output_index = comps[1].to_string().parse::<usize>().unwrap();
     (tx, output_index)
-}
-
-pub fn retrieve_satoshi_point_using_lazy_storage(
-    blocks_db_dir: &PathBuf,
-    block_identifier: &BlockIdentifier,
-    transaction_identifier: &TransactionIdentifier,
-    inscription_input_index: usize,
-    inscription_number: i64,
-    traversals_cache: Arc<
-        DashMap<(u32, [u8; 8]), LazyBlockTransaction, BuildHasherDefault<FxHasher>>,
-    >,
-    ctx: &Context,
-) -> Result<TraversalResult, String> {
-    let mut inscription_offset_intra_output = 0;
-    let mut inscription_output_index: usize = 0;
-    let mut ordinal_offset = 0;
-    let mut ordinal_block_number = block_identifier.index as u32;
-    let txid = transaction_identifier.get_8_hash_bytes();
-
-    let mut blocks_db = open_readonly_hord_db_conn_rocks_db_loop(&blocks_db_dir, &ctx);
-
-    let (sats_ranges, inscription_offset_cross_outputs) = match traversals_cache
-        .get(&(block_identifier.index as u32, txid.clone()))
-    {
-        Some(entry) => {
-            let tx = entry.value();
-            (
-                tx.get_sat_ranges(),
-                tx.get_cumulated_sats_in_until_input_index(inscription_input_index),
-            )
-        }
-        None => {
-            let mut attempt = 0;
-            loop {
-                match find_lazy_block_at_block_height(
-                    ordinal_block_number,
-                    3,
-                    false,
-                    &blocks_db,
-                    &ctx,
-                ) {
-                    None => {
-                        if attempt < 3 {
-                            attempt += 1;
-                            blocks_db =
-                                open_readonly_hord_db_conn_rocks_db_loop(&blocks_db_dir, &ctx);
-                        } else {
-                            return Err(format!("block #{ordinal_block_number} not in database"));
-                        }
-                    }
-                    Some(block) => match block.find_and_serialize_transaction_with_txid(&txid) {
-                        Some(tx) => {
-                            let sats_ranges = tx.get_sat_ranges();
-                            let inscription_offset_cross_outputs =
-                                tx.get_cumulated_sats_in_until_input_index(inscription_input_index);
-                            traversals_cache.insert((ordinal_block_number, txid.clone()), tx);
-                            break (sats_ranges, inscription_offset_cross_outputs);
-                        }
-                        None => return Err(format!("txid not in block #{ordinal_block_number}")),
-                    },
-                }
-            }
-        }
-    };
-
-    for (i, (min, max)) in sats_ranges.into_iter().enumerate() {
-        if inscription_offset_cross_outputs >= min && inscription_offset_cross_outputs < max {
-            inscription_output_index = i;
-            inscription_offset_intra_output = inscription_offset_cross_outputs - min;
-        }
-    }
-    ctx.try_log(|logger| {
-        slog::info!(
-            logger,
-            "Computing ordinal number for Satoshi point {} ({}:0 -> {}:{}/{})  (block #{})",
-            transaction_identifier.hash,
-            inscription_input_index,
-            inscription_output_index,
-            inscription_offset_intra_output,
-            inscription_offset_cross_outputs,
-            block_identifier.index
-        )
-    });
-
-    let mut tx_cursor: ([u8; 8], usize) = (txid, inscription_input_index);
-    let mut hops: u32 = 0;
-
-    loop {
-        hops += 1;
-        if hops as u64 > block_identifier.index {
-            return Err(format!(
-                "Unable to process transaction {} detected after {hops} iterations. Manual investigation required",
-                transaction_identifier.hash
-            ));
-        }
-
-        if let Some(cached_tx) = traversals_cache.get(&(ordinal_block_number, tx_cursor.0)) {
-            let tx = cached_tx.value();
-
-            let mut next_found_in_cache = false;
-            let mut sats_out = 0;
-            for (index, output_value) in tx.outputs.iter().enumerate() {
-                if index == tx_cursor.1 {
-                    break;
-                }
-                sats_out += output_value;
-            }
-            sats_out += ordinal_offset;
-
-            let mut sats_in = 0;
-            for input in tx.inputs.iter() {
-                sats_in += input.txin_value;
-
-                if sats_out < sats_in {
-                    ordinal_offset = sats_out - (sats_in - input.txin_value);
-                    ordinal_block_number = input.block_height;
-                    tx_cursor = (input.txin.clone(), input.vout as usize);
-                    next_found_in_cache = true;
-                    break;
-                }
-            }
-
-            if next_found_in_cache {
-                continue;
-            }
-
-            if sats_in == 0 {
-                ctx.try_log(|logger| {
-                    slog::error!(
-                        logger,
-                        "Transaction {} is originating from a non spending transaction",
-                        transaction_identifier.hash
-                    )
-                });
-                return Ok(TraversalResult {
-                    inscription_number: 0,
-                    ordinal_number: 0,
-                    transfers: 0,
-                    inscription_input_index,
-                    transaction_identifier_inscription: transaction_identifier.clone(),
-                    transfer_data: TransferData {
-                        inscription_offset_intra_output,
-                        transaction_identifier_location: transaction_identifier.clone(),
-                        output_index: inscription_output_index,
-                        tx_index: 0,
-                    },
-                });
-            }
-        }
-
-        let lazy_block = {
-            let mut attempt = 0;
-            loop {
-                match find_lazy_block_at_block_height(
-                    ordinal_block_number,
-                    3,
-                    false,
-                    &blocks_db,
-                    &ctx,
-                ) {
-                    Some(block) => break block,
-                    None => {
-                        if attempt < 3 {
-                            attempt += 1;
-                            blocks_db =
-                                open_readonly_hord_db_conn_rocks_db_loop(&blocks_db_dir, &ctx);
-                        } else {
-                            return Err(format!("block #{ordinal_block_number} not in database"));
-                        }
-                    }
-                }
-            }
-        };
-
-        let coinbase_txid = lazy_block.get_coinbase_txid();
-        let txid = tx_cursor.0;
-
-        // evaluate exit condition: did we reach the **final** coinbase transaction
-        if coinbase_txid.eq(&txid) {
-            let subsidy = Height(ordinal_block_number.into()).subsidy();
-            if ordinal_offset < subsidy {
-                // Great!
-                break;
-            }
-
-            // loop over the transaction fees to detect the right range
-            let mut accumulated_fees = subsidy;
-
-            for tx in lazy_block.iter_tx() {
-                let mut total_in = 0;
-                for input in tx.inputs.iter() {
-                    total_in += input.txin_value;
-                }
-
-                let mut total_out = 0;
-                for output_value in tx.outputs.iter() {
-                    total_out += output_value;
-                }
-
-                let fee = total_in - total_out;
-                if accumulated_fees + fee > ordinal_offset {
-                    // We are looking at the right transaction
-                    // Retraverse the inputs to select the index to be picked
-                    let offset_within_fee = ordinal_offset - accumulated_fees;
-                    total_out += offset_within_fee;
-                    let mut sats_in = 0;
-
-                    for input in tx.inputs.into_iter() {
-                        sats_in += input.txin_value;
-
-                        if sats_in > total_out {
-                            ordinal_offset = total_out - (sats_in - input.txin_value);
-                            ordinal_block_number = input.block_height;
-                            tx_cursor = (input.txin.clone(), input.vout as usize);
-                            break;
-                        }
-                    }
-                    break;
-                } else {
-                    accumulated_fees += fee;
-                }
-            }
-        } else {
-            // isolate the target transaction
-            let lazy_tx = match lazy_block.find_and_serialize_transaction_with_txid(&txid) {
-                Some(entry) => entry,
-                None => unreachable!(),
-            };
-
-            let mut sats_out = 0;
-            for (index, output_value) in lazy_tx.outputs.iter().enumerate() {
-                if index == tx_cursor.1 {
-                    break;
-                }
-                sats_out += output_value;
-            }
-            sats_out += ordinal_offset;
-
-            let mut sats_in = 0;
-            for input in lazy_tx.inputs.iter() {
-                sats_in += input.txin_value;
-
-                if sats_out < sats_in {
-                    traversals_cache.insert((ordinal_block_number, tx_cursor.0), lazy_tx.clone());
-                    ordinal_offset = sats_out - (sats_in - input.txin_value);
-                    ordinal_block_number = input.block_height;
-                    tx_cursor = (input.txin.clone(), input.vout as usize);
-                    break;
-                }
-            }
-
-            if sats_in == 0 {
-                ctx.try_log(|logger| {
-                    slog::error!(
-                        logger,
-                        "Transaction {} is originating from a non spending transaction",
-                        transaction_identifier.hash
-                    )
-                });
-                return Ok(TraversalResult {
-                    inscription_number: 0,
-                    ordinal_number: 0,
-                    transfers: 0,
-                    inscription_input_index,
-                    transaction_identifier_inscription: transaction_identifier.clone(),
-                    transfer_data: TransferData {
-                        inscription_offset_intra_output,
-                        transaction_identifier_location: transaction_identifier.clone(),
-                        output_index: inscription_output_index,
-                        tx_index: 0,
-                    },
-                });
-            }
-        }
-    }
-
-    let height = Height(ordinal_block_number.into());
-    let ordinal_number = height.starting_sat().0 + ordinal_offset + inscription_offset_intra_output;
-
-    Ok(TraversalResult {
-        inscription_number,
-        ordinal_number,
-        transfers: hops,
-        inscription_input_index,
-        transaction_identifier_inscription: transaction_identifier.clone(),
-        transfer_data: TransferData {
-            inscription_offset_intra_output,
-            transaction_identifier_location: transaction_identifier.clone(),
-            output_index: inscription_output_index,
-            tx_index: 0,
-        },
-    })
 }
 
 #[derive(Debug)]
@@ -1727,7 +1273,7 @@ impl LazyBlock {
             for input in tx.vin.iter() {
                 // txin - 8 first bytes
                 let txin = {
-                    let txid = hex::decode(input.txid.unwrap().to_string()).unwrap();
+                    let txid = hex::decode(input.txid.as_ref().unwrap().to_string()).unwrap();
                     [
                         txid[0], txid[1], txid[2], txid[3], txid[4], txid[5], txid[6], txid[7],
                     ]
@@ -1776,7 +1322,7 @@ impl LazyBlock {
         for coinbase_output in block.transactions[0].metadata.outputs.iter() {
             coinbase_value += coinbase_output.value;
         }
-        buffer.write(&coinbase_value.to_be_bytes())?;
+        buffer.write_all(&coinbase_value.to_be_bytes())?;
         // For each transaction:
         for tx in block.transactions.iter().skip(1) {
             // txid - 8 first bytes
@@ -1846,180 +1392,4 @@ impl<'a> Iterator for LazyBlockTransactionIterator<'a> {
             outputs_len,
         ))
     }
-}
-
-pub async fn rebuild_rocks_db(
-    bitcoin_config: &BitcoinConfig,
-    blocks_db_rw: &DB,
-    start_block: u64,
-    end_block: u64,
-    hord_config: &HordConfig,
-    ctx: &Context,
-) -> Result<(), String> {
-    // let guard = pprof::ProfilerGuardBuilder::default()
-    //     .frequency(20)
-    //     .blocklist(&["libc", "libgcc", "pthread", "vdso"])
-    //     .build()
-    //     .unwrap();
-
-    ctx.try_log(|logger| {
-        slog::info!(logger, "Generating report");
-    });
-
-    let number_of_blocks_to_process = end_block - start_block + 1;
-    let (block_hash_req_lim, block_req_lim, block_process_lim) = (256, 128, 128);
-
-    let retrieve_block_hash_pool = ThreadPool::new(hord_config.network_thread_max);
-    let (block_hash_tx, block_hash_rx) = crossbeam_channel::bounded(block_hash_req_lim);
-    let retrieve_block_data_pool = ThreadPool::new(hord_config.network_thread_max);
-    let (block_data_tx, block_data_rx) = crossbeam_channel::bounded(block_req_lim);
-    let compress_block_data_pool = ThreadPool::new(hord_config.ingestion_thread_max);
-    let (block_compressed_tx, block_compressed_rx) = crossbeam_channel::bounded(block_process_lim);
-    let http_client = build_http_client();
-
-    // Thread pool #1: given a block height, retrieve the block hash
-    for block_cursor in start_block..=end_block {
-        let block_height = block_cursor.clone();
-        let block_hash_tx = block_hash_tx.clone();
-        let config = bitcoin_config.clone();
-        let moved_ctx = ctx.clone();
-        let moved_http_client = http_client.clone();
-
-        retrieve_block_hash_pool.execute(move || {
-            let future = retrieve_block_hash_with_retry(
-                &moved_http_client,
-                &block_height,
-                &config,
-                &moved_ctx,
-            );
-            let block_hash = hiro_system_kit::nestable_block_on(future).unwrap();
-            block_hash_tx
-                .send(Some((block_height, block_hash)))
-                .expect("unable to channel block_hash");
-        })
-    }
-
-    // Thread pool #2: given a block hash, retrieve the full block (verbosity max, including prevout)
-    let bitcoin_config = bitcoin_config.clone();
-    let moved_ctx = ctx.clone();
-    let block_data_tx_moved = block_data_tx.clone();
-    let _ = hiro_system_kit::thread_named("Block data retrieval")
-        .spawn(move || {
-            while let Ok(Some((block_height, block_hash))) = block_hash_rx.recv() {
-                let moved_bitcoin_config = bitcoin_config.clone();
-                let block_data_tx = block_data_tx_moved.clone();
-                let moved_ctx = moved_ctx.clone();
-                let moved_http_client = http_client.clone();
-                retrieve_block_data_pool.execute(move || {
-                    moved_ctx
-                        .try_log(|logger| slog::debug!(logger, "Fetching block #{block_height}"));
-                    let future = download_block_with_retry(
-                        &moved_http_client,
-                        &block_hash,
-                        &moved_bitcoin_config,
-                        &moved_ctx,
-                    );
-                    let res = match hiro_system_kit::nestable_block_on(future) {
-                        Ok(block_data) => Some(block_data),
-                        Err(e) => {
-                            moved_ctx.try_log(|logger| {
-                                slog::error!(logger, "unable to fetch block #{block_height}: {e}")
-                            });
-                            None
-                        }
-                    };
-                    let _ = block_data_tx.send(res);
-                });
-            }
-            let res = retrieve_block_data_pool.join();
-            res
-        })
-        .expect("unable to spawn thread");
-
-    let _ = hiro_system_kit::thread_named("Block data compression")
-        .spawn(move || {
-            while let Ok(Some(block_data)) = block_data_rx.recv() {
-                let block_compressed_tx_moved = block_compressed_tx.clone();
-                compress_block_data_pool.execute(move || {
-                    let compressed_block =
-                        LazyBlock::from_full_block(&block_data).expect("unable to serialize block");
-                    let block_index = block_data.height as u32;
-                    let _ = block_compressed_tx_moved.send(Some((
-                        block_index,
-                        compressed_block,
-                        block_data,
-                    )));
-                });
-            }
-            let res = compress_block_data_pool.join();
-            res
-        })
-        .expect("unable to spawn thread");
-
-    let mut blocks_stored = 0;
-    let mut num_writes = 0;
-
-    while let Ok(Some((block_height, compacted_block, _raw_block))) = block_compressed_rx.recv() {
-        insert_entry_in_blocks(block_height, &compacted_block, &blocks_db_rw, &ctx);
-        blocks_stored += 1;
-        num_writes += 1;
-
-        // In the context of ordinals, we're constrained to process blocks sequentially
-        // Blocks are processed by a threadpool and could be coming out of order.
-        // Inbox block for later if the current block is not the one we should be
-        // processing.
-
-        // Should we start look for inscriptions data in blocks?
-        ctx.try_log(|logger| slog::info!(logger, "Storing compacted block #{block_height}",));
-
-        if blocks_stored == number_of_blocks_to_process {
-            let _ = block_data_tx.send(None);
-            let _ = block_hash_tx.send(None);
-            ctx.try_log(|logger| {
-                slog::info!(
-                    logger,
-                    "Local block storage successfully seeded with #{blocks_stored} blocks"
-                )
-            });
-
-            // match guard.report().build() {
-            //     Ok(report) => {
-            //         ctx.try_log(|logger| {
-            //             slog::info!(logger, "Generating report");
-            //         });
-
-            //         let file = File::create("hord-perf.svg").unwrap();
-            //         report.flamegraph(file).unwrap();
-            //     }
-            //     Err(e) => {
-            //         ctx.try_log(|logger| {
-            //             slog::error!(logger, "Reporting failed: {}", e.to_string());
-            //         });
-            //     }
-            // }
-            return Ok(());
-        }
-
-        if num_writes % 128 == 0 {
-            ctx.try_log(|logger| {
-                slog::info!(logger, "Flushing DB to disk ({num_writes} inserts)");
-            });
-            if let Err(e) = blocks_db_rw.flush() {
-                ctx.try_log(|logger| {
-                    slog::error!(logger, "{}", e.to_string());
-                });
-            }
-            num_writes = 0;
-        }
-    }
-
-    if let Err(e) = blocks_db_rw.flush() {
-        ctx.try_log(|logger| {
-            slog::error!(logger, "{}", e.to_string());
-        });
-    }
-
-    retrieve_block_hash_pool.join();
-
-    Ok(())
 }

@@ -1,7 +1,7 @@
 pub mod file;
 pub mod generator;
 
-use crate::hord::HordConfig;
+use crate::core::HordConfig;
 pub use chainhook_sdk::indexer::IndexerConfig;
 use chainhook_sdk::observer::EventObserverConfig;
 use chainhook_sdk::types::{
@@ -30,6 +30,13 @@ pub struct Config {
     pub event_sources: Vec<EventSourceConfig>,
     pub limits: LimitsConfig,
     pub network: IndexerConfig,
+    pub logs: LogConfig,
+}
+
+#[derive(Clone, Debug)]
+pub struct LogConfig {
+    pub ordinals_internals: bool,
+    pub chainhook_internals: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -73,7 +80,7 @@ pub struct LimitsConfig {
     pub max_number_of_stacks_predicates: usize,
     pub max_number_of_concurrent_stacks_scans: usize,
     pub max_number_of_processing_threads: usize,
-    pub max_number_of_networking_threads: usize,
+    pub bitcoin_concurrent_http_requests_max: usize,
     pub max_caching_memory_size_mb: usize,
 }
 
@@ -105,8 +112,9 @@ impl Config {
 
     pub fn get_hord_config(&self) -> HordConfig {
         HordConfig {
-            network_thread_max: self.limits.max_number_of_networking_threads,
+            network_thread_max: self.limits.bitcoin_concurrent_http_requests_max,
             ingestion_thread_max: self.limits.max_number_of_processing_threads,
+            ingestion_thread_queue_size: 4,
             cache_size: self.limits.max_caching_memory_size_mb,
             db_path: self.expected_cache_path(),
             first_inscription_height: match self.network.bitcoin_network {
@@ -115,6 +123,7 @@ impl Config {
                 BitcoinNetwork::Testnet => 2413343,
                 // BitcoinNetwork::Signet => 112402,
             },
+            logs: self.logs.clone(),
         }
     }
 
@@ -198,9 +207,9 @@ impl Config {
                     .limits
                     .max_number_of_processing_threads
                     .unwrap_or(1.max(num_cpus::get().saturating_sub(1))),
-                max_number_of_networking_threads: config_file
+                bitcoin_concurrent_http_requests_max: config_file
                     .limits
-                    .max_number_of_networking_threads
+                    .bitcoin_concurrent_http_requests_max
                     .unwrap_or(1.max(num_cpus::get().saturating_sub(1))),
                 max_caching_memory_size_mb: config_file
                     .limits
@@ -222,6 +231,18 @@ impl Config {
                 },
                 stacks_network,
                 bitcoin_network,
+            },
+            logs: LogConfig {
+                ordinals_internals: config_file
+                    .logs
+                    .as_ref()
+                    .and_then(|l| l.ordinals_internals)
+                    .unwrap_or(true),
+                chainhook_internals: config_file
+                    .logs
+                    .as_ref()
+                    .and_then(|l| l.chainhook_internals)
+                    .unwrap_or(true),
             },
         };
         Ok(config)
@@ -337,7 +358,7 @@ impl Config {
                 max_number_of_stacks_predicates: STACKS_MAX_PREDICATE_REGISTRATION,
                 max_number_of_concurrent_stacks_scans: STACKS_SCAN_THREAD_POOL_SIZE,
                 max_number_of_processing_threads: 1.max(num_cpus::get().saturating_sub(1)),
-                max_number_of_networking_threads: 1.max(num_cpus::get().saturating_sub(1)),
+                bitcoin_concurrent_http_requests_max: 1.max(num_cpus::get().saturating_sub(1)),
                 max_caching_memory_size_mb: 2048,
             },
             network: IndexerConfig {
@@ -349,6 +370,10 @@ impl Config {
                 ),
                 stacks_network: StacksNetwork::Devnet,
                 bitcoin_network: BitcoinNetwork::Regtest,
+            },
+            logs: LogConfig {
+                ordinals_internals: true,
+                chainhook_internals: false,
             },
         }
     }
@@ -366,7 +391,7 @@ impl Config {
                 max_number_of_stacks_predicates: STACKS_MAX_PREDICATE_REGISTRATION,
                 max_number_of_concurrent_stacks_scans: STACKS_SCAN_THREAD_POOL_SIZE,
                 max_number_of_processing_threads: 1.max(num_cpus::get().saturating_sub(1)),
-                max_number_of_networking_threads: 1.max(num_cpus::get().saturating_sub(1)),
+                bitcoin_concurrent_http_requests_max: 1.max(num_cpus::get().saturating_sub(1)),
                 max_caching_memory_size_mb: 2048,
             },
             network: IndexerConfig {
@@ -378,6 +403,10 @@ impl Config {
                 ),
                 stacks_network: StacksNetwork::Testnet,
                 bitcoin_network: BitcoinNetwork::Testnet,
+            },
+            logs: LogConfig {
+                ordinals_internals: true,
+                chainhook_internals: false,
             },
         }
     }
@@ -397,7 +426,7 @@ impl Config {
                 max_number_of_stacks_predicates: STACKS_MAX_PREDICATE_REGISTRATION,
                 max_number_of_concurrent_stacks_scans: STACKS_SCAN_THREAD_POOL_SIZE,
                 max_number_of_processing_threads: 1.max(num_cpus::get().saturating_sub(1)),
-                max_number_of_networking_threads: 1.max(num_cpus::get().saturating_sub(1)),
+                bitcoin_concurrent_http_requests_max: 1.max(num_cpus::get().saturating_sub(1)),
                 max_caching_memory_size_mb: 2048,
             },
             network: IndexerConfig {
@@ -409,6 +438,10 @@ impl Config {
                 ),
                 stacks_network: StacksNetwork::Mainnet,
                 bitcoin_network: BitcoinNetwork::Mainnet,
+            },
+            logs: LogConfig {
+                ordinals_internals: true,
+                chainhook_internals: false,
             },
         }
     }

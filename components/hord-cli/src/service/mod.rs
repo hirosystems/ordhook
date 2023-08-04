@@ -1,41 +1,37 @@
 mod http_api;
 mod runloops;
 
-use crate::cli::fetch_and_standardize_block;
 use crate::config::{Config, PredicatesApi, PredicatesApiConfig};
-use crate::db::{
-    find_all_inscriptions_in_block, format_satpoint_to_watch, insert_entry_in_locations,
-    open_readwrite_hord_db_conn, open_readwrite_hord_dbs, parse_satpoint_to_watch,
-    remove_entries_from_locations_at_block_height,
-};
-use crate::hord::{
+use crate::core::pipeline::processors::inscription_indexing::process_blocks;
+use crate::core::pipeline::processors::start_inscription_indexing_processor;
+use crate::core::pipeline::processors::transfers_recomputing::start_transfers_recomputing_processor;
+use crate::core::pipeline::{download_and_pipeline_blocks, PostProcessorCommand};
+use crate::core::protocol::inscription_parsing::parse_inscriptions_in_standardized_block;
+use crate::core::protocol::inscription_sequencing::SequenceCursor;
+use crate::core::{
     new_traversals_lazy_cache, revert_hord_db_with_augmented_bitcoin_block, should_sync_hord_db,
-    update_hord_db_and_augment_bitcoin_block,
-    update_storage_and_augment_bitcoin_block_with_inscription_transfer_data_tx,
+};
+use crate::db::{
+    insert_entry_in_blocks, open_readonly_hord_db_conn, open_readwrite_hord_dbs, LazyBlock,
 };
 use crate::scan::bitcoin::process_block_with_predicates;
 use crate::service::http_api::{load_predicates_from_redis, start_predicate_api_server};
 use crate::service::runloops::start_bitcoin_scan_runloop;
 
-use chainhook_sdk::bitcoincore_rpc_json::bitcoin::hashes::hex::FromHex;
-use chainhook_sdk::bitcoincore_rpc_json::bitcoin::{Address, Network, Script};
 use chainhook_sdk::chainhooks::types::{
     BitcoinChainhookSpecification, ChainhookConfig, ChainhookFullSpecification,
     ChainhookSpecification,
 };
 
-use chainhook_sdk::indexer::bitcoin::build_http_client;
-use chainhook_sdk::observer::{start_event_observer, BitcoinConfig, ObserverEvent};
-use chainhook_sdk::types::{
-    BitcoinBlockData, BitcoinChainEvent, BitcoinNetwork, OrdinalInscriptionTransferData,
-    OrdinalOperation,
+use chainhook_sdk::observer::{
+    start_event_observer, EventObserverConfig, HandleBlock, ObserverEvent,
 };
+use chainhook_sdk::types::BitcoinBlockData;
 use chainhook_sdk::utils::Context;
-use hiro_system_kit::slog;
+use crossbeam_channel::unbounded;
 use redis::{Commands, Connection};
 
-use std::collections::BTreeMap;
-use std::sync::mpsc::channel;
+use std::sync::mpsc::{channel, Sender};
 use std::sync::Arc;
 
 pub struct Service {
@@ -49,78 +45,38 @@ impl Service {
     }
 
     pub async fn run(&mut self, predicates: Vec<ChainhookFullSpecification>) -> Result<(), String> {
-        let mut chainhook_config = ChainhookConfig::new();
-
-        // If no predicates passed at launch, retrieve predicates from Redis
-        if predicates.is_empty() && self.config.is_http_api_enabled() {
-            let registered_predicates = match load_predicates_from_redis(&self.config, &self.ctx) {
-                Ok(predicates) => predicates,
-                Err(e) => {
-                    error!(
-                        self.ctx.expect_logger(),
-                        "Failed loading predicate from storage: {}",
-                        e.to_string()
-                    );
-                    vec![]
-                }
-            };
-            for (predicate, _status) in registered_predicates.into_iter() {
-                let predicate_uuid = predicate.uuid().to_string();
-                match chainhook_config.register_specification(predicate) {
-                    Ok(_) => {
-                        info!(
-                            self.ctx.expect_logger(),
-                            "Predicate {} retrieved from storage and loaded", predicate_uuid,
-                        );
-                    }
-                    Err(e) => {
-                        error!(
-                            self.ctx.expect_logger(),
-                            "Failed loading predicate from storage: {}",
-                            e.to_string()
-                        );
-                    }
-                }
-            }
-        }
-
-        // For each predicate found, register in memory.
-        for predicate in predicates.into_iter() {
-            match chainhook_config.register_full_specification(
-                (
-                    &self.config.network.bitcoin_network,
-                    &self.config.network.stacks_network,
-                ),
-                predicate,
-            ) {
-                Ok(spec) => {
-                    info!(
-                        self.ctx.expect_logger(),
-                        "Predicate {} retrieved from config and loaded",
-                        spec.uuid(),
-                    );
-                }
-                Err(e) => {
-                    error!(
-                        self.ctx.expect_logger(),
-                        "Failed loading predicate from config: {}",
-                        e.to_string()
-                    );
-                }
-            }
-        }
-
-        let (observer_command_tx, observer_command_rx) = channel();
-        let (observer_event_tx, observer_event_rx) = crossbeam_channel::unbounded();
-        // let (ordinal_indexer_command_tx, ordinal_indexer_command_rx) = channel();
-
         let mut event_observer_config = self.config.get_event_observer_config();
+        let chainhook_config = create_and_consolidate_chainhook_config_with_predicates(
+            predicates,
+            &self.config,
+            &self.ctx,
+        );
         event_observer_config.chainhook_config = Some(chainhook_config);
 
         let hord_config = self.config.get_hord_config();
 
-        let (tx, rx) = channel();
+        // Sleep
+        // std::thread::sleep(std::time::Duration::from_secs(1200));
 
+        // Force rebuild
+        // {
+        //     let blocks_db = open_readwrite_hord_db_conn_rocks_db(
+        //         &self.config.expected_cache_path(),
+        //         &self.ctx,
+        //     )?;
+        //     let inscriptions_db_conn_rw =
+        //         open_readwrite_hord_db_conn(&self.config.expected_cache_path(), &self.ctx)?;
+
+        //     delete_data_in_hord_db(
+        //         767430,
+        //         800000,
+        //         &blocks_db,
+        //         &inscriptions_db_conn_rw,
+        //         &self.ctx,
+        //     )?;
+        // }
+
+        let (tx_replayer, rx_replayer) = unbounded();
         let mut moved_event_observer_config = event_observer_config.clone();
         let moved_ctx = self.ctx.clone();
 
@@ -131,10 +87,9 @@ impl Service {
                 {
                     let mut bitcoin_predicates_ref: Vec<&BitcoinChainhookSpecification> = vec![];
                     for bitcoin_predicate in chainhook_config.bitcoin_chainhooks.iter_mut() {
-                        bitcoin_predicate.enabled = false;
                         bitcoin_predicates_ref.push(bitcoin_predicate);
                     }
-                    while let Ok(block) = rx.recv() {
+                    while let Ok(block) = rx_replayer.recv() {
                         let future = process_block_with_predicates(
                             block,
                             &bitcoin_predicates_ref,
@@ -150,33 +105,27 @@ impl Service {
             })
             .expect("unable to spawn thread");
 
-        while let Some((start_block, end_block)) = should_sync_hord_db(&self.config, &self.ctx)? {
-            if start_block == 0 {
-                info!(
-                    self.ctx.expect_logger(),
-                    "Initializing hord indexing from block #{}", start_block
-                );
-            } else {
-                info!(
-                    self.ctx.expect_logger(),
-                    "Resuming hord indexing from block #{}", start_block
-                );
-            }
+        // let (cursor, tip) = {
+        //     let inscriptions_db_conn =
+        //         open_readonly_hord_db_conn(&self.config.expected_cache_path(), &self.ctx)?;
+        //     let cursor = find_latest_transfers_block_height(&inscriptions_db_conn, &self.ctx).unwrap_or(1);
+        //     match find_latest_inscription_block_height(&inscriptions_db_conn, &self.ctx)? {
+        //         Some(height) => (cursor, height),
+        //         None => panic!(),
+        //     }
+        // };
+        // self.replay_transfers(cursor, tip, Some(tx_replayer.clone()))
+        //     .await?;
 
-            crate::hord::perform_hord_db_update(
-                start_block,
-                end_block,
-                &self.config.get_hord_config(),
-                &self.config,
-                Some(tx.clone()),
-                &self.ctx,
-            )
-            .await?;
-        }
+        self.update_state(Some(tx_replayer.clone())).await?;
 
-        let traversals_cache = Arc::new(new_traversals_lazy_cache(hord_config.cache_size));
+        // Catch-up with chain tip
 
         // Bitcoin scan operation threadpool
+        let (observer_command_tx, observer_command_rx) = channel();
+        let (block_processor_in_tx, block_processor_in_rx) = channel();
+        let (block_processor_out_tx, block_processor_out_rx) = channel();
+
         let (bitcoin_scan_op_tx, bitcoin_scan_op_rx) = crossbeam_channel::unbounded();
         let ctx = self.ctx.clone();
         let config = self.config.clone();
@@ -208,13 +157,127 @@ impl Service {
             });
         }
 
+        let (observer_event_tx, observer_event_rx) = crossbeam_channel::unbounded();
+        let traversals_cache = Arc::new(new_traversals_lazy_cache(hord_config.cache_size));
+
+        let inner_ctx = if hord_config.logs.chainhook_internals {
+            self.ctx.clone()
+        } else {
+            Context::empty()
+        };
+
+        info!(
+            self.ctx.expect_logger(),
+            "Database up to date, service will start streaming blocks"
+        );
+
         let _ = start_event_observer(
             event_observer_config.clone(),
             observer_command_tx,
             observer_command_rx,
             Some(observer_event_tx),
-            self.ctx.clone(),
+            Some((block_processor_in_tx, block_processor_out_rx)),
+            inner_ctx,
         );
+
+        let ctx = self.ctx.clone();
+        let config = self.config.clone();
+        let moved_traversals_cache = traversals_cache.clone();
+        let _ = hiro_system_kit::thread_named("Block pre-processor").spawn(move || loop {
+            let command = match block_processor_in_rx.recv() {
+                Ok(cmd) => cmd,
+                Err(e) => {
+                    error!(
+                        ctx.expect_logger(),
+                        "Error: broken channel {}",
+                        e.to_string()
+                    );
+                    break;
+                }
+            };
+
+            let (blocks_db_rw, mut inscriptions_db_conn_rw) =
+                match open_readwrite_hord_dbs(&config.expected_cache_path(), &ctx) {
+                    Ok(dbs) => dbs,
+                    Err(e) => {
+                        ctx.try_log(|logger| {
+                            error!(logger, "Unable to open readwtite connection: {e}",)
+                        });
+                        continue;
+                    }
+                };
+
+            match command {
+                HandleBlock::UndoBlocks(mut blocks) => {
+                    for block in blocks.iter_mut() {
+                        // Todo: first we need to "augment" the blocks with predicate data
+                        info!(
+                            ctx.expect_logger(),
+                            "Re-org handling: reverting changes in block #{}",
+                            block.block_identifier.index
+                        );
+
+                        if let Err(e) = revert_hord_db_with_augmented_bitcoin_block(
+                            block,
+                            &blocks_db_rw,
+                            &inscriptions_db_conn_rw,
+                            &ctx,
+                        ) {
+                            ctx.try_log(|logger| {
+                                error!(
+                                    logger,
+                                    "Unable to rollback bitcoin block {}: {e}",
+                                    block.block_identifier
+                                )
+                            });
+                        }
+                    }
+                    let _ = block_processor_out_tx.send(blocks);
+                }
+                HandleBlock::ApplyBlocks(mut blocks) => {
+                    for block in blocks.iter_mut() {
+                        let compressed_block: LazyBlock =
+                            match LazyBlock::from_standardized_block(&block) {
+                                Ok(block) => block,
+                                Err(e) => {
+                                    error!(
+                                        ctx.expect_logger(),
+                                        "Unable to compress block #{}: #{}",
+                                        block.block_identifier.index,
+                                        e.to_string()
+                                    );
+                                    continue;
+                                }
+                            };
+                        insert_entry_in_blocks(
+                            block.block_identifier.index as u32,
+                            &compressed_block,
+                            &blocks_db_rw,
+                            &ctx,
+                        );
+                        let _ = blocks_db_rw.flush();
+
+                        parse_inscriptions_in_standardized_block(block, &ctx);
+                    }
+                    let inscriptions_db_conn =
+                        open_readonly_hord_db_conn(&config.expected_cache_path(), &ctx)
+                            .expect("unable to open inscriptions db");
+                    let mut sequence_cursor = SequenceCursor::new(inscriptions_db_conn);
+
+                    let updated_blocks = process_blocks(
+                        &mut blocks,
+                        &mut sequence_cursor,
+                        &moved_traversals_cache,
+                        &mut inscriptions_db_conn_rw,
+                        &config.get_hord_config(),
+                        &None,
+                        &ctx,
+                    );
+
+                    let _ = block_processor_out_tx.send(updated_blocks);
+                }
+            }
+        });
 
         loop {
             let event = match observer_event_rx.recv() {
@@ -320,93 +383,6 @@ impl Service {
                         }
                     }
                 }
-                ObserverEvent::BitcoinChainEvent((mut chain_update, _report)) => {
-                    //
-                    let (blocks_db, mut inscriptions_db_conn_rw) = match open_readwrite_hord_dbs(
-                        &self.config.expected_cache_path(),
-                        &self.ctx,
-                    ) {
-                        Ok(dbs) => dbs,
-                        Err(e) => {
-                            self.ctx.try_log(|logger| {
-                                slog::error!(logger, "Unable to open readwtite connection: {e}",)
-                            });
-                            continue;
-                        }
-                    };
-
-                    // Update Chain event before propagation
-                    match chain_update {
-                        BitcoinChainEvent::ChainUpdatedWithBlocks(ref mut data) => {
-                            for block in data.new_blocks.iter_mut() {
-                                if let Err(e) = update_hord_db_and_augment_bitcoin_block(
-                                    block,
-                                    &blocks_db,
-                                    &mut inscriptions_db_conn_rw,
-                                    true,
-                                    &hord_config,
-                                    &traversals_cache,
-                                    &self.ctx,
-                                ) {
-                                    self.ctx.try_log(|logger| {
-                                        slog::error!(
-                                            logger,
-                                            "Unable to insert bitcoin block {} in hord_db: {e}",
-                                            block.block_identifier.index
-                                        )
-                                    });
-                                }
-                            }
-                        }
-                        BitcoinChainEvent::ChainUpdatedWithReorg(ref mut data) => {
-                            for block in data.blocks_to_rollback.iter() {
-                                if let Err(e) = revert_hord_db_with_augmented_bitcoin_block(
-                                    block,
-                                    &blocks_db,
-                                    &inscriptions_db_conn_rw,
-                                    &self.ctx,
-                                ) {
-                                    self.ctx.try_log(|logger| {
-                                        slog::error!(
-                                            logger,
-                                            "Unable to rollback bitcoin block {}: {e}",
-                                            block.block_identifier
-                                        )
-                                    });
-                                }
-                            }
-
-                            for block in data.blocks_to_apply.iter_mut() {
-                                if let Err(e) = update_hord_db_and_augment_bitcoin_block(
-                                    block,
-                                    &blocks_db,
-                                    &mut inscriptions_db_conn_rw,
-                                    true,
-                                    &hord_config,
-                                    &traversals_cache,
-                                    &self.ctx,
-                                ) {
-                                    self.ctx.try_log(|logger| {
-                                        slog::error!(
-                                            logger,
-                                            "Unable to apply bitcoin block {} with hord_db: {e}",
-                                            block.block_identifier.index
-                                        )
-                                    });
-                                }
-                            }
-                        }
-                    };
-                    self.ctx.try_log(|logger| {
-                        slog::info!(
-                            logger,
-                            "Flushing traversals_cache ({} entries)",
-                            traversals_cache.len()
-                        )
-                    });
-
-                    // traversals_cache.clear();
-                }
                 ObserverEvent::Terminate => {
                     info!(self.ctx.expect_logger(), "Terminating runloop");
                     break;
@@ -417,165 +393,85 @@ impl Service {
         Ok(())
     }
 
-    pub fn replay_transfers(
+    pub async fn update_state(
+        &self,
+        block_post_processor: Option<crossbeam_channel::Sender<BitcoinBlockData>>,
+    ) -> Result<(), String> {
+        // Start predicate processor
+        let blocks_post_processor =
+            start_inscription_indexing_processor(&self.config, &self.ctx, block_post_processor);
+
+        while let Some((start_block, end_block, speed)) =
+            should_sync_hord_db(&self.config, &self.ctx)?
+        {
+            info!(
+                self.ctx.expect_logger(),
+                "Indexing inscriptions from block #{start_block} to block #{end_block}"
+            );
+
+            let hord_config = self.config.get_hord_config();
+            let first_inscription_height = hord_config.first_inscription_height;
+            download_and_pipeline_blocks(
+                &self.config,
+                start_block,
+                end_block,
+                first_inscription_height,
+                if end_block <= first_inscription_height {
+                    Some(&blocks_post_processor)
+                } else {
+                    None
+                },
+                if start_block >= first_inscription_height {
+                    Some(&blocks_post_processor)
+                } else {
+                    None
+                },
+                speed,
+                &self.ctx,
+            )
+            .await?;
+        }
+
+        let _ = blocks_post_processor
+            .commands_tx
+            .send(PostProcessorCommand::Terminate);
+
+        Ok(())
+    }
+
+    pub async fn replay_transfers(
         &self,
         start_block: u64,
         end_block: u64,
         block_post_processor: Option<crossbeam_channel::Sender<BitcoinBlockData>>,
     ) -> Result<(), String> {
-        info!(self.ctx.expect_logger(), "Transfers only");
+        // Start predicate processor
+        let blocks_post_processor =
+            start_transfers_recomputing_processor(&self.config, &self.ctx, block_post_processor);
 
-        let bitcoin_config = BitcoinConfig {
-            username: self.config.network.bitcoind_rpc_username.clone(),
-            password: self.config.network.bitcoind_rpc_password.clone(),
-            rpc_url: self.config.network.bitcoind_rpc_url.clone(),
-            network: self.config.network.bitcoin_network.clone(),
-            bitcoin_block_signaling: self.config.network.bitcoin_block_signaling.clone(),
-        };
-        let (tx, rx) = crossbeam_channel::bounded(100);
-        let moved_ctx = self.ctx.clone();
-        hiro_system_kit::thread_named("Block fetch")
-            .spawn(move || {
-                let http_client = build_http_client();
-                for cursor in start_block..=end_block {
-                    info!(moved_ctx.expect_logger(), "Fetching block {}", cursor);
-                    let future = fetch_and_standardize_block(
-                        &http_client,
-                        cursor,
-                        &bitcoin_config,
-                        &moved_ctx,
-                    );
+        info!(
+            self.ctx.expect_logger(),
+            "Indexing inscriptions from block #{start_block} to block #{end_block}"
+        );
 
-                    let block = hiro_system_kit::nestable_block_on(future).unwrap();
+        let hord_config = self.config.get_hord_config();
+        let first_inscription_height = hord_config.first_inscription_height;
+        download_and_pipeline_blocks(
+            &self.config,
+            start_block,
+            end_block,
+            first_inscription_height,
+            None,
+            Some(&blocks_post_processor),
+            100,
+            &self.ctx,
+        )
+        .await?;
 
-                    let _ = tx.send(block);
-                }
-            })
-            .unwrap();
+        let _ = blocks_post_processor
+            .commands_tx
+            .send(PostProcessorCommand::Terminate);
 
-        let mut inscriptions_db_conn_rw =
-            open_readwrite_hord_db_conn(&self.config.expected_cache_path(), &self.ctx)?;
-
-        while let Ok(mut block) = rx.recv() {
-            let network = match block.metadata.network {
-                BitcoinNetwork::Mainnet => Network::Bitcoin,
-                BitcoinNetwork::Regtest => Network::Regtest,
-                BitcoinNetwork::Testnet => Network::Testnet,
-            };
-
-            info!(
-                self.ctx.expect_logger(),
-                "Cleaning transfers from block {}", block.block_identifier.index
-            );
-            let inscriptions = find_all_inscriptions_in_block(
-                &block.block_identifier.index,
-                &inscriptions_db_conn_rw,
-                &self.ctx,
-            );
-            info!(
-                self.ctx.expect_logger(),
-                "{} inscriptions retrieved at block {}",
-                inscriptions.len(),
-                block.block_identifier.index
-            );
-            let mut operations = BTreeMap::new();
-
-            let transaction = inscriptions_db_conn_rw.transaction().unwrap();
-
-            remove_entries_from_locations_at_block_height(
-                &block.block_identifier.index,
-                &transaction,
-                &self.ctx,
-            );
-
-            for (_, entry) in inscriptions.iter() {
-                let inscription_id = entry.get_inscription_id();
-                info!(
-                    self.ctx.expect_logger(),
-                    "Processing inscription {}", inscription_id
-                );
-                insert_entry_in_locations(
-                    &inscription_id,
-                    block.block_identifier.index,
-                    &entry.transfer_data,
-                    &transaction,
-                    &self.ctx,
-                );
-
-                operations.insert(
-                    entry.transaction_identifier_inscription.clone(),
-                    OrdinalInscriptionTransferData {
-                        inscription_id: entry.get_inscription_id(),
-                        updated_address: None,
-                        satpoint_pre_transfer: format_satpoint_to_watch(
-                            &entry.transaction_identifier_inscription,
-                            entry.inscription_input_index,
-                            0,
-                        ),
-                        satpoint_post_transfer: format_satpoint_to_watch(
-                            &entry.transfer_data.transaction_identifier_location,
-                            entry.transfer_data.output_index,
-                            entry.transfer_data.inscription_offset_intra_output,
-                        ),
-                        post_transfer_output_value: None,
-                        tx_index: 0,
-                    },
-                );
-            }
-
-            info!(
-                self.ctx.expect_logger(),
-                "Rewriting transfers for block {}", block.block_identifier.index
-            );
-
-            for tx in block.transactions.iter_mut() {
-                tx.metadata.ordinal_operations.clear();
-                if let Some(mut entry) = operations.remove(&tx.transaction_identifier) {
-                    let (_, output_index, _) =
-                        parse_satpoint_to_watch(&entry.satpoint_post_transfer);
-
-                    let script_pub_key_hex =
-                        tx.metadata.outputs[output_index].get_script_pubkey_hex();
-                    let updated_address = match Script::from_hex(&script_pub_key_hex) {
-                        Ok(script) => match Address::from_script(&script, network.clone()) {
-                            Ok(address) => Some(address.to_string()),
-                            Err(_e) => None,
-                        },
-                        Err(_e) => None,
-                    };
-
-                    entry.updated_address = updated_address;
-                    entry.post_transfer_output_value =
-                        Some(tx.metadata.outputs[output_index].value);
-
-                    tx.metadata
-                        .ordinal_operations
-                        .push(OrdinalOperation::InscriptionTransferred(entry));
-                }
-            }
-
-            update_storage_and_augment_bitcoin_block_with_inscription_transfer_data_tx(
-                &mut block,
-                &transaction,
-                &self.ctx,
-            )
-            .unwrap();
-
-            info!(
-                self.ctx.expect_logger(),
-                "Saving supdates for block {}", block.block_identifier.index
-            );
-            transaction.commit().unwrap();
-
-            info!(
-                self.ctx.expect_logger(),
-                "Transfers in block {} repaired", block.block_identifier.index
-            );
-
-            if let Some(ref tx) = block_post_processor {
-                let _ = tx.send(block);
-            }
-        }
         Ok(())
     }
 }
@@ -592,10 +488,10 @@ pub enum PredicateStatus {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScanningData {
-    pub start_block: u64,
-    pub cursor: u64,
-    pub end_block: u64,
-    pub occurrences_found: u64,
+    pub number_of_blocks_to_scan: u64,
+    pub number_of_blocks_scanned: u64,
+    pub number_of_blocks_sent: u64,
+    pub current_block_height: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -685,4 +581,116 @@ pub fn open_readwrite_predicates_db_conn_or_panic(
         }
     };
     redis_con
+}
+
+// Cases to cover:
+// - Empty state
+// - State present, but not up to date
+//      - Blocks presents, no inscriptions
+//      - Blocks presents, inscription presents
+// - State up to date
+
+pub fn start_predicate_processor(
+    event_observer_config: &EventObserverConfig,
+    ctx: &Context,
+) -> Sender<BitcoinBlockData> {
+    let (tx, rx) = channel();
+
+    let mut moved_event_observer_config = event_observer_config.clone();
+    let moved_ctx = ctx.clone();
+
+    let _ = hiro_system_kit::thread_named("Initial predicate processing")
+        .spawn(move || {
+            if let Some(mut chainhook_config) = moved_event_observer_config.chainhook_config.take()
+            {
+                let mut bitcoin_predicates_ref: Vec<&BitcoinChainhookSpecification> = vec![];
+                for bitcoin_predicate in chainhook_config.bitcoin_chainhooks.iter_mut() {
+                    bitcoin_predicate.enabled = false;
+                    bitcoin_predicates_ref.push(bitcoin_predicate);
+                }
+                while let Ok(block) = rx.recv() {
+                    let future = process_block_with_predicates(
+                        block,
+                        &bitcoin_predicates_ref,
+                        &moved_event_observer_config,
+                        &moved_ctx,
+                    );
+                    let res = hiro_system_kit::nestable_block_on(future);
+                    if let Err(_) = res {
+                        error!(moved_ctx.expect_logger(), "Initial ingestion failing");
+                    }
+                }
+            }
+        })
+        .expect("unable to spawn thread");
+    tx
+}
+
+pub fn create_and_consolidate_chainhook_config_with_predicates(
+    predicates: Vec<ChainhookFullSpecification>,
+    config: &Config,
+    ctx: &Context,
+) -> ChainhookConfig {
+    let mut chainhook_config: ChainhookConfig = ChainhookConfig::new();
+
+    // If no predicates passed at launch, retrieve predicates from Redis
+    if predicates.is_empty() && config.is_http_api_enabled() {
+        let registered_predicates = match load_predicates_from_redis(&config, &ctx) {
+            Ok(predicates) => predicates,
+            Err(e) => {
+                error!(
+                    ctx.expect_logger(),
+                    "Failed loading predicate from storage: {}",
+                    e.to_string()
+                );
+                vec![]
+            }
+        };
+        for (predicate, _status) in registered_predicates.into_iter() {
+            let predicate_uuid = predicate.uuid().to_string();
+            match chainhook_config.register_specification(predicate) {
+                Ok(_) => {
+                    info!(
+                        ctx.expect_logger(),
+                        "Predicate {} retrieved from storage and loaded", predicate_uuid,
+                    );
+                }
+                Err(e) => {
+                    error!(
+                        ctx.expect_logger(),
+                        "Failed loading predicate from storage: {}",
+                        e.to_string()
+                    );
+                }
+            }
+        }
+    }
+
+    // For each predicate found, register in memory.
+    for predicate in predicates.into_iter() {
+        match chainhook_config.register_full_specification(
+            (
+                &config.network.bitcoin_network,
+                &config.network.stacks_network,
+            ),
+            predicate,
+        ) {
+            Ok(spec) => {
+                info!(
+                    ctx.expect_logger(),
+                    "Predicate {} retrieved from config and loaded",
+                    spec.uuid(),
+                );
+            }
+            Err(e) => {
+                error!(
+                    ctx.expect_logger(),
+                    "Failed loading predicate from config: {}",
+                    e.to_string()
+                );
+            }
+        }
+    }
+
+    chainhook_config
 }
