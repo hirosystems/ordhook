@@ -13,7 +13,7 @@ use crate::db::{
     find_all_transfers_in_block, find_inscription_with_id, find_last_block_inserted,
     find_latest_inscription_block_height, find_lazy_block_at_block_height,
     open_readonly_hord_db_conn, open_readonly_hord_db_conn_rocks_db, open_readwrite_hord_db_conn,
-    open_readwrite_hord_db_conn_rocks_db,
+    open_readwrite_hord_db_conn_rocks_db, initialize_hord_db,
 };
 use chainhook_sdk::bitcoincore_rpc::{Auth, Client, RpcApi};
 use chainhook_sdk::chainhooks::types::HttpHook;
