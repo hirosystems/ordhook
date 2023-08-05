@@ -638,7 +638,12 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
             let config = Config::default(false, false, false, &cmd.config_path)?;
             initialize_hord_db(&config.expected_cache_path(), &ctx);
         },
-        Command::Db(HordDbCommand::Sync(_cmd)) => unimplemented!(),
+        Command::Db(HordDbCommand::Sync(cmd)) => {
+            let config = Config::default(false, false, false, &cmd.config_path)?;
+            initialize_hord_db(&config.expected_cache_path(), &ctx);
+            let service = Service::new(config, ctx.clone());
+            service.update_state(None).await?;
+        },
         Command::Db(HordDbCommand::Repair(subcmd)) => match subcmd {
             RepairCommand::Blocks(cmd) => {
                 let config = Config::default(false, false, false, &cmd.config_path)?;
