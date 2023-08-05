@@ -530,7 +530,8 @@ pub fn augment_transaction_with_ordinals_inscriptions_data(
             }
         };
 
-        // Do we need to curse the inscription because of re-inscription?
+        // Do we need to curse the inscription?
+        let mut inscription_number = sequence_cursor.pick_next(is_cursed, block_identifier.index);
         let mut curse_type_override = None;
         if !is_cursed {
             // Is this inscription re-inscribing an existing blessed inscription?
@@ -552,8 +553,6 @@ pub fn augment_transaction_with_ordinals_inscriptions_data(
                 curse_type_override = Some(OrdinalInscriptionCurseType::Reinscription)
             }
         };
-
-        let mut inscription_number = sequence_cursor.pick_next(is_cursed, block_identifier.index);
 
         let outputs = &tx.metadata.outputs;
         inscription.inscription_number = inscription_number;
