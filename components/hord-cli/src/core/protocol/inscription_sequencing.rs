@@ -402,12 +402,14 @@ pub fn augment_block_with_ordinals_inscriptions_data_and_write_to_db_tx(
     // Handle re-inscriptions
     let mut reinscriptions_data = HashMap::new();
     for (_, inscription_data) in inscriptions_data.iter() {
-        if let Some(inscription_id) = find_blessed_inscription_with_ordinal_number(
-            &inscription_data.ordinal_number,
-            inscriptions_db_tx,
-            ctx,
-        ) {
-            reinscriptions_data.insert(inscription_data.ordinal_number, inscription_id);
+        if inscription_data.ordinal_number != 0 {
+            if let Some(inscription_id) = find_blessed_inscription_with_ordinal_number(
+                &inscription_data.ordinal_number,
+                inscriptions_db_tx,
+                ctx,
+            ) {
+                reinscriptions_data.insert(inscription_data.ordinal_number, inscription_id);
+            }    
         }
     }
 
@@ -554,9 +556,6 @@ pub fn augment_transaction_with_ordinals_inscriptions_data(
             }
         };
 
-        // The reinscriptions_data needs to be augmented as we go, to handle transaction chaining.
-        reinscriptions_data.insert(traversal.ordinal_number, traversal.get_inscription_id());
-
         let outputs = &tx.metadata.outputs;
         inscription.inscription_number = inscription_number;
         inscription.ordinal_offset = traversal.get_ordinal_coinbase_offset();
@@ -604,6 +603,9 @@ pub fn augment_transaction_with_ordinals_inscriptions_data(
             sats_overflows.push_back((tx_index, op_index));
             continue;
         }
+
+        // The reinscriptions_data needs to be augmented as we go, to handle transaction chaining.
+        reinscriptions_data.insert(traversal.ordinal_number, traversal.get_inscription_id());
 
         ctx.try_log(|logger| {
             info!(

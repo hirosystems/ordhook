@@ -959,7 +959,15 @@ pub fn delete_data_in_hord_db(
     inscriptions_db_conn_rw: &Connection,
     ctx: &Context,
 ) -> Result<(), String> {
+    info!(
+        ctx.expect_logger(),
+        "Deleting entries from block #{start_block} to block #{end_block}"
+    );
     delete_blocks_in_block_range(start_block as u32, end_block as u32, blocks_db_rw, &ctx);
+    info!(
+        ctx.expect_logger(),
+        "Deleting inscriptions and locations from block #{start_block} to block #{end_block}"
+    );
     delete_inscriptions_in_block_range(
         start_block as u32,
         end_block as u32,
