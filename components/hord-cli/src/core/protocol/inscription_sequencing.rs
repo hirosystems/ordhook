@@ -415,7 +415,7 @@ pub fn augment_block_with_ordinals_inscriptions_data_and_write_to_db_tx(
         block,
         sequence_cursor,
         inscriptions_data,
-        &reinscriptions_data,
+        &mut reinscriptions_data,
         &ctx,
     );
 
@@ -433,7 +433,7 @@ pub fn augment_block_with_ordinals_inscriptions_data(
     block: &mut BitcoinBlockData,
     sequence_cursor: &mut SequenceCursor,
     inscriptions_data: &mut BTreeMap<(TransactionIdentifier, usize), TraversalResult>,
-    reinscriptions_data: &HashMap<u64, String>,
+    reinscriptions_data: &mut HashMap<u64, String>,
     ctx: &Context,
 ) -> bool {
     // Handle sat oveflows
@@ -455,7 +455,7 @@ pub fn augment_block_with_ordinals_inscriptions_data(
             &network,
             inscriptions_data,
             &mut sats_overflows,
-            &reinscriptions_data,
+            reinscriptions_data,
             ctx,
         );
     }
@@ -498,7 +498,7 @@ pub fn augment_transaction_with_ordinals_inscriptions_data(
     network: &Network,
     inscriptions_data: &mut BTreeMap<(TransactionIdentifier, usize), TraversalResult>,
     sats_overflows: &mut VecDeque<(usize, usize)>,
-    reinscriptions_data: &HashMap<u64, String>,
+    reinscriptions_data: &mut HashMap<u64, String>,
     ctx: &Context,
 ) -> bool {
     let any_event = tx.metadata.ordinal_operations.is_empty() == false;
@@ -553,6 +553,9 @@ pub fn augment_transaction_with_ordinals_inscriptions_data(
                 curse_type_override = Some(OrdinalInscriptionCurseType::Reinscription)
             }
         };
+
+        // The reinscriptions_data needs to be augmented as we go, to handle transaction chaining.
+        reinscriptions_data.insert(traversal.ordinal_number, traversal.get_inscription_id());
 
         let outputs = &tx.metadata.outputs;
         inscription.inscription_number = inscription_number;
