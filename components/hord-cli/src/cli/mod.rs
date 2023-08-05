@@ -672,14 +672,12 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 let inscription_indexing_processor =
                     start_inscription_indexing_processor(&config, ctx, None);
 
-                let block_ingestion_processor = start_block_ingestion_processor(&config, ctx, None);
-
                 download_and_pipeline_blocks(
                     &config,
                     cmd.start_block,
                     cmd.end_block,
                     hord_config.first_inscription_height,
-                    Some(&block_ingestion_processor),
+                    None,
                     Some(&inscription_indexing_processor),
                     10_000,
                     &ctx,
