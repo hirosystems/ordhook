@@ -14,7 +14,7 @@ use crate::{
     db::{insert_entry_in_blocks, open_readwrite_hord_db_conn_rocks_db, LazyBlock},
 };
 
-pub fn start_block_ingestion_processor(
+pub fn start_block_archiving_processor(
     config: &Config,
     ctx: &Context,
     _post_processor: Option<Sender<BitcoinBlockData>>,
@@ -31,22 +31,29 @@ pub fn start_block_ingestion_processor(
             let mut empty_cycles = 0;
 
             if let Ok(PostProcessorCommand::Start) = commands_rx.recv() {
-                info!(ctx.expect_logger(), "Start block indexing runloop");
+                let _ = events_tx.send(PostProcessorEvent::Started);
+                debug!(ctx.expect_logger(), "Start block indexing runloop");
             }
 
             loop {
+                debug!(ctx.expect_logger(), "Tick");
                 let (compacted_blocks, _) = match commands_rx.try_recv() {
                     Ok(PostProcessorCommand::ProcessBlocks(compacted_blocks, blocks)) => {
                         (compacted_blocks, blocks)
                     }
-                    Ok(PostProcessorCommand::Terminate) => break,
-                    Ok(PostProcessorCommand::Start) => continue,
+                    Ok(PostProcessorCommand::Terminate) => {
+                        debug!(ctx.expect_logger(), "Terminating block processor");
+                        let _ = events_tx.send(PostProcessorEvent::Terminated);
+                        break;
+                    }
+                    Ok(PostProcessorCommand::Start) => unreachable!(),
                     Err(e) => match e {
                         TryRecvError::Empty => {
                             empty_cycles += 1;
-
                             if empty_cycles == 30 {
-                                let _ = events_tx.send(PostProcessorEvent::EmptyQueue);
+                                warn!(ctx.expect_logger(), "Block processor reached expiration");
+                                let _ = events_tx.send(PostProcessorEvent::Expired);
+                                break;
                             }
                             sleep(Duration::from_secs(1));
                             if empty_cycles > 120 {

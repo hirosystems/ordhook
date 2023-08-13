@@ -155,9 +155,9 @@ impl Config {
         let bootstrap = match config_file.bootstrap {
             Some(bootstrap) => match bootstrap.download_url {
                 Some(ref url) => BootstrapConfig::Download(url.to_string()),
-                None => BootstrapConfig::Build
-            }
-            None => BootstrapConfig::Build
+                None => BootstrapConfig::Build,
+            },
+            None => BootstrapConfig::Build,
         };
 
         let config = Config {
@@ -243,7 +243,7 @@ impl Config {
     pub fn should_bootstrap_through_download(&self) -> bool {
         match &self.bootstrap {
             BootstrapConfig::Build => false,
-            BootstrapConfig::Download(_) => true
+            BootstrapConfig::Download(_) => true,
         }
     }
 
@@ -267,7 +267,7 @@ impl Config {
     fn expected_remote_ordinals_sqlite_base_url(&self) -> &str {
         match &self.bootstrap {
             BootstrapConfig::Build => unreachable!(),
-            BootstrapConfig::Download(url) => &url
+            BootstrapConfig::Download(url) => &url,
         }
     }
 
@@ -367,7 +367,9 @@ impl Config {
                 working_dir: default_cache_path(),
             },
             http_api: PredicatesApi::Off,
-            bootstrap: BootstrapConfig::Download(DEFAULT_MAINNET_ORDINALS_SQLITE_ARCHIVE.to_string()),
+            bootstrap: BootstrapConfig::Download(
+                DEFAULT_MAINNET_ORDINALS_SQLITE_ARCHIVE.to_string(),
+            ),
             limits: LimitsConfig {
                 max_number_of_bitcoin_predicates: BITCOIN_MAX_PREDICATE_REGISTRATION,
                 max_number_of_concurrent_bitcoin_scans: BITCOIN_SCAN_THREAD_POOL_SIZE,

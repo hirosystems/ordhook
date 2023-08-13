@@ -1,7 +1,7 @@
 use crate::config::generator::generate_config;
 use crate::config::Config;
 use crate::core::pipeline::download_and_pipeline_blocks;
-use crate::core::pipeline::processors::block_ingestion::start_block_ingestion_processor;
+use crate::core::pipeline::processors::block_archiving::start_block_archiving_processor;
 use crate::core::pipeline::processors::start_inscription_indexing_processor;
 use crate::core::protocol::inscription_parsing::parse_ordinals_and_standardize_block;
 use crate::download::download_ordinals_dataset_if_required;
@@ -12,8 +12,9 @@ use crate::db::{
     delete_data_in_hord_db, find_all_inscription_transfers, find_all_inscriptions_in_block,
     find_all_transfers_in_block, find_inscription_with_id, find_last_block_inserted,
     find_latest_inscription_block_height, find_lazy_block_at_block_height,
-    open_readonly_hord_db_conn, open_readonly_hord_db_conn_rocks_db, open_readwrite_hord_db_conn,
-    open_readwrite_hord_db_conn_rocks_db, initialize_hord_db, get_default_hord_db_file_path,
+    get_default_hord_db_file_path, initialize_hord_db, open_readonly_hord_db_conn,
+    open_readonly_hord_db_conn_rocks_db, open_readwrite_hord_db_conn,
+    open_readwrite_hord_db_conn_rocks_db,
 };
 use chainhook_sdk::bitcoincore_rpc::{Auth, Client, RpcApi};
 use chainhook_sdk::chainhooks::types::HttpHook;
@@ -263,7 +264,7 @@ struct StartCommand {
 enum HordDbCommand {
     /// Initialize a new hord db
     #[clap(name = "new", bin_name = "new")]
-    New(SyncHordDbCommand),    
+    New(SyncHordDbCommand),
     /// Catch-up hord db
     #[clap(name = "sync", bin_name = "sync")]
     Sync(SyncHordDbCommand),
@@ -482,8 +483,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 let mut total_inscriptions = 0;
                 let mut total_transfers = 0;
 
-                let inscriptions_db_conn =
-                    initialize_hord_db(&config.expected_cache_path(), &ctx);
+                let inscriptions_db_conn = initialize_hord_db(&config.expected_cache_path(), &ctx);
                 while let Some(block_height) = block_range.pop_front() {
                     let inscriptions =
                         find_all_inscriptions_in_block(&block_height, &inscriptions_db_conn, &ctx);
@@ -529,7 +529,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 if total_transfers == 0 && total_inscriptions == 0 {
                     let db_file_path = get_default_hord_db_file_path(&config.expected_cache_path());
                     warn!(ctx.expect_logger(), "No data available. Check the validity of the range being scanned and the validity of your local database {}", db_file_path.display());
-                }    
+                }
             }
         }
         Command::Scan(ScanCommand::Inscription(cmd)) => {
@@ -637,27 +637,26 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
         Command::Db(HordDbCommand::New(cmd)) => {
             let config = Config::default(false, false, false, &cmd.config_path)?;
             initialize_hord_db(&config.expected_cache_path(), &ctx);
-        },
+        }
         Command::Db(HordDbCommand::Sync(cmd)) => {
             let config = Config::default(false, false, false, &cmd.config_path)?;
             initialize_hord_db(&config.expected_cache_path(), &ctx);
             let service = Service::new(config, ctx.clone());
             service.update_state(None).await?;
-        },
+        }
         Command::Db(HordDbCommand::Repair(subcmd)) => match subcmd {
             RepairCommand::Blocks(cmd) => {
                 let config = Config::default(false, false, false, &cmd.config_path)?;
                 let mut hord_config = config.get_hord_config();
                 hord_config.network_thread_max = cmd.network_threads;
 
-                let block_ingestion_processor = start_block_ingestion_processor(&config, ctx, None);
+                let block_ingestion_processor = start_block_archiving_processor(&config, ctx, None);
 
                 download_and_pipeline_blocks(
                     &config,
                     cmd.start_block,
                     cmd.end_block,
                     hord_config.first_inscription_height,
-                    Some(&block_ingestion_processor),
                     Some(&block_ingestion_processor),
                     10_000,
                     &ctx,
@@ -677,7 +676,6 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                     cmd.start_block,
                     cmd.end_block,
                     hord_config.first_inscription_height,
-                    None,
                     Some(&inscription_indexing_processor),
                     10_000,
                     &ctx,

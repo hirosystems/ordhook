@@ -63,7 +63,7 @@ pub fn parallelize_inscription_data_computations(
 
     // Nothing to do? early return
     if !has_transactions_to_process {
-        return Ok(false)
+        return Ok(false);
     }
 
     let expected_traversals = transactions_ids.len() + l1_cache_hits.len();
@@ -83,12 +83,8 @@ pub fn parallelize_inscription_data_computations(
 
         let handle = hiro_system_kit::thread_named("Worker")
             .spawn(move || {
-                while let Ok(Some((
-                    transaction_id,
-                    block_identifier,
-                    input_index,
-                    prioritary,
-                ))) = rx.recv()
+                while let Ok(Some((transaction_id, block_identifier, input_index, prioritary))) =
+                    rx.recv()
                 {
                     let traversal: Result<TraversalResult, String> = compute_satoshi_number(
                         &moved_hord_db_path,
@@ -190,12 +186,8 @@ pub fn parallelize_inscription_data_computations(
                 let _ = tx_thread_pool[thread_index].send(Some(w));
             } else {
                 if let Some(next_block) = next_block_iter.next() {
-                    let (mut transactions_ids, _) = get_transactions_to_process(
-                        next_block,
-                        cache_l1,
-                        inscriptions_db_tx,
-                        ctx,
-                    );
+                    let (mut transactions_ids, _) =
+                        get_transactions_to_process(next_block, cache_l1, inscriptions_db_tx, ctx);
 
                     ctx.try_log(|logger| {
                         info!(
@@ -356,9 +348,7 @@ impl SequenceCursor {
                         self.blessed = Some(inscription_number);
                         inscription_number + 1
                     }
-                    _ => {
-                        0
-                    }
+                    _ => 0,
                 }
             }
             Some(value) => value + 1,
@@ -378,9 +368,7 @@ impl SequenceCursor {
                         self.cursed = Some(inscription_number);
                         inscription_number - 1
                     }
-                    _ => {
-                        -1
-                    }
+                    _ => -1,
                 }
             }
             Some(value) => value - 1,
@@ -413,7 +401,7 @@ pub fn augment_block_with_ordinals_inscriptions_data_and_write_to_db_tx(
                 ctx,
             ) {
                 reinscriptions_data.insert(inscription_data.ordinal_number, inscription_id);
-            }    
+            }
         }
     }
 
@@ -667,11 +655,19 @@ pub fn consolidate_transaction_with_pre_computed_inscription_data(
             inscription.curse_type = Some(OrdinalInscriptionCurseType::Unknown);
         }
 
-        if traversal.transfer_data.transaction_identifier_location.eq(coinbase_txid) {
+        if traversal
+            .transfer_data
+            .transaction_identifier_location
+            .eq(coinbase_txid)
+        {
             continue;
         }
 
-        if let Some(output) = tx.metadata.outputs.get(traversal.transfer_data.output_index) {
+        if let Some(output) = tx
+            .metadata
+            .outputs
+            .get(traversal.transfer_data.output_index)
+        {
             inscription.inscription_output_value = output.value;
             inscription.inscriber_address = {
                 let script_pub_key = output.get_script_pubkey_hex();
@@ -684,7 +680,6 @@ pub fn consolidate_transaction_with_pre_computed_inscription_data(
                 }
             };
         }
-
     }
 }
 

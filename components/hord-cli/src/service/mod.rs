@@ -398,12 +398,16 @@ impl Service {
         block_post_processor: Option<crossbeam_channel::Sender<BitcoinBlockData>>,
     ) -> Result<(), String> {
         // Start predicate processor
-        let blocks_post_processor =
-            start_inscription_indexing_processor(&self.config, &self.ctx, block_post_processor);
 
         while let Some((start_block, end_block, speed)) =
             should_sync_hord_db(&self.config, &self.ctx)?
         {
+            let blocks_post_processor = start_inscription_indexing_processor(
+                &self.config,
+                &self.ctx,
+                block_post_processor.clone(),
+            );
+
             info!(
                 self.ctx.expect_logger(),
                 "Indexing inscriptions from block #{start_block} to block #{end_block}"
@@ -416,25 +420,12 @@ impl Service {
                 start_block,
                 end_block,
                 first_inscription_height,
-                if end_block <= first_inscription_height {
-                    Some(&blocks_post_processor)
-                } else {
-                    None
-                },
-                if start_block >= first_inscription_height {
-                    Some(&blocks_post_processor)
-                } else {
-                    None
-                },
+                Some(&blocks_post_processor),
                 speed,
                 &self.ctx,
             )
             .await?;
         }
-
-        let _ = blocks_post_processor
-            .commands_tx
-            .send(PostProcessorCommand::Terminate);
 
         Ok(())
     }
@@ -461,16 +452,11 @@ impl Service {
             start_block,
             end_block,
             first_inscription_height,
-            None,
             Some(&blocks_post_processor),
             100,
             &self.ctx,
         )
         .await?;
-
-        let _ = blocks_post_processor
-            .commands_tx
-            .send(PostProcessorCommand::Terminate);
 
         Ok(())
     }

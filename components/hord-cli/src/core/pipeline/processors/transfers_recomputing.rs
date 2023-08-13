@@ -38,7 +38,8 @@ pub fn start_transfers_recomputing_processor(
             let mut empty_cycles = 0;
 
             if let Ok(PostProcessorCommand::Start) = commands_rx.recv() {
-                info!(ctx.expect_logger(), "Start transfers recomputing runloop");
+                let _ = events_tx.send(PostProcessorEvent::Started);
+                info!(ctx.expect_logger(), "Start inscription indexing runloop");
             }
 
             loop {
@@ -47,14 +48,19 @@ pub fn start_transfers_recomputing_processor(
                         empty_cycles = 0;
                         blocks
                     }
-                    Ok(PostProcessorCommand::Terminate) => break,
-                    Ok(PostProcessorCommand::Start) => continue,
+                    Ok(PostProcessorCommand::Terminate) => {
+                        debug!(ctx.expect_logger(), "Terminating block processor");
+                        let _ = events_tx.send(PostProcessorEvent::Terminated);
+                        break;
+                    }
+                    Ok(PostProcessorCommand::Start) => unreachable!(),
                     Err(e) => match e {
                         TryRecvError::Empty => {
                             empty_cycles += 1;
                             if empty_cycles == 10 {
-                                empty_cycles = 0;
-                                let _ = events_tx.send(PostProcessorEvent::EmptyQueue);
+                                warn!(ctx.expect_logger(), "Block processor reached expiration");
+                                let _ = events_tx.send(PostProcessorEvent::Expired);
+                                break;
                             }
                             sleep(Duration::from_secs(1));
                             continue;

@@ -19,7 +19,7 @@ use std::hash::BuildHasherDefault;
 
 use crate::{
     core::{
-        pipeline::processors::block_ingestion::store_compacted_blocks,
+        pipeline::processors::block_archiving::store_compacted_blocks,
         protocol::{
             inscription_parsing::get_inscriptions_revealed_in_block,
             inscription_sequencing::{
@@ -72,6 +72,7 @@ pub fn start_inscription_indexing_processor(
             let mut sequence_cursor = SequenceCursor::new(inscriptions_db_conn);
 
             if let Ok(PostProcessorCommand::Start) = commands_rx.recv() {
+                let _ = events_tx.send(PostProcessorEvent::Started);
                 info!(ctx.expect_logger(), "Start inscription indexing runloop");
             }
 
@@ -81,14 +82,19 @@ pub fn start_inscription_indexing_processor(
                         empty_cycles = 0;
                         (compacted_blocks, blocks)
                     }
-                    Ok(PostProcessorCommand::Terminate) => break,
-                    Ok(PostProcessorCommand::Start) => continue,
+                    Ok(PostProcessorCommand::Terminate) => {
+                        debug!(ctx.expect_logger(), "Terminating block processor");
+                        let _ = events_tx.send(PostProcessorEvent::Terminated);
+                        break;
+                    }
+                    Ok(PostProcessorCommand::Start) => unreachable!(),
                     Err(e) => match e {
                         TryRecvError::Empty => {
                             empty_cycles += 1;
                             if empty_cycles == 10 {
-                                empty_cycles = 0;
-                                let _ = events_tx.send(PostProcessorEvent::EmptyQueue);
+                                warn!(ctx.expect_logger(), "Block processor reached expiration");
+                                let _ = events_tx.send(PostProcessorEvent::Expired);
+                                break;
                             }
                             sleep(Duration::from_secs(1));
                             continue;

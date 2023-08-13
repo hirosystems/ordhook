@@ -161,7 +161,7 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
                     number_of_blocks_sent += 1;
                 }
                 actions_triggered += actions
-            },
+            }
             Err(_) => err_count += 1,
         }
 
