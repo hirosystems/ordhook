@@ -650,7 +650,8 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 let mut hord_config = config.get_hord_config();
                 hord_config.network_thread_max = cmd.network_threads;
 
-                let block_ingestion_processor = start_block_archiving_processor(&config, ctx, None);
+                let block_ingestion_processor =
+                    start_block_archiving_processor(&config, ctx, false, None);
 
                 download_and_pipeline_blocks(
                     &config,

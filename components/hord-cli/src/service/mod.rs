@@ -2,10 +2,10 @@ mod http_api;
 mod runloops;
 
 use crate::config::{Config, PredicatesApi, PredicatesApiConfig};
+use crate::core::pipeline::download_and_pipeline_blocks;
 use crate::core::pipeline::processors::inscription_indexing::process_blocks;
 use crate::core::pipeline::processors::start_inscription_indexing_processor;
 use crate::core::pipeline::processors::transfers_recomputing::start_transfers_recomputing_processor;
-use crate::core::pipeline::download_and_pipeline_blocks;
 use crate::core::protocol::inscription_parsing::parse_inscriptions_in_standardized_block;
 use crate::core::protocol::inscription_sequencing::SequenceCursor;
 use crate::core::{
@@ -252,6 +252,7 @@ impl Service {
                         insert_entry_in_blocks(
                             block.block_identifier.index as u32,
                             &compressed_block,
+                            true,
                             &blocks_db_rw,
                             &ctx,
                         );

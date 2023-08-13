@@ -39,7 +39,7 @@ pub fn start_transfers_recomputing_processor(
 
             if let Ok(PostProcessorCommand::Start) = commands_rx.recv() {
                 let _ = events_tx.send(PostProcessorEvent::Started);
-                info!(ctx.expect_logger(), "Start inscription indexing runloop");
+                debug!(ctx.expect_logger(), "Start inscription indexing runloop");
             }
 
             loop {
