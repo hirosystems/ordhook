@@ -62,7 +62,7 @@ pub fn parallelize_inscription_data_computations(
     let thread_max = hord_config.ingestion_thread_max;
 
     // Nothing to do? early return
-    if has_transactions_to_process {
+    if !has_transactions_to_process {
         return Ok(false)
     }
 
