@@ -14,9 +14,10 @@ use crate::{
     db::{insert_entry_in_blocks, open_readwrite_hord_db_conn_rocks_db, LazyBlock},
 };
 
-pub fn start_block_ingestion_processor(
+pub fn start_block_archiving_processor(
     config: &Config,
     ctx: &Context,
+    update_tip: bool,
     _post_processor: Option<Sender<BitcoinBlockData>>,
 ) -> PostProcessorController {
     let (commands_tx, commands_rx) = crossbeam_channel::bounded::<PostProcessorCommand>(2);
@@ -31,22 +32,29 @@ pub fn start_block_ingestion_processor(
             let mut empty_cycles = 0;
 
             if let Ok(PostProcessorCommand::Start) = commands_rx.recv() {
-                info!(ctx.expect_logger(), "Start block indexing runloop");
+                let _ = events_tx.send(PostProcessorEvent::Started);
+                debug!(ctx.expect_logger(), "Start block indexing runloop");
             }
 
             loop {
+                debug!(ctx.expect_logger(), "Tick");
                 let (compacted_blocks, _) = match commands_rx.try_recv() {
                     Ok(PostProcessorCommand::ProcessBlocks(compacted_blocks, blocks)) => {
                         (compacted_blocks, blocks)
                     }
-                    Ok(PostProcessorCommand::Terminate) => break,
-                    Ok(PostProcessorCommand::Start) => continue,
+                    Ok(PostProcessorCommand::Terminate) => {
+                        debug!(ctx.expect_logger(), "Terminating block processor");
+                        let _ = events_tx.send(PostProcessorEvent::Terminated);
+                        break;
+                    }
+                    Ok(PostProcessorCommand::Start) => unreachable!(),
                     Err(e) => match e {
                         TryRecvError::Empty => {
                             empty_cycles += 1;
-
                             if empty_cycles == 30 {
-                                let _ = events_tx.send(PostProcessorEvent::EmptyQueue);
+                                warn!(ctx.expect_logger(), "Block processor reached expiration");
+                                let _ = events_tx.send(PostProcessorEvent::Expired);
+                                break;
                             }
                             sleep(Duration::from_secs(1));
                             if empty_cycles > 120 {
@@ -59,7 +67,7 @@ pub fn start_block_ingestion_processor(
                         }
                     },
                 };
-                store_compacted_blocks(compacted_blocks, &blocks_db_rw, &ctx);
+                store_compacted_blocks(compacted_blocks, update_tip, &blocks_db_rw, &ctx);
             }
 
             if let Err(e) = blocks_db_rw.flush() {
@@ -79,13 +87,20 @@ pub fn start_block_ingestion_processor(
 
 pub fn store_compacted_blocks(
     mut compacted_blocks: Vec<(u64, LazyBlock)>,
+    update_tip: bool,
     blocks_db_rw: &DB,
     ctx: &Context,
 ) {
     compacted_blocks.sort_by(|(a, _), (b, _)| a.cmp(b));
 
     for (block_height, compacted_block) in compacted_blocks.into_iter() {
-        insert_entry_in_blocks(block_height as u32, &compacted_block, &blocks_db_rw, &ctx);
+        insert_entry_in_blocks(
+            block_height as u32,
+            &compacted_block,
+            update_tip,
+            &blocks_db_rw,
+            &ctx,
+        );
         ctx.try_log(|logger| {
             info!(logger, "Block #{block_height} saved to disk");
         });

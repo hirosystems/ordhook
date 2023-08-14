@@ -2,10 +2,10 @@ mod http_api;
 mod runloops;
 
 use crate::config::{Config, PredicatesApi, PredicatesApiConfig};
+use crate::core::pipeline::download_and_pipeline_blocks;
 use crate::core::pipeline::processors::inscription_indexing::process_blocks;
 use crate::core::pipeline::processors::start_inscription_indexing_processor;
 use crate::core::pipeline::processors::transfers_recomputing::start_transfers_recomputing_processor;
-use crate::core::pipeline::{download_and_pipeline_blocks, PostProcessorCommand};
 use crate::core::protocol::inscription_parsing::parse_inscriptions_in_standardized_block;
 use crate::core::protocol::inscription_sequencing::SequenceCursor;
 use crate::core::{
@@ -252,6 +252,7 @@ impl Service {
                         insert_entry_in_blocks(
                             block.block_identifier.index as u32,
                             &compressed_block,
+                            true,
                             &blocks_db_rw,
                             &ctx,
                         );
@@ -398,12 +399,16 @@ impl Service {
         block_post_processor: Option<crossbeam_channel::Sender<BitcoinBlockData>>,
     ) -> Result<(), String> {
         // Start predicate processor
-        let blocks_post_processor =
-            start_inscription_indexing_processor(&self.config, &self.ctx, block_post_processor);
 
         while let Some((start_block, end_block, speed)) =
             should_sync_hord_db(&self.config, &self.ctx)?
         {
+            let blocks_post_processor = start_inscription_indexing_processor(
+                &self.config,
+                &self.ctx,
+                block_post_processor.clone(),
+            );
+
             info!(
                 self.ctx.expect_logger(),
                 "Indexing inscriptions from block #{start_block} to block #{end_block}"
@@ -416,25 +421,12 @@ impl Service {
                 start_block,
                 end_block,
                 first_inscription_height,
-                if end_block <= first_inscription_height {
-                    Some(&blocks_post_processor)
-                } else {
-                    None
-                },
-                if start_block >= first_inscription_height {
-                    Some(&blocks_post_processor)
-                } else {
-                    None
-                },
+                Some(&blocks_post_processor),
                 speed,
                 &self.ctx,
             )
             .await?;
         }
-
-        let _ = blocks_post_processor
-            .commands_tx
-            .send(PostProcessorCommand::Terminate);
 
         Ok(())
     }
@@ -461,16 +453,11 @@ impl Service {
             start_block,
             end_block,
             first_inscription_height,
-            None,
             Some(&blocks_post_processor),
             100,
             &self.ctx,
         )
         .await?;
-
-        let _ = blocks_post_processor
-            .commands_tx
-            .send(PostProcessorCommand::Terminate);
 
         Ok(())
     }

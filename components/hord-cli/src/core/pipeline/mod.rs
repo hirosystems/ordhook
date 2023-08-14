@@ -16,7 +16,7 @@ use chainhook_sdk::indexer::bitcoin::{
     build_http_client, parse_downloaded_block, try_download_block_bytes_with_retry,
 };
 
-use super::protocol::inscription_parsing::parse_ordinals_and_standardize_block;
+use super::protocol::inscription_parsing::parse_inscriptions_and_standardize_block;
 
 pub enum PostProcessorCommand {
     Start,
@@ -25,7 +25,9 @@ pub enum PostProcessorCommand {
 }
 
 pub enum PostProcessorEvent {
-    EmptyQueue,
+    Started,
+    Terminated,
+    Expired,
 }
 
 pub struct PostProcessorController {
@@ -39,8 +41,7 @@ pub async fn download_and_pipeline_blocks(
     start_block: u64,
     end_block: u64,
     start_sequencing_blocks_at_height: u64,
-    blocks_post_processor_pre_sequence: Option<&PostProcessorController>,
-    blocks_post_processor_post_sequence: Option<&PostProcessorController>,
+    blocks_post_processor: Option<&PostProcessorController>,
     speed: usize,
     ctx: &Context,
 ) -> Result<(), String> {
@@ -101,7 +102,7 @@ pub async fn download_and_pipeline_blocks(
         rx_thread_pool.push(rx);
     }
 
-    for rx in rx_thread_pool.into_iter() {
+    for (thread_index, rx) in rx_thread_pool.into_iter().enumerate() {
         let block_compressed_tx_moved = block_compressed_tx.clone();
         let moved_ctx: Context = moved_ctx.clone();
         let moved_bitcoin_network = moved_bitcoin_network.clone();
@@ -115,7 +116,7 @@ pub async fn download_and_pipeline_blocks(
                         .expect("unable to compress block");
                     let block_height = raw_block_data.height as u64;
                     let block_data = if block_height >= start_sequencing_blocks_at_height {
-                        let block_data = parse_ordinals_and_standardize_block(
+                        let block_data = parse_inscriptions_and_standardize_block(
                             raw_block_data,
                             &moved_bitcoin_network,
                             &moved_ctx,
@@ -131,6 +132,8 @@ pub async fn download_and_pipeline_blocks(
                         compressed_block,
                     )));
                 }
+                moved_ctx
+                    .try_log(|logger| debug!(logger, "Exiting processing thread {thread_index}"));
             })
             .expect("unable to spawn thread");
         thread_pool_handles.push(handle);
@@ -138,11 +141,7 @@ pub async fn download_and_pipeline_blocks(
 
     let cloned_ctx = ctx.clone();
 
-    let blocks_post_processor_post_sequence_commands_tx = blocks_post_processor_post_sequence
-        .as_ref()
-        .and_then(|p| Some(p.commands_tx.clone()));
-
-    let blocks_post_processor_pre_sequence_commands_tx = blocks_post_processor_pre_sequence
+    let blocks_post_processor_commands_tx = blocks_post_processor
         .as_ref()
         .and_then(|p| Some(p.commands_tx.clone()));
 
@@ -151,19 +150,52 @@ pub async fn download_and_pipeline_blocks(
             let mut inbox = HashMap::new();
             let mut inbox_cursor = start_sequencing_blocks_at_height.max(start_block);
             let mut blocks_processed = 0;
-            let mut pre_seq_processor_started = false;
-            let mut post_seq_processor_started = false;
+            let mut processor_started = false;
+            let mut stop_runloop = false;
 
             loop {
+                if stop_runloop {
+                    cloned_ctx.try_log(|logger| {
+                        info!(
+                            logger,
+                            "#{blocks_processed} blocks successfully sent to processor"
+                        )
+                    });
+                    break;
+                }
+
                 // Dequeue all the blocks available
                 let mut new_blocks = vec![];
-                while let Ok(Some((block_height, block, compacted_block))) =
-                    block_compressed_rx.try_recv()
-                {
-                    blocks_processed += 1;
-                    new_blocks.push((block_height, block, compacted_block));
-                    if new_blocks.len() >= 10_000 {
-                        break;
+                while let Ok(message) = block_compressed_rx.try_recv() {
+                    match message {
+                        Some((block_height, block, compacted_block)) => {
+                            blocks_processed += 1;
+                            new_blocks.push((block_height, block, compacted_block));
+                            // Max batch size: 10_000 blocks
+                            if new_blocks.len() >= 10_000 {
+                                break;
+                            }
+                        }
+                        None => {
+                            stop_runloop = true;
+                        }
+                    }
+                }
+
+                if blocks_processed == number_of_blocks_to_process {
+                    stop_runloop = true;
+                }
+
+                // Early "continue"
+                if new_blocks.is_empty() {
+                    sleep(Duration::from_millis(500));
+                    continue;
+                }
+
+                if let Some(ref blocks_tx) = blocks_post_processor_commands_tx {
+                    if !processor_started {
+                        processor_started = true;
+                        let _ = blocks_tx.send(PostProcessorCommand::Start);
                     }
                 }
 
@@ -176,18 +208,15 @@ pub async fn download_and_pipeline_blocks(
                     }
                 }
 
-                if !ooo_compacted_blocks.is_empty() {
-                    if let Some(ref blocks_tx) = blocks_post_processor_pre_sequence_commands_tx {
-                        if !pre_seq_processor_started {
-                            pre_seq_processor_started = true;
-                            let _ = blocks_tx.send(PostProcessorCommand::Start);
-                        }
-
+                // Early "continue"
+                if inbox.is_empty() {
+                    if let Some(ref blocks_tx) = blocks_post_processor_commands_tx {
                         let _ = blocks_tx.send(PostProcessorCommand::ProcessBlocks(
                             ooo_compacted_blocks,
                             vec![],
                         ));
                     }
+                    continue;
                 }
 
                 // In order processing: construct the longest sequence of known blocks
@@ -199,24 +228,8 @@ pub async fn download_and_pipeline_blocks(
                     inbox_cursor += 1;
                 }
 
-                if blocks.is_empty() {
-                    if blocks_processed == number_of_blocks_to_process {
-                        cloned_ctx.try_log(|logger| {
-                            info!(
-                                logger,
-                                "#{blocks_processed} blocks successfully sent to processor"
-                            )
-                        });
-                        break;
-                    } else {
-                        sleep(Duration::from_secs(1));
-                    }
-                } else {
-                    if let Some(ref blocks_tx) = blocks_post_processor_post_sequence_commands_tx {
-                        if !post_seq_processor_started {
-                            post_seq_processor_started = true;
-                            let _ = blocks_tx.send(PostProcessorCommand::Start);
-                        }
+                if !blocks.is_empty() {
+                    if let Some(ref blocks_tx) = blocks_post_processor_commands_tx {
                         let _ = blocks_tx.send(PostProcessorCommand::ProcessBlocks(
                             compacted_blocks,
                             blocks,
@@ -248,7 +261,7 @@ pub async fn download_and_pipeline_blocks(
     }
 
     ctx.try_log(|logger| {
-        info!(
+        debug!(
             logger,
             "Pipeline successfully fed with sequence of blocks ({} to {})", start_block, end_block
         )
@@ -258,25 +271,32 @@ pub async fn download_and_pipeline_blocks(
         let _ = tx.send(None);
     }
 
+    ctx.try_log(|logger| debug!(logger, "Enqueued pipeline termination commands"));
+
     for handle in thread_pool_handles.into_iter() {
         let _ = handle.join();
     }
 
-    if let Some(post_processor) = blocks_post_processor_pre_sequence {
+    ctx.try_log(|logger| debug!(logger, "Pipeline successfully terminated"));
+
+    if let Some(post_processor) = blocks_post_processor {
+        if let Ok(PostProcessorEvent::Started) = post_processor.events_rx.recv() {
+            ctx.try_log(|logger| debug!(logger, "Block post processing started"));
+            let _ = post_processor
+                .commands_tx
+                .send(PostProcessorCommand::Terminate);
+        }
         loop {
-            if let Ok(PostProcessorEvent::EmptyQueue) = post_processor.events_rx.recv() {
-                break;
+            if let Ok(signal) = post_processor.events_rx.recv() {
+                match signal {
+                    PostProcessorEvent::Terminated | PostProcessorEvent::Expired => break,
+                    PostProcessorEvent::Started => unreachable!(),
+                }
             }
         }
     }
 
-    if let Some(post_processor) = blocks_post_processor_post_sequence {
-        loop {
-            if let Ok(PostProcessorEvent::EmptyQueue) = post_processor.events_rx.recv() {
-                break;
-            }
-        }
-    }
+    let _ = block_compressed_tx.send(None);
 
     let _ = storage_thread.join();
     let _ = set.shutdown();

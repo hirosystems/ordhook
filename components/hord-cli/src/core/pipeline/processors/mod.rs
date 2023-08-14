@@ -1,4 +1,4 @@
-pub mod block_ingestion;
+pub mod block_archiving;
 pub mod inscription_indexing;
 pub mod transfers_recomputing;
 

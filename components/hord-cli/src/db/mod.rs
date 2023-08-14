@@ -267,6 +267,7 @@ pub fn open_readwrite_hord_db_conn_rocks_db(
 pub fn insert_entry_in_blocks(
     block_height: u32,
     lazy_block: &LazyBlock,
+    update_tip: bool,
     blocks_db_rw: &DB,
     _ctx: &Context,
 ) {
@@ -274,9 +275,11 @@ pub fn insert_entry_in_blocks(
     blocks_db_rw
         .put(&block_height_bytes, &lazy_block.bytes)
         .expect("unable to insert blocks");
-    blocks_db_rw
-        .put(b"metadata::last_insert", block_height_bytes)
-        .expect("unable to insert metadata");
+    if update_tip {
+        blocks_db_rw
+            .put(b"metadata::last_insert", block_height_bytes)
+            .expect("unable to insert metadata");
+    }
 }
 
 pub fn find_last_block_inserted(blocks_db: &DB) -> u32 {
