@@ -384,10 +384,7 @@ pub fn parse_inscriptions_and_standardize_block(
     let mut ordinal_operations = BTreeMap::new();
 
     for tx in raw_block.tx.iter() {
-        ordinal_operations.insert(
-            tx.txid.to_string(),
-            parse_inscriptions_in_raw_tx(&tx, ctx),
-        );
+        ordinal_operations.insert(tx.txid.to_string(), parse_inscriptions_in_raw_tx(&tx, ctx));
     }
 
     let mut block = standardize_bitcoin_block(raw_block, network, ctx)?;

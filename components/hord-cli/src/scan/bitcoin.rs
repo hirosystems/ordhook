@@ -132,7 +132,7 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
                 &mut block,
                 &inscriptions_db_tx,
                 true,
-                &ctx,
+                &Context::empty(),
             );
         }
 
