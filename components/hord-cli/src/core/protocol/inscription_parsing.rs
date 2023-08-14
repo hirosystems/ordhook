@@ -247,7 +247,7 @@ impl FromStr for Media {
     }
 }
 
-pub fn get_inscriptions_from_witness(
+pub fn parse_inscriptions_from_witness(
     input_index: usize,
     witness_bytes: Vec<Vec<u8>>,
     txid: &str,
@@ -314,7 +314,7 @@ pub fn get_inscriptions_from_witness(
     Some(OrdinalOperation::InscriptionRevealed(payload))
 }
 
-pub fn get_inscriptions_from_standardized_tx(
+pub fn parse_inscriptions_from_standardized_tx(
     tx: &BitcoinTransactionData,
     _ctx: &Context,
 ) -> Vec<OrdinalOperation> {
@@ -326,7 +326,7 @@ pub fn get_inscriptions_from_standardized_tx(
             .map(|w| hex::decode(&w[2..]).unwrap())
             .collect();
 
-        if let Some(operation) = get_inscriptions_from_witness(
+        if let Some(operation) = parse_inscriptions_from_witness(
             input_index,
             witness_bytes,
             tx.transaction_identifier.get_hash_bytes_str(),
@@ -337,7 +337,7 @@ pub fn get_inscriptions_from_standardized_tx(
     operations
 }
 
-pub fn get_inscriptions_from_full_tx(
+pub fn parse_inscriptions_in_raw_tx(
     tx: &BitcoinTransactionFullBreakdown,
     _ctx: &Context,
 ) -> Vec<OrdinalOperation> {
@@ -350,7 +350,7 @@ pub fn get_inscriptions_from_full_tx(
                 .collect();
 
             if let Some(operation) =
-                get_inscriptions_from_witness(input_index, witness_bytes, &tx.txid)
+                parse_inscriptions_from_witness(input_index, witness_bytes, &tx.txid)
             {
                 operations.push(operation);
             }
@@ -376,7 +376,7 @@ fn test_ordinal_inscription_parsing() {
     println!("{:?}", inscription);
 }
 
-pub fn parse_ordinals_and_standardize_block(
+pub fn parse_inscriptions_and_standardize_block(
     raw_block: BitcoinBlockFullBreakdown,
     network: &BitcoinNetwork,
     ctx: &Context,
@@ -384,7 +384,10 @@ pub fn parse_ordinals_and_standardize_block(
     let mut ordinal_operations = BTreeMap::new();
 
     for tx in raw_block.tx.iter() {
-        ordinal_operations.insert(tx.txid.to_string(), get_inscriptions_from_full_tx(&tx, ctx));
+        ordinal_operations.insert(
+            tx.txid.to_string(),
+            parse_inscriptions_in_raw_tx(&tx, ctx),
+        );
     }
 
     let mut block = standardize_bitcoin_block(raw_block, network, ctx)?;
@@ -401,7 +404,7 @@ pub fn parse_ordinals_and_standardize_block(
 
 pub fn parse_inscriptions_in_standardized_block(block: &mut BitcoinBlockData, ctx: &Context) {
     for tx in block.transactions.iter_mut() {
-        tx.metadata.ordinal_operations = get_inscriptions_from_standardized_tx(tx, ctx);
+        tx.metadata.ordinal_operations = parse_inscriptions_from_standardized_tx(tx, ctx);
     }
 }
 

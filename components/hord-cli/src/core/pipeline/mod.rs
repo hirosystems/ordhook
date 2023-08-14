@@ -16,7 +16,7 @@ use chainhook_sdk::indexer::bitcoin::{
     build_http_client, parse_downloaded_block, try_download_block_bytes_with_retry,
 };
 
-use super::protocol::inscription_parsing::parse_ordinals_and_standardize_block;
+use super::protocol::inscription_parsing::parse_inscriptions_and_standardize_block;
 
 pub enum PostProcessorCommand {
     Start,
@@ -116,7 +116,7 @@ pub async fn download_and_pipeline_blocks(
                         .expect("unable to compress block");
                     let block_height = raw_block_data.height as u64;
                     let block_data = if block_height >= start_sequencing_blocks_at_height {
-                        let block_data = parse_ordinals_and_standardize_block(
+                        let block_data = parse_inscriptions_and_standardize_block(
                             raw_block_data,
                             &moved_bitcoin_network,
                             &moved_ctx,

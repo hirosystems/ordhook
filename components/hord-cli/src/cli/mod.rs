@@ -3,7 +3,7 @@ use crate::config::Config;
 use crate::core::pipeline::download_and_pipeline_blocks;
 use crate::core::pipeline::processors::block_archiving::start_block_archiving_processor;
 use crate::core::pipeline::processors::start_inscription_indexing_processor;
-use crate::core::protocol::inscription_parsing::parse_ordinals_and_standardize_block;
+use crate::core::protocol::inscription_parsing::parse_inscriptions_and_standardize_block;
 use crate::download::download_ordinals_dataset_if_required;
 use crate::scan::bitcoin::scan_bitcoin_chainstate_via_rpc_using_predicate;
 use crate::service::Service;
@@ -762,7 +762,7 @@ pub async fn fetch_and_standardize_block(
         download_and_parse_block_with_retry(http_client, &block_hash, &bitcoin_config, &ctx)
             .await?;
 
-    parse_ordinals_and_standardize_block(block_breakdown, &bitcoin_config.network, &ctx)
+    parse_inscriptions_and_standardize_block(block_breakdown, &bitcoin_config.network, &ctx)
         .map_err(|(e, _)| e)
 }
 

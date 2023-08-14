@@ -188,9 +188,9 @@ pub fn should_sync_hord_db(
     start_block += 1;
 
     // TODO: Gracefully handle Regtest, Testnet and Signet
-    let (mut end_block, speed) = if start_block < 200_000 {
+    let (mut end_block, speed) = if start_block <= 200_000 {
         (end_block.min(200_000), 10_000)
-    } else if start_block < 550_000 {
+    } else if start_block <= 550_000 {
         (end_block.min(550_000), 1_000)
     } else {
         (end_block, 100)

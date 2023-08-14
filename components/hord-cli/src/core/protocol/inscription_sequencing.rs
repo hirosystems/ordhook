@@ -39,6 +39,29 @@ use super::{
     satoshi_numbering::compute_satoshi_number,
 };
 
+/// Parallelize the computation of ordinals numbers for inscriptions present in a block.
+///
+/// This function will:
+/// 1) Limit the number of ordinals numbers to compute by filtering out all the ordinals numbers  pre-computed
+/// and present in the L1 cache.
+/// 2) Create a threadpool, by spawning as many threads as specified by the config to process the batch ordinals to
+/// retrieve
+/// 3) Consume eventual entries in cache L1
+/// 4) Inject the ordinals to compute (random order) in a priority queue
+/// via the command line).
+/// 5) Keep injecting ordinals from next blocks (if any) as long as the ordinals from the current block are not all
+/// computed and augment the cache L1 for future blocks.
+///
+/// If the block has already been computed in the past (so presence of ordinals number present in the `inscriptions` db)
+/// the transaction is removed from the set to compute, and not injected in L1 either.
+/// This behaviour should be refined.
+///
+/// # Panics
+/// - unability to spawn threads
+///
+/// # Todos / Optimizations
+/// - Pre-computed entries are being consumed from L1, and then re-injected in L1, which is wasting a bunch of cycles.
+///
 pub fn parallelize_inscription_data_computations(
     block: &BitcoinBlockData,
     next_blocks: &Vec<BitcoinBlockData>,
@@ -102,7 +125,7 @@ pub fn parallelize_inscription_data_computations(
         thread_pool_handles.push(handle);
     }
 
-    // Empty cache
+    // Consume L1 cache
     let mut thread_index = 0;
     for key in l1_cache_hits.iter() {
         if let Some(entry) = cache_l1.remove(key) {
@@ -245,6 +268,20 @@ pub fn parallelize_inscription_data_computations(
     Ok(has_transactions_to_process)
 }
 
+/// Given a block, a cache L1, and a readonly DB connection, returns a tuple with the transactions that must be included
+/// for ordinals computation and the list of transactions where we have a cache hit.
+///
+/// This function will:
+/// 1) Retrieve all the eventual inscriptions previously stored in DB for the block  
+/// 2) Traverse the list of transaction present in the block (except coinbase).
+/// 3) Check if the transaction is present in the cache L1 and augment the cache hit list accordingly and move on to the
+/// next transaction.
+/// 4) Check if the transaction was processed in the pastand move on to the next transaction.
+/// 5) Augment the list of transaction to process.
+///
+/// # Todos / Optimizations
+/// - DB query (inscriptions + locations) could be expensive.
+///
 fn get_transactions_to_process(
     block: &BitcoinBlockData,
     cache_l1: &mut BTreeMap<(TransactionIdentifier, usize), TraversalResult>,
@@ -292,14 +329,13 @@ fn get_transactions_to_process(
     (transactions_ids, l1_cache_hits)
 }
 
-/// For each input of each transaction in the block, we retrieve the UTXO spent (outpoint_pre_transfer)
-/// and we check using a `storage` (in-memory or sqlite) absctraction if we have some existing inscriptions
-/// for this entry.
-/// When this is the case, it means that an inscription_transfer event needs to be produced. We need to
-/// compute the output index (if any) `post_transfer_output` that will now include the inscription.
-/// When identifying the output index, we will also need to provide an updated offset for pin pointing
-/// the satoshi location.
-
+/// Helper caching inscription sequence cursor
+///
+/// When attributing an inscription number to a new inscription, retrieving the next inscription number to use (both for
+/// blessed and cursed sequence) is an expensive operation, challenging to optimize from a SQL point of view.
+/// This structure is wrapping the expensive SQL query and helping us keeping track of the next inscription number to
+/// use.
+///
 pub struct SequenceCursor {
     blessed: Option<i64>,
     cursed: Option<i64>,
@@ -384,6 +420,12 @@ impl SequenceCursor {
     }
 }
 
+/// Given a `BitcoinBlockData` that have been augmented with the functions `parse_inscriptions_in_raw_tx`, `parse_inscriptions_in_standardized_tx`
+/// or `parse_inscriptions_and_standardize_block`, mutate the ordinals drafted informations with actual, consensus data.
+///
+/// This function will write the updated informations to the Sqlite transaction (`inscriptions` and `locations` tables),
+/// but is leaving the responsibility to the caller to commit the transaction.
+///
 pub fn augment_block_with_ordinals_inscriptions_data_and_write_to_db_tx(
     block: &mut BitcoinBlockData,
     sequence_cursor: &mut SequenceCursor,
@@ -423,6 +465,14 @@ pub fn augment_block_with_ordinals_inscriptions_data_and_write_to_db_tx(
     any_events
 }
 
+/// Given a `BitcoinBlockData` that have been augmented with the functions `parse_inscriptions_in_raw_tx`, `parse_inscriptions_in_standardized_tx`
+/// or `parse_inscriptions_and_standardize_block`, mutate the ordinals drafted informations with actual, consensus data,
+/// by using informations from `inscription_data` and `reinscription_data`.
+///
+/// This function is responsible for handling the sats overflow / unbound inscription case.
+/// https://github.com/ordinals/ord/issues/2062
+///
+/// The block is in a correct state from a consensus point of view after the execution of this function.
 pub fn augment_block_with_ordinals_inscriptions_data(
     block: &mut BitcoinBlockData,
     sequence_cursor: &mut SequenceCursor,
@@ -484,7 +534,13 @@ pub fn augment_block_with_ordinals_inscriptions_data(
     any_event
 }
 
-pub fn augment_transaction_with_ordinals_inscriptions_data(
+/// Given a `BitcoinTransactionData` that have been augmented with the functions `parse_inscriptions_in_raw_tx` or
+/// `parse_inscriptions_in_standardized_tx`,  mutate the ordinals drafted informations with actual, consensus data, by
+/// using informations from `inscription_data` and `reinscription_data`.
+///
+/// Transactions are not fully correct from a consensus point of view state transient state after the execution of this
+/// function.
+fn augment_transaction_with_ordinals_inscriptions_data(
     tx: &mut BitcoinTransactionData,
     tx_index: usize,
     block_identifier: &BlockIdentifier,
@@ -620,7 +676,9 @@ pub fn augment_transaction_with_ordinals_inscriptions_data(
     any_event
 }
 
-pub fn consolidate_transaction_with_pre_computed_inscription_data(
+/// Best effort to re-augment a `BitcoinTransactionData` with data coming from `inscriptions` and `locations` tables.
+/// Some informations are being lost (curse_type).
+fn consolidate_transaction_with_pre_computed_inscription_data(
     tx: &mut BitcoinTransactionData,
     tx_index: usize,
     coinbase_txid: &TransactionIdentifier,
@@ -683,6 +741,8 @@ pub fn consolidate_transaction_with_pre_computed_inscription_data(
     }
 }
 
+/// Best effort to re-augment a `BitcoinBlockData` with data coming from `inscriptions` and `locations` tables.
+/// Some informations are being lost (curse_type).
 pub fn consolidate_block_with_pre_computed_ordinals_data(
     block: &mut BitcoinBlockData,
     inscriptions_db_tx: &Transaction,
