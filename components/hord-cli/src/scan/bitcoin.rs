@@ -149,8 +149,9 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
 
         info!(
             ctx.expect_logger(),
-            "Processing block #{current_block_height} through {} predicate (inscriptions revealed: [{}], db_conn updated: {conn_updated})",
+            "Processing block #{current_block_height} through {} predicate ({} inscriptions revealed: [{}], db_conn updated: {conn_updated})",
             predicate_spec.uuid,
+            inscriptions_revealed.len(),
             inscriptions_revealed.join(", ")
         );
 
