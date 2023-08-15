@@ -75,8 +75,6 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
         BlockHeights::BlockRange(start_block, end_block).get_sorted_entries()
     };
 
-    // Are we dealing with an ordinals-based predicate?
-    // If so, we could use the ordinal storage to provide a set of hints.
     let mut inscriptions_db_conn = open_readonly_hord_db_conn(&config.expected_cache_path(), ctx)?;
 
     info!(
@@ -95,6 +93,14 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
 
     while let Some(current_block_height) = block_heights_to_scan.pop_front() {
         number_of_blocks_scanned += 1;
+
+        // Re-initiate connection every 250 blocks (pessimistic) to avoid stale connections
+        let conn_updated = if number_of_blocks_scanned % 250 == 0 {
+            inscriptions_db_conn = open_readonly_hord_db_conn(&config.expected_cache_path(), ctx)?;
+            true
+        } else {
+            false
+        };
 
         if !get_any_entry_in_ordinal_activities(&current_block_height, &inscriptions_db_conn, &ctx)
         {
@@ -143,7 +149,7 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
 
         info!(
             ctx.expect_logger(),
-            "Processing block #{current_block_height} through {} predicate (inscriptions revealed: [{}])",
+            "Processing block #{current_block_height} through {} predicate (inscriptions revealed: [{}], db_conn updated: {conn_updated})",
             predicate_spec.uuid,
             inscriptions_revealed.join(", ")
         );
