@@ -1,5 +1,5 @@
                       
-       /     /   ▶ Hord   
+       /     /   ▶ Ordhook   
       / --- /      Ordinal indexing engine based on Chainhook.
      /     /       Build indexes, standards and protocols on top of Ordinals and Inscriptions (BRC20, etc).
                   
@@ -70,17 +70,17 @@ Assuming:
 
 `2)` a local HTTP server running on port `3000` exposing a `POST /api/events` endpoint, 
 
-A configuration file `Hord.toml` can be generated using the command:
+A configuration file `Ordhook.toml` can be generated using the command:
 
 ```console
 $ ordhook config new --mainnet
-✔ Generated config file Hord.toml
+✔ Generated config file Ordhook.toml
 ```
 
-After adjusting the `Hord.toml` settings to make them match the `bitcoind` configuration, the following command can be ran:  
+After adjusting the `Ordhook.toml` settings to make them match the `bitcoind` configuration, the following command can be ran:  
 
 ```
-$ ordhook scan blocks 767430 767753 --post-to=http://localhost:3000/api/events --config-path=./Hord.toml
+$ ordhook scan blocks 767430 767753 --post-to=http://localhost:3000/api/events --config-path=./Ordhook.toml
 ```
 
 `ordhook` will retrieve the full Ordinals activities (including the inscriptions content) and send all these informations to the `http://localhost:3000/api/events` HTTP POST endpoint. 
@@ -91,10 +91,10 @@ $ ordhook scan blocks 767430 767753 --post-to=http://localhost:3000/api/events -
 `ordhook` can be ran as a service for streaming and processing new blocks appended to the Bitcoin blockchain.
 
 ```console
-$ ordhook service start --post-to=http://localhost:3000/api/events --config-path=./Hord.toml
+$ ordhook service start --post-to=http://localhost:3000/api/events --config-path=./Ordhook.toml
 ```
 
-New `http-post` endpoints can also be added dynamically by spinning up a redis server and adding the following section in the `Hord.toml` configuration file:
+New `http-post` endpoints can also be added dynamically by spinning up a redis server and adding the following section in the `Ordhook.toml` configuration file:
 
 ```toml
 [http_api]
@@ -105,7 +105,7 @@ database_uri = "redis://localhost:6379/"
 Running `ordhook` with the command
 
 ```console
-$ ordhook service start --config-path=./Hord.toml
+$ ordhook service start --config-path=./Ordhook.toml
 ```
 
 will spin up a HTTP API for managing events destinations.

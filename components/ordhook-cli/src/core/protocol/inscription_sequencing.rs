@@ -17,7 +17,7 @@ use fxhash::FxHasher;
 use rusqlite::{Connection, Transaction};
 
 use crate::{
-    core::HordConfig,
+    core::OrdhookConfig,
     db::{
         find_blessed_inscription_with_ordinal_number,
         find_latest_cursed_inscription_number_at_block_height,
@@ -68,7 +68,7 @@ pub fn parallelize_inscription_data_computations(
     cache_l1: &mut BTreeMap<(TransactionIdentifier, usize), TraversalResult>,
     cache_l2: &Arc<DashMap<(u32, [u8; 8]), LazyBlockTransaction, BuildHasherDefault<FxHasher>>>,
     inscriptions_db_tx: &Transaction,
-    ordhook_config: &HordConfig,
+    ordhook_config: &OrdhookConfig,
     ctx: &Context,
 ) -> Result<bool, String> {
     let (mut transactions_ids, l1_cache_hits) =

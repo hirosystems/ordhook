@@ -28,7 +28,7 @@ use crate::{
             },
             inscription_tracking::augment_block_with_ordinals_transfer_data,
         },
-        HordConfig,
+        OrdhookConfig,
     },
     db::{get_any_entry_in_ordinal_activities, open_readonly_ordhook_db_conn},
 };
@@ -158,7 +158,7 @@ pub fn process_blocks(
     sequence_cursor: &mut SequenceCursor,
     cache_l2: &Arc<DashMap<(u32, [u8; 8]), LazyBlockTransaction, BuildHasherDefault<FxHasher>>>,
     inscriptions_db_conn_rw: &mut Connection,
-    ordhook_config: &HordConfig,
+    ordhook_config: &OrdhookConfig,
     post_processor: &Option<Sender<BitcoinBlockData>>,
     ctx: &Context,
 ) -> Vec<BitcoinBlockData> {
@@ -253,7 +253,7 @@ pub fn process_block(
     cache_l1: &mut BTreeMap<(TransactionIdentifier, usize), TraversalResult>,
     cache_l2: &Arc<DashMap<(u32, [u8; 8]), LazyBlockTransaction, BuildHasherDefault<FxHasher>>>,
     inscriptions_db_tx: &Transaction,
-    ordhook_config: &HordConfig,
+    ordhook_config: &OrdhookConfig,
     ctx: &Context,
 ) -> Result<(), String> {
     let any_processable_transactions = parallelize_inscription_data_computations(
