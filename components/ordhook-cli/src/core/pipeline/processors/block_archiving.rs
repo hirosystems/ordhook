@@ -11,7 +11,7 @@ use rocksdb::DB;
 use crate::{
     config::Config,
     core::pipeline::{PostProcessorCommand, PostProcessorController, PostProcessorEvent},
-    db::{insert_entry_in_blocks, open_readwrite_ordhook_db_conn_rocks_db, LazyBlock},
+    db::{insert_entry_in_blocks, open_readwrite_ordhook_db_conn_rocks_db, LazyBlock, open_ordhook_db_conn_rocks_db_loop},
 };
 
 pub fn start_block_archiving_processor(
@@ -73,7 +73,7 @@ pub fn start_block_archiving_processor(
 
                 if processed_blocks % 10_000 == 0 {
                     let _ = blocks_db_rw.flush_wal(true);
-                    blocks_db_rw = open_readwrite_ordhook_db_conn_rocks_db(&config.expected_cache_path(), &ctx).unwrap();
+                    blocks_db_rw = open_ordhook_db_conn_rocks_db_loop(true, &config.expected_cache_path(), &ctx);
                 }
             }
 
