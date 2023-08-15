@@ -230,13 +230,17 @@ pub fn open_readonly_hord_db_conn_rocks_db(
 }
 
 pub fn open_readonly_hord_db_conn_rocks_db_loop(base_dir: &PathBuf, ctx: &Context) -> DB {
+    let mut retries = 0;
     let blocks_db = loop {
         match open_readonly_hord_db_conn_rocks_db(&base_dir, &ctx) {
             Ok(db) => break db,
             Err(e) => {
-                ctx.try_log(|logger| {
-                    warn!(logger, "Unable to open db: {e}",);
-                });
+                retries += 1;
+                if retries > 10 {
+                    ctx.try_log(|logger| {
+                        warn!(logger, "Unable to open db: {e}",);
+                    });
+                }
                 continue;
             }
         }
@@ -311,7 +315,7 @@ pub fn find_lazy_block_at_block_height(
                     ctx.try_log(|logger| {
                         warn!(
                             logger,
-                            "Attempt to retrieve block {} through iterator", block_height,
+                            "Attempt to retrieve block #{} through iterator", block_height,
                         )
                     });
                     let mut iter = blocks_db.iterator(rocksdb::IteratorMode::End);
@@ -328,7 +332,7 @@ pub fn find_lazy_block_at_block_height(
                 ctx.try_log(|logger| {
                     warn!(
                         logger,
-                        "Unable to find block {}, will retry in {:?}", block_height, duration
+                        "Unable to find block #{}, will retry in {:?}", block_height, duration
                     )
                 });
                 std::thread::sleep(duration);
@@ -1026,8 +1030,14 @@ pub fn format_satpoint_to_watch(
 pub fn parse_satpoint_to_watch(outpoint_to_watch: &str) -> (TransactionIdentifier, usize, u64) {
     let comps: Vec<&str> = outpoint_to_watch.split(":").collect();
     let tx = TransactionIdentifier::new(comps[0]);
-    let output_index = comps[1].to_string().parse::<usize>().unwrap();
-    let offset = comps[2].to_string().parse::<u64>().unwrap();
+    let output_index = comps[1].to_string().parse::<usize>().expect(&format!(
+        "fatal: unable to extract output_index from outpoint {}",
+        outpoint_to_watch
+    ));
+    let offset = comps[2].to_string().parse::<u64>().expect(&format!(
+        "fatal: unable to extract offset from outpoint {}",
+        outpoint_to_watch
+    ));
     (tx, output_index, offset)
 }
 
@@ -1045,14 +1055,20 @@ pub fn format_outpoint_to_watch(
 pub fn parse_inscription_id(inscription_id: &str) -> (TransactionIdentifier, usize) {
     let comps: Vec<&str> = inscription_id.split("i").collect();
     let tx = TransactionIdentifier::new(&comps[0]);
-    let output_index = comps[1].to_string().parse::<usize>().unwrap();
+    let output_index = comps[1].to_string().parse::<usize>().expect(&format!(
+        "fatal: unable to extract output_index from inscription_id {}",
+        inscription_id
+    ));
     (tx, output_index)
 }
 
 pub fn parse_outpoint_to_watch(outpoint_to_watch: &str) -> (TransactionIdentifier, usize) {
     let comps: Vec<&str> = outpoint_to_watch.split(":").collect();
     let tx = TransactionIdentifier::new(&comps[0]);
-    let output_index = comps[1].to_string().parse::<usize>().unwrap();
+    let output_index = comps[1].to_string().parse::<usize>().expect(&format!(
+        "fatal: unable to extract output_index from outpoint {}",
+        outpoint_to_watch
+    ));
     (tx, output_index)
 }
 

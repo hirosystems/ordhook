@@ -464,7 +464,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 );
                 let tip = check_bitcoind_connection(&config).await?;
                 if tip < cmd.end_block {
-                    error!(ctx.expect_logger(), "Unable to scan block range [{}, {}]: underlying bitcoind synchronized until block {} ", cmd.start_block, cmd.end_block, tip);
+                    error!(ctx.expect_logger(), "Unable to scan block range [{}, {}]: underlying bitcoind synchronized until block #{} ", cmd.start_block, cmd.end_block, tip);
                 } else {
                     info!(ctx.expect_logger(), "Starting scan");
                 }
@@ -564,7 +564,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
             );
             for (transfer, block_height) in transfers.iter().skip(1) {
                 println!(
-                    "\t→ Transferred in transaction {} (block {block_height})",
+                    "\t→ Transferred in transaction {} (block #{block_height})",
                     transfer.transaction_identifier_location.hash
                 );
             }
@@ -594,7 +594,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                         None => {
                             warn!(
                                 ctx.expect_logger(),
-                                "Inscription ingestion will start at block {}",
+                                "Inscription ingestion will start at block #{}",
                                 hord_config.first_inscription_height
                             );
                             hord_config.first_inscription_height
@@ -704,7 +704,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                     if find_lazy_block_at_block_height(i as u32, 0, false, &blocks_db, &ctx)
                         .is_none()
                     {
-                        println!("Missing block {i}");
+                        println!("Missing block #{i}");
                         missing_blocks.push(i);
                     }
                 }

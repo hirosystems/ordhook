@@ -522,7 +522,7 @@ pub fn augment_block_with_ordinals_inscriptions_data(
         ctx.try_log(|logger| {
             info!(
                 logger,
-                "Unbound inscription {} (#{}) detected on Satoshi {} (block {}, {} transfers)",
+                "Unbound inscription {} (#{}) detected on Satoshi {} (block #{}, {} transfers)",
                 inscription_data.inscription_id,
                 inscription_data.inscription_number,
                 inscription_data.ordinal_number,
@@ -658,7 +658,7 @@ fn augment_transaction_with_ordinals_inscriptions_data(
         ctx.try_log(|logger| {
             info!(
                 logger,
-                "Inscription {} (#{}) detected on Satoshi {} (block {}, {} transfers)",
+                "Inscription {} (#{}) detected on Satoshi {} (block #{}, {} transfers)",
                 inscription.inscription_id,
                 inscription.inscription_number,
                 inscription.ordinal_number,
