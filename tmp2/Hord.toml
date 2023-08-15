@@ -1,9 +1,4 @@
-use chainhook_sdk::types::BitcoinNetwork;
-
-pub fn generate_config(network: &BitcoinNetwork) -> String {
-    let network = format!("{:?}", network);
-    let conf = format!(
-        r#"[storage]
+[storage]
 working_dir = "cache"
 
 # The Http Api allows you to register / deregister
@@ -15,7 +10,7 @@ working_dir = "cache"
 # database_uri = "redis://localhost:6379/"
 
 [network]
-mode = "{network}"
+mode = "mainnet"
 bitcoind_rpc_url = "http://0.0.0.0:8332"
 bitcoind_rpc_username = "devnet"
 bitcoind_rpc_password = "devnet"
@@ -40,10 +35,5 @@ max_caching_memory_size_mb = 32000
 download_url = "https://archive.hiro.so/mainnet/chainhooks/hord.sqlite"
 
 [logs]
-ordinals_internals = true
-chainhook_internals = true
-"#,
-        network = network.to_lowercase(),
-    );
-    return conf;
-}
+ordinals_internals = false
+chainhook_internals = false

@@ -18,8 +18,8 @@ use chainhook_sdk::{
 use crate::config::{Config, LogConfig};
 
 use crate::db::{
-    find_last_block_inserted, find_latest_inscription_block_height, initialize_hord_db,
-    open_readonly_hord_db_conn, open_readonly_hord_db_conn_rocks_db,
+    find_last_block_inserted, find_latest_inscription_block_height, initialize_ordhook_db,
+    open_readonly_ordhook_db_conn, open_readonly_ordhook_db_conn_rocks_db,
 };
 
 use crate::db::{
@@ -38,7 +38,7 @@ pub struct HordConfig {
     pub logs: LogConfig,
 }
 
-pub fn revert_hord_db_with_augmented_bitcoin_block(
+pub fn revert_ordhook_db_with_augmented_bitcoin_block(
     block: &BitcoinBlockData,
     blocks_db_rw: &DB,
     inscriptions_db_conn_rw: &Connection,
@@ -133,7 +133,7 @@ pub fn compute_next_satpoint_data(
     SatPosition::Output((output_index, (offset_cross_inputs - offset_intra_outputs)))
 }
 
-pub fn should_sync_hord_db(
+pub fn should_sync_ordhook_db(
     config: &Config,
     ctx: &Context,
 ) -> Result<Option<(u64, u64, usize)>, String> {
@@ -150,7 +150,7 @@ pub fn should_sync_hord_db(
     };
 
     let mut start_block =
-        match open_readonly_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx) {
+        match open_readonly_ordhook_db_conn_rocks_db(&config.expected_cache_path(), &ctx) {
             Ok(blocks_db) => find_last_block_inserted(&blocks_db) as u64,
             Err(err) => {
                 ctx.try_log(|logger| {
@@ -161,17 +161,17 @@ pub fn should_sync_hord_db(
         };
 
     if start_block == 0 {
-        let _ = initialize_hord_db(&config.expected_cache_path(), &ctx);
+        let _ = initialize_ordhook_db(&config.expected_cache_path(), &ctx);
     }
 
-    let inscriptions_db_conn = open_readonly_hord_db_conn(&config.expected_cache_path(), &ctx)?;
+    let inscriptions_db_conn = open_readonly_ordhook_db_conn(&config.expected_cache_path(), &ctx)?;
 
     match find_latest_inscription_block_height(&inscriptions_db_conn, ctx)? {
         Some(height) => {
             start_block = start_block.min(height);
         }
         None => {
-            start_block = start_block.min(config.get_hord_config().first_inscription_height);
+            start_block = start_block.min(config.get_ordhook_config().first_inscription_height);
         }
     };
 

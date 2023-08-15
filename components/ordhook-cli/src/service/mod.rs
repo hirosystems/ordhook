@@ -9,10 +9,10 @@ use crate::core::pipeline::processors::transfers_recomputing::start_transfers_re
 use crate::core::protocol::inscription_parsing::parse_inscriptions_in_standardized_block;
 use crate::core::protocol::inscription_sequencing::SequenceCursor;
 use crate::core::{
-    new_traversals_lazy_cache, revert_hord_db_with_augmented_bitcoin_block, should_sync_hord_db,
+    new_traversals_lazy_cache, revert_ordhook_db_with_augmented_bitcoin_block, should_sync_ordhook_db,
 };
 use crate::db::{
-    insert_entry_in_blocks, open_readonly_hord_db_conn, open_readwrite_hord_dbs, LazyBlock,
+    insert_entry_in_blocks, open_readonly_ordhook_db_conn, open_readwrite_ordhook_dbs, LazyBlock,
 };
 use crate::scan::bitcoin::process_block_with_predicates;
 use crate::service::http_api::{load_predicates_from_redis, start_predicate_api_server};
@@ -53,21 +53,21 @@ impl Service {
         );
         event_observer_config.chainhook_config = Some(chainhook_config);
 
-        let hord_config = self.config.get_hord_config();
+        let ordhook_config = self.config.get_ordhook_config();
 
         // Sleep
         // std::thread::sleep(std::time::Duration::from_secs(1200));
 
         // Force rebuild
         // {
-        //     let blocks_db = open_readwrite_hord_db_conn_rocks_db(
+        //     let blocks_db = open_readwrite_ordhook_db_conn_rocks_db(
         //         &self.config.expected_cache_path(),
         //         &self.ctx,
         //     )?;
         //     let inscriptions_db_conn_rw =
-        //         open_readwrite_hord_db_conn(&self.config.expected_cache_path(), &self.ctx)?;
+        //         open_readwrite_ordhook_db_conn(&self.config.expected_cache_path(), &self.ctx)?;
 
-        //     delete_data_in_hord_db(
+        //     delete_data_in_ordhook_db(
         //         767430,
         //         800000,
         //         &blocks_db,
@@ -107,7 +107,7 @@ impl Service {
 
         // let (cursor, tip) = {
         //     let inscriptions_db_conn =
-        //         open_readonly_hord_db_conn(&self.config.expected_cache_path(), &self.ctx)?;
+        //         open_readonly_ordhook_db_conn(&self.config.expected_cache_path(), &self.ctx)?;
         //     let cursor = find_latest_transfers_block_height(&inscriptions_db_conn, &self.ctx).unwrap_or(1);
         //     match find_latest_inscription_block_height(&inscriptions_db_conn, &self.ctx)? {
         //         Some(height) => (cursor, height),
@@ -158,9 +158,9 @@ impl Service {
         }
 
         let (observer_event_tx, observer_event_rx) = crossbeam_channel::unbounded();
-        let traversals_cache = Arc::new(new_traversals_lazy_cache(hord_config.cache_size));
+        let traversals_cache = Arc::new(new_traversals_lazy_cache(ordhook_config.cache_size));
 
-        let inner_ctx = if hord_config.logs.chainhook_internals {
+        let inner_ctx = if ordhook_config.logs.chainhook_internals {
             self.ctx.clone()
         } else {
             Context::empty()
@@ -197,7 +197,7 @@ impl Service {
             };
 
             let (blocks_db_rw, mut inscriptions_db_conn_rw) =
-                match open_readwrite_hord_dbs(&config.expected_cache_path(), &ctx) {
+                match open_readwrite_ordhook_dbs(&config.expected_cache_path(), &ctx) {
                     Ok(dbs) => dbs,
                     Err(e) => {
                         ctx.try_log(|logger| {
@@ -217,7 +217,7 @@ impl Service {
                             block.block_identifier.index
                         );
 
-                        if let Err(e) = revert_hord_db_with_augmented_bitcoin_block(
+                        if let Err(e) = revert_ordhook_db_with_augmented_bitcoin_block(
                             block,
                             &blocks_db_rw,
                             &inscriptions_db_conn_rw,
@@ -261,7 +261,7 @@ impl Service {
                         parse_inscriptions_in_standardized_block(block, &ctx);
                     }
                     let inscriptions_db_conn =
-                        open_readonly_hord_db_conn(&config.expected_cache_path(), &ctx)
+                        open_readonly_ordhook_db_conn(&config.expected_cache_path(), &ctx)
                             .expect("unable to open inscriptions db");
                     let mut sequence_cursor = SequenceCursor::new(inscriptions_db_conn);
 
@@ -270,7 +270,7 @@ impl Service {
                         &mut sequence_cursor,
                         &moved_traversals_cache,
                         &mut inscriptions_db_conn_rw,
-                        &config.get_hord_config(),
+                        &config.get_ordhook_config(),
                         &None,
                         &ctx,
                     );
@@ -401,7 +401,7 @@ impl Service {
         // Start predicate processor
 
         while let Some((start_block, end_block, speed)) =
-            should_sync_hord_db(&self.config, &self.ctx)?
+            should_sync_ordhook_db(&self.config, &self.ctx)?
         {
             let blocks_post_processor = start_inscription_indexing_processor(
                 &self.config,
@@ -414,8 +414,8 @@ impl Service {
                 "Indexing inscriptions from block #{start_block} to block #{end_block}"
             );
 
-            let hord_config = self.config.get_hord_config();
-            let first_inscription_height = hord_config.first_inscription_height;
+            let ordhook_config = self.config.get_ordhook_config();
+            let first_inscription_height = ordhook_config.first_inscription_height;
             download_and_pipeline_blocks(
                 &self.config,
                 start_block,
@@ -446,8 +446,8 @@ impl Service {
             "Indexing inscriptions from block #{start_block} to block #{end_block}"
         );
 
-        let hord_config = self.config.get_hord_config();
-        let first_inscription_height = hord_config.first_inscription_height;
+        let ordhook_config = self.config.get_ordhook_config();
+        let first_inscription_height = ordhook_config.first_inscription_height;
         download_and_pipeline_blocks(
             &self.config,
             start_block,

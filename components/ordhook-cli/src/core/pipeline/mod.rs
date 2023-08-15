@@ -59,7 +59,7 @@ pub async fn download_and_pipeline_blocks(
         bitcoin_block_signaling: config.network.bitcoin_block_signaling.clone(),
     };
 
-    let hord_config = config.get_hord_config();
+    let ordhook_config = config.get_ordhook_config();
 
     let number_of_blocks_to_process = end_block - start_block + 1;
 
@@ -74,7 +74,7 @@ pub async fn download_and_pipeline_blocks(
 
     let mut block_heights = VecDeque::from((start_block..=end_block).collect::<Vec<u64>>());
 
-    for _ in 0..hord_config.ingestion_thread_queue_size {
+    for _ in 0..ordhook_config.ingestion_thread_queue_size {
         if let Some(block_height) = block_heights.pop_front() {
             let config = moved_config.clone();
             let ctx = moved_ctx.clone();
@@ -96,8 +96,8 @@ pub async fn download_and_pipeline_blocks(
     let mut rx_thread_pool = vec![];
     let mut thread_pool_handles = vec![];
 
-    for _ in 0..hord_config.ingestion_thread_max {
-        let (tx, rx) = bounded::<Option<Vec<u8>>>(hord_config.ingestion_thread_queue_size);
+    for _ in 0..ordhook_config.ingestion_thread_max {
+        let (tx, rx) = bounded::<Option<Vec<u8>>>(ordhook_config.ingestion_thread_queue_size);
         tx_thread_pool.push(tx);
         rx_thread_pool.push(rx);
     }
@@ -257,7 +257,7 @@ pub async fn download_and_pipeline_blocks(
                 ctx,
             ));
         }
-        thread_index = (thread_index + 1) % hord_config.ingestion_thread_max;
+        thread_index = (thread_index + 1) % ordhook_config.ingestion_thread_max;
     }
 
     ctx.try_log(|logger| {
@@ -313,7 +313,7 @@ pub async fn download_and_pipeline_blocks(
     //         ctx.try_log(|logger| {
     //             slog::info!(logger, "Generating report");
     //         });
-    //         let file = std::fs::File::create("hord-perf.svg").unwrap();
+    //         let file = std::fs::File::create("ordhook-perf.svg").unwrap();
     //         report.flamegraph(file).unwrap();
     //     }
     //     Err(e) => {

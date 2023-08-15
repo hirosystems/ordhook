@@ -30,7 +30,7 @@ use crate::{
         },
         HordConfig,
     },
-    db::{get_any_entry_in_ordinal_activities, open_readonly_hord_db_conn},
+    db::{get_any_entry_in_ordinal_activities, open_readonly_ordhook_db_conn},
 };
 
 use crate::db::{LazyBlockTransaction, TraversalResult};
@@ -41,7 +41,7 @@ use crate::{
         new_traversals_lazy_cache,
         pipeline::{PostProcessorCommand, PostProcessorController, PostProcessorEvent},
     },
-    db::{open_readwrite_hord_db_conn, open_readwrite_hord_db_conn_rocks_db},
+    db::{open_readwrite_ordhook_db_conn, open_readwrite_ordhook_db_conn_rocks_db},
 };
 
 pub fn start_inscription_indexing_processor(
@@ -61,14 +61,14 @@ pub fn start_inscription_indexing_processor(
             let mut garbage_collect_nth_block = 0;
 
             let mut inscriptions_db_conn_rw =
-                open_readwrite_hord_db_conn(&config.expected_cache_path(), &ctx).unwrap();
-            let hord_config = config.get_hord_config();
+                open_readwrite_ordhook_db_conn(&config.expected_cache_path(), &ctx).unwrap();
+            let ordhook_config = config.get_ordhook_config();
             let blocks_db_rw =
-                open_readwrite_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx).unwrap();
+                open_readwrite_ordhook_db_conn_rocks_db(&config.expected_cache_path(), &ctx).unwrap();
             let mut empty_cycles = 0;
 
             let inscriptions_db_conn =
-                open_readonly_hord_db_conn(&config.expected_cache_path(), &ctx).unwrap();
+                open_readonly_ordhook_db_conn(&config.expected_cache_path(), &ctx).unwrap();
             let mut sequence_cursor = SequenceCursor::new(inscriptions_db_conn);
 
             if let Ok(PostProcessorCommand::Start) = commands_rx.recv() {
@@ -125,7 +125,7 @@ pub fn start_inscription_indexing_processor(
                     &mut sequence_cursor,
                     &cache_l2,
                     &mut inscriptions_db_conn_rw,
-                    &hord_config,
+                    &ordhook_config,
                     &post_processor,
                     &ctx,
                 );
@@ -158,7 +158,7 @@ pub fn process_blocks(
     sequence_cursor: &mut SequenceCursor,
     cache_l2: &Arc<DashMap<(u32, [u8; 8]), LazyBlockTransaction, BuildHasherDefault<FxHasher>>>,
     inscriptions_db_conn_rw: &mut Connection,
-    hord_config: &HordConfig,
+    ordhook_config: &HordConfig,
     post_processor: &Option<Sender<BitcoinBlockData>>,
     ctx: &Context,
 ) -> Vec<BitcoinBlockData> {
@@ -187,7 +187,7 @@ pub fn process_blocks(
             &mut cache_l1,
             cache_l2,
             &inscriptions_db_tx,
-            hord_config,
+            ordhook_config,
             ctx,
         );
 
@@ -253,7 +253,7 @@ pub fn process_block(
     cache_l1: &mut BTreeMap<(TransactionIdentifier, usize), TraversalResult>,
     cache_l2: &Arc<DashMap<(u32, [u8; 8]), LazyBlockTransaction, BuildHasherDefault<FxHasher>>>,
     inscriptions_db_tx: &Transaction,
-    hord_config: &HordConfig,
+    ordhook_config: &HordConfig,
     ctx: &Context,
 ) -> Result<(), String> {
     let any_processable_transactions = parallelize_inscription_data_computations(
@@ -262,7 +262,7 @@ pub fn process_block(
         cache_l1,
         cache_l2,
         inscriptions_db_tx,
-        &hord_config,
+        &ordhook_config,
         ctx,
     )?;
 
@@ -270,7 +270,7 @@ pub fn process_block(
         return Ok(());
     }
 
-    let inner_ctx = if hord_config.logs.ordinals_internals {
+    let inner_ctx = if ordhook_config.logs.ordinals_internals {
         ctx.clone()
     } else {
         Context::empty()

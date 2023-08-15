@@ -110,7 +110,7 @@ impl Config {
         }
     }
 
-    pub fn get_hord_config(&self) -> HordConfig {
+    pub fn get_ordhook_config(&self) -> HordConfig {
         HordConfig {
             network_thread_max: self.limits.bitcoin_concurrent_http_requests_max,
             ingestion_thread_max: self.limits.max_number_of_processing_threads,
@@ -162,7 +162,7 @@ impl Config {
 
         let config = Config {
             storage: StorageConfig {
-                working_dir: config_file.storage.working_dir.unwrap_or("cache".into()),
+                working_dir: config_file.storage.working_dir.unwrap_or("ordhook".into()),
             },
             http_api: match config_file.http_api {
                 None => PredicatesApi::Off,
@@ -399,6 +399,6 @@ impl Config {
 
 pub fn default_cache_path() -> String {
     let mut cache_path = std::env::current_dir().expect("unable to get current dir");
-    cache_path.push("cache");
+    cache_path.push("ordhook");
     format!("{}", cache_path.display())
 }

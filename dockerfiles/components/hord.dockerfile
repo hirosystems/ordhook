@@ -6,21 +6,21 @@ RUN apt update && apt install -y ca-certificates pkg-config libssl-dev libclang-
 
 RUN rustup update 1.67.0 && rustup default 1.67.0
 
-COPY ./components/hord-cli /src/components/hord-cli
+COPY ./components/ordhook-cli /src/components/ordhook-cli
 
-WORKDIR /src/components/hord-cli
+WORKDIR /src/components/ordhook-cli
 
 RUN mkdir /out
 
 RUN cargo build --features release --release
 
-RUN cp target/release/hord /out
+RUN cp target/release/ordhook /out
 
 FROM debian:bullseye-slim
 
 RUN apt update && apt install -y ca-certificates libssl-dev
 
-COPY --from=build /out/ /bin/
+COPY --from=build /out/ordhook /bin/hord
 
 WORKDIR /workspace
 
