@@ -56,14 +56,14 @@ pub fn start_inscription_indexing_processor(
     let ctx = ctx.clone();
     let handle: JoinHandle<()> = hiro_system_kit::thread_named("Inscription indexing runloop")
         .spawn(move || {
-            let cache_l2 = Arc::new(new_traversals_lazy_cache(1024));
-            let garbage_collect_every_n_blocks = 100;
+            let cache_l2 = Arc::new(new_traversals_lazy_cache(100_000));
+            let garbage_collect_every_n_blocks = 256;
             let mut garbage_collect_nth_block = 0;
 
             let mut inscriptions_db_conn_rw =
                 open_readwrite_ordhook_db_conn(&config.expected_cache_path(), &ctx).unwrap();
             let ordhook_config = config.get_ordhook_config();
-            let blocks_db_rw =
+            let mut blocks_db_rw =
                 open_readwrite_ordhook_db_conn_rocks_db(&config.expected_cache_path(), &ctx).unwrap();
             let mut empty_cycles = 0;
 
@@ -132,14 +132,23 @@ pub fn start_inscription_indexing_processor(
 
                 garbage_collect_nth_block += blocks.len();
 
-                // Clear L2 cache on a regular basis
                 if garbage_collect_nth_block > garbage_collect_every_n_blocks {
+                    // Clear L2 cache on a regular basis
                     info!(
                         ctx.expect_logger(),
                         "Clearing cache L2 ({} entries)",
                         cache_l2.len()
                     );
                     cache_l2.clear();
+
+                    // Clear rocksdb db connection on a regular basis
+                    let _ = blocks_db_rw.flush_wal(true);
+                    blocks_db_rw = open_readwrite_ordhook_db_conn_rocks_db(&config.expected_cache_path(), &ctx).unwrap();
+    
+                    // Recreate sqlite db connection on a regular basis
+                    inscriptions_db_conn_rw =
+                        open_readwrite_ordhook_db_conn(&config.expected_cache_path(), &ctx).unwrap();
+    
                     garbage_collect_nth_block = 0;
                 }
             }

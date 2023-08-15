@@ -27,9 +27,10 @@ pub fn start_block_archiving_processor(
     let ctx = ctx.clone();
     let handle: JoinHandle<()> = hiro_system_kit::thread_named("Processor Runloop")
         .spawn(move || {
-            let blocks_db_rw =
+            let mut blocks_db_rw =
                 open_readwrite_ordhook_db_conn_rocks_db(&config.expected_cache_path(), &ctx).unwrap();
             let mut empty_cycles = 0;
+            let mut processed_blocks = 0;
 
             if let Ok(PostProcessorCommand::Start) = commands_rx.recv() {
                 let _ = events_tx.send(PostProcessorEvent::Started);
@@ -67,7 +68,13 @@ pub fn start_block_archiving_processor(
                         }
                     },
                 };
+                processed_blocks += compacted_blocks.len();
                 store_compacted_blocks(compacted_blocks, update_tip, &blocks_db_rw, &ctx);
+
+                if processed_blocks % 10_000 == 0 {
+                    let _ = blocks_db_rw.flush_wal(true);
+                    blocks_db_rw = open_readwrite_ordhook_db_conn_rocks_db(&config.expected_cache_path(), &ctx).unwrap();
+                }
             }
 
             if let Err(e) = blocks_db_rw.flush() {
