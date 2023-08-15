@@ -311,7 +311,7 @@ pub fn find_lazy_block_at_block_height(
                     ctx.try_log(|logger| {
                         warn!(
                             logger,
-                            "Attempt to retrieve block {} through iterator", block_height,
+                            "Attempt to retrieve block #{} through iterator", block_height,
                         )
                     });
                     let mut iter = blocks_db.iterator(rocksdb::IteratorMode::End);
@@ -328,7 +328,7 @@ pub fn find_lazy_block_at_block_height(
                 ctx.try_log(|logger| {
                     warn!(
                         logger,
-                        "Unable to find block {}, will retry in {:?}", block_height, duration
+                        "Unable to find block #{}, will retry in {:?}", block_height, duration
                     )
                 });
                 std::thread::sleep(duration);
