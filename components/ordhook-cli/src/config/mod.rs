@@ -1,7 +1,7 @@
 pub mod file;
 pub mod generator;
 
-use crate::core::HordConfig;
+use crate::core::OrdhookConfig;
 pub use chainhook_sdk::indexer::IndexerConfig;
 use chainhook_sdk::observer::EventObserverConfig;
 use chainhook_sdk::types::{
@@ -110,8 +110,8 @@ impl Config {
         }
     }
 
-    pub fn get_ordhook_config(&self) -> HordConfig {
-        HordConfig {
+    pub fn get_ordhook_config(&self) -> OrdhookConfig {
+        OrdhookConfig {
             network_thread_max: self.limits.bitcoin_concurrent_http_requests_max,
             ingestion_thread_max: self.limits.max_number_of_processing_threads,
             ingestion_thread_queue_size: 4,

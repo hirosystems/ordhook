@@ -28,7 +28,7 @@ use crate::db::{
 };
 
 #[derive(Clone, Debug)]
-pub struct HordConfig {
+pub struct OrdhookConfig {
     pub network_thread_max: usize,
     pub ingestion_thread_max: usize,
     pub ingestion_thread_queue_size: usize,

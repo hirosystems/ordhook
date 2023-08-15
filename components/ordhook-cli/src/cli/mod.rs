@@ -56,7 +56,7 @@ enum Command {
     Service(ServiceCommand),
     /// Perform maintenance operations on local databases
     #[clap(subcommand)]
-    Db(HordDbCommand),
+    Db(OrdhookDbCommand),
 }
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
@@ -261,16 +261,16 @@ struct StartCommand {
 }
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
-enum HordDbCommand {
+enum OrdhookDbCommand {
     /// Initialize a new ordhook db
     #[clap(name = "new", bin_name = "new")]
-    New(SyncHordDbCommand),
+    New(SyncOrdhookDbCommand),
     /// Catch-up ordhook db
     #[clap(name = "sync", bin_name = "sync")]
-    Sync(SyncHordDbCommand),
+    Sync(SyncOrdhookDbCommand),
     /// Rebuild inscriptions entries for a given block
     #[clap(name = "drop", bin_name = "drop")]
-    Drop(DropHordDbCommand),
+    Drop(DropOrdhookDbCommand),
     /// Check integrity
     #[clap(name = "check", bin_name = "check")]
     Check(CheckDbCommand),
@@ -361,7 +361,7 @@ struct ScanTransfersCommand {
 }
 
 #[derive(Parser, PartialEq, Clone, Debug)]
-struct UpdateHordDbCommand {
+struct UpdateOrdhookDbCommand {
     /// Starting block
     pub start_block: u64,
     /// Ending block
@@ -374,14 +374,14 @@ struct UpdateHordDbCommand {
 }
 
 #[derive(Parser, PartialEq, Clone, Debug)]
-struct SyncHordDbCommand {
+struct SyncOrdhookDbCommand {
     /// Load config file path
     #[clap(long = "config-path")]
     pub config_path: Option<String>,
 }
 
 #[derive(Parser, PartialEq, Clone, Debug)]
-struct DropHordDbCommand {
+struct DropOrdhookDbCommand {
     /// Starting block
     pub start_block: u64,
     /// Ending block
@@ -392,14 +392,14 @@ struct DropHordDbCommand {
 }
 
 #[derive(Parser, PartialEq, Clone, Debug)]
-struct PatchHordDbCommand {
+struct PatchOrdhookDbCommand {
     /// Load config file path
     #[clap(long = "config-path")]
     pub config_path: Option<String>,
 }
 
 #[derive(Parser, PartialEq, Clone, Debug)]
-struct MigrateHordDbCommand {
+struct MigrateOrdhookDbCommand {
     /// Load config file path
     #[clap(long = "config-path")]
     pub config_path: Option<String>,
@@ -626,25 +626,25 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 let config = Config::default(cmd.regtest, cmd.testnet, cmd.mainnet, &None)?;
                 let config_content = generate_config(&config.network.bitcoin_network);
                 let mut file_path = PathBuf::new();
-                file_path.push("Hord.toml");
+                file_path.push("Ordhook.toml");
                 let mut file = File::create(&file_path)
                     .map_err(|e| format!("unable to open file {}\n{}", file_path.display(), e))?;
                 file.write_all(config_content.as_bytes())
                     .map_err(|e| format!("unable to write file {}\n{}", file_path.display(), e))?;
-                println!("Created file Hord.toml");
+                println!("Created file Ordhook.toml");
             }
         },
-        Command::Db(HordDbCommand::New(cmd)) => {
+        Command::Db(OrdhookDbCommand::New(cmd)) => {
             let config = Config::default(false, false, false, &cmd.config_path)?;
             initialize_ordhook_db(&config.expected_cache_path(), &ctx);
         }
-        Command::Db(HordDbCommand::Sync(cmd)) => {
+        Command::Db(OrdhookDbCommand::Sync(cmd)) => {
             let config = Config::default(false, false, false, &cmd.config_path)?;
             initialize_ordhook_db(&config.expected_cache_path(), &ctx);
             let service = Service::new(config, ctx.clone());
             service.update_state(None).await?;
         }
-        Command::Db(HordDbCommand::Repair(subcmd)) => match subcmd {
+        Command::Db(OrdhookDbCommand::Repair(subcmd)) => match subcmd {
             RepairCommand::Blocks(cmd) => {
                 let config = Config::default(false, false, false, &cmd.config_path)?;
                 let mut ordhook_config = config.get_ordhook_config();
@@ -691,7 +691,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                     .await?;
             }
         },
-        Command::Db(HordDbCommand::Check(cmd)) => {
+        Command::Db(OrdhookDbCommand::Check(cmd)) => {
             let config = Config::default(false, false, false, &cmd.config_path)?;
             {
                 let blocks_db =
@@ -711,7 +711,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 println!("{:?}", missing_blocks);
             }
         }
-        Command::Db(HordDbCommand::Drop(cmd)) => {
+        Command::Db(OrdhookDbCommand::Drop(cmd)) => {
             let config = Config::default(false, false, false, &cmd.config_path)?;
             let blocks_db =
                 open_readwrite_ordhook_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
