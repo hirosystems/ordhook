@@ -56,8 +56,8 @@ pub fn start_inscription_indexing_processor(
     let ctx = ctx.clone();
     let handle: JoinHandle<()> = hiro_system_kit::thread_named("Inscription indexing runloop")
         .spawn(move || {
-            let cache_l2 = Arc::new(new_traversals_lazy_cache(10_000));
-            let garbage_collect_every_n_blocks = 256;
+            let cache_l2 = Arc::new(new_traversals_lazy_cache(2048));
+            let garbage_collect_every_n_blocks = 100;
             let mut garbage_collect_nth_block = 0;
 
             let mut inscriptions_db_conn_rw =
