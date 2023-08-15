@@ -3,7 +3,7 @@ use crate::core::protocol::inscription_parsing::{
     get_inscriptions_revealed_in_block, parse_inscriptions_and_standardize_block,
 };
 use crate::core::protocol::inscription_sequencing::consolidate_block_with_pre_computed_ordinals_data;
-use crate::db::{get_any_entry_in_ordinal_activities, open_readonly_hord_db_conn};
+use crate::db::{get_any_entry_in_ordinal_activities, open_readonly_ordhook_db_conn};
 use crate::download::download_ordinals_dataset_if_required;
 use crate::service::{
     open_readwrite_predicates_db_conn_or_panic, update_predicate_status, PredicateStatus,
@@ -75,7 +75,7 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
         BlockHeights::BlockRange(start_block, end_block).get_sorted_entries()
     };
 
-    let mut inscriptions_db_conn = open_readonly_hord_db_conn(&config.expected_cache_path(), ctx)?;
+    let mut inscriptions_db_conn = open_readonly_ordhook_db_conn(&config.expected_cache_path(), ctx)?;
 
     info!(
         ctx.expect_logger(),
@@ -96,7 +96,7 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
 
         // Re-initiate connection every 250 blocks (pessimistic) to avoid stale connections
         let conn_updated = if number_of_blocks_scanned % 250 == 0 {
-            inscriptions_db_conn = open_readonly_hord_db_conn(&config.expected_cache_path(), ctx)?;
+            inscriptions_db_conn = open_readonly_ordhook_db_conn(&config.expected_cache_path(), ctx)?;
             true
         } else {
             false

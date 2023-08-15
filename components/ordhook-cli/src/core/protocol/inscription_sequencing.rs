@@ -68,13 +68,13 @@ pub fn parallelize_inscription_data_computations(
     cache_l1: &mut BTreeMap<(TransactionIdentifier, usize), TraversalResult>,
     cache_l2: &Arc<DashMap<(u32, [u8; 8]), LazyBlockTransaction, BuildHasherDefault<FxHasher>>>,
     inscriptions_db_tx: &Transaction,
-    hord_config: &HordConfig,
+    ordhook_config: &HordConfig,
     ctx: &Context,
 ) -> Result<bool, String> {
     let (mut transactions_ids, l1_cache_hits) =
         get_transactions_to_process(block, cache_l1, inscriptions_db_tx, ctx);
 
-    let inner_ctx = if hord_config.logs.ordinals_internals {
+    let inner_ctx = if ordhook_config.logs.ordinals_internals {
         ctx.clone()
     } else {
         Context::empty()
@@ -82,7 +82,7 @@ pub fn parallelize_inscription_data_computations(
 
     let has_transactions_to_process = !transactions_ids.is_empty() || !l1_cache_hits.is_empty();
 
-    let thread_max = hord_config.ingestion_thread_max;
+    let thread_max = ordhook_config.ingestion_thread_max;
 
     // Nothing to do? early return
     if !has_transactions_to_process {
@@ -101,7 +101,7 @@ pub fn parallelize_inscription_data_computations(
 
         let moved_traversal_tx = traversal_tx.clone();
         let moved_ctx = inner_ctx.clone();
-        let moved_hord_db_path = hord_config.db_path.clone();
+        let moved_ordhook_db_path = ordhook_config.db_path.clone();
         let local_cache = cache_l2.clone();
 
         let handle = hiro_system_kit::thread_named("Worker")
@@ -110,7 +110,7 @@ pub fn parallelize_inscription_data_computations(
                     rx.recv()
                 {
                     let traversal: Result<TraversalResult, String> = compute_satoshi_number(
-                        &moved_hord_db_path,
+                        &moved_ordhook_db_path,
                         &block_identifier,
                         &transaction_id,
                         input_index,

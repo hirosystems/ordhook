@@ -1,5 +1,5 @@
 [workspace]
 members = [
-    "components/hord-cli"
+    "components/ordhook-cli"
 ]
-default-members = ["components/hord-cli"]
+default-members = ["components/ordhook-cli"]

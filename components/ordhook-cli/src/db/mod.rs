@@ -23,19 +23,19 @@ use crate::{
     core::protocol::inscription_parsing::get_inscriptions_revealed_in_block, ord::sat::Sat,
 };
 
-pub fn get_default_hord_db_file_path(base_dir: &PathBuf) -> PathBuf {
+pub fn get_default_ordhook_db_file_path(base_dir: &PathBuf) -> PathBuf {
     let mut destination_path = base_dir.clone();
     destination_path.push("hord.sqlite");
     destination_path
 }
 
-pub fn open_readonly_hord_db_conn(base_dir: &PathBuf, ctx: &Context) -> Result<Connection, String> {
-    let path = get_default_hord_db_file_path(&base_dir);
+pub fn open_readonly_ordhook_db_conn(base_dir: &PathBuf, ctx: &Context) -> Result<Connection, String> {
+    let path = get_default_ordhook_db_file_path(&base_dir);
     let conn = open_existing_readonly_db(&path, ctx);
     Ok(conn)
 }
 
-pub fn open_readwrite_hord_db_conn(
+pub fn open_readwrite_ordhook_db_conn(
     base_dir: &PathBuf,
     ctx: &Context,
 ) -> Result<Connection, String> {
@@ -43,7 +43,7 @@ pub fn open_readwrite_hord_db_conn(
     Ok(conn)
 }
 
-pub fn initialize_hord_db(path: &PathBuf, ctx: &Context) -> Connection {
+pub fn initialize_ordhook_db(path: &PathBuf, ctx: &Context) -> Connection {
     let conn = create_or_open_readwrite_db(path, ctx);
     // TODO: introduce initial output
     if let Err(e) = conn.execute(
@@ -125,7 +125,7 @@ pub fn initialize_hord_db(path: &PathBuf, ctx: &Context) -> Connection {
 }
 
 pub fn create_or_open_readwrite_db(cache_path: &PathBuf, ctx: &Context) -> Connection {
-    let path = get_default_hord_db_file_path(&cache_path);
+    let path = get_default_ordhook_db_file_path(&cache_path);
     let open_flags = match std::fs::metadata(&path) {
         Err(e) => {
             if e.kind() == std::io::ErrorKind::NotFound {
@@ -192,7 +192,7 @@ fn open_existing_readonly_db(path: &PathBuf, ctx: &Context) -> Connection {
     return conn;
 }
 
-fn get_default_hord_db_file_path_rocks_db(base_dir: &PathBuf) -> PathBuf {
+fn get_default_ordhook_db_file_path_rocks_db(base_dir: &PathBuf) -> PathBuf {
     let mut destination_path = base_dir.clone();
     destination_path.push("hord.rocksdb");
     destination_path
@@ -216,11 +216,11 @@ fn rocks_db_default_options() -> rocksdb::Options {
     opts
 }
 
-pub fn open_readonly_hord_db_conn_rocks_db(
+pub fn open_readonly_ordhook_db_conn_rocks_db(
     base_dir: &PathBuf,
     _ctx: &Context,
 ) -> Result<DB, String> {
-    let path = get_default_hord_db_file_path_rocks_db(&base_dir);
+    let path = get_default_ordhook_db_file_path_rocks_db(&base_dir);
     let mut opts = rocks_db_default_options();
     opts.set_disable_auto_compactions(true);
     opts.set_max_background_jobs(0);
@@ -229,10 +229,10 @@ pub fn open_readonly_hord_db_conn_rocks_db(
     Ok(db)
 }
 
-pub fn open_readonly_hord_db_conn_rocks_db_loop(base_dir: &PathBuf, ctx: &Context) -> DB {
+pub fn open_readonly_ordhook_db_conn_rocks_db_loop(base_dir: &PathBuf, ctx: &Context) -> DB {
     let mut retries = 0;
     let blocks_db = loop {
-        match open_readonly_hord_db_conn_rocks_db(&base_dir, &ctx) {
+        match open_readonly_ordhook_db_conn_rocks_db(&base_dir, &ctx) {
             Ok(db) => break db,
             Err(e) => {
                 retries += 1;
@@ -248,20 +248,20 @@ pub fn open_readonly_hord_db_conn_rocks_db_loop(base_dir: &PathBuf, ctx: &Contex
     blocks_db
 }
 
-pub fn open_readwrite_hord_dbs(
+pub fn open_readwrite_ordhook_dbs(
     base_dir: &PathBuf,
     ctx: &Context,
 ) -> Result<(DB, Connection), String> {
-    let blocks_db = open_readwrite_hord_db_conn_rocks_db(&base_dir, &ctx)?;
-    let inscriptions_db = open_readwrite_hord_db_conn(&base_dir, &ctx)?;
+    let blocks_db = open_readwrite_ordhook_db_conn_rocks_db(&base_dir, &ctx)?;
+    let inscriptions_db = open_readwrite_ordhook_db_conn(&base_dir, &ctx)?;
     Ok((blocks_db, inscriptions_db))
 }
 
-pub fn open_readwrite_hord_db_conn_rocks_db(
+pub fn open_readwrite_ordhook_db_conn_rocks_db(
     base_dir: &PathBuf,
     _ctx: &Context,
 ) -> Result<DB, String> {
-    let path = get_default_hord_db_file_path_rocks_db(&base_dir);
+    let path = get_default_ordhook_db_file_path_rocks_db(&base_dir);
     let opts = rocks_db_default_options();
     let db = DB::open(&opts, path)
         .map_err(|e| format!("unable to open blocks_db: {}", e.to_string()))?;
@@ -867,10 +867,10 @@ pub fn find_watched_satpoint_for_inscription(
 
 pub fn find_inscriptions_at_wached_outpoint(
     outpoint: &str,
-    hord_db_conn: &Connection,
+    ordhook_db_conn: &Connection,
 ) -> Result<Vec<WatchedSatpoint>, String> {
     let args: &[&dyn ToSql] = &[&outpoint.to_sql().unwrap()];
-    let mut stmt = hord_db_conn
+    let mut stmt = ordhook_db_conn
         .prepare("SELECT inscription_id, offset FROM locations WHERE outpoint_to_watch = ? ORDER BY offset ASC")
         .map_err(|e| format!("unable to query locations table: {}", e.to_string()))?;
     let mut results = vec![];
@@ -959,7 +959,7 @@ pub fn insert_entry_in_locations(
     }
 }
 
-pub fn delete_data_in_hord_db(
+pub fn delete_data_in_ordhook_db(
     start_block: u64,
     end_block: u64,
     blocks_db_rw: &DB,

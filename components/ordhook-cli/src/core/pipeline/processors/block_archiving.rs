@@ -11,7 +11,7 @@ use rocksdb::DB;
 use crate::{
     config::Config,
     core::pipeline::{PostProcessorCommand, PostProcessorController, PostProcessorEvent},
-    db::{insert_entry_in_blocks, open_readwrite_hord_db_conn_rocks_db, LazyBlock},
+    db::{insert_entry_in_blocks, open_readwrite_ordhook_db_conn_rocks_db, LazyBlock},
 };
 
 pub fn start_block_archiving_processor(
@@ -28,7 +28,7 @@ pub fn start_block_archiving_processor(
     let handle: JoinHandle<()> = hiro_system_kit::thread_named("Processor Runloop")
         .spawn(move || {
             let blocks_db_rw =
-                open_readwrite_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx).unwrap();
+                open_readwrite_ordhook_db_conn_rocks_db(&config.expected_cache_path(), &ctx).unwrap();
             let mut empty_cycles = 0;
 
             if let Ok(PostProcessorCommand::Start) = commands_rx.recv() {

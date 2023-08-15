@@ -9,12 +9,12 @@ use crate::scan::bitcoin::scan_bitcoin_chainstate_via_rpc_using_predicate;
 use crate::service::Service;
 
 use crate::db::{
-    delete_data_in_hord_db, find_all_inscription_transfers, find_all_inscriptions_in_block,
+    delete_data_in_ordhook_db, find_all_inscription_transfers, find_all_inscriptions_in_block,
     find_all_transfers_in_block, find_inscription_with_id, find_last_block_inserted,
     find_latest_inscription_block_height, find_lazy_block_at_block_height,
-    get_default_hord_db_file_path, initialize_hord_db, open_readonly_hord_db_conn,
-    open_readonly_hord_db_conn_rocks_db, open_readwrite_hord_db_conn,
-    open_readwrite_hord_db_conn_rocks_db,
+    get_default_ordhook_db_file_path, initialize_ordhook_db, open_readonly_ordhook_db_conn,
+    open_readonly_ordhook_db_conn_rocks_db, open_readwrite_ordhook_db_conn,
+    open_readwrite_ordhook_db_conn_rocks_db,
 };
 use chainhook_sdk::bitcoincore_rpc::{Auth, Client, RpcApi};
 use chainhook_sdk::chainhooks::types::HttpHook;
@@ -255,17 +255,17 @@ struct StartCommand {
     /// Specify relative path of the chainhooks (yaml format) to evaluate
     #[clap(long = "post-to")]
     pub post_to: Vec<String>,
-    /// Block height where hord will start posting Ordinals activities
+    /// Block height where ordhook will start posting Ordinals activities
     #[clap(long = "start-at-block")]
     pub start_at_block: Option<u64>,
 }
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
 enum HordDbCommand {
-    /// Initialize a new hord db
+    /// Initialize a new ordhook db
     #[clap(name = "new", bin_name = "new")]
     New(SyncHordDbCommand),
-    /// Catch-up hord db
+    /// Catch-up ordhook db
     #[clap(name = "sync", bin_name = "sync")]
     Sync(SyncHordDbCommand),
     /// Rebuild inscriptions entries for a given block
@@ -483,7 +483,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 let mut total_inscriptions = 0;
                 let mut total_transfers = 0;
 
-                let inscriptions_db_conn = initialize_hord_db(&config.expected_cache_path(), &ctx);
+                let inscriptions_db_conn = initialize_ordhook_db(&config.expected_cache_path(), &ctx);
                 while let Some(block_height) = block_range.pop_front() {
                     let inscriptions =
                         find_all_inscriptions_in_block(&block_height, &inscriptions_db_conn, &ctx);
@@ -527,7 +527,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                     total_transfers += total_transfers_in_block;
                 }
                 if total_transfers == 0 && total_inscriptions == 0 {
-                    let db_file_path = get_default_hord_db_file_path(&config.expected_cache_path());
+                    let db_file_path = get_default_ordhook_db_file_path(&config.expected_cache_path());
                     warn!(ctx.expect_logger(), "No data available. Check the validity of the range being scanned and the validity of your local database {}", db_file_path.display());
                 }
             }
@@ -539,7 +539,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
             let _ = download_ordinals_dataset_if_required(&config, ctx).await;
 
             let inscriptions_db_conn =
-                open_readonly_hord_db_conn(&config.expected_cache_path(), &ctx)?;
+                open_readonly_ordhook_db_conn(&config.expected_cache_path(), &ctx)?;
             let (inscription, block_height) =
                 match find_inscription_with_id(&cmd.inscription_id, &inscriptions_db_conn, &ctx)? {
                     Some(entry) => entry,
@@ -575,15 +575,15 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 let config =
                     Config::default(cmd.regtest, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
 
-                let _ = initialize_hord_db(&config.expected_cache_path(), &ctx);
+                let _ = initialize_ordhook_db(&config.expected_cache_path(), &ctx);
 
                 let inscriptions_db_conn =
-                    open_readonly_hord_db_conn(&config.expected_cache_path(), &ctx)?;
+                    open_readonly_ordhook_db_conn(&config.expected_cache_path(), &ctx)?;
 
                 let last_known_block =
                     find_latest_inscription_block_height(&inscriptions_db_conn, &ctx)?;
 
-                let hord_config = config.get_hord_config();
+                let ordhook_config = config.get_ordhook_config();
 
                 info!(ctx.expect_logger(), "Starting service...",);
 
@@ -595,9 +595,9 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                             warn!(
                                 ctx.expect_logger(),
                                 "Inscription ingestion will start at block #{}",
-                                hord_config.first_inscription_height
+                                ordhook_config.first_inscription_height
                             );
-                            hord_config.first_inscription_height
+                            ordhook_config.first_inscription_height
                         }
                     },
                 };
@@ -636,19 +636,19 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
         },
         Command::Db(HordDbCommand::New(cmd)) => {
             let config = Config::default(false, false, false, &cmd.config_path)?;
-            initialize_hord_db(&config.expected_cache_path(), &ctx);
+            initialize_ordhook_db(&config.expected_cache_path(), &ctx);
         }
         Command::Db(HordDbCommand::Sync(cmd)) => {
             let config = Config::default(false, false, false, &cmd.config_path)?;
-            initialize_hord_db(&config.expected_cache_path(), &ctx);
+            initialize_ordhook_db(&config.expected_cache_path(), &ctx);
             let service = Service::new(config, ctx.clone());
             service.update_state(None).await?;
         }
         Command::Db(HordDbCommand::Repair(subcmd)) => match subcmd {
             RepairCommand::Blocks(cmd) => {
                 let config = Config::default(false, false, false, &cmd.config_path)?;
-                let mut hord_config = config.get_hord_config();
-                hord_config.network_thread_max = cmd.network_threads;
+                let mut ordhook_config = config.get_ordhook_config();
+                ordhook_config.network_thread_max = cmd.network_threads;
 
                 let block_ingestion_processor =
                     start_block_archiving_processor(&config, ctx, false, None);
@@ -657,7 +657,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                     &config,
                     cmd.start_block,
                     cmd.end_block,
-                    hord_config.first_inscription_height,
+                    ordhook_config.first_inscription_height,
                     Some(&block_ingestion_processor),
                     10_000,
                     &ctx,
@@ -666,8 +666,8 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
             }
             RepairCommand::Inscriptions(cmd) => {
                 let config = Config::default(false, false, false, &cmd.config_path)?;
-                let mut hord_config = config.get_hord_config();
-                hord_config.network_thread_max = cmd.network_threads;
+                let mut ordhook_config = config.get_ordhook_config();
+                ordhook_config.network_thread_max = cmd.network_threads;
 
                 let inscription_indexing_processor =
                     start_inscription_indexing_processor(&config, ctx, None);
@@ -676,7 +676,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                     &config,
                     cmd.start_block,
                     cmd.end_block,
-                    hord_config.first_inscription_height,
+                    ordhook_config.first_inscription_height,
                     Some(&inscription_indexing_processor),
                     10_000,
                     &ctx,
@@ -695,7 +695,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
             let config = Config::default(false, false, false, &cmd.config_path)?;
             {
                 let blocks_db =
-                    open_readonly_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
+                    open_readonly_ordhook_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
                 let tip = find_last_block_inserted(&blocks_db) as u64;
                 println!("Tip: {}", tip);
 
@@ -714,11 +714,11 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
         Command::Db(HordDbCommand::Drop(cmd)) => {
             let config = Config::default(false, false, false, &cmd.config_path)?;
             let blocks_db =
-                open_readwrite_hord_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
+                open_readwrite_ordhook_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
             let inscriptions_db_conn_rw =
-                open_readwrite_hord_db_conn(&config.expected_cache_path(), &ctx)?;
+                open_readwrite_ordhook_db_conn(&config.expected_cache_path(), &ctx)?;
 
-            delete_data_in_hord_db(
+            delete_data_in_ordhook_db(
                 cmd.start_block,
                 cmd.end_block,
                 &blocks_db,
@@ -727,7 +727,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
             )?;
             info!(
                 ctx.expect_logger(),
-                "Cleaning hord_db: {} blocks dropped",
+                "Cleaning ordhook_db: {} blocks dropped",
                 cmd.end_block - cmd.start_block + 1
             );
         }
