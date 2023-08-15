@@ -141,10 +141,6 @@ pub fn start_inscription_indexing_processor(
                     );
                     cache_l2.clear();
 
-                    // Clear rocksdb db connection on a regular basis
-                    let _ = blocks_db_rw.flush_wal(true);
-                    blocks_db_rw = open_ordhook_db_conn_rocks_db_loop(true, &config.expected_cache_path(), &ctx);
-
                     // Recreate sqlite db connection on a regular basis
                     inscriptions_db_conn_rw =
                         open_readwrite_ordhook_db_conn(&config.expected_cache_path(), &ctx).unwrap();
