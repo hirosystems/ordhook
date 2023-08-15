@@ -1,5 +1,5 @@
                       
-       /     /   ▶ Hord   
+       /     /   ▶ ordhook   
       / --- /      Ordinal indexing engine based on Chainhook.
      /     /       Build indexes, standards and protocols on top of Ordinals and Inscriptions (BRC20, etc).
                   
