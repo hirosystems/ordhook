@@ -230,13 +230,17 @@ pub fn open_readonly_hord_db_conn_rocks_db(
 }
 
 pub fn open_readonly_hord_db_conn_rocks_db_loop(base_dir: &PathBuf, ctx: &Context) -> DB {
+    let mut retries = 0;
     let blocks_db = loop {
         match open_readonly_hord_db_conn_rocks_db(&base_dir, &ctx) {
             Ok(db) => break db,
             Err(e) => {
-                ctx.try_log(|logger| {
-                    warn!(logger, "Unable to open db: {e}",);
-                });
+                retries += 1;
+                if retries > 10 {
+                    ctx.try_log(|logger| {
+                        warn!(logger, "Unable to open db: {e}",);
+                    });
+                }
                 continue;
             }
         }
