@@ -1,21 +1,6 @@
+use crate::config::file::ConfigFile;
 use crate::config::generator::generate_config;
-use crate::config::Config;
-use crate::core::pipeline::download_and_pipeline_blocks;
-use crate::core::pipeline::processors::block_archiving::start_block_archiving_processor;
-use crate::core::pipeline::processors::start_inscription_indexing_processor;
-use crate::core::protocol::inscription_parsing::parse_inscriptions_and_standardize_block;
-use crate::download::download_ordinals_dataset_if_required;
-use crate::scan::bitcoin::scan_bitcoin_chainstate_via_rpc_using_predicate;
-use crate::service::Service;
-
-use crate::db::{
-    delete_data_in_ordhook_db, find_all_inscription_transfers, find_all_inscriptions_in_block,
-    find_all_transfers_in_block, find_inscription_with_id, find_last_block_inserted,
-    find_latest_inscription_block_height, find_lazy_block_at_block_height,
-    get_default_ordhook_db_file_path, initialize_ordhook_db, open_readonly_ordhook_db_conn,
-    open_readonly_ordhook_db_conn_rocks_db, open_readwrite_ordhook_db_conn,
-    open_readwrite_ordhook_db_conn_rocks_db,
-};
+use ordhook::scan::bitcoin::scan_bitcoin_chainstate_via_rpc_using_predicate;
 use chainhook_sdk::bitcoincore_rpc::{Auth, Client, RpcApi};
 use chainhook_sdk::chainhooks::types::HttpHook;
 use chainhook_sdk::chainhooks::types::{
@@ -30,6 +15,21 @@ use chainhook_sdk::types::BitcoinBlockData;
 use chainhook_sdk::utils::Context;
 use clap::{Parser, Subcommand};
 use hiro_system_kit;
+use ordhook::config::Config;
+use ordhook::core::pipeline::download_and_pipeline_blocks;
+use ordhook::core::pipeline::processors::block_archiving::start_block_archiving_processor;
+use ordhook::core::pipeline::processors::start_inscription_indexing_processor;
+use ordhook::core::protocol::inscription_parsing::parse_inscriptions_and_standardize_block;
+use ordhook::db::{
+    delete_data_in_ordhook_db, find_all_inscription_transfers, find_all_inscriptions_in_block,
+    find_all_transfers_in_block, find_inscription_with_id, find_last_block_inserted,
+    find_latest_inscription_block_height, find_lazy_block_at_block_height,
+    get_default_ordhook_db_file_path, initialize_ordhook_db, open_readonly_ordhook_db_conn,
+    open_readonly_ordhook_db_conn_rocks_db, open_readwrite_ordhook_db_conn,
+    open_readwrite_ordhook_db_conn_rocks_db,
+};
+use ordhook::download::download_ordinals_dataset_if_required;
+use ordhook::service::Service;
 use reqwest::Client as HttpClient;
 use std::collections::BTreeMap;
 use std::io::{BufReader, Read};
@@ -446,7 +446,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
     match opts.command {
         Command::Scan(ScanCommand::Blocks(cmd)) => {
             let config: Config =
-                Config::default(cmd.regtest, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
+                ConfigFile::default(cmd.regtest, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
             // Download dataset if required
             // If console:
             // - Replay based on SQLite queries
@@ -483,7 +483,8 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 let mut total_inscriptions = 0;
                 let mut total_transfers = 0;
 
-                let inscriptions_db_conn = initialize_ordhook_db(&config.expected_cache_path(), &ctx);
+                let inscriptions_db_conn =
+                    initialize_ordhook_db(&config.expected_cache_path(), &ctx);
                 while let Some(block_height) = block_range.pop_front() {
                     let inscriptions =
                         find_all_inscriptions_in_block(&block_height, &inscriptions_db_conn, &ctx);
@@ -527,14 +528,15 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                     total_transfers += total_transfers_in_block;
                 }
                 if total_transfers == 0 && total_inscriptions == 0 {
-                    let db_file_path = get_default_ordhook_db_file_path(&config.expected_cache_path());
+                    let db_file_path =
+                        get_default_ordhook_db_file_path(&config.expected_cache_path());
                     warn!(ctx.expect_logger(), "No data available. Check the validity of the range being scanned and the validity of your local database {}", db_file_path.display());
                 }
             }
         }
         Command::Scan(ScanCommand::Inscription(cmd)) => {
             let config: Config =
-                Config::default(cmd.regtest, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
+                ConfigFile::default(cmd.regtest, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
 
             let _ = download_ordinals_dataset_if_required(&config, ctx).await;
 
@@ -573,7 +575,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
         Command::Service(subcmd) => match subcmd {
             ServiceCommand::Start(cmd) => {
                 let config =
-                    Config::default(cmd.regtest, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
+                    ConfigFile::default(cmd.regtest, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
 
                 let _ = initialize_ordhook_db(&config.expected_cache_path(), &ctx);
 
@@ -623,7 +625,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
             ConfigCommand::New(cmd) => {
                 use std::fs::File;
                 use std::io::Write;
-                let config = Config::default(cmd.regtest, cmd.testnet, cmd.mainnet, &None)?;
+                let config = ConfigFile::default(cmd.regtest, cmd.testnet, cmd.mainnet, &None)?;
                 let config_content = generate_config(&config.network.bitcoin_network);
                 let mut file_path = PathBuf::new();
                 file_path.push("Ordhook.toml");
@@ -635,18 +637,18 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
             }
         },
         Command::Db(OrdhookDbCommand::New(cmd)) => {
-            let config = Config::default(false, false, false, &cmd.config_path)?;
+            let config = ConfigFile::default(false, false, false, &cmd.config_path)?;
             initialize_ordhook_db(&config.expected_cache_path(), &ctx);
         }
         Command::Db(OrdhookDbCommand::Sync(cmd)) => {
-            let config = Config::default(false, false, false, &cmd.config_path)?;
+            let config = ConfigFile::default(false, false, false, &cmd.config_path)?;
             initialize_ordhook_db(&config.expected_cache_path(), &ctx);
             let service = Service::new(config, ctx.clone());
             service.update_state(None).await?;
         }
         Command::Db(OrdhookDbCommand::Repair(subcmd)) => match subcmd {
             RepairCommand::Blocks(cmd) => {
-                let config = Config::default(false, false, false, &cmd.config_path)?;
+                let config = ConfigFile::default(false, false, false, &cmd.config_path)?;
                 let mut ordhook_config = config.get_ordhook_config();
                 ordhook_config.network_thread_max = cmd.network_threads;
 
@@ -665,7 +667,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 .await?
             }
             RepairCommand::Inscriptions(cmd) => {
-                let config = Config::default(false, false, false, &cmd.config_path)?;
+                let config = ConfigFile::default(false, false, false, &cmd.config_path)?;
                 let mut ordhook_config = config.get_ordhook_config();
                 ordhook_config.network_thread_max = cmd.network_threads;
 
@@ -684,7 +686,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 .await?;
             }
             RepairCommand::Transfers(cmd) => {
-                let config = Config::default(false, false, false, &cmd.config_path)?;
+                let config = ConfigFile::default(false, false, false, &cmd.config_path)?;
                 let service = Service::new(config, ctx.clone());
                 service
                     .replay_transfers(cmd.start_block, cmd.end_block, None)
@@ -692,7 +694,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
             }
         },
         Command::Db(OrdhookDbCommand::Check(cmd)) => {
-            let config = Config::default(false, false, false, &cmd.config_path)?;
+            let config = ConfigFile::default(false, false, false, &cmd.config_path)?;
             {
                 let blocks_db =
                     open_readonly_ordhook_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
@@ -712,7 +714,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
             }
         }
         Command::Db(OrdhookDbCommand::Drop(cmd)) => {
-            let config = Config::default(false, false, false, &cmd.config_path)?;
+            let config = ConfigFile::default(false, false, false, &cmd.config_path)?;
             let blocks_db =
                 open_readwrite_ordhook_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
             let inscriptions_db_conn_rw =

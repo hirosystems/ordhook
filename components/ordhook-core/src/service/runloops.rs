@@ -11,7 +11,8 @@ use crate::{
     config::{Config, PredicatesApi},
     scan::bitcoin::scan_bitcoin_chainstate_via_rpc_using_predicate,
     service::{
-        open_readwrite_predicates_db_conn_or_panic, update_predicate_status, PredicateStatus,
+        predicates::open_readwrite_predicates_db_conn_or_panic, update_predicate_status,
+        PredicateStatus,
     },
 };
 

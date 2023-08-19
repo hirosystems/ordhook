@@ -56,7 +56,7 @@ pub fn compute_satoshi_number(
                         if attempt < 3 {
                             attempt += 1;
                             blocks_db =
-                               open_ordhook_db_conn_rocks_db_loop(false, &blocks_db_dir, &ctx);
+                                open_ordhook_db_conn_rocks_db_loop(false, &blocks_db_dir, &ctx);
                         } else {
                             return Err(format!("block #{ordinal_block_number} not in database"));
                         }

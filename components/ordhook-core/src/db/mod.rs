@@ -29,7 +29,10 @@ pub fn get_default_ordhook_db_file_path(base_dir: &PathBuf) -> PathBuf {
     destination_path
 }
 
-pub fn open_readonly_ordhook_db_conn(base_dir: &PathBuf, ctx: &Context) -> Result<Connection, String> {
+pub fn open_readonly_ordhook_db_conn(
+    base_dir: &PathBuf,
+    ctx: &Context,
+) -> Result<Connection, String> {
     let path = get_default_ordhook_db_file_path(&base_dir);
     let conn = open_existing_readonly_db(&path, ctx);
     Ok(conn)
@@ -229,7 +232,11 @@ pub fn open_readonly_ordhook_db_conn_rocks_db(
     Ok(db)
 }
 
-pub fn open_ordhook_db_conn_rocks_db_loop(readwrite: bool, base_dir: &PathBuf, ctx: &Context) -> DB {
+pub fn open_ordhook_db_conn_rocks_db_loop(
+    readwrite: bool,
+    base_dir: &PathBuf,
+    ctx: &Context,
+) -> DB {
     let mut retries = 0;
     let blocks_db = loop {
         let res = if readwrite {
