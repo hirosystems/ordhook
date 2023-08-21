@@ -653,7 +653,9 @@ fn augment_transaction_with_ordinals_inscriptions_data(
         }
 
         // The reinscriptions_data needs to be augmented as we go, to handle transaction chaining.
-        reinscriptions_data.insert(traversal.ordinal_number, traversal.get_inscription_id());
+        if !is_cursed {
+            reinscriptions_data.insert(traversal.ordinal_number, traversal.get_inscription_id());
+        }
 
         ctx.try_log(|logger| {
             info!(
