@@ -16,13 +16,13 @@ RUN mkdir /out
 
 RUN cargo build --features release --release
 
-RUN cp target/release/ordhook-cli /out
+RUN cp target/release/ordhook /out
 
 FROM debian:bullseye-slim
 
 RUN apt update && apt install -y ca-certificates libssl-dev
 
-COPY --from=build /out/ordhook-cli /bin/hord
+COPY --from=build /out/ordhook /bin/hord
 
 WORKDIR /workspace
 

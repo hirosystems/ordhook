@@ -1,10 +1,8 @@
 #[macro_use]
-extern crate hiro_system_kit;
-
-#[macro_use]
 extern crate serde_derive;
 
-extern crate serde;
+#[macro_use]
+extern crate hiro_system_kit;
 
 pub mod cli;
 pub mod config;

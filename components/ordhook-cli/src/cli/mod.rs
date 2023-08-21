@@ -1,18 +1,19 @@
 use crate::config::file::ConfigFile;
 use crate::config::generator::generate_config;
 use ordhook::scan::bitcoin::scan_bitcoin_chainstate_via_rpc_using_predicate;
-use chainhook_sdk::bitcoincore_rpc::{Auth, Client, RpcApi};
-use chainhook_sdk::chainhooks::types::HttpHook;
-use chainhook_sdk::chainhooks::types::{
+use ordhook::chainhook_sdk::bitcoincore_rpc::{Auth, Client, RpcApi};
+use ordhook::chainhook_sdk::chainhooks::types::HttpHook;
+use ordhook::chainhook_sdk::chainhooks::types::{
     BitcoinChainhookFullSpecification, BitcoinChainhookNetworkSpecification, BitcoinPredicateType,
     ChainhookFullSpecification, HookAction, OrdinalOperations,
 };
-use chainhook_sdk::indexer::bitcoin::{
+use ordhook::chainhook_sdk::utils::BlockHeights;
+use ordhook::chainhook_sdk::indexer::bitcoin::{
     download_and_parse_block_with_retry, retrieve_block_hash_with_retry,
 };
-use chainhook_sdk::observer::BitcoinConfig;
-use chainhook_sdk::types::BitcoinBlockData;
-use chainhook_sdk::utils::Context;
+use ordhook::chainhook_sdk::observer::BitcoinConfig;
+use ordhook::chainhook_sdk::types::BitcoinBlockData;
+use ordhook::chainhook_sdk::utils::Context;
 use clap::{Parser, Subcommand};
 use hiro_system_kit;
 use ordhook::config::Config;
@@ -453,7 +454,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
             // If post-to:
             // - Replay that requires connection to bitcoind
             let mut block_range =
-                chainhook_sdk::utils::BlockHeights::BlockRange(cmd.start_block, cmd.end_block)
+                BlockHeights::BlockRange(cmd.start_block, cmd.end_block)
                     .get_sorted_entries();
 
             if let Some(ref post_to) = cmd.post_to {

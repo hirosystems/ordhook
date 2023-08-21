@@ -458,8 +458,6 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 [[package]]
 name = "chainhook-sdk"
 version = "0.8.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7abe64f892f4f7df13856ac4b12a1a06a122b7e9279883713871be36a451a3ab"
 dependencies = [
  "base58 0.2.0",
  "base64 0.13.1",
@@ -478,7 +476,7 @@ dependencies = [
  "rand 0.8.5",
  "reqwest",
  "rocket",
- "schemars 0.8.11",
+ "schemars 0.8.12",
  "serde",
  "serde-hex",
  "serde_derive",
@@ -492,11 +490,9 @@ dependencies = [
 [[package]]
 name = "chainhook-types"
 version = "1.0.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8128537ccd9c8f85c77b3d9096b04462b6784b67f6c7760e8d3f56c9d4128bdd"
 dependencies = [
  "hex",
- "schemars 0.8.11",
+ "schemars 0.8.12",
  "serde",
  "serde_derive",
  "serde_json",
@@ -2474,10 +2470,7 @@ dependencies = [
  "anyhow",
  "atty",
  "chainhook-sdk",
- "clap",
- "clap_generate",
  "crossbeam-channel 0.5.8",
- "ctrlc",
  "dashmap 5.4.0",
  "flate2",
  "flume",
@@ -2504,7 +2497,6 @@ dependencies = [
  "tar",
  "threadpool",
  "tokio",
- "toml",
  "uuid 1.3.0",
 ]
 
@@ -2512,43 +2504,17 @@ dependencies = [
 name = "ordhook-cli"
 version = "0.3.0"
 dependencies = [
- "ansi_term",
- "anyhow",
- "atty",
- "chainhook-sdk",
  "clap",
  "clap_generate",
- "crossbeam-channel 0.5.8",
  "ctrlc",
- "dashmap 5.4.0",
- "flate2",
- "flume",
- "futures",
- "futures-util",
- "fxhash",
- "hex",
  "hiro-system-kit",
  "num_cpus",
  "ordhook",
- "pprof",
- "progressing",
- "rand 0.8.5",
- "redis",
  "reqwest",
- "rocket",
- "rocket_okapi",
- "rocksdb",
- "rusqlite",
- "schemars 0.8.12",
  "serde",
- "serde-redis",
  "serde_derive",
  "serde_json",
- "tar",
- "threadpool",
- "tokio",
  "toml",
- "uuid 1.3.0",
 ]
 
 [[package]]
