@@ -1,11 +1,8 @@
 pub mod pipeline;
 pub mod protocol;
 
-use chainhook_sdk::types::{BitcoinBlockData, OrdinalOperation};
 use dashmap::DashMap;
 use fxhash::{FxBuildHasher, FxHasher};
-use rocksdb::DB;
-use rusqlite::Connection;
 use std::hash::BuildHasherDefault;
 use std::ops::Div;
 use std::path::PathBuf;
@@ -22,10 +19,7 @@ use crate::db::{
     open_readonly_ordhook_db_conn, open_readonly_ordhook_db_conn_rocks_db,
 };
 
-use crate::db::{
-    insert_transfer_in_locations, remove_entry_from_blocks, remove_entry_from_inscriptions,
-    LazyBlockTransaction,
-};
+use crate::db::LazyBlockTransaction;
 
 #[derive(Clone, Debug)]
 pub struct OrdhookConfig {
@@ -36,42 +30,6 @@ pub struct OrdhookConfig {
     pub db_path: PathBuf,
     pub first_inscription_height: u64,
     pub logs: LogConfig,
-}
-
-pub fn revert_ordhook_db_with_augmented_bitcoin_block(
-    block: &BitcoinBlockData,
-    blocks_db_rw: &DB,
-    inscriptions_db_conn_rw: &Connection,
-    ctx: &Context,
-) -> Result<(), String> {
-    // Remove block from
-    remove_entry_from_blocks(block.block_identifier.index as u32, &blocks_db_rw, ctx);
-    for tx_index in 1..=block.transactions.len() {
-        // Undo the changes in reverse order
-        let tx = &block.transactions[block.transactions.len() - tx_index];
-        for ordinal_event in tx.metadata.ordinal_operations.iter() {
-            match ordinal_event {
-                OrdinalOperation::InscriptionRevealed(data) => {
-                    // We remove any new inscription created
-                    remove_entry_from_inscriptions(
-                        &data.inscription_id,
-                        &inscriptions_db_conn_rw,
-                        ctx,
-                    );
-                }
-                OrdinalOperation::InscriptionTransferred(transfer_data) => {
-                    // We revert the outpoint to the pre-transfer value
-                    insert_transfer_in_locations(
-                        transfer_data,
-                        &block.block_identifier,
-                        &inscriptions_db_conn_rw,
-                        &ctx,
-                    );
-                }
-            }
-        }
-    }
-    Ok(())
 }
 
 pub fn new_traversals_cache(

@@ -105,7 +105,6 @@ impl Config {
     pub fn get_event_observer_config(&self) -> EventObserverConfig {
         EventObserverConfig {
             bitcoin_rpc_proxy_enabled: true,
-            event_handlers: vec![],
             chainhook_config: None,
             ingestion_port: DEFAULT_INGESTION_PORT,
             bitcoind_rpc_username: self.network.bitcoind_rpc_username.clone(),

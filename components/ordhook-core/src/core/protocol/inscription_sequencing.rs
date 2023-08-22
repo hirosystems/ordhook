@@ -336,15 +336,15 @@ fn get_transactions_to_process(
 /// This structure is wrapping the expensive SQL query and helping us keeping track of the next inscription number to
 /// use.
 ///
-pub struct SequenceCursor {
+pub struct SequenceCursor<'a> {
     blessed: Option<i64>,
     cursed: Option<i64>,
-    inscriptions_db_conn: Connection,
+    inscriptions_db_conn: &'a Connection,
     current_block_height: u64,
 }
 
-impl SequenceCursor {
-    pub fn new(inscriptions_db_conn: Connection) -> SequenceCursor {
+impl<'a> SequenceCursor<'a> {
+    pub fn new(inscriptions_db_conn: &'a Connection) -> SequenceCursor<'a> {
         SequenceCursor {
             blessed: None,
             cursed: None,

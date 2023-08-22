@@ -1,21 +1,20 @@
 use crate::config::file::ConfigFile;
 use crate::config::generator::generate_config;
-use ordhook::scan::bitcoin::scan_bitcoin_chainstate_via_rpc_using_predicate;
+use clap::{Parser, Subcommand};
+use hiro_system_kit;
 use ordhook::chainhook_sdk::bitcoincore_rpc::{Auth, Client, RpcApi};
 use ordhook::chainhook_sdk::chainhooks::types::HttpHook;
 use ordhook::chainhook_sdk::chainhooks::types::{
     BitcoinChainhookFullSpecification, BitcoinChainhookNetworkSpecification, BitcoinPredicateType,
     ChainhookFullSpecification, HookAction, OrdinalOperations,
 };
-use ordhook::chainhook_sdk::utils::BlockHeights;
 use ordhook::chainhook_sdk::indexer::bitcoin::{
     download_and_parse_block_with_retry, retrieve_block_hash_with_retry,
 };
 use ordhook::chainhook_sdk::observer::BitcoinConfig;
 use ordhook::chainhook_sdk::types::BitcoinBlockData;
+use ordhook::chainhook_sdk::utils::BlockHeights;
 use ordhook::chainhook_sdk::utils::Context;
-use clap::{Parser, Subcommand};
-use hiro_system_kit;
 use ordhook::config::Config;
 use ordhook::core::pipeline::download_and_pipeline_blocks;
 use ordhook::core::pipeline::processors::block_archiving::start_block_archiving_processor;
@@ -30,6 +29,7 @@ use ordhook::db::{
     open_readwrite_ordhook_db_conn_rocks_db,
 };
 use ordhook::download::download_ordinals_dataset_if_required;
+use ordhook::scan::bitcoin::scan_bitcoin_chainstate_via_rpc_using_predicate;
 use ordhook::service::Service;
 use reqwest::Client as HttpClient;
 use std::collections::BTreeMap;
@@ -454,8 +454,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
             // If post-to:
             // - Replay that requires connection to bitcoind
             let mut block_range =
-                BlockHeights::BlockRange(cmd.start_block, cmd.end_block)
-                    .get_sorted_entries();
+                BlockHeights::BlockRange(cmd.start_block, cmd.end_block).get_sorted_entries();
 
             if let Some(ref post_to) = cmd.post_to {
                 info!(ctx.expect_logger(), "A fully synchronized bitcoind node is required for retrieving inscriptions content.");

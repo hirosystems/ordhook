@@ -4,17 +4,18 @@ mod runloops;
 
 use crate::config::{Config, PredicatesApi};
 use crate::core::pipeline::download_and_pipeline_blocks;
-use crate::core::pipeline::processors::inscription_indexing::process_blocks;
+use crate::core::pipeline::processors::inscription_indexing::process_block;
 use crate::core::pipeline::processors::start_inscription_indexing_processor;
 use crate::core::pipeline::processors::transfers_recomputing::start_transfers_recomputing_processor;
-use crate::core::protocol::inscription_parsing::parse_inscriptions_in_standardized_block;
-use crate::core::protocol::inscription_sequencing::SequenceCursor;
-use crate::core::{
-    new_traversals_lazy_cache, revert_ordhook_db_with_augmented_bitcoin_block,
-    should_sync_ordhook_db,
+use crate::core::protocol::inscription_parsing::{
+    get_inscriptions_revealed_in_block, parse_inscriptions_in_standardized_block,
 };
+use crate::core::protocol::inscription_sequencing::SequenceCursor;
+use crate::core::{new_traversals_lazy_cache, should_sync_ordhook_db};
 use crate::db::{
-    insert_entry_in_blocks, open_readonly_ordhook_db_conn, open_readwrite_ordhook_dbs, LazyBlock,
+    delete_data_in_ordhook_db, insert_entry_in_blocks,
+    insert_new_inscriptions_from_block_in_inscriptions_and_locations, open_readwrite_ordhook_dbs,
+    LazyBlock, LazyBlockTransaction,
 };
 use crate::scan::bitcoin::process_block_with_predicates;
 use crate::service::http_api::start_predicate_api_server;
@@ -27,13 +28,18 @@ use crate::service::runloops::start_bitcoin_scan_runloop;
 use chainhook_sdk::chainhooks::types::{
     BitcoinChainhookSpecification, ChainhookFullSpecification, ChainhookSpecification,
 };
-
-use chainhook_sdk::observer::{start_event_observer, HandleBlock, ObserverEvent};
-use chainhook_sdk::types::BitcoinBlockData;
+use chainhook_sdk::observer::{
+    start_event_observer, BitcoinBlockDataCached, HandleBlock, ObserverEvent, ObserverSidecar,
+};
+use chainhook_sdk::types::{BitcoinBlockData, BlockIdentifier};
 use chainhook_sdk::utils::Context;
 use crossbeam_channel::unbounded;
+use dashmap::DashMap;
+use fxhash::FxHasher;
 use redis::Commands;
 
+use std::collections::BTreeMap;
+use std::hash::BuildHasherDefault;
 use std::sync::mpsc::channel;
 use std::sync::Arc;
 
@@ -124,10 +130,15 @@ impl Service {
 
         // Catch-up with chain tip
 
-        // Bitcoin scan operation threadpool
+        // Sidecar channels setup
         let (observer_command_tx, observer_command_rx) = channel();
-        let (block_processor_in_tx, block_processor_in_rx) = channel();
-        let (block_processor_out_tx, block_processor_out_rx) = channel();
+        let (block_mutator_in_tx, block_mutator_in_rx) = channel();
+        let (block_mutator_out_tx, block_mutator_out_rx) = channel();
+        let (chain_event_notifier_tx, chain_event_notifier_rx) = channel();
+        let observer_sidecar = ObserverSidecar {
+            bitcoin_blocks_mutator: Some((block_mutator_in_tx, block_mutator_out_rx)),
+            bitcoin_chain_event_notifier: Some(chain_event_notifier_tx),
+        };
 
         let (bitcoin_scan_op_tx, bitcoin_scan_op_rx) = crossbeam_channel::unbounded();
         let ctx = self.ctx.clone();
@@ -179,16 +190,17 @@ impl Service {
             observer_command_tx,
             observer_command_rx,
             Some(observer_event_tx),
-            Some((block_processor_in_tx, block_processor_out_rx)),
+            Some(observer_sidecar),
             inner_ctx,
         );
 
         let ctx = self.ctx.clone();
         let config = self.config.clone();
-        let moved_traversals_cache = traversals_cache.clone();
-        let _ = hiro_system_kit::thread_named("Block pre-processor").spawn(move || loop {
-            let command = match block_processor_in_rx.recv() {
-                Ok(cmd) => cmd,
+        let cache_l2 = traversals_cache.clone();
+
+        let _ = hiro_system_kit::thread_named("Sidecar block mutator").spawn(move || loop {
+            let (mut blocks_to_mutate, blocks_ids_to_rollback) = match block_mutator_in_rx.recv() {
+                Ok(block) => block,
                 Err(e) => {
                     error!(
                         ctx.expect_logger(),
@@ -198,90 +210,34 @@ impl Service {
                     break;
                 }
             };
+            chainhook_sidecar_mutate_blocks(
+                &mut blocks_to_mutate,
+                &blocks_ids_to_rollback,
+                &cache_l2,
+                &config,
+                &ctx,
+            );
+            let _ = block_mutator_out_tx.send(blocks_to_mutate);
+        });
 
-            let (blocks_db_rw, mut inscriptions_db_conn_rw) =
-                match open_readwrite_ordhook_dbs(&config.expected_cache_path(), &ctx) {
-                    Ok(dbs) => dbs,
+        let ctx = self.ctx.clone();
+        let config = self.config.clone();
+        let _ =
+            hiro_system_kit::thread_named("Chain event notification handler").spawn(move || loop {
+                let command = match chain_event_notifier_rx.recv() {
+                    Ok(cmd) => cmd,
                     Err(e) => {
-                        ctx.try_log(|logger| {
-                            error!(logger, "Unable to open readwtite connection: {e}",)
-                        });
-                        continue;
+                        error!(
+                            ctx.expect_logger(),
+                            "Error: broken channel {}",
+                            e.to_string()
+                        );
+                        break;
                     }
                 };
 
-            match command {
-                HandleBlock::UndoBlocks(mut blocks) => {
-                    for block in blocks.iter_mut() {
-                        // Todo: first we need to "augment" the blocks with predicate data
-                        info!(
-                            ctx.expect_logger(),
-                            "Re-org handling: reverting changes in block #{}",
-                            block.block_identifier.index
-                        );
-
-                        if let Err(e) = revert_ordhook_db_with_augmented_bitcoin_block(
-                            block,
-                            &blocks_db_rw,
-                            &inscriptions_db_conn_rw,
-                            &ctx,
-                        ) {
-                            ctx.try_log(|logger| {
-                                error!(
-                                    logger,
-                                    "Unable to rollback bitcoin block {}: {e}",
-                                    block.block_identifier
-                                )
-                            });
-                        }
-                    }
-                    let _ = block_processor_out_tx.send(blocks);
-                }
-                HandleBlock::ApplyBlocks(mut blocks) => {
-                    for block in blocks.iter_mut() {
-                        let compressed_block: LazyBlock =
-                            match LazyBlock::from_standardized_block(&block) {
-                                Ok(block) => block,
-                                Err(e) => {
-                                    error!(
-                                        ctx.expect_logger(),
-                                        "Unable to compress block #{}: #{}",
-                                        block.block_identifier.index,
-                                        e.to_string()
-                                    );
-                                    continue;
-                                }
-                            };
-                        insert_entry_in_blocks(
-                            block.block_identifier.index as u32,
-                            &compressed_block,
-                            true,
-                            &blocks_db_rw,
-                            &ctx,
-                        );
-                        let _ = blocks_db_rw.flush();
-
-                        parse_inscriptions_in_standardized_block(block, &ctx);
-                    }
-                    let inscriptions_db_conn =
-                        open_readonly_ordhook_db_conn(&config.expected_cache_path(), &ctx)
-                            .expect("unable to open inscriptions db");
-                    let mut sequence_cursor = SequenceCursor::new(inscriptions_db_conn);
-
-                    let updated_blocks = process_blocks(
-                        &mut blocks,
-                        &mut sequence_cursor,
-                        &moved_traversals_cache,
-                        &mut inscriptions_db_conn_rw,
-                        &config.get_ordhook_config(),
-                        &None,
-                        &ctx,
-                    );
-
-                    let _ = block_processor_out_tx.send(updated_blocks);
-                }
-            }
-        });
+                chainhook_sidecar_handle_chain_event(command, &config, &ctx)
+            });
 
         loop {
             let event = match observer_event_rx.recv() {
@@ -402,10 +358,14 @@ impl Service {
         block_post_processor: Option<crossbeam_channel::Sender<BitcoinBlockData>>,
     ) -> Result<(), String> {
         // Start predicate processor
+        let mut last_block_processed = 0;
 
         while let Some((start_block, end_block, speed)) =
             should_sync_ordhook_db(&self.config, &self.ctx)?
         {
+            if end_block <= last_block_processed {
+                break;
+            }
             let blocks_post_processor = start_inscription_indexing_processor(
                 &self.config,
                 &self.ctx,
@@ -429,6 +389,8 @@ impl Service {
                 &self.ctx,
             )
             .await?;
+
+            last_block_processed = end_block;
         }
 
         Ok(())
@@ -464,4 +426,173 @@ impl Service {
 
         Ok(())
     }
+}
+
+fn chainhook_sidecar_handle_chain_event(command: HandleBlock, config: &Config, ctx: &Context) {
+    let (blocks_db_rw, inscriptions_db_conn_rw) =
+        match open_readwrite_ordhook_dbs(&config.expected_cache_path(), &ctx) {
+            Ok(dbs) => dbs,
+            Err(e) => {
+                ctx.try_log(|logger| error!(logger, "Unable to open readwtite connection: {e}",));
+                return;
+            }
+        };
+
+    match command {
+        HandleBlock::UndoBlock(block) => {
+            info!(
+                ctx.expect_logger(),
+                "Re-org handling: reverting changes in block #{}", block.block_identifier.index
+            );
+            if let Err(e) = delete_data_in_ordhook_db(
+                block.block_identifier.index,
+                block.block_identifier.index,
+                &blocks_db_rw,
+                &inscriptions_db_conn_rw,
+                &ctx,
+            ) {
+                ctx.try_log(|logger| {
+                    error!(
+                        logger,
+                        "Unable to rollback bitcoin block {}: {e}", block.block_identifier
+                    )
+                });
+            }
+        }
+        HandleBlock::ApplyBlock(block) => {
+            let compressed_block: LazyBlock = match LazyBlock::from_standardized_block(&block) {
+                Ok(block) => block,
+                Err(e) => {
+                    error!(
+                        ctx.expect_logger(),
+                        "Unable to compress block #{}: #{}",
+                        block.block_identifier.index,
+                        e.to_string()
+                    );
+                    return;
+                }
+            };
+            insert_entry_in_blocks(
+                block.block_identifier.index as u32,
+                &compressed_block,
+                true,
+                &blocks_db_rw,
+                &ctx,
+            );
+            let _ = blocks_db_rw.flush();
+
+            insert_new_inscriptions_from_block_in_inscriptions_and_locations(
+                &block,
+                &inscriptions_db_conn_rw,
+                &ctx,
+            );
+        }
+    }
+}
+
+pub fn chainhook_sidecar_mutate_blocks(
+    blocks_to_mutate: &mut Vec<BitcoinBlockDataCached>,
+    blocks_ids_to_rollback: &Vec<BlockIdentifier>,
+    cache_l2: &Arc<DashMap<(u32, [u8; 8]), LazyBlockTransaction, BuildHasherDefault<FxHasher>>>,
+    config: &Config,
+    ctx: &Context,
+) {
+    let mut updated_blocks_ids = vec![];
+
+    let (blocks_db_rw, mut inscriptions_db_conn_rw) =
+        match open_readwrite_ordhook_dbs(&config.expected_cache_path(), &ctx) {
+            Ok(dbs) => dbs,
+            Err(e) => {
+                ctx.try_log(|logger| error!(logger, "Unable to open readwtite connection: {e}",));
+                return;
+            }
+        };
+
+    let inscriptions_db_tx = inscriptions_db_conn_rw.transaction().unwrap();
+
+    for block_id_to_rollback in blocks_ids_to_rollback.iter() {
+        if let Err(e) = delete_data_in_ordhook_db(
+            block_id_to_rollback.index,
+            block_id_to_rollback.index,
+            &blocks_db_rw,
+            &inscriptions_db_tx,
+            &Context::empty(),
+        ) {
+            ctx.try_log(|logger| {
+                error!(
+                    logger,
+                    "Unable to rollback bitcoin block {}: {e}", block_id_to_rollback.index
+                )
+            });
+        }
+    }
+
+    let ordhook_config = config.get_ordhook_config();
+
+    for cache in blocks_to_mutate.iter_mut() {
+        let compressed_block: LazyBlock = match LazyBlock::from_standardized_block(&cache.block) {
+            Ok(block) => block,
+            Err(e) => {
+                error!(
+                    ctx.expect_logger(),
+                    "Unable to compress block #{}: #{}",
+                    cache.block.block_identifier.index,
+                    e.to_string()
+                );
+                continue;
+            }
+        };
+
+        insert_entry_in_blocks(
+            cache.block.block_identifier.index as u32,
+            &compressed_block,
+            true,
+            &blocks_db_rw,
+            &ctx,
+        );
+        let _ = blocks_db_rw.flush();
+
+        if cache.processed_by_sidecar {
+            insert_new_inscriptions_from_block_in_inscriptions_and_locations(
+                &cache.block,
+                &inscriptions_db_tx,
+                &ctx,
+            );
+        } else {
+            updated_blocks_ids.push(format!("{}", cache.block.block_identifier.index));
+
+            parse_inscriptions_in_standardized_block(&mut cache.block, &ctx);
+
+            let mut cache_l1 = BTreeMap::new();
+            let mut sequence_cursor = SequenceCursor::new(&inscriptions_db_tx);
+
+            let _ = process_block(
+                &mut cache.block,
+                &vec![],
+                &mut sequence_cursor,
+                &mut cache_l1,
+                &cache_l2,
+                &inscriptions_db_tx,
+                &ordhook_config,
+                &ctx,
+            );
+
+            let inscriptions_revealed = get_inscriptions_revealed_in_block(&cache.block)
+                .iter()
+                .map(|d| d.inscription_number.to_string())
+                .collect::<Vec<String>>();
+
+            ctx.try_log(|logger| {
+                info!(
+                    logger,
+                    "Block #{} processed, mutated and revealed {} inscriptions [{}]",
+                    cache.block.block_identifier.index,
+                    inscriptions_revealed.len(),
+                    inscriptions_revealed.join(", ")
+                )
+            });
+            cache.processed_by_sidecar = true;
+        }
+    }
+    let _ = inscriptions_db_tx.rollback();
 }

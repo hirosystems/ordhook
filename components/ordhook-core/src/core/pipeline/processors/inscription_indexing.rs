@@ -70,7 +70,7 @@ pub fn start_inscription_indexing_processor(
 
             let inscriptions_db_conn =
                 open_readonly_ordhook_db_conn(&config.expected_cache_path(), &ctx).unwrap();
-            let mut sequence_cursor = SequenceCursor::new(inscriptions_db_conn);
+            let mut sequence_cursor = SequenceCursor::new(&inscriptions_db_conn);
 
             if let Ok(PostProcessorCommand::Start) = commands_rx.recv() {
                 let _ = events_tx.send(PostProcessorEvent::Started);
