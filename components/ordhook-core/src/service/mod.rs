@@ -236,7 +236,7 @@ impl Service {
                     }
                 };
 
-                chainhook_sidecar_handle_chain_event(command, &config, &ctx)
+                chainhook_sidecar_mutate_ordhook_db(command, &config, &ctx)
             });
 
         loop {
@@ -428,7 +428,7 @@ impl Service {
     }
 }
 
-fn chainhook_sidecar_handle_chain_event(command: HandleBlock, config: &Config, ctx: &Context) {
+fn chainhook_sidecar_mutate_ordhook_db(command: HandleBlock, config: &Config, ctx: &Context) {
     let (blocks_db_rw, inscriptions_db_conn_rw) =
         match open_readwrite_ordhook_dbs(&config.expected_cache_path(), &ctx) {
             Ok(dbs) => dbs,
