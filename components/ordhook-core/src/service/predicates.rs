@@ -171,6 +171,7 @@ pub fn start_predicate_processor(
 
 pub fn create_and_consolidate_chainhook_config_with_predicates(
     predicates: Vec<ChainhookFullSpecification>,
+    enable_internal_trigger: bool,
     config: &Config,
     ctx: &Context,
 ) -> ChainhookConfig {
@@ -235,5 +236,29 @@ pub fn create_and_consolidate_chainhook_config_with_predicates(
         }
     }
 
+    if enable_internal_trigger {
+        let _ = chainhook_config.register_specification(ChainhookSpecification::Bitcoin(
+            BitcoinChainhookSpecification {
+                uuid: format!("ordhook"),
+                owner_uuid: None,
+                name: format!("ordhook"),
+                network: chainhook_sdk::types::BitcoinNetwork::Mainnet,
+                version: 1,
+                blocks: None,
+                start_block: None,
+                end_block: None,
+                expire_after_occurrence: None,
+                predicate: chainhook_sdk::chainhooks::types::BitcoinPredicateType::OrdinalsProtocol(
+                    chainhook_sdk::chainhooks::types::OrdinalOperations::InscriptionFeed,
+                ),
+                action: chainhook_sdk::chainhooks::types::HookAction::Noop,
+                include_proof: false,
+                include_inputs: true,
+                include_outputs: false,
+                include_witness: false,
+                enabled: true,
+            },
+        ));
+    }
     chainhook_config
 }

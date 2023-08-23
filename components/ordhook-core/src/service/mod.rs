@@ -26,6 +26,7 @@ use crate::service::predicates::{
 };
 use crate::service::runloops::start_bitcoin_scan_runloop;
 
+use chainhook_sdk::chainhooks::bitcoin::BitcoinChainhookOccurrencePayload;
 use chainhook_sdk::chainhooks::types::{
     BitcoinChainhookSpecification, ChainhookFullSpecification, ChainhookSpecification,
 };
@@ -36,7 +37,7 @@ use chainhook_sdk::observer::{
 use chainhook_sdk::types::{BitcoinBlockData, BlockIdentifier};
 use chainhook_sdk::utils::Context;
 use crossbeam_channel::unbounded;
-use crossbeam_channel::{select, Sender};
+use crossbeam_channel::select;
 use dashmap::DashMap;
 use fxhash::FxHasher;
 use redis::Commands;
@@ -56,13 +57,21 @@ impl Service {
         Self { config, ctx }
     }
 
-    pub async fn run(&mut self, predicates: Vec<ChainhookFullSpecification>) -> Result<(), String> {
+    pub async fn run(
+        &mut self,
+        predicates: Vec<ChainhookFullSpecification>,
+        predicate_activity_relayer: Option<
+            crossbeam_channel::Sender<BitcoinChainhookOccurrencePayload>,
+        >,
+    ) -> Result<(), String> {
         let mut event_observer_config = self.config.get_event_observer_config();
         let chainhook_config = create_and_consolidate_chainhook_config_with_predicates(
             predicates,
+            predicate_activity_relayer.is_some(),
             &self.config,
             &self.ctx,
         );
+
         event_observer_config.chainhook_config = Some(chainhook_config);
 
         let ordhook_config = self.config.get_ordhook_config();
@@ -106,9 +115,14 @@ impl Service {
             self.start_main_runloop_with_dynamic_predicates(
                 &observer_command_tx,
                 observer_event_rx,
+                predicate_activity_relayer,
             )?;
         } else {
-            self.start_main_runloop(&observer_command_tx, observer_event_rx)?;
+            self.start_main_runloop(
+                &observer_command_tx,
+                observer_event_rx,
+                predicate_activity_relayer,
+            )?;
         }
         Ok(())
     }
@@ -117,6 +131,9 @@ impl Service {
         &self,
         _observer_command_tx: &std::sync::mpsc::Sender<ObserverCommand>,
         observer_event_rx: crossbeam_channel::Receiver<ObserverEvent>,
+        predicate_activity_relayer: Option<
+            crossbeam_channel::Sender<BitcoinChainhookOccurrencePayload>,
+        >,
     ) -> Result<(), String> {
         loop {
             let event = match observer_event_rx.recv() {
@@ -131,6 +148,11 @@ impl Service {
                 }
             };
             match event {
+                ObserverEvent::BitcoinPredicateTriggered(data) => {
+                    if let Some(ref tx) = predicate_activity_relayer {
+                        let _ = tx.send(data);
+                    }
+                }
                 ObserverEvent::Terminate => {
                     info!(self.ctx.expect_logger(), "Terminating runloop");
                     break;
@@ -145,6 +167,9 @@ impl Service {
         &self,
         observer_command_tx: &std::sync::mpsc::Sender<ObserverCommand>,
         observer_event_rx: crossbeam_channel::Receiver<ObserverEvent>,
+        predicate_activity_relayer: Option<
+            crossbeam_channel::Sender<BitcoinChainhookOccurrencePayload>,
+        >,
     ) -> Result<(), String> {
         let PredicatesApi::On(ref api_config) = self.config.http_api else {
             return Ok(())
@@ -280,6 +305,11 @@ impl Service {
                                 e.to_string()
                             );
                         }
+                    }
+                }
+                ObserverEvent::BitcoinPredicateTriggered(data) => {
+                    if let Some(ref tx) = predicate_activity_relayer {
+                        let _ = tx.send(data);
                     }
                 }
                 ObserverEvent::Terminate => {

@@ -618,7 +618,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 //     .collect::<Result<Vec<ChainhookFullSpecification>, _>>()?;
 
                 let mut service = Service::new(config, ctx.clone());
-                return service.run(predicates).await;
+                return service.run(predicates, None).await;
             }
         },
         Command::Config(subcmd) => match subcmd {
