@@ -14,8 +14,9 @@ use crate::core::protocol::inscription_sequencing::SequenceCursor;
 use crate::core::{new_traversals_lazy_cache, should_sync_ordhook_db};
 use crate::db::{
     delete_data_in_ordhook_db, insert_entry_in_blocks,
-    insert_new_inscriptions_from_block_in_inscriptions_and_locations, open_readwrite_ordhook_dbs,
-    LazyBlock, LazyBlockTransaction,
+    insert_new_inscriptions_from_block_in_inscriptions_and_locations,
+    open_readwrite_ordhook_db_conn, open_readwrite_ordhook_db_conn_rocks_db,
+    open_readwrite_ordhook_dbs, LazyBlock, LazyBlockTransaction,
 };
 use crate::scan::bitcoin::process_block_with_predicates;
 use crate::service::http_api::start_predicate_api_server;
@@ -29,12 +30,13 @@ use chainhook_sdk::chainhooks::types::{
     BitcoinChainhookSpecification, ChainhookFullSpecification, ChainhookSpecification,
 };
 use chainhook_sdk::observer::{
-    start_event_observer, BitcoinBlockDataCached, HandleBlock, ObserverEvent, ObserverSidecar,
+    start_event_observer, BitcoinBlockDataCached, EventObserverConfig, HandleBlock,
+    ObserverCommand, ObserverEvent, ObserverSidecar,
 };
 use chainhook_sdk::types::{BitcoinBlockData, BlockIdentifier};
 use chainhook_sdk::utils::Context;
-use crossbeam_channel::select;
 use crossbeam_channel::unbounded;
+use crossbeam_channel::{select, Sender};
 use dashmap::DashMap;
 use fxhash::FxHasher;
 use redis::Commands;
@@ -68,77 +70,84 @@ impl Service {
         // Sleep
         // std::thread::sleep(std::time::Duration::from_secs(1200));
 
-        // Force rebuild
-        // {
-        //     let blocks_db = open_readwrite_ordhook_db_conn_rocks_db(
-        //         &self.config.expected_cache_path(),
-        //         &self.ctx,
-        //     )?;
-        //     let inscriptions_db_conn_rw =
-        //         open_readwrite_ordhook_db_conn(&self.config.expected_cache_path(), &self.ctx)?;
-
-        //     delete_data_in_ordhook_db(
-        //         767430,
-        //         800000,
-        //         &blocks_db,
-        //         &inscriptions_db_conn_rw,
-        //         &self.ctx,
-        //     )?;
-        // }
-
-        let (tx_replayer, rx_replayer) = unbounded();
-        let mut moved_event_observer_config = event_observer_config.clone();
-        let moved_ctx = self.ctx.clone();
-
-        let _ = hiro_system_kit::thread_named("Initial predicate processing")
-            .spawn(move || {
-                if let Some(mut chainhook_config) =
-                    moved_event_observer_config.chainhook_config.take()
-                {
-                    let mut bitcoin_predicates_ref: Vec<&BitcoinChainhookSpecification> = vec![];
-                    for bitcoin_predicate in chainhook_config.bitcoin_chainhooks.iter_mut() {
-                        bitcoin_predicates_ref.push(bitcoin_predicate);
-                    }
-                    while let Ok(block) = rx_replayer.recv() {
-                        let future = process_block_with_predicates(
-                            block,
-                            &bitcoin_predicates_ref,
-                            &moved_event_observer_config,
-                            &moved_ctx,
-                        );
-                        let res = hiro_system_kit::nestable_block_on(future);
-                        if let Err(_) = res {
-                            error!(moved_ctx.expect_logger(), "Initial ingestion failing");
-                        }
-                    }
-                }
-            })
-            .expect("unable to spawn thread");
-
-        // let (cursor, tip) = {
-        //     let inscriptions_db_conn =
-        //         open_readonly_ordhook_db_conn(&self.config.expected_cache_path(), &self.ctx)?;
-        //     let cursor = find_latest_transfers_block_height(&inscriptions_db_conn, &self.ctx).unwrap_or(1);
-        //     match find_latest_inscription_block_height(&inscriptions_db_conn, &self.ctx)? {
-        //         Some(height) => (cursor, height),
-        //         None => panic!(),
-        //     }
-        // };
-        // self.replay_transfers(cursor, tip, Some(tx_replayer.clone()))
-        //     .await?;
-
-        self.update_state(Some(tx_replayer.clone())).await?;
-
         // Catch-up with chain tip
+        self.catch_up_with_chain_tip(false, &event_observer_config)
+            .await?;
+        info!(
+            self.ctx.expect_logger(),
+            "Database up to date, service will start streaming blocks"
+        );
 
         // Sidecar channels setup
+        let observer_sidecar = self.set_up_observer_sidecar_runloop().await?;
+
+        // Create the chainhook runloop tx/rx comms
         let (observer_command_tx, observer_command_rx) = channel();
-        let (block_mutator_in_tx, block_mutator_in_rx) = crossbeam_channel::unbounded();
-        let (block_mutator_out_tx, block_mutator_out_rx) = crossbeam_channel::unbounded();
-        let (chain_event_notifier_tx, chain_event_notifier_rx) = crossbeam_channel::unbounded();
-        let observer_sidecar = ObserverSidecar {
-            bitcoin_blocks_mutator: Some((block_mutator_in_tx, block_mutator_out_rx)),
-            bitcoin_chain_event_notifier: Some(chain_event_notifier_tx),
+        let (observer_event_tx, observer_event_rx) = crossbeam_channel::unbounded();
+        let inner_ctx = if ordhook_config.logs.chainhook_internals {
+            self.ctx.clone()
+        } else {
+            Context::empty()
+        };
+
+        let _ = start_event_observer(
+            event_observer_config.clone(),
+            observer_command_tx.clone(),
+            observer_command_rx,
+            Some(observer_event_tx),
+            Some(observer_sidecar),
+            inner_ctx,
+        );
+
+        // If HTTP Predicates API is on, we start:
+        // - Thread pool in charge of performing replays
+        // - API server
+        if self.config.is_http_api_enabled() {
+            self.start_main_runloop_with_dynamic_predicates(
+                &observer_command_tx,
+                observer_event_rx,
+            )?;
+        } else {
+            self.start_main_runloop(&observer_command_tx, observer_event_rx)?;
+        }
+        Ok(())
+    }
+
+    pub fn start_main_runloop(
+        &self,
+        _observer_command_tx: &std::sync::mpsc::Sender<ObserverCommand>,
+        observer_event_rx: crossbeam_channel::Receiver<ObserverEvent>,
+    ) -> Result<(), String> {
+        loop {
+            let event = match observer_event_rx.recv() {
+                Ok(cmd) => cmd,
+                Err(e) => {
+                    error!(
+                        self.ctx.expect_logger(),
+                        "Error: broken channel {}",
+                        e.to_string()
+                    );
+                    break;
+                }
+            };
+            match event {
+                ObserverEvent::Terminate => {
+                    info!(self.ctx.expect_logger(), "Terminating runloop");
+                    break;
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    pub fn start_main_runloop_with_dynamic_predicates(
+        &self,
+        observer_command_tx: &std::sync::mpsc::Sender<ObserverCommand>,
+        observer_event_rx: crossbeam_channel::Receiver<ObserverEvent>,
+    ) -> Result<(), String> {
+        let PredicatesApi::On(ref api_config) = self.config.http_api else {
+            return Ok(())
         };
 
         let (bitcoin_scan_op_tx, bitcoin_scan_op_rx) = crossbeam_channel::unbounded();
@@ -156,69 +165,17 @@ impl Service {
             })
             .expect("unable to spawn thread");
 
-        // Enable HTTP Predicates API, if required
-        if let PredicatesApi::On(ref api_config) = self.config.http_api {
-            info!(
-                self.ctx.expect_logger(),
-                "Listening on port {} for chainhook predicate registrations", api_config.http_port
-            );
-            let ctx = self.ctx.clone();
-            let api_config = api_config.clone();
-            let moved_observer_command_tx = observer_command_tx.clone();
-            // Test and initialize a database connection
-            let _ = hiro_system_kit::thread_named("HTTP Predicate API").spawn(move || {
-                let future = start_predicate_api_server(api_config, moved_observer_command_tx, ctx);
-                let _ = hiro_system_kit::nestable_block_on(future);
-            });
-        }
-
-        let (observer_event_tx, observer_event_rx) = crossbeam_channel::unbounded();
-        let traversals_cache = Arc::new(new_traversals_lazy_cache(ordhook_config.cache_size));
-
-        let inner_ctx = if ordhook_config.logs.chainhook_internals {
-            self.ctx.clone()
-        } else {
-            Context::empty()
-        };
-
         info!(
             self.ctx.expect_logger(),
-            "Database up to date, service will start streaming blocks"
+            "Listening on port {} for chainhook predicate registrations", api_config.http_port
         );
-
-        let _ = start_event_observer(
-            event_observer_config.clone(),
-            observer_command_tx,
-            observer_command_rx,
-            Some(observer_event_tx),
-            Some(observer_sidecar),
-            inner_ctx,
-        );
-
         let ctx = self.ctx.clone();
-        let config = self.config.clone();
-        let cache_l2 = traversals_cache.clone();
-
-        let _ = hiro_system_kit::thread_named("Observer Sidecar Runloop").spawn(move || loop {
-            select! {
-                recv(block_mutator_in_rx) -> msg => {
-                    if let Ok((mut blocks_to_mutate, blocks_ids_to_rollback)) = msg {
-                        chainhook_sidecar_mutate_blocks(
-                            &mut blocks_to_mutate,
-                            &blocks_ids_to_rollback,
-                            &cache_l2,
-                            &config,
-                            &ctx,
-                        );
-                        let _ = block_mutator_out_tx.send(blocks_to_mutate);
-                    }
-                }
-                recv(chain_event_notifier_rx) -> msg => {
-                    if let Ok(command) = msg {
-                        chainhook_sidecar_mutate_ordhook_db(command, &config, &ctx)
-                    }
-                }
-            }
+        let api_config = api_config.clone();
+        let moved_observer_command_tx = observer_command_tx.clone();
+        // Test and initialize a database connection
+        let _ = hiro_system_kit::thread_named("HTTP Predicate API").spawn(move || {
+            let future = start_predicate_api_server(api_config, moved_observer_command_tx, ctx);
+            let _ = hiro_system_kit::nestable_block_on(future);
         });
 
         loop {
@@ -332,6 +289,101 @@ impl Service {
                 _ => {}
             }
         }
+
+        Ok(())
+    }
+
+    pub async fn set_up_observer_sidecar_runloop(&self) -> Result<ObserverSidecar, String> {
+        let (block_mutator_in_tx, block_mutator_in_rx) = crossbeam_channel::unbounded();
+        let (block_mutator_out_tx, block_mutator_out_rx) = crossbeam_channel::unbounded();
+        let (chain_event_notifier_tx, chain_event_notifier_rx) = crossbeam_channel::unbounded();
+        let observer_sidecar = ObserverSidecar {
+            bitcoin_blocks_mutator: Some((block_mutator_in_tx, block_mutator_out_rx)),
+            bitcoin_chain_event_notifier: Some(chain_event_notifier_tx),
+        };
+        let cache_l2 = Arc::new(new_traversals_lazy_cache(
+            self.config.limits.max_caching_memory_size_mb,
+        ));
+        let ctx = self.ctx.clone();
+        let config = self.config.clone();
+
+        let _ = hiro_system_kit::thread_named("Observer Sidecar Runloop").spawn(move || loop {
+            select! {
+                recv(block_mutator_in_rx) -> msg => {
+                    if let Ok((mut blocks_to_mutate, blocks_ids_to_rollback)) = msg {
+                        chainhook_sidecar_mutate_blocks(
+                            &mut blocks_to_mutate,
+                            &blocks_ids_to_rollback,
+                            &cache_l2,
+                            &config,
+                            &ctx,
+                        );
+                        let _ = block_mutator_out_tx.send(blocks_to_mutate);
+                    }
+                }
+                recv(chain_event_notifier_rx) -> msg => {
+                    if let Ok(command) = msg {
+                        chainhook_sidecar_mutate_ordhook_db(command, &config, &ctx)
+                    }
+                }
+            }
+        });
+
+        Ok(observer_sidecar)
+    }
+
+    pub async fn catch_up_with_chain_tip(
+        &mut self,
+        rebuild_from_scratch: bool,
+        event_observer_config: &EventObserverConfig,
+    ) -> Result<(), String> {
+        if rebuild_from_scratch {
+            let blocks_db = open_readwrite_ordhook_db_conn_rocks_db(
+                &self.config.expected_cache_path(),
+                &self.ctx,
+            )?;
+            let inscriptions_db_conn_rw =
+                open_readwrite_ordhook_db_conn(&self.config.expected_cache_path(), &self.ctx)?;
+
+            delete_data_in_ordhook_db(
+                767430,
+                800000,
+                &blocks_db,
+                &inscriptions_db_conn_rw,
+                &self.ctx,
+            )?;
+        }
+
+        let (tx_replayer, rx_replayer) = unbounded();
+        let mut moved_event_observer_config = event_observer_config.clone();
+        let moved_ctx = self.ctx.clone();
+
+        let _ = hiro_system_kit::thread_named("Initial predicate processing")
+            .spawn(move || {
+                if let Some(mut chainhook_config) =
+                    moved_event_observer_config.chainhook_config.take()
+                {
+                    let mut bitcoin_predicates_ref: Vec<&BitcoinChainhookSpecification> = vec![];
+                    for bitcoin_predicate in chainhook_config.bitcoin_chainhooks.iter_mut() {
+                        bitcoin_predicates_ref.push(bitcoin_predicate);
+                    }
+                    while let Ok(block) = rx_replayer.recv() {
+                        let future = process_block_with_predicates(
+                            block,
+                            &bitcoin_predicates_ref,
+                            &moved_event_observer_config,
+                            &moved_ctx,
+                        );
+                        let res = hiro_system_kit::nestable_block_on(future);
+                        if let Err(_) = res {
+                            error!(moved_ctx.expect_logger(), "Initial ingestion failing");
+                        }
+                    }
+                }
+            })
+            .expect("unable to spawn thread");
+
+        self.update_state(Some(tx_replayer.clone())).await?;
         Ok(())
     }
 
