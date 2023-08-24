@@ -209,13 +209,13 @@ pub async fn download_and_pipeline_blocks(
 
                 // Early "continue"
                 if inbox.is_empty() {
+                    blocks_processed += ooo_compacted_blocks.len() as u64;
                     if let Some(ref blocks_tx) = blocks_post_processor_commands_tx {
                         let _ = blocks_tx.send(PostProcessorCommand::ProcessBlocks(
                             ooo_compacted_blocks,
                             vec![],
                         ));
                     }
-                    blocks_processed += 1;
                     continue;
                 }
 
@@ -229,13 +229,13 @@ pub async fn download_and_pipeline_blocks(
                 }
 
                 if !blocks.is_empty() {
+                    blocks_processed += blocks.len() as u64;
                     if let Some(ref blocks_tx) = blocks_post_processor_commands_tx {
                         let _ = blocks_tx.send(PostProcessorCommand::ProcessBlocks(
                             compacted_blocks,
                             blocks,
                         ));
                     }
-                    blocks_processed += 1;
                 }
             }
             ()
