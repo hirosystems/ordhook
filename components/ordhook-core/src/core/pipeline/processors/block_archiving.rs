@@ -36,11 +36,6 @@ pub fn start_block_archiving_processor(
             let mut empty_cycles = 0;
             let mut processed_blocks = 0;
 
-            if let Ok(PostProcessorCommand::Start) = commands_rx.recv() {
-                let _ = events_tx.send(PostProcessorEvent::Started);
-                debug!(ctx.expect_logger(), "Start block indexing runloop");
-            }
-
             loop {
                 debug!(ctx.expect_logger(), "Tick");
                 let (compacted_blocks, _) = match commands_rx.try_recv() {
@@ -52,7 +47,6 @@ pub fn start_block_archiving_processor(
                         let _ = events_tx.send(PostProcessorEvent::Terminated);
                         break;
                     }
-                    Ok(PostProcessorCommand::Start) => unreachable!(),
                     Err(e) => match e {
                         TryRecvError::Empty => {
                             empty_cycles += 1;

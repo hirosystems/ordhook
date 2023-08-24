@@ -72,11 +72,6 @@ pub fn start_inscription_indexing_processor(
                 open_readonly_ordhook_db_conn(&config.expected_cache_path(), &ctx).unwrap();
             let mut sequence_cursor = SequenceCursor::new(&inscriptions_db_conn);
 
-            if let Ok(PostProcessorCommand::Start) = commands_rx.recv() {
-                let _ = events_tx.send(PostProcessorEvent::Started);
-                debug!(ctx.expect_logger(), "Start inscription indexing runloop");
-            }
-
             loop {
                 let (compacted_blocks, mut blocks) = match commands_rx.try_recv() {
                     Ok(PostProcessorCommand::ProcessBlocks(compacted_blocks, blocks)) => {
@@ -88,11 +83,10 @@ pub fn start_inscription_indexing_processor(
                         let _ = events_tx.send(PostProcessorEvent::Terminated);
                         break;
                     }
-                    Ok(PostProcessorCommand::Start) => unreachable!(),
                     Err(e) => match e {
                         TryRecvError::Empty => {
                             empty_cycles += 1;
-                            if empty_cycles == 10 {
+                            if empty_cycles == 180 {
                                 warn!(ctx.expect_logger(), "Block processor reached expiration");
                                 let _ = events_tx.send(PostProcessorEvent::Expired);
                                 break;
