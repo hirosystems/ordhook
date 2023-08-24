@@ -161,6 +161,9 @@ pub async fn download_and_pipeline_blocks(
                             "#{blocks_processed} blocks successfully sent to processor"
                         )
                     });
+                    if let Some(ref blocks_tx) = blocks_post_processor_commands_tx {
+                        let _ = blocks_tx.send(PostProcessorCommand::Terminate);
+                    }
                     break;
                 }
 
@@ -231,6 +234,8 @@ pub async fn download_and_pipeline_blocks(
                     inbox_cursor += 1;
                 }
 
+                blocks_processed += blocks.len() as u64;
+
                 if !blocks.is_empty() {
                     if let Some(ref blocks_tx) = blocks_post_processor_commands_tx {
                         let _ = blocks_tx.send(PostProcessorCommand::ProcessBlocks(
@@ -287,12 +292,6 @@ pub async fn download_and_pipeline_blocks(
     ctx.try_log(|logger| debug!(logger, "Pipeline successfully terminated"));
 
     if let Some(post_processor) = blocks_post_processor {
-        if let Ok(PostProcessorEvent::Started) = post_processor.events_rx.recv() {
-            ctx.try_log(|logger| debug!(logger, "Block post processing started"));
-            let _ = post_processor
-                .commands_tx
-                .send(PostProcessorCommand::Terminate);
-        }
         loop {
             if let Ok(signal) = post_processor.events_rx.recv() {
                 match signal {
