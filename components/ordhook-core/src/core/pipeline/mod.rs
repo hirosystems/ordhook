@@ -169,7 +169,6 @@ pub async fn download_and_pipeline_blocks(
                 while let Ok(message) = block_compressed_rx.try_recv() {
                     match message {
                         Some((block_height, block, compacted_block)) => {
-                            blocks_processed += 1;
                             new_blocks.push((block_height, block, compacted_block));
                             // Max batch size: 10_000 blocks
                             if new_blocks.len() >= 10_000 {
@@ -216,6 +215,7 @@ pub async fn download_and_pipeline_blocks(
                             vec![],
                         ));
                     }
+                    blocks_processed += 1;
                     continue;
                 }
 
@@ -235,6 +235,7 @@ pub async fn download_and_pipeline_blocks(
                             blocks,
                         ));
                     }
+                    blocks_processed += 1;
                 }
             }
             ()
