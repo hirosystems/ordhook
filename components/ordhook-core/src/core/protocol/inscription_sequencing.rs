@@ -134,14 +134,19 @@ pub fn parallelize_inscription_data_computations(
         }
     }
 
+    let next_block_heights = next_blocks
+        .iter()
+        .map(|b| format!("{}", b.block_identifier.index))
+        .collect::<Vec<_>>();
+
     ctx.try_log(|logger| {
         info!(
             logger,
-            "Number of inscriptions in block #{} to process: {} (L1 cache hits: {}, queue len: {}, L1 cache len: {}, L2 cache len: {})",
+            "Number of inscriptions in block #{} to process: {} (L1 cache hits: {}, queue: [{}], L1 cache len: {}, L2 cache len: {})",
             block.block_identifier.index,
             transactions_ids.len(),
             l1_cache_hits.len(),
-            next_blocks.len(),
+            next_block_heights.join(", "),
             cache_l1.len(),
             cache_l2.len(),
         )

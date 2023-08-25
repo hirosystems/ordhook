@@ -19,13 +19,11 @@ use chainhook_sdk::indexer::bitcoin::{
 use super::protocol::inscription_parsing::parse_inscriptions_and_standardize_block;
 
 pub enum PostProcessorCommand {
-    Start,
     ProcessBlocks(Vec<(u64, LazyBlock)>, Vec<BitcoinBlockData>),
     Terminate,
 }
 
 pub enum PostProcessorEvent {
-    Started,
     Terminated,
     Expired,
 }
@@ -150,7 +148,6 @@ pub async fn download_and_pipeline_blocks(
             let mut inbox = HashMap::new();
             let mut inbox_cursor = start_sequencing_blocks_at_height.max(start_block);
             let mut blocks_processed = 0;
-            let mut processor_started = false;
             let mut stop_runloop = false;
 
             loop {
@@ -192,13 +189,6 @@ pub async fn download_and_pipeline_blocks(
                 if new_blocks.is_empty() {
                     sleep(Duration::from_millis(500));
                     continue;
-                }
-
-                if let Some(ref blocks_tx) = blocks_post_processor_commands_tx {
-                    if !processor_started {
-                        processor_started = true;
-                        let _ = blocks_tx.send(PostProcessorCommand::Start);
-                    }
                 }
 
                 let mut ooo_compacted_blocks = vec![];
@@ -296,7 +286,6 @@ pub async fn download_and_pipeline_blocks(
             if let Ok(signal) = post_processor.events_rx.recv() {
                 match signal {
                     PostProcessorEvent::Terminated | PostProcessorEvent::Expired => break,
-                    PostProcessorEvent::Started => unreachable!(),
                 }
             }
         }
