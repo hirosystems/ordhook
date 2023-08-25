@@ -12,7 +12,10 @@ use chainhook_sdk::{
     utils::Context,
 };
 
-use crate::config::{Config, LogConfig};
+use crate::{
+    config::{Config, LogConfig},
+    db::find_lazy_block_at_block_height,
+};
 
 use crate::db::{
     find_last_block_inserted, find_latest_inscription_block_height, initialize_ordhook_db,
@@ -107,16 +110,8 @@ pub fn should_sync_ordhook_db(
         }
     };
 
-    let mut start_block =
-        match open_readonly_ordhook_db_conn_rocks_db(&config.expected_cache_path(), &ctx) {
-            Ok(blocks_db) => find_last_block_inserted(&blocks_db) as u64,
-            Err(err) => {
-                ctx.try_log(|logger| {
-                    warn!(logger, "{}", err);
-                });
-                0
-            }
-        };
+    let blocks_db = open_readonly_ordhook_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
+    let mut start_block = find_last_block_inserted(&blocks_db) as u64;
 
     if start_block == 0 {
         let _ = initialize_ordhook_db(&config.expected_cache_path(), &ctx);
@@ -126,7 +121,12 @@ pub fn should_sync_ordhook_db(
 
     match find_latest_inscription_block_height(&inscriptions_db_conn, ctx)? {
         Some(height) => {
-            start_block = start_block.min(height);
+            if find_lazy_block_at_block_height(height as u32, 3, false, &blocks_db, &ctx).is_none()
+            {
+                start_block = start_block.min(height);
+            } else {
+                start_block = height;
+            }
         }
         None => {
             start_block = start_block.min(config.get_ordhook_config().first_inscription_height);
