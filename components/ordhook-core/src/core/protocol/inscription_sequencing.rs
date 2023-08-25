@@ -2,6 +2,8 @@ use std::{
     collections::{BTreeMap, HashMap, VecDeque},
     hash::BuildHasherDefault,
     sync::Arc,
+    thread::sleep,
+    time::Duration,
 };
 
 use chainhook_sdk::{
@@ -35,6 +37,7 @@ use std::sync::mpsc::channel;
 use crate::db::find_all_inscriptions_in_block;
 
 use super::{
+    inscription_parsing::get_inscriptions_revealed_in_block,
     inscription_tracking::augment_transaction_with_ordinals_transfers_data,
     satoshi_numbering::compute_satoshi_number,
 };
@@ -765,8 +768,23 @@ pub fn consolidate_block_with_pre_computed_ordinals_data(
     let coinbase_subsidy = Height(block.block_identifier.index).subsidy();
     let coinbase_txid = &block.transactions[0].transaction_identifier.clone();
     let mut cumulated_fees = 0;
-    let mut inscriptions_data =
-        find_all_inscriptions_in_block(&block.block_identifier.index, inscriptions_db_tx, ctx);
+    let expected_inscriptions_count = get_inscriptions_revealed_in_block(&block).len();
+    let mut inscriptions_data = loop {
+        let results =
+            find_all_inscriptions_in_block(&block.block_identifier.index, inscriptions_db_tx, ctx);
+        if results.len() == expected_inscriptions_count {
+            break results;
+        }
+        // Handle race conditions: if the db is being updated, the number of expected entries could be un-met.
+        sleep(Duration::from_secs(3));
+        ctx.try_log(|logger| {
+            warn!(
+                logger,
+                "Database retuning {} results instead of the expected {expected_inscriptions_count}",
+                results.len()
+            );
+        });
+    };
     for (tx_index, tx) in block.transactions.iter_mut().enumerate() {
         // Add inscriptions data
         consolidate_transaction_with_pre_computed_inscription_data(
