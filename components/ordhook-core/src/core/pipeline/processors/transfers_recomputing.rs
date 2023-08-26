@@ -37,11 +37,6 @@ pub fn start_transfers_recomputing_processor(
                 open_readwrite_ordhook_db_conn(&config.expected_cache_path(), &ctx).unwrap();
             let mut empty_cycles = 0;
 
-            if let Ok(PostProcessorCommand::Start) = commands_rx.recv() {
-                let _ = events_tx.send(PostProcessorEvent::Started);
-                debug!(ctx.expect_logger(), "Start inscription indexing runloop");
-            }
-
             loop {
                 let mut blocks = match commands_rx.try_recv() {
                     Ok(PostProcessorCommand::ProcessBlocks(_, blocks)) => {
@@ -53,7 +48,6 @@ pub fn start_transfers_recomputing_processor(
                         let _ = events_tx.send(PostProcessorEvent::Terminated);
                         break;
                     }
-                    Ok(PostProcessorCommand::Start) => unreachable!(),
                     Err(e) => match e {
                         TryRecvError::Empty => {
                             empty_cycles += 1;

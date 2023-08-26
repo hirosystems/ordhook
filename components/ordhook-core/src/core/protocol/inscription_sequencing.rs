@@ -2,6 +2,8 @@ use std::{
     collections::{BTreeMap, HashMap, VecDeque},
     hash::BuildHasherDefault,
     sync::Arc,
+    thread::sleep,
+    time::Duration,
 };
 
 use chainhook_sdk::{
@@ -35,6 +37,7 @@ use std::sync::mpsc::channel;
 use crate::db::find_all_inscriptions_in_block;
 
 use super::{
+    inscription_parsing::get_inscriptions_revealed_in_block,
     inscription_tracking::augment_transaction_with_ordinals_transfers_data,
     satoshi_numbering::compute_satoshi_number,
 };
@@ -134,14 +137,19 @@ pub fn parallelize_inscription_data_computations(
         }
     }
 
+    let next_block_heights = next_blocks
+        .iter()
+        .map(|b| format!("{}", b.block_identifier.index))
+        .collect::<Vec<_>>();
+
     ctx.try_log(|logger| {
         info!(
             logger,
-            "Number of inscriptions in block #{} to process: {} (L1 cache hits: {}, queue len: {}, L1 cache len: {}, L2 cache len: {})",
+            "Number of inscriptions in block #{} to process: {} (L1 cache hits: {}, queue: [{}], L1 cache len: {}, L2 cache len: {})",
             block.block_identifier.index,
             transactions_ids.len(),
             l1_cache_hits.len(),
-            next_blocks.len(),
+            next_block_heights.join(", "),
             cache_l1.len(),
             cache_l2.len(),
         )
@@ -336,15 +344,15 @@ fn get_transactions_to_process(
 /// This structure is wrapping the expensive SQL query and helping us keeping track of the next inscription number to
 /// use.
 ///
-pub struct SequenceCursor {
+pub struct SequenceCursor<'a> {
     blessed: Option<i64>,
     cursed: Option<i64>,
-    inscriptions_db_conn: Connection,
+    inscriptions_db_conn: &'a Connection,
     current_block_height: u64,
 }
 
-impl SequenceCursor {
-    pub fn new(inscriptions_db_conn: Connection) -> SequenceCursor {
+impl<'a> SequenceCursor<'a> {
+    pub fn new(inscriptions_db_conn: &'a Connection) -> SequenceCursor<'a> {
         SequenceCursor {
             blessed: None,
             cursed: None,
@@ -653,7 +661,9 @@ fn augment_transaction_with_ordinals_inscriptions_data(
         }
 
         // The reinscriptions_data needs to be augmented as we go, to handle transaction chaining.
-        reinscriptions_data.insert(traversal.ordinal_number, traversal.get_inscription_id());
+        if !is_cursed {
+            reinscriptions_data.insert(traversal.ordinal_number, traversal.get_inscription_id());
+        }
 
         ctx.try_log(|logger| {
             info!(
@@ -758,8 +768,23 @@ pub fn consolidate_block_with_pre_computed_ordinals_data(
     let coinbase_subsidy = Height(block.block_identifier.index).subsidy();
     let coinbase_txid = &block.transactions[0].transaction_identifier.clone();
     let mut cumulated_fees = 0;
-    let mut inscriptions_data =
-        find_all_inscriptions_in_block(&block.block_identifier.index, inscriptions_db_tx, ctx);
+    let expected_inscriptions_count = get_inscriptions_revealed_in_block(&block).len();
+    let mut inscriptions_data = loop {
+        let results =
+            find_all_inscriptions_in_block(&block.block_identifier.index, inscriptions_db_tx, ctx);
+        if results.len() == expected_inscriptions_count {
+            break results;
+        }
+        // Handle race conditions: if the db is being updated, the number of expected entries could be un-met.
+        sleep(Duration::from_secs(3));
+        ctx.try_log(|logger| {
+            warn!(
+                logger,
+                "Database retuning {} results instead of the expected {expected_inscriptions_count}",
+                results.len()
+            );
+        });
+    };
     for (tx_index, tx) in block.transactions.iter_mut().enumerate() {
         // Add inscriptions data
         consolidate_transaction_with_pre_computed_inscription_data(

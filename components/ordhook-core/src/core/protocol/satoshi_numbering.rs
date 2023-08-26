@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::db::{
-    find_lazy_block_at_block_height, open_readonly_ordhook_db_conn_rocks_db_loop, TransferData,
+    find_lazy_block_at_block_height, open_ordhook_db_conn_rocks_db_loop, TransferData,
 };
 
 use crate::db::{LazyBlockTransaction, TraversalResult};
@@ -30,7 +30,7 @@ pub fn compute_satoshi_number(
     let mut ordinal_block_number = block_identifier.index as u32;
     let txid = transaction_identifier.get_8_hash_bytes();
 
-    let mut blocks_db = open_readonly_ordhook_db_conn_rocks_db_loop(&blocks_db_dir, &ctx);
+    let mut blocks_db = open_ordhook_db_conn_rocks_db_loop(false, &blocks_db_dir, &ctx);
 
     let (sats_ranges, inscription_offset_cross_outputs) = match traversals_cache
         .get(&(block_identifier.index as u32, txid.clone()))
@@ -56,7 +56,7 @@ pub fn compute_satoshi_number(
                         if attempt < 3 {
                             attempt += 1;
                             blocks_db =
-                                open_readonly_ordhook_db_conn_rocks_db_loop(&blocks_db_dir, &ctx);
+                                open_ordhook_db_conn_rocks_db_loop(false, &blocks_db_dir, &ctx);
                         } else {
                             return Err(format!("block #{ordinal_block_number} not in database"));
                         }
@@ -176,7 +176,7 @@ pub fn compute_satoshi_number(
                         if attempt < 3 {
                             attempt += 1;
                             blocks_db =
-                                open_readonly_ordhook_db_conn_rocks_db_loop(&blocks_db_dir, &ctx);
+                                open_ordhook_db_conn_rocks_db_loop(false, &blocks_db_dir, &ctx);
                         } else {
                             return Err(format!("block #{ordinal_block_number} not in database"));
                         }

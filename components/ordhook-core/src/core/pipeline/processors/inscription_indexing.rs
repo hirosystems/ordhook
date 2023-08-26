@@ -56,7 +56,7 @@ pub fn start_inscription_indexing_processor(
     let ctx = ctx.clone();
     let handle: JoinHandle<()> = hiro_system_kit::thread_named("Inscription indexing runloop")
         .spawn(move || {
-            let cache_l2 = Arc::new(new_traversals_lazy_cache(1024));
+            let cache_l2 = Arc::new(new_traversals_lazy_cache(2048));
             let garbage_collect_every_n_blocks = 100;
             let mut garbage_collect_nth_block = 0;
 
@@ -64,17 +64,13 @@ pub fn start_inscription_indexing_processor(
                 open_readwrite_ordhook_db_conn(&config.expected_cache_path(), &ctx).unwrap();
             let ordhook_config = config.get_ordhook_config();
             let blocks_db_rw =
-                open_readwrite_ordhook_db_conn_rocks_db(&config.expected_cache_path(), &ctx).unwrap();
+                open_readwrite_ordhook_db_conn_rocks_db(&config.expected_cache_path(), &ctx)
+                    .unwrap();
             let mut empty_cycles = 0;
 
             let inscriptions_db_conn =
                 open_readonly_ordhook_db_conn(&config.expected_cache_path(), &ctx).unwrap();
-            let mut sequence_cursor = SequenceCursor::new(inscriptions_db_conn);
-
-            if let Ok(PostProcessorCommand::Start) = commands_rx.recv() {
-                let _ = events_tx.send(PostProcessorEvent::Started);
-                debug!(ctx.expect_logger(), "Start inscription indexing runloop");
-            }
+            let mut sequence_cursor = SequenceCursor::new(&inscriptions_db_conn);
 
             loop {
                 let (compacted_blocks, mut blocks) = match commands_rx.try_recv() {
@@ -87,11 +83,10 @@ pub fn start_inscription_indexing_processor(
                         let _ = events_tx.send(PostProcessorEvent::Terminated);
                         break;
                     }
-                    Ok(PostProcessorCommand::Start) => unreachable!(),
                     Err(e) => match e {
                         TryRecvError::Empty => {
                             empty_cycles += 1;
-                            if empty_cycles == 10 {
+                            if empty_cycles == 180 {
                                 warn!(ctx.expect_logger(), "Block processor reached expiration");
                                 let _ = events_tx.send(PostProcessorEvent::Expired);
                                 break;
@@ -132,14 +127,20 @@ pub fn start_inscription_indexing_processor(
 
                 garbage_collect_nth_block += blocks.len();
 
-                // Clear L2 cache on a regular basis
                 if garbage_collect_nth_block > garbage_collect_every_n_blocks {
+                    // Clear L2 cache on a regular basis
                     info!(
                         ctx.expect_logger(),
                         "Clearing cache L2 ({} entries)",
                         cache_l2.len()
                     );
                     cache_l2.clear();
+
+                    // Recreate sqlite db connection on a regular basis
+                    inscriptions_db_conn_rw =
+                        open_readwrite_ordhook_db_conn(&config.expected_cache_path(), &ctx)
+                            .unwrap();
+
                     garbage_collect_nth_block = 0;
                 }
             }

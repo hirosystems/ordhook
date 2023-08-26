@@ -19,13 +19,11 @@ use chainhook_sdk::indexer::bitcoin::{
 use super::protocol::inscription_parsing::parse_inscriptions_and_standardize_block;
 
 pub enum PostProcessorCommand {
-    Start,
     ProcessBlocks(Vec<(u64, LazyBlock)>, Vec<BitcoinBlockData>),
     Terminate,
 }
 
 pub enum PostProcessorEvent {
-    Started,
     Terminated,
     Expired,
 }
@@ -150,7 +148,6 @@ pub async fn download_and_pipeline_blocks(
             let mut inbox = HashMap::new();
             let mut inbox_cursor = start_sequencing_blocks_at_height.max(start_block);
             let mut blocks_processed = 0;
-            let mut processor_started = false;
             let mut stop_runloop = false;
 
             loop {
@@ -161,6 +158,9 @@ pub async fn download_and_pipeline_blocks(
                             "#{blocks_processed} blocks successfully sent to processor"
                         )
                     });
+                    if let Some(ref blocks_tx) = blocks_post_processor_commands_tx {
+                        let _ = blocks_tx.send(PostProcessorCommand::Terminate);
+                    }
                     break;
                 }
 
@@ -169,7 +169,6 @@ pub async fn download_and_pipeline_blocks(
                 while let Ok(message) = block_compressed_rx.try_recv() {
                     match message {
                         Some((block_height, block, compacted_block)) => {
-                            blocks_processed += 1;
                             new_blocks.push((block_height, block, compacted_block));
                             // Max batch size: 10_000 blocks
                             if new_blocks.len() >= 10_000 {
@@ -192,13 +191,6 @@ pub async fn download_and_pipeline_blocks(
                     continue;
                 }
 
-                if let Some(ref blocks_tx) = blocks_post_processor_commands_tx {
-                    if !processor_started {
-                        processor_started = true;
-                        let _ = blocks_tx.send(PostProcessorCommand::Start);
-                    }
-                }
-
                 let mut ooo_compacted_blocks = vec![];
                 for (block_height, block_opt, compacted_block) in new_blocks.into_iter() {
                     if let Some(block) = block_opt {
@@ -209,13 +201,17 @@ pub async fn download_and_pipeline_blocks(
                 }
 
                 // Early "continue"
-                if inbox.is_empty() {
+                if !ooo_compacted_blocks.is_empty() {
+                    blocks_processed += ooo_compacted_blocks.len() as u64;
                     if let Some(ref blocks_tx) = blocks_post_processor_commands_tx {
                         let _ = blocks_tx.send(PostProcessorCommand::ProcessBlocks(
                             ooo_compacted_blocks,
                             vec![],
                         ));
                     }
+                }
+
+                if inbox.is_empty() {
                     continue;
                 }
 
@@ -228,6 +224,8 @@ pub async fn download_and_pipeline_blocks(
                     inbox_cursor += 1;
                 }
 
+                blocks_processed += blocks.len() as u64;
+
                 if !blocks.is_empty() {
                     if let Some(ref blocks_tx) = blocks_post_processor_commands_tx {
                         let _ = blocks_tx.send(PostProcessorCommand::ProcessBlocks(
@@ -235,6 +233,10 @@ pub async fn download_and_pipeline_blocks(
                             blocks,
                         ));
                     }
+                }
+
+                if inbox_cursor > end_block {
+                    stop_runloop = true;
                 }
             }
             ()
@@ -280,17 +282,10 @@ pub async fn download_and_pipeline_blocks(
     ctx.try_log(|logger| debug!(logger, "Pipeline successfully terminated"));
 
     if let Some(post_processor) = blocks_post_processor {
-        if let Ok(PostProcessorEvent::Started) = post_processor.events_rx.recv() {
-            ctx.try_log(|logger| debug!(logger, "Block post processing started"));
-            let _ = post_processor
-                .commands_tx
-                .send(PostProcessorCommand::Terminate);
-        }
         loop {
             if let Ok(signal) = post_processor.events_rx.recv() {
                 match signal {
                     PostProcessorEvent::Terminated | PostProcessorEvent::Expired => break,
-                    PostProcessorEvent::Started => unreachable!(),
                 }
             }
         }

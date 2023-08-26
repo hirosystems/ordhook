@@ -11,7 +11,10 @@ use rocksdb::DB;
 use crate::{
     config::Config,
     core::pipeline::{PostProcessorCommand, PostProcessorController, PostProcessorEvent},
-    db::{insert_entry_in_blocks, open_readwrite_ordhook_db_conn_rocks_db, LazyBlock},
+    db::{
+        insert_entry_in_blocks, open_ordhook_db_conn_rocks_db_loop,
+        open_readwrite_ordhook_db_conn_rocks_db, LazyBlock,
+    },
 };
 
 pub fn start_block_archiving_processor(
@@ -27,14 +30,11 @@ pub fn start_block_archiving_processor(
     let ctx = ctx.clone();
     let handle: JoinHandle<()> = hiro_system_kit::thread_named("Processor Runloop")
         .spawn(move || {
-            let blocks_db_rw =
-                open_readwrite_ordhook_db_conn_rocks_db(&config.expected_cache_path(), &ctx).unwrap();
+            let mut blocks_db_rw =
+                open_readwrite_ordhook_db_conn_rocks_db(&config.expected_cache_path(), &ctx)
+                    .unwrap();
             let mut empty_cycles = 0;
-
-            if let Ok(PostProcessorCommand::Start) = commands_rx.recv() {
-                let _ = events_tx.send(PostProcessorEvent::Started);
-                debug!(ctx.expect_logger(), "Start block indexing runloop");
-            }
+            let mut processed_blocks = 0;
 
             loop {
                 debug!(ctx.expect_logger(), "Tick");
@@ -47,7 +47,6 @@ pub fn start_block_archiving_processor(
                         let _ = events_tx.send(PostProcessorEvent::Terminated);
                         break;
                     }
-                    Ok(PostProcessorCommand::Start) => unreachable!(),
                     Err(e) => match e {
                         TryRecvError::Empty => {
                             empty_cycles += 1;
@@ -67,7 +66,17 @@ pub fn start_block_archiving_processor(
                         }
                     },
                 };
+                processed_blocks += compacted_blocks.len();
                 store_compacted_blocks(compacted_blocks, update_tip, &blocks_db_rw, &ctx);
+
+                if processed_blocks % 10_000 == 0 {
+                    let _ = blocks_db_rw.flush_wal(true);
+                    blocks_db_rw = open_ordhook_db_conn_rocks_db_loop(
+                        true,
+                        &config.expected_cache_path(),
+                        &ctx,
+                    );
+                }
             }
 
             if let Err(e) = blocks_db_rw.flush() {

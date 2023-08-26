@@ -8,6 +8,8 @@ RUN rustup update 1.67.0 && rustup default 1.67.0
 
 COPY ./components/ordhook-cli /src/components/ordhook-cli
 
+COPY ./components/ordhook-core /src/components/ordhook-core
+
 WORKDIR /src/components/ordhook-cli
 
 RUN mkdir /out
