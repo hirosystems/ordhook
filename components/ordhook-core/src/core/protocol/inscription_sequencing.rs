@@ -188,8 +188,12 @@ pub fn parallelize_inscription_data_computations(
                 inner_ctx.try_log(|logger| {
                     info!(
                         logger,
-                        "Satoshi #{} was minted in block #{} at offset {} and was transferred {} times (progress: {traversals_received}/{expected_traversals}) (priority queue: {prioritary}, thread: {thread_index}).",
-                        traversal.ordinal_number, traversal.get_ordinal_coinbase_height(), traversal.get_ordinal_coinbase_offset(), traversal.transfers
+                        "Completed ordinal number retrieval for Satpoint {}:{}:0 (block: #{}:{}, transfers: {}, progress: {traversals_received}/{expected_traversals}, priority queue: {prioritary}, thread: {thread_index})",
+                        traversal.transaction_identifier_inscription.hash,
+                        traversal.inscription_input_index,
+                        traversal.get_ordinal_coinbase_height(),
+                        traversal.get_ordinal_coinbase_offset(),
+                        traversal.transfers
                         )
                 });
                 cache_l1.insert(
@@ -244,16 +248,21 @@ pub fn parallelize_inscription_data_computations(
         }
     }
 
+    // Collect eventual results for incoming blocks
     for tx in tx_thread_pool.iter() {
         // Empty the queue
-        if let Ok((traversal_result, prioritary, thread_index)) = traversal_rx.try_recv() {
+        if let Ok((traversal_result, _prioritary, thread_index)) = traversal_rx.try_recv() {
             if let Ok(traversal) = traversal_result {
                 inner_ctx.try_log(|logger| {
-                        info!(
-                            logger,
-                            "Satoshi #{} was minted in block #{} at offset {} and was transferred {} times (progress: {traversals_received}/{expected_traversals}) (priority queue: {prioritary}, thread: {thread_index}).",
-                            traversal.ordinal_number, traversal.get_ordinal_coinbase_height(), traversal.get_ordinal_coinbase_offset(), traversal.transfers
-                            )
+                    info!(
+                        logger,
+                        "Completed ordinal number retrieval for Satpoint {}:{}:0 (block: #{}:{}, transfers: {}, pre-retrieval, thread: {thread_index})",
+                        traversal.transaction_identifier_inscription.hash,
+                        traversal.inscription_input_index,
+                        traversal.get_ordinal_coinbase_height(),
+                        traversal.get_ordinal_coinbase_offset(),
+                        traversal.transfers
+                        )
                     });
                 cache_l1.insert(
                     (
