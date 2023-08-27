@@ -83,14 +83,11 @@ pub fn compute_satoshi_number(
         }
     }
     ctx.try_log(|logger| {
-        info!(
+        debug!(
             logger,
-            "Computing ordinal number for Satoshi point {} ({}:0 -> {}:{}/{})  (block #{})",
+            "Start ordinal number retrieval for Satpoint {}:{}:0 (block #{})",
             transaction_identifier.hash,
             inscription_input_index,
-            inscription_output_index,
-            inscription_offset_intra_output,
-            inscription_offset_cross_outputs,
             block_identifier.index
         )
     });
