@@ -439,9 +439,9 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
 name = "chainhook-sdk"
-version = "0.8.6"
+version = "0.8.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef888c1894b491e702b8f7ce24159738ac666b08103e8ceff3a64e7be85e4c16"
+checksum = "fbaf86f829fe63fd8aab5fb43483cc8ada8d02537cec76df6a23b77d1a75cb5c"
 dependencies = [
  "base58 0.2.0",
  "base64 0.13.1",
