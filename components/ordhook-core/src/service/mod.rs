@@ -515,13 +515,7 @@ impl Service {
         let blocks_post_processor =
             start_transfers_recomputing_processor(&self.config, &self.ctx, block_post_processor);
 
-        info!(
-            self.ctx.expect_logger(),
-            "Re-indexing transfers for {} blocks",
-            blocks.len()
-        );
-
-        let ordhook_config = self.config.get_ordhook_config();
+            let ordhook_config = self.config.get_ordhook_config();
         let first_inscription_height = ordhook_config.first_inscription_height;
         download_and_pipeline_blocks(
             &self.config,

@@ -734,9 +734,16 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 };
                 let service = Service::new(config, ctx.clone());
                 let blocks = cmd.get_blocks();
-                service
-                    .replay_transfers(blocks, block_post_processor)
-                    .await?;
+                info!(
+                    ctx.expect_logger(),
+                    "Re-indexing transfers for {} blocks",
+                    blocks.len()
+                );
+                for block in blocks.into_iter() {
+                    service
+                        .replay_transfers(vec![block], block_post_processor.clone())
+                        .await?;
+                }
             }
         },
         Command::Db(OrdhookDbCommand::Check(cmd)) => {
