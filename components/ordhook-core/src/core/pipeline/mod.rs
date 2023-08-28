@@ -36,8 +36,7 @@ pub struct PostProcessorController {
 
 pub async fn download_and_pipeline_blocks(
     config: &Config,
-    start_block: u64,
-    end_block: u64,
+    blocks: Vec<u64>,
     start_sequencing_blocks_at_height: u64,
     blocks_post_processor: Option<&PostProcessorController>,
     speed: usize,
@@ -59,7 +58,7 @@ pub async fn download_and_pipeline_blocks(
 
     let ordhook_config = config.get_ordhook_config();
 
-    let number_of_blocks_to_process = end_block - start_block + 1;
+    let number_of_blocks_to_process = blocks.len() as u64;
 
     let (block_compressed_tx, block_compressed_rx) = crossbeam_channel::bounded(speed);
     let http_client = build_http_client();
@@ -70,7 +69,9 @@ pub async fn download_and_pipeline_blocks(
 
     let mut set = JoinSet::new();
 
-    let mut block_heights = VecDeque::from((start_block..=end_block).collect::<Vec<u64>>());
+    let start_block = *blocks.first().expect("no blocks to pipeline");
+    let end_block = *blocks.last().expect("no blocks to pipeline");
+    let mut block_heights = VecDeque::from(blocks);
 
     for _ in 0..ordhook_config.ingestion_thread_queue_size {
         if let Some(block_height) = block_heights.pop_front() {
