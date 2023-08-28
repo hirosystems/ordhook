@@ -6,7 +6,7 @@ use chainhook_sdk::bitcoincore_rpc_json::bitcoin::Txid;
 use chainhook_sdk::indexer::bitcoin::{standardize_bitcoin_block, BitcoinBlockFullBreakdown};
 use chainhook_sdk::types::{
     BitcoinBlockData, BitcoinNetwork, BitcoinTransactionData, OrdinalInscriptionCurseType,
-    OrdinalInscriptionRevealData, OrdinalOperation,
+    OrdinalInscriptionRevealData, OrdinalOperation, OrdinalInscriptionTransferData,
 };
 use chainhook_sdk::utils::Context;
 use chainhook_sdk::{
@@ -412,6 +412,20 @@ pub fn get_inscriptions_revealed_in_block(
     for tx in block.transactions.iter() {
         for op in tx.metadata.ordinal_operations.iter() {
             if let OrdinalOperation::InscriptionRevealed(op) = op {
+                ops.push(op);
+            }
+        }
+    }
+    ops
+}
+
+pub fn get_inscriptions_transferred_in_block(
+    block: &BitcoinBlockData,
+) -> Vec<&OrdinalInscriptionTransferData> {
+    let mut ops = vec![];
+    for tx in block.transactions.iter() {
+        for op in tx.metadata.ordinal_operations.iter() {
+            if let OrdinalOperation::InscriptionTransferred(op) = op {
                 ops.push(op);
             }
         }

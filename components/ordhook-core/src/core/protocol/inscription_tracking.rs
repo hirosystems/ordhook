@@ -46,7 +46,6 @@ pub fn augment_block_with_ordinals_transfer_data(
             inscriptions_db_tx,
             ctx,
         );
-
         any_event |= !transfers.is_empty();
 
         if update_db_tx {
