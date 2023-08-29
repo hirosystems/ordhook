@@ -15,7 +15,7 @@ hiro-system-kit = "0.1.0"
 crossbeam-channel = "0.5.6"
 
 [dependencies.neon]
-version = "0.9.1"
+version = "0.10.1"
 default-features = false
 features = ["napi-4", "channel-api", "event-queue-api", "try-catch-api"]
 
