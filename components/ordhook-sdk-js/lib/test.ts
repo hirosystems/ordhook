@@ -16,4 +16,13 @@ indexer.undoBlock(block => {
     console.log(`Hello from JS ${JSON.stringify(block)}`);
 });
 
-indexer.start();
+
+// indexer.streamBlocks();
+
+indexer.dropBlocks([32103, 32104]);
+
+indexer.rewriteBlocks([32103, 32104]);
+
+indexer.syncBlocks();
+
+indexer.replayBlocks([32103, 32104]);

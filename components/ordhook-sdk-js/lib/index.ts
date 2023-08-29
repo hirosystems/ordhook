@@ -2,7 +2,11 @@
 
 const {
   ordinalsIndexerNew,
-  ordinalsIndexerStart,
+  ordinalsIndexerStreamBlocks,
+  ordinalsIndexerReplayBlocks,
+  ordinalsIndexerDropBlocks,
+  ordinalsIndexerSyncBlocks,
+  ordinalsIndexerRewriteBlocks,
   ordinalsIndexerOnBlockApply,
   ordinalsIndexerOnBlockUndo,
 } = require("../native/index.node");
@@ -38,11 +42,43 @@ export class OrdinalsIndexer {
   }
 
   /**
-   * @summary Start indexing ordinals
+   * @summary Start streaming blocks
    * @memberof OrdinalsIndexer
    */
-  start() {
-    return ordinalsIndexerStart.call(this.handle);
+  streamBlocks() {
+    return ordinalsIndexerStreamBlocks.call(this.handle);
+  }
+
+  /**
+   * @summary Drop a set of blocks
+   * @memberof OrdinalsIndexer
+   */
+  dropBlocks(blocks: number[]) {
+    return ordinalsIndexerDropBlocks.call(this.handle, blocks);
+  }
+
+  /**
+   * @summary Drop, downloard and re-index a set of blocks
+   * @memberof OrdinalsIndexer
+   */
+  rewriteBlocks(blocks: number[]) {
+    return ordinalsIndexerRewriteBlocks.call(this.handle, blocks);
+  }
+
+  /**
+   * @summary Replay a set of blocks
+   * @memberof OrdinalsIndexer
+   */
+  replayBlocks(blocks: number[]) {
+    return ordinalsIndexerReplayBlocks.call(this.handle, blocks);
+  }
+
+  /**
+   * @summary Download and index blocks
+   * @memberof OrdinalsIndexer
+   */
+  syncBlocks() {
+    return ordinalsIndexerSyncBlocks.call(this.handle);
   }
 
   /**
