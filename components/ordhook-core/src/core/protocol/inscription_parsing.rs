@@ -6,7 +6,7 @@ use chainhook_sdk::bitcoincore_rpc_json::bitcoin::Txid;
 use chainhook_sdk::indexer::bitcoin::{standardize_bitcoin_block, BitcoinBlockFullBreakdown};
 use chainhook_sdk::types::{
     BitcoinBlockData, BitcoinNetwork, BitcoinTransactionData, OrdinalInscriptionCurseType,
-    OrdinalInscriptionRevealData, OrdinalOperation, OrdinalInscriptionTransferData,
+    OrdinalInscriptionRevealData, OrdinalInscriptionTransferData, OrdinalOperation,
 };
 use chainhook_sdk::utils::Context;
 use chainhook_sdk::{

@@ -31,8 +31,8 @@ use chainhook_sdk::chainhooks::types::{
     BitcoinChainhookSpecification, ChainhookFullSpecification, ChainhookSpecification,
 };
 use chainhook_sdk::observer::{
-    start_event_observer, BitcoinBlockDataCached, EventObserverConfig, HandleBlock,
-    ObserverCommand, ObserverEvent, ObserverSidecar,
+    start_event_observer, BitcoinBlockDataCached, DataHandlerEvent, EventObserverConfig,
+    HandleBlock, ObserverCommand, ObserverEvent, ObserverSidecar,
 };
 use chainhook_sdk::types::{BitcoinBlockData, BlockIdentifier};
 use chainhook_sdk::utils::{BlockHeights, Context};
@@ -374,7 +374,7 @@ impl Service {
     ) -> Result<
         (
             EventObserverConfig,
-            Option<crossbeam_channel::Receiver<BitcoinChainhookOccurrencePayload>>,
+            Option<crossbeam_channel::Receiver<DataHandlerEvent>>,
         ),
         String,
     > {
@@ -456,9 +456,7 @@ impl Service {
                 &self.ctx,
             )?;
         }
-
         let tx_replayer = start_observer_forwarding(event_observer_config, &self.ctx);
-
         self.update_state(Some(tx_replayer)).await?;
         Ok(())
     }
@@ -469,7 +467,6 @@ impl Service {
     ) -> Result<(), String> {
         // Start predicate processor
         let mut last_block_processed = 0;
-
         while let Some((start_block, end_block, speed)) =
             should_sync_ordhook_db(&self.config, &self.ctx)?
         {
@@ -482,10 +479,12 @@ impl Service {
                 block_post_processor.clone(),
             );
 
-            info!(
-                self.ctx.expect_logger(),
-                "Indexing inscriptions from block #{start_block} to block #{end_block}"
-            );
+            self.ctx.try_log(|logger| {
+                info!(
+                    logger,
+                    "Indexing inscriptions from block #{start_block} to block #{end_block}"
+                )
+            });
 
             let ordhook_config = self.config.get_ordhook_config();
             let first_inscription_height = ordhook_config.first_inscription_height;
@@ -515,7 +514,7 @@ impl Service {
         let blocks_post_processor =
             start_transfers_recomputing_processor(&self.config, &self.ctx, block_post_processor);
 
-            let ordhook_config = self.config.get_ordhook_config();
+        let ordhook_config = self.config.get_ordhook_config();
         let first_inscription_height = ordhook_config.first_inscription_height;
         download_and_pipeline_blocks(
             &self.config,

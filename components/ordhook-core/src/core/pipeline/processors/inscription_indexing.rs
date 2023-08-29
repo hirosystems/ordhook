@@ -21,7 +21,9 @@ use crate::{
     core::{
         pipeline::processors::block_archiving::store_compacted_blocks,
         protocol::{
-            inscription_parsing::{get_inscriptions_revealed_in_block, get_inscriptions_transferred_in_block},
+            inscription_parsing::{
+                get_inscriptions_revealed_in_block, get_inscriptions_transferred_in_block,
+            },
             inscription_sequencing::{
                 augment_block_with_ordinals_inscriptions_data_and_write_to_db_tx,
                 parallelize_inscription_data_computations, SequenceCursor,
