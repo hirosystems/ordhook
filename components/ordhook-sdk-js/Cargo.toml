@@ -1,0 +1,24 @@
+[package]
+name = "ordhook-sdk-js"
+version = "0.4.0"
+edition = "2021"
+exclude = ["index.node"]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+serde = "1"
+error-chain = "0.12"
+ordhook = { path = "../ordhook-core" }
+hiro-system-kit = "0.1.0"
+crossbeam-channel = "0.5.6"
+
+[dependencies.neon]
+version = "0.9.1"
+default-features = false
+features = ["napi-4", "channel-api", "event-queue-api", "try-catch-api"]
+
+[dependencies.num]
+version = "0.2"
+default-features = false

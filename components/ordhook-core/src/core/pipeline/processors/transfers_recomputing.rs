@@ -99,6 +99,7 @@ pub fn start_transfers_recomputing_processor(
                         let _ = post_processor.send(block.clone());
                     }
                 }
+                let _ = inscriptions_db_tx.commit();
             }
         })
         .expect("unable to spawn thread");

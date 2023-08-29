@@ -21,7 +21,9 @@ use crate::{
     core::{
         pipeline::processors::block_archiving::store_compacted_blocks,
         protocol::{
-            inscription_parsing::get_inscriptions_revealed_in_block,
+            inscription_parsing::{
+                get_inscriptions_revealed_in_block, get_inscriptions_transferred_in_block,
+            },
             inscription_sequencing::{
                 augment_block_with_ordinals_inscriptions_data_and_write_to_db_tx,
                 parallelize_inscription_data_computations, SequenceCursor,
@@ -197,10 +199,12 @@ pub fn process_blocks(
             .map(|d| d.inscription_number.to_string())
             .collect::<Vec<String>>();
 
+        let inscriptions_transferred = get_inscriptions_transferred_in_block(&block).len();
+
         ctx.try_log(|logger| {
             info!(
                 logger,
-                "Block #{} processed and revealed {} inscriptions [{}]",
+                "Block #{} processed, revealed {} inscriptions [{}] and {inscriptions_transferred} transfers",
                 block.block_identifier.index,
                 inscriptions_revealed.len(),
                 inscriptions_revealed.join(", ")
@@ -267,10 +271,6 @@ pub fn process_block(
         ctx,
     )?;
 
-    if !any_processable_transactions {
-        return Ok(());
-    }
-
     let inner_ctx = if ordhook_config.logs.ordinals_internals {
         ctx.clone()
     } else {
@@ -278,13 +278,15 @@ pub fn process_block(
     };
 
     // Handle inscriptions
-    let _ = augment_block_with_ordinals_inscriptions_data_and_write_to_db_tx(
-        block,
-        sequence_cursor,
-        cache_l1,
-        &inscriptions_db_tx,
-        &inner_ctx,
-    );
+    if any_processable_transactions {
+        let _ = augment_block_with_ordinals_inscriptions_data_and_write_to_db_tx(
+            block,
+            sequence_cursor,
+            cache_l1,
+            &inscriptions_db_tx,
+            &inner_ctx,
+        );
+    }
 
     // Handle transfers
     let _ = augment_block_with_ordinals_transfer_data(block, inscriptions_db_tx, true, &inner_ctx);

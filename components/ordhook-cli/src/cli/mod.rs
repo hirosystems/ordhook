@@ -30,7 +30,7 @@ use ordhook::db::{
 };
 use ordhook::download::download_ordinals_dataset_if_required;
 use ordhook::scan::bitcoin::scan_bitcoin_chainstate_via_rpc_using_predicate;
-use ordhook::service::Service;
+use ordhook::service::{start_observer_forwarding, Service};
 use reqwest::Client as HttpClient;
 use std::collections::BTreeMap;
 use std::io::{BufReader, Read};
@@ -155,31 +155,56 @@ enum RepairCommand {
     Inscriptions(RepairStorageCommand),
     /// Rewrite transfers data in hord.sqlite
     #[clap(name = "transfers", bin_name = "transfers")]
-    Transfers(RepairTransfersCommand),
+    Transfers(RepairStorageCommand),
 }
 
 #[derive(Parser, PartialEq, Clone, Debug)]
 struct RepairStorageCommand {
-    /// Starting block
-    pub start_block: u64,
-    /// Ending block
-    pub end_block: u64,
+    /// Interval of blocks (--interval 767430:800000)
+    #[clap(long = "interval", conflicts_with = "blocks")]
+    pub blocks_interval: Option<String>,
+    /// List of blocks (--blocks 767430,767431,767433,800000)
+    #[clap(long = "blocks", conflicts_with = "interval")]
+    pub blocks: Option<String>,
     /// Network threads
-    pub network_threads: usize,
+    #[clap(long = "network-threads")]
+    pub network_threads: Option<usize>,
     /// Load config file path
     #[clap(long = "config-path")]
     pub config_path: Option<String>,
+    /// Cascade to observers
+    #[clap(short, long, action = clap::ArgAction::SetTrue)]
+    pub repair_observers: Option<bool>,
 }
 
-#[derive(Parser, PartialEq, Clone, Debug)]
-struct RepairTransfersCommand {
-    /// Starting block
-    pub start_block: u64,
-    /// Ending block
-    pub end_block: u64,
-    /// Load config file path
-    #[clap(long = "config-path")]
-    pub config_path: Option<String>,
+impl RepairStorageCommand {
+    pub fn get_blocks(&self) -> Vec<u64> {
+        let blocks = match (&self.blocks_interval, &self.blocks) {
+            (Some(interval), None) => {
+                let blocks = interval.split(":").collect::<Vec<_>>();
+                let start_block: u64 = blocks
+                    .get(0)
+                    .expect("unable to get start_block")
+                    .parse::<u64>()
+                    .expect("unable to parse start_block");
+                let end_block: u64 = blocks
+                    .get(1)
+                    .expect("unable to get end_block")
+                    .parse::<u64>()
+                    .expect("unable to parse end_block");
+                BlockHeights::BlockRange(start_block, end_block).get_sorted_entries()
+            }
+            (None, Some(blocks)) => {
+                let blocks = blocks
+                    .split(",")
+                    .map(|b| b.parse::<u64>().expect("unable to parse block"))
+                    .collect::<Vec<_>>();
+                BlockHeights::Blocks(blocks).get_sorted_entries()
+            }
+            _ => unreachable!(),
+        };
+        blocks.into()
+    }
 }
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
@@ -650,15 +675,18 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
             RepairCommand::Blocks(cmd) => {
                 let config = ConfigFile::default(false, false, false, &cmd.config_path)?;
                 let mut ordhook_config = config.get_ordhook_config();
-                ordhook_config.network_thread_max = cmd.network_threads;
-
+                if let Some(network_threads) = cmd.network_threads {
+                    ordhook_config.network_thread_max = network_threads;
+                }
+                if let Some(network_threads) = cmd.network_threads {
+                    ordhook_config.network_thread_max = network_threads;
+                }
+                let blocks = cmd.get_blocks();
                 let block_ingestion_processor =
                     start_block_archiving_processor(&config, ctx, false, None);
-
                 download_and_pipeline_blocks(
                     &config,
-                    cmd.start_block,
-                    cmd.end_block,
+                    blocks,
                     ordhook_config.first_inscription_height,
                     Some(&block_ingestion_processor),
                     10_000,
@@ -669,15 +697,24 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
             RepairCommand::Inscriptions(cmd) => {
                 let config = ConfigFile::default(false, false, false, &cmd.config_path)?;
                 let mut ordhook_config = config.get_ordhook_config();
-                ordhook_config.network_thread_max = cmd.network_threads;
-
+                if let Some(network_threads) = cmd.network_threads {
+                    ordhook_config.network_thread_max = network_threads;
+                }
+                let block_post_processor = match cmd.repair_observers {
+                    Some(true) => {
+                        let tx_replayer =
+                            start_observer_forwarding(&config.get_event_observer_config(), &ctx);
+                        Some(tx_replayer)
+                    }
+                    _ => None,
+                };
+                let blocks = cmd.get_blocks();
                 let inscription_indexing_processor =
-                    start_inscription_indexing_processor(&config, ctx, None);
+                    start_inscription_indexing_processor(&config, ctx, block_post_processor);
 
                 download_and_pipeline_blocks(
                     &config,
-                    cmd.start_block,
-                    cmd.end_block,
+                    blocks,
                     ordhook_config.first_inscription_height,
                     Some(&inscription_indexing_processor),
                     10_000,
@@ -687,10 +724,26 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
             }
             RepairCommand::Transfers(cmd) => {
                 let config = ConfigFile::default(false, false, false, &cmd.config_path)?;
+                let block_post_processor = match cmd.repair_observers {
+                    Some(true) => {
+                        let tx_replayer =
+                            start_observer_forwarding(&config.get_event_observer_config(), &ctx);
+                        Some(tx_replayer)
+                    }
+                    _ => None,
+                };
                 let service = Service::new(config, ctx.clone());
-                service
-                    .replay_transfers(cmd.start_block, cmd.end_block, None)
-                    .await?;
+                let blocks = cmd.get_blocks();
+                info!(
+                    ctx.expect_logger(),
+                    "Re-indexing transfers for {} blocks",
+                    blocks.len()
+                );
+                for block in blocks.into_iter() {
+                    service
+                        .replay_transfers(vec![block], block_post_processor.clone())
+                        .await?;
+                }
             }
         },
         Command::Db(OrdhookDbCommand::Check(cmd)) => {

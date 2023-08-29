@@ -31,13 +31,13 @@ use chainhook_sdk::chainhooks::types::{
     BitcoinChainhookSpecification, ChainhookFullSpecification, ChainhookSpecification,
 };
 use chainhook_sdk::observer::{
-    start_event_observer, BitcoinBlockDataCached, EventObserverConfig, HandleBlock,
-    ObserverCommand, ObserverEvent, ObserverSidecar,
+    start_event_observer, BitcoinBlockDataCached, DataHandlerEvent, EventObserverConfig,
+    HandleBlock, ObserverCommand, ObserverEvent, ObserverSidecar,
 };
 use chainhook_sdk::types::{BitcoinBlockData, BlockIdentifier};
-use chainhook_sdk::utils::Context;
+use chainhook_sdk::utils::{BlockHeights, Context};
 use crossbeam_channel::unbounded;
-use crossbeam_channel::select;
+use crossbeam_channel::{select, Sender};
 use dashmap::DashMap;
 use fxhash::FxHasher;
 use redis::Commands;
@@ -88,7 +88,7 @@ impl Service {
         );
 
         // Sidecar channels setup
-        let observer_sidecar = self.set_up_observer_sidecar_runloop().await?;
+        let observer_sidecar = self.set_up_observer_sidecar_runloop()?;
 
         // Create the chainhook runloop tx/rx comms
         let (observer_command_tx, observer_command_rx) = channel();
@@ -100,7 +100,7 @@ impl Service {
         };
 
         let _ = start_event_observer(
-            event_observer_config.clone(),
+            event_observer_config,
             observer_command_tx.clone(),
             observer_command_rx,
             Some(observer_event_tx),
@@ -125,6 +125,50 @@ impl Service {
             )?;
         }
         Ok(())
+    }
+
+    pub async fn start_event_observer(
+        &mut self,
+        observer_sidecar: ObserverSidecar,
+    ) -> Result<
+        (
+            std::sync::mpsc::Sender<ObserverCommand>,
+            crossbeam_channel::Receiver<ObserverEvent>,
+        ),
+        String,
+    > {
+        let mut event_observer_config = self.config.get_event_observer_config();
+        let chainhook_config = create_and_consolidate_chainhook_config_with_predicates(
+            vec![],
+            true,
+            &self.config,
+            &self.ctx,
+        );
+
+        event_observer_config.chainhook_config = Some(chainhook_config);
+
+        let ordhook_config = self.config.get_ordhook_config();
+
+        // Create the chainhook runloop tx/rx comms
+        let (observer_command_tx, observer_command_rx) = channel();
+        let (observer_event_tx, observer_event_rx) = crossbeam_channel::unbounded();
+
+        let inner_ctx = if ordhook_config.logs.chainhook_internals {
+            self.ctx.clone()
+        } else {
+            Context::empty()
+        };
+
+        let _ = start_event_observer(
+            event_observer_config.clone(),
+            observer_command_tx.clone(),
+            observer_command_rx,
+            Some(observer_event_tx),
+            Some(observer_sidecar),
+            inner_ctx,
+        );
+
+        Ok((observer_command_tx, observer_event_rx))
     }
 
     pub fn start_main_runloop(
@@ -323,7 +367,36 @@ impl Service {
         Ok(())
     }
 
-    pub async fn set_up_observer_sidecar_runloop(&self) -> Result<ObserverSidecar, String> {
+    pub fn set_up_observer_config(
+        &self,
+        predicates: Vec<ChainhookFullSpecification>,
+        enable_internal_trigger: bool,
+    ) -> Result<
+        (
+            EventObserverConfig,
+            Option<crossbeam_channel::Receiver<DataHandlerEvent>>,
+        ),
+        String,
+    > {
+        let mut event_observer_config = self.config.get_event_observer_config();
+        let chainhook_config = create_and_consolidate_chainhook_config_with_predicates(
+            predicates,
+            enable_internal_trigger,
+            &self.config,
+            &self.ctx,
+        );
+        event_observer_config.chainhook_config = Some(chainhook_config);
+        let data_rx = if enable_internal_trigger {
+            let (tx, rx) = crossbeam_channel::unbounded();
+            event_observer_config.data_handler_tx = Some(tx);
+            Some(rx)
+        } else {
+            None
+        };
+        Ok((event_observer_config, data_rx))
+    }
+
+    pub fn set_up_observer_sidecar_runloop(&self) -> Result<ObserverSidecar, String> {
         let (block_mutator_in_tx, block_mutator_in_rx) = crossbeam_channel::unbounded();
         let (block_mutator_out_tx, block_mutator_out_rx) = crossbeam_channel::unbounded();
         let (chain_event_notifier_tx, chain_event_notifier_rx) = crossbeam_channel::unbounded();
@@ -383,37 +456,8 @@ impl Service {
                 &self.ctx,
             )?;
         }
-
-        let (tx_replayer, rx_replayer) = unbounded();
-        let mut moved_event_observer_config = event_observer_config.clone();
-        let moved_ctx = self.ctx.clone();
-
-        let _ = hiro_system_kit::thread_named("Initial predicate processing")
-            .spawn(move || {
-                if let Some(mut chainhook_config) =
-                    moved_event_observer_config.chainhook_config.take()
-                {
-                    let mut bitcoin_predicates_ref: Vec<&BitcoinChainhookSpecification> = vec![];
-                    for bitcoin_predicate in chainhook_config.bitcoin_chainhooks.iter_mut() {
-                        bitcoin_predicates_ref.push(bitcoin_predicate);
-                    }
-                    while let Ok(block) = rx_replayer.recv() {
-                        let future = process_block_with_predicates(
-                            block,
-                            &bitcoin_predicates_ref,
-                            &moved_event_observer_config,
-                            &moved_ctx,
-                        );
-                        let res = hiro_system_kit::nestable_block_on(future);
-                        if let Err(_) = res {
-                            error!(moved_ctx.expect_logger(), "Initial ingestion failing");
-                        }
-                    }
-                }
-            })
-            .expect("unable to spawn thread");
-
-        self.update_state(Some(tx_replayer.clone())).await?;
+        let tx_replayer = start_observer_forwarding(event_observer_config, &self.ctx);
+        self.update_state(Some(tx_replayer)).await?;
         Ok(())
     }
 
@@ -423,7 +467,6 @@ impl Service {
     ) -> Result<(), String> {
         // Start predicate processor
         let mut last_block_processed = 0;
-
         while let Some((start_block, end_block, speed)) =
             should_sync_ordhook_db(&self.config, &self.ctx)?
         {
@@ -436,17 +479,19 @@ impl Service {
                 block_post_processor.clone(),
             );
 
-            info!(
-                self.ctx.expect_logger(),
-                "Indexing inscriptions from block #{start_block} to block #{end_block}"
-            );
+            self.ctx.try_log(|logger| {
+                info!(
+                    logger,
+                    "Indexing inscriptions from block #{start_block} to block #{end_block}"
+                )
+            });
 
             let ordhook_config = self.config.get_ordhook_config();
             let first_inscription_height = ordhook_config.first_inscription_height;
+            let blocks = BlockHeights::BlockRange(start_block, end_block).get_sorted_entries();
             download_and_pipeline_blocks(
                 &self.config,
-                start_block,
-                end_block,
+                blocks.into(),
                 first_inscription_height,
                 Some(&blocks_post_processor),
                 speed,
@@ -462,25 +507,18 @@ impl Service {
 
     pub async fn replay_transfers(
         &self,
-        start_block: u64,
-        end_block: u64,
+        blocks: Vec<u64>,
         block_post_processor: Option<crossbeam_channel::Sender<BitcoinBlockData>>,
     ) -> Result<(), String> {
         // Start predicate processor
         let blocks_post_processor =
             start_transfers_recomputing_processor(&self.config, &self.ctx, block_post_processor);
 
-        info!(
-            self.ctx.expect_logger(),
-            "Indexing inscriptions from block #{start_block} to block #{end_block}"
-        );
-
         let ordhook_config = self.config.get_ordhook_config();
         let first_inscription_height = ordhook_config.first_inscription_height;
         download_and_pipeline_blocks(
             &self.config,
-            start_block,
-            end_block,
+            blocks,
             first_inscription_height,
             Some(&blocks_post_processor),
             100,
@@ -552,6 +590,41 @@ fn chainhook_sidecar_mutate_ordhook_db(command: HandleBlock, config: &Config, ct
             );
         }
     }
+}
+
+pub fn start_observer_forwarding(
+    event_observer_config: &EventObserverConfig,
+    ctx: &Context,
+) -> Sender<BitcoinBlockData> {
+    let (tx_replayer, rx_replayer) = unbounded();
+    let mut moved_event_observer_config = event_observer_config.clone();
+    let moved_ctx = ctx.clone();
+
+    let _ = hiro_system_kit::thread_named("Initial predicate processing")
+        .spawn(move || {
+            if let Some(mut chainhook_config) = moved_event_observer_config.chainhook_config.take()
+            {
+                let mut bitcoin_predicates_ref: Vec<&BitcoinChainhookSpecification> = vec![];
+                for bitcoin_predicate in chainhook_config.bitcoin_chainhooks.iter_mut() {
+                    bitcoin_predicates_ref.push(bitcoin_predicate);
+                }
+                while let Ok(block) = rx_replayer.recv() {
+                    let future = process_block_with_predicates(
+                        block,
+                        &bitcoin_predicates_ref,
+                        &moved_event_observer_config,
+                        &moved_ctx,
+                    );
+                    let res = hiro_system_kit::nestable_block_on(future);
+                    if let Err(_) = res {
+                        error!(moved_ctx.expect_logger(), "Initial ingestion failing");
+                    }
+                }
+            }
+        })
+        .expect("unable to spawn thread");
+
+    tx_replayer
 }
 
 pub fn chainhook_sidecar_mutate_blocks(

@@ -19,7 +19,7 @@ use chainhook_sdk::chainhooks::types::BitcoinChainhookSpecification;
 use chainhook_sdk::indexer::bitcoin::{
     build_http_client, download_and_parse_block_with_retry, retrieve_block_hash_with_retry,
 };
-use chainhook_sdk::observer::{gather_proofs, EventObserverConfig};
+use chainhook_sdk::observer::{gather_proofs, DataHandlerEvent, EventObserverConfig};
 use chainhook_sdk::types::{
     BitcoinBlockData, BitcoinChainEvent, BitcoinChainUpdatedWithBlocksData,
 };
@@ -273,7 +273,7 @@ pub async fn execute_predicates_action<'a>(
                     }
                     BitcoinChainhookOccurrence::Data(payload) => {
                         if let Some(ref tx) = config.data_handler_tx {
-                            let _ = tx.send(payload);
+                            let _ = tx.send(DataHandlerEvent::Process(payload));
                         }
                     }
                 };
