@@ -6,18 +6,11 @@ mod serde;
 use core::panic;
 use crossbeam_channel::{select, Sender};
 use neon::prelude::*;
-use ordhook::chainhook_sdk::chainhooks::bitcoin::{
-    BitcoinApplyTransactionPayload, BitcoinRollbackTransactionPayload,
-};
 use ordhook::chainhook_sdk::observer::DataHandlerEvent;
 use ordhook::chainhook_sdk::utils::Context as OrdhookContext;
 use ordhook::config::Config;
-use ordhook::db::{initialize_ordhook_db, open_readwrite_ordhook_db_conn_rocks_db};
 use ordhook::service::Service;
 use std::thread;
-
-type ApplyCallback = Box<dyn FnOnce(&Channel, BitcoinApplyTransactionPayload) + Send>;
-type UndoCallback = Box<dyn Fn(&Channel, BitcoinRollbackTransactionPayload) + Send>;
 
 struct OrdinalsIndexerConfig {
     pub bitcoin_rpc_url: String,
@@ -44,6 +37,7 @@ struct OrdinalsIndexer {
     custom_indexer_command_tx: Sender<CustomIndexerCommand>,
 }
 
+#[allow(dead_code)]
 enum IndexerCommand {
     Start,
     Stop,
@@ -264,7 +258,7 @@ impl OrdinalsIndexer {
         Ok(cx.undefined())
     }
 
-    fn js_terminate(mut cx: FunctionContext) -> JsResult<JsBoolean> {
+    fn js_terminate(mut _cx: FunctionContext) -> JsResult<JsBoolean> {
         unimplemented!();
     }
 

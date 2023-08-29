@@ -2426,7 +2426,7 @@ dependencies = [
 
 [[package]]
 name = "ordhook"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "ansi_term",
  "anyhow",
@@ -2464,7 +2464,7 @@ dependencies = [
 
 [[package]]
 name = "ordhook-cli"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "clap",
  "clap_generate",
@@ -2481,7 +2481,7 @@ dependencies = [
 
 [[package]]
 name = "ordhook-sdk-js"
-version = "0.2.0"
+version = "0.4.0"
 dependencies = [
  "crossbeam-channel",
  "error-chain",
