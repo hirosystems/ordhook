@@ -2,9 +2,14 @@
 
 const {
   ordinalsIndexerNew,
-  ordinalsIndexerStart,
+  ordinalsIndexerStreamBlocks,
+  ordinalsIndexerReplayBlocks,
+  ordinalsIndexerDropBlocks,
+  ordinalsIndexerSyncBlocks,
+  ordinalsIndexerRewriteBlocks,
   ordinalsIndexerOnBlockApply,
   ordinalsIndexerOnBlockUndo,
+  ordinalsIndexerTerminate,
 } = require("../native/index.node");
 
 // import {
@@ -38,11 +43,43 @@ export class OrdinalsIndexer {
   }
 
   /**
-   * @summary Start indexing ordinals
+   * @summary Start streaming blocks
    * @memberof OrdinalsIndexer
    */
-  start() {
-    return ordinalsIndexerStart.call(this.handle);
+  streamBlocks() {
+    return ordinalsIndexerStreamBlocks.call(this.handle);
+  }
+
+  /**
+   * @summary Drop a set of blocks
+   * @memberof OrdinalsIndexer
+   */
+  dropBlocks(blocks: number[]) {
+    return ordinalsIndexerDropBlocks.call(this.handle, blocks);
+  }
+
+  /**
+   * @summary Drop, downloard and re-index a set of blocks
+   * @memberof OrdinalsIndexer
+   */
+  rewriteBlocks(blocks: number[]) {
+    return ordinalsIndexerRewriteBlocks.call(this.handle, blocks);
+  }
+
+  /**
+   * @summary Replay a set of blocks
+   * @memberof OrdinalsIndexer
+   */
+  replayBlocks(blocks: number[]) {
+    return ordinalsIndexerReplayBlocks.call(this.handle, blocks);
+  }
+
+  /**
+   * @summary Download and index blocks
+   * @memberof OrdinalsIndexer
+   */
+  syncBlocks() {
+    return ordinalsIndexerSyncBlocks.call(this.handle);
   }
 
   /**
@@ -61,11 +98,11 @@ export class OrdinalsIndexer {
     return ordinalsIndexerOnBlockUndo.call(this.handle, callback);
   }
 
-  // /**
-  //  * @summary Terminates the containers
-  //  * @memberof DevnetNetworkOrchestrator
-  //  */
-  // terminate(): boolean {
-  //   return stacksDevnetTerminate.call(this.handle);
-  // }
+  /**
+   * @summary Terminates indexer
+   * @memberof DevnetNetworkOrchestrator
+   */
+  terminate() {
+    return ordinalsIndexerTerminate.call(this.handle);
+  }
 }

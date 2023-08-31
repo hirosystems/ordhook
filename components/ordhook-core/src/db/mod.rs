@@ -20,7 +20,7 @@ use chainhook_sdk::{
 };
 
 use crate::{
-    core::protocol::inscription_parsing::get_inscriptions_revealed_in_block, ord::sat::Sat,
+    core::protocol::inscription_parsing::{get_inscriptions_revealed_in_block, get_inscriptions_transferred_in_block}, ord::sat::Sat,
 };
 
 pub fn get_default_ordhook_db_file_path(base_dir: &PathBuf) -> PathBuf {
@@ -391,7 +391,7 @@ pub fn insert_entry_in_inscriptions(
     }
 }
 
-pub fn insert_new_inscriptions_from_block_in_inscriptions_and_locations(
+pub fn update_inscriptions_with_block(
     block: &BitcoinBlockData,
     inscriptions_db_conn_rw: &Connection,
     ctx: &Context,
@@ -405,6 +405,21 @@ pub fn insert_new_inscriptions_from_block_in_inscriptions_and_locations(
         );
         insert_inscription_in_locations(
             &inscription_data,
+            &block.block_identifier,
+            &inscriptions_db_conn_rw,
+            ctx,
+        );
+    }
+}
+
+pub fn update_locations_with_block(
+    block: &BitcoinBlockData,
+    inscriptions_db_conn_rw: &Connection,
+    ctx: &Context,
+) {
+    for transfer_data in get_inscriptions_transferred_in_block(&block).iter() {
+        insert_transfer_in_locations(
+            &transfer_data,
             &block.block_identifier,
             &inscriptions_db_conn_rw,
             ctx,

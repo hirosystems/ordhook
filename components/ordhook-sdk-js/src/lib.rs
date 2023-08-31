@@ -39,13 +39,19 @@ struct OrdinalsIndexer {
 
 #[allow(dead_code)]
 enum IndexerCommand {
-    Start,
-    Stop,
+    StreamBlocks,
+    SyncBlocks,
+    DropBlocks(Vec<u64>),
+    RewriteBlocks(Vec<u64>),
+    ReplayBlocks(Vec<u64>),
+    Terminate,
 }
 
+#[allow(dead_code)]
 enum CustomIndexerCommand {
     UpdateApplyCallback(Root<JsFunction>),
     UpdateUndoCallback(Root<JsFunction>),
+    Terminate,
 }
 
 impl Finalize for OrdinalsIndexer {}
@@ -64,7 +70,7 @@ impl OrdinalsIndexer {
             logger: Some(logger),
             tracer: false,
         };
-    
+
         // Initialize service
         // {
         //     let _ = initialize_ordhook_db(&ordhook_config.expected_cache_path(), &ctx);
@@ -132,6 +138,9 @@ impl OrdinalsIndexer {
                                 Ok(CustomIndexerCommand::UpdateUndoCallback(callback)) => {
                                     undo_callback = Some(callback);
                                 }
+                                Ok(CustomIndexerCommand::Terminate) => {
+                                    return Ok(())
+                                }
                                 _ => {}
                             }
                         }
@@ -151,7 +160,7 @@ impl OrdinalsIndexer {
                 };
 
                 match cmd {
-                    IndexerCommand::Start => {
+                    IndexerCommand::StreamBlocks => {
                         // We start the service as soon as the start() method is being called.
                         let future = service.catch_up_with_chain_tip(false, &observer_config);
                         let _ = hiro_system_kit::nestable_block_on(future)
@@ -163,8 +172,20 @@ impl OrdinalsIndexer {
                         let _ = service.start_main_runloop(&command_tx, event_rx, None);
                         break;
                     }
-                    IndexerCommand::Stop => {
-                        break;
+                    IndexerCommand::ReplayBlocks(blocks) => {
+                        println!("Will replay blocks {:?}", blocks);
+                    }
+                    IndexerCommand::DropBlocks(blocks) => {
+                        println!("Will drop blocks {:?}", blocks);
+                    }
+                    IndexerCommand::RewriteBlocks(blocks) => {
+                        println!("Will rewrite blocks {:?}", blocks);
+                    }
+                    IndexerCommand::SyncBlocks => {
+                        println!("Will sync blocks");
+                    }
+                    IndexerCommand::Terminate => {
+                        std::process::exit(0);
                     }
                 }
             }
@@ -177,8 +198,33 @@ impl OrdinalsIndexer {
         }
     }
 
-    fn start(&self) -> Result<bool, String> {
-        let _ = self.command_tx.send(IndexerCommand::Start);
+    fn stream_blocks(&self) -> Result<bool, String> {
+        let _ = self.command_tx.send(IndexerCommand::StreamBlocks);
+        Ok(true)
+    }
+
+    fn terminate(&self) -> Result<bool, String> {
+        let _ = self.command_tx.send(IndexerCommand::Terminate);
+        Ok(true)
+    }
+
+    fn replay_blocks(&self, blocks: Vec<u64>) -> Result<bool, String> {
+        let _ = self.command_tx.send(IndexerCommand::ReplayBlocks(blocks));
+        Ok(true)
+    }
+
+    fn drop_blocks(&self, blocks: Vec<u64>) -> Result<bool, String> {
+        let _ = self.command_tx.send(IndexerCommand::DropBlocks(blocks));
+        Ok(true)
+    }
+
+    fn rewrite_blocks(&self, blocks: Vec<u64>) -> Result<bool, String> {
+        let _ = self.command_tx.send(IndexerCommand::RewriteBlocks(blocks));
+        Ok(true)
+    }
+
+    fn sync_blocks(&self) -> Result<bool, String> {
+        let _ = self.command_tx.send(IndexerCommand::SyncBlocks);
         Ok(true)
     }
 
@@ -249,17 +295,100 @@ impl OrdinalsIndexer {
         Ok(cx.boxed(devnet))
     }
 
-    fn js_start(mut cx: FunctionContext) -> JsResult<JsUndefined> {
+    fn js_stream_blocks(mut cx: FunctionContext) -> JsResult<JsUndefined> {
         cx.this()
             .downcast_or_throw::<JsBox<OrdinalsIndexer>, _>(&mut cx)?
-            .start()
+            .stream_blocks()
             .or_else(|err| cx.throw_error(err.to_string()))?;
 
         Ok(cx.undefined())
     }
 
-    fn js_terminate(mut _cx: FunctionContext) -> JsResult<JsBoolean> {
-        unimplemented!();
+    fn js_replay_blocks(mut cx: FunctionContext) -> JsResult<JsUndefined> {
+        let blocks = {
+            let seq = cx
+                .argument::<JsArray>(0)?
+                .root(&mut cx)
+                .into_inner(&mut cx)
+                .to_vec(&mut cx)?;
+            let mut blocks = vec![];
+            for item in seq.iter() {
+                let block = item.downcast::<JsNumber, _>(&mut cx).unwrap();
+                blocks.push(block.value(&mut cx) as u64);
+            }
+            blocks
+        };
+
+        cx.this()
+            .downcast_or_throw::<JsBox<OrdinalsIndexer>, _>(&mut cx)?
+            .replay_blocks(blocks)
+            .or_else(|err| cx.throw_error(err.to_string()))?;
+
+        Ok(cx.undefined())
+    }
+
+    fn js_drop_blocks(mut cx: FunctionContext) -> JsResult<JsUndefined> {
+        let blocks = {
+            let seq = cx
+                .argument::<JsArray>(0)?
+                .root(&mut cx)
+                .into_inner(&mut cx)
+                .to_vec(&mut cx)?;
+            let mut blocks = vec![];
+            for item in seq.iter() {
+                let block = item.downcast::<JsNumber, _>(&mut cx).unwrap();
+                blocks.push(block.value(&mut cx) as u64);
+            }
+            blocks
+        };
+
+        cx.this()
+            .downcast_or_throw::<JsBox<OrdinalsIndexer>, _>(&mut cx)?
+            .drop_blocks(blocks)
+            .or_else(|err| cx.throw_error(err.to_string()))?;
+
+        Ok(cx.undefined())
+    }
+
+    fn js_sync_blocks(mut cx: FunctionContext) -> JsResult<JsUndefined> {
+        cx.this()
+            .downcast_or_throw::<JsBox<OrdinalsIndexer>, _>(&mut cx)?
+            .sync_blocks()
+            .or_else(|err| cx.throw_error(err.to_string()))?;
+
+        Ok(cx.undefined())
+    }
+
+    fn js_rewrite_blocks(mut cx: FunctionContext) -> JsResult<JsUndefined> {
+        let blocks = {
+            let seq = cx
+                .argument::<JsArray>(0)?
+                .root(&mut cx)
+                .into_inner(&mut cx)
+                .to_vec(&mut cx)?;
+            let mut blocks = vec![];
+            for item in seq.iter() {
+                let block = item.downcast::<JsNumber, _>(&mut cx).unwrap();
+                blocks.push(block.value(&mut cx) as u64);
+            }
+            blocks
+        };
+
+        cx.this()
+            .downcast_or_throw::<JsBox<OrdinalsIndexer>, _>(&mut cx)?
+            .rewrite_blocks(blocks)
+            .or_else(|err| cx.throw_error(err.to_string()))?;
+
+        Ok(cx.undefined())
+    }
+
+    fn js_terminate(mut cx: FunctionContext) -> JsResult<JsUndefined> {
+        cx.this()
+            .downcast_or_throw::<JsBox<OrdinalsIndexer>, _>(&mut cx)?
+            .terminate()
+            .or_else(|err| cx.throw_error(err.to_string()))?;
+
+        Ok(cx.undefined())
     }
 
     fn js_on_block_apply(mut cx: FunctionContext) -> JsResult<JsUndefined> {
@@ -288,7 +417,20 @@ impl OrdinalsIndexer {
 #[neon::main]
 fn main(mut cx: ModuleContext) -> NeonResult<()> {
     cx.export_function("ordinalsIndexerNew", OrdinalsIndexer::js_new)?;
-    cx.export_function("ordinalsIndexerStart", OrdinalsIndexer::js_start)?;
+    cx.export_function(
+        "ordinalsIndexerStreamBlocks",
+        OrdinalsIndexer::js_stream_blocks,
+    )?;
+    cx.export_function(
+        "ordinalsIndexerReplayBlocks",
+        OrdinalsIndexer::js_replay_blocks,
+    )?;
+    cx.export_function("ordinalsIndexerDropBlocks", OrdinalsIndexer::js_drop_blocks)?;
+    cx.export_function("ordinalsIndexerSyncBlocks", OrdinalsIndexer::js_sync_blocks)?;
+    cx.export_function(
+        "ordinalsIndexerRewriteBlocks",
+        OrdinalsIndexer::js_rewrite_blocks,
+    )?;
     cx.export_function("ordinalsIndexerTerminate", OrdinalsIndexer::js_terminate)?;
     cx.export_function(
         "ordinalsIndexerOnBlockApply",

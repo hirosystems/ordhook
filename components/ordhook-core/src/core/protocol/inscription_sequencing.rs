@@ -24,7 +24,7 @@ use crate::{
         find_blessed_inscription_with_ordinal_number,
         find_latest_cursed_inscription_number_at_block_height,
         find_latest_inscription_number_at_block_height, format_satpoint_to_watch,
-        insert_new_inscriptions_from_block_in_inscriptions_and_locations, LazyBlockTransaction,
+        update_inscriptions_with_block, LazyBlockTransaction,
         TraversalResult,
     },
     ord::height::Height,
@@ -473,7 +473,7 @@ pub fn augment_block_with_ordinals_inscriptions_data_and_write_to_db_tx(
     );
 
     // Store inscriptions
-    insert_new_inscriptions_from_block_in_inscriptions_and_locations(
+    update_inscriptions_with_block(
         block,
         inscriptions_db_tx,
         ctx,
