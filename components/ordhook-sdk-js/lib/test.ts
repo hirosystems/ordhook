@@ -26,3 +26,5 @@ indexer.rewriteBlocks([32103, 32104]);
 indexer.syncBlocks();
 
 indexer.replayBlocks([32103, 32104]);
+
+indexer.terminate();

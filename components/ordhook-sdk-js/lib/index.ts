@@ -9,6 +9,7 @@ const {
   ordinalsIndexerRewriteBlocks,
   ordinalsIndexerOnBlockApply,
   ordinalsIndexerOnBlockUndo,
+  ordinalsIndexerTerminate,
 } = require("../native/index.node");
 
 // import {
@@ -97,11 +98,11 @@ export class OrdinalsIndexer {
     return ordinalsIndexerOnBlockUndo.call(this.handle, callback);
   }
 
-  // /**
-  //  * @summary Terminates the containers
-  //  * @memberof DevnetNetworkOrchestrator
-  //  */
-  // terminate(): boolean {
-  //   return stacksDevnetTerminate.call(this.handle);
-  // }
+  /**
+   * @summary Terminates indexer
+   * @memberof DevnetNetworkOrchestrator
+   */
+  terminate() {
+    return ordinalsIndexerTerminate.call(this.handle);
+  }
 }

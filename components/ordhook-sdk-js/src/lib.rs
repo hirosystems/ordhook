@@ -44,12 +44,14 @@ enum IndexerCommand {
     DropBlocks(Vec<u64>),
     RewriteBlocks(Vec<u64>),
     ReplayBlocks(Vec<u64>),
-    Stop,
+    Terminate,
 }
 
+#[allow(dead_code)]
 enum CustomIndexerCommand {
     UpdateApplyCallback(Root<JsFunction>),
     UpdateUndoCallback(Root<JsFunction>),
+    Terminate,
 }
 
 impl Finalize for OrdinalsIndexer {}
@@ -136,6 +138,9 @@ impl OrdinalsIndexer {
                                 Ok(CustomIndexerCommand::UpdateUndoCallback(callback)) => {
                                     undo_callback = Some(callback);
                                 }
+                                Ok(CustomIndexerCommand::Terminate) => {
+                                    return Ok(())
+                                }
                                 _ => {}
                             }
                         }
@@ -179,8 +184,8 @@ impl OrdinalsIndexer {
                     IndexerCommand::SyncBlocks => {
                         println!("Will sync blocks");
                     }
-                    IndexerCommand::Stop => {
-                        break;
+                    IndexerCommand::Terminate => {
+                        std::process::exit(0);
                     }
                 }
             }
@@ -195,6 +200,11 @@ impl OrdinalsIndexer {
 
     fn stream_blocks(&self) -> Result<bool, String> {
         let _ = self.command_tx.send(IndexerCommand::StreamBlocks);
+        Ok(true)
+    }
+
+    fn terminate(&self) -> Result<bool, String> {
+        let _ = self.command_tx.send(IndexerCommand::Terminate);
         Ok(true)
     }
 
@@ -372,8 +382,13 @@ impl OrdinalsIndexer {
         Ok(cx.undefined())
     }
 
-    fn js_terminate(mut _cx: FunctionContext) -> JsResult<JsBoolean> {
-        unimplemented!();
+    fn js_terminate(mut cx: FunctionContext) -> JsResult<JsUndefined> {
+        cx.this()
+            .downcast_or_throw::<JsBox<OrdinalsIndexer>, _>(&mut cx)?
+            .terminate()
+            .or_else(|err| cx.throw_error(err.to_string()))?;
+
+        Ok(cx.undefined())
     }
 
     fn js_on_block_apply(mut cx: FunctionContext) -> JsResult<JsUndefined> {
