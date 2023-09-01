@@ -22,8 +22,8 @@ FROM debian:bullseye-slim
 
 RUN apt update && apt install -y ca-certificates libssl-dev
 
-COPY --from=build /out/ordhook /bin/hord
+COPY --from=build /out/ordhook /bin/ordhook
 
 WORKDIR /workspace
 
-ENTRYPOINT ["hord"]
+ENTRYPOINT ["ordhook"]
