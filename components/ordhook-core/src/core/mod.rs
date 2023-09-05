@@ -127,6 +127,7 @@ pub fn should_sync_ordhook_db(
             } else {
                 start_block = height;
             }
+            start_block += 1;
         }
         None => {
             start_block = start_block.min(config.get_ordhook_config().first_inscription_height);
@@ -143,7 +144,6 @@ pub fn should_sync_ordhook_db(
         }
     };
 
-    start_block += 1;
 
     // TODO: Gracefully handle Regtest, Testnet and Signet
     let (mut end_block, speed) = if start_block <= 200_000 {
