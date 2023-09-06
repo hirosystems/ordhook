@@ -1,10 +1,9 @@
 {
   "name": "@hirosystems/ordhook-sdk-js",
-  "version": "1.7.1",
-  "description": "ordhook-sdk-js is a library for writing protocols .",
+  "version": "0.4.0",
   "author": "Ludo Galabru",
   "repository": "https://github.com/hirosystems/ordhook/tree/main/components/ordhook-sdk-js",
-  "license": "GPL-3.0",
+  "license": "Apache-2.0",
   "main": "dist/index.js",
   "files": [
     "dist"

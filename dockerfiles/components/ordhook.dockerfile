@@ -6,6 +6,8 @@ RUN apt update && apt install -y ca-certificates pkg-config libssl-dev libclang-
 
 RUN rustup update 1.67.0 && rustup default 1.67.0
 
+RUN rustup target add x86_64-unknown-linux-gnu
+
 COPY ./components/ordhook-cli /src/components/ordhook-cli
 
 COPY ./components/ordhook-core /src/components/ordhook-core
