@@ -38,6 +38,10 @@ jobs:
           SEMANTIC_RELEASE_PACKAGE: ${{ github.event.repository.name }}
         with:
           semantic_version: 19
+          branches: |
+            [
+              'main'
+            ]
           extra_plugins: |
             @semantic-release/changelog@6.0.3
             @semantic-release/git@10.0.1
