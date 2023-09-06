@@ -129,8 +129,8 @@ VOLUME ["/home/bitcoin/.bitcoin"]
 
 EXPOSE 8332 8333 18543
 
-# ENTRYPOINT ["/entrypoint.sh"]
+ENTRYPOINT ["/entrypoint.sh"]
 
-# RUN bitcoind -version | grep "Bitcoin Core version v${BITCOIN_VERSION}"
+RUN bitcoind -version | grep "Bitcoin Core version v${BITCOIN_VERSION}"
 
-# CMD ["bitcoind"]
+CMD ["bitcoind"]
