@@ -219,7 +219,8 @@ pub fn create_and_consolidate_chainhook_config_with_predicates(
             ),
             predicate,
         ) {
-            Ok(spec) => {
+            Ok(ref mut spec) => {
+                chainhook_config.enable_specification(spec);
                 info!(
                     ctx.expect_logger(),
                     "Predicate {} retrieved from config and loaded",
