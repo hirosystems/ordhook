@@ -80,11 +80,11 @@ impl Service {
         // std::thread::sleep(std::time::Duration::from_secs(1200));
 
         // Catch-up with chain tip
-        self.catch_up_with_chain_tip(false, &event_observer_config)
+        let tip_height = self.catch_up_with_chain_tip(false, &event_observer_config)
             .await?;
         info!(
             self.ctx.expect_logger(),
-            "Database up to date, service will start streaming blocks"
+            "Index up to date (block #{tip_height}), service will start streaming blocks"
         );
 
         // Sidecar channels setup
@@ -439,7 +439,7 @@ impl Service {
         &mut self,
         rebuild_from_scratch: bool,
         event_observer_config: &EventObserverConfig,
-    ) -> Result<(), String> {
+    ) -> Result<u64, String> {
         if rebuild_from_scratch {
             let blocks_db = open_readwrite_ordhook_db_conn_rocks_db(
                 &self.config.expected_cache_path(),
@@ -457,14 +457,13 @@ impl Service {
             )?;
         }
         let tx_replayer = start_observer_forwarding(event_observer_config, &self.ctx);
-        self.update_state(Some(tx_replayer)).await?;
-        Ok(())
+        self.update_state(Some(tx_replayer)).await
     }
 
     pub async fn update_state(
         &self,
         block_post_processor: Option<crossbeam_channel::Sender<BitcoinBlockData>>,
-    ) -> Result<(), String> {
+    ) -> Result<u64, String> {
         // Start predicate processor
         let mut last_block_processed = 0;
         while let Some((start_block, end_block, speed)) =
@@ -502,7 +501,7 @@ impl Service {
             last_block_processed = end_block;
         }
 
-        Ok(())
+        Ok(last_block_processed)
     }
 
     pub async fn replay_transfers(

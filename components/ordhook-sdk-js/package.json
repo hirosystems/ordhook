@@ -38,9 +38,9 @@
   },
   "binary": {
     "module_name": "index",
-    "host": "https://github.com/hirosystems/clarinet/releases/download/",
+    "host": "https://github.com/hirosystems/ordhook/releases/download/",
     "remote_path": "v{version}",
-    "package_name": "stacks-devnet-js-{platform}-{arch}-{libc}.tar.gz",
+    "package_name": "ordhook-sdk-js-{platform}-{arch}-{libc}.tar.gz",
     "module_path": "./native",
     "pkg_path": "."
   }

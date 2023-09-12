@@ -50,13 +50,13 @@ pub fn start_block_archiving_processor(
                     Err(e) => match e {
                         TryRecvError::Empty => {
                             empty_cycles += 1;
-                            if empty_cycles == 30 {
+                            if empty_cycles == 300 {
                                 warn!(ctx.expect_logger(), "Block processor reached expiration");
                                 let _ = events_tx.send(PostProcessorEvent::Expired);
                                 break;
                             }
                             sleep(Duration::from_secs(1));
-                            if empty_cycles > 120 {
+                            if empty_cycles > 1200 {
                                 break;
                             }
                             continue;
