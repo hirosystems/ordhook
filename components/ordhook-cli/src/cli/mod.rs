@@ -609,6 +609,9 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
 
                 let last_known_block =
                     find_latest_inscription_block_height(&inscriptions_db_conn, &ctx)?;
+                if last_known_block.is_none() {
+                    open_readwrite_ordhook_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
+                }
 
                 let ordhook_config = config.get_ordhook_config();
 
@@ -664,6 +667,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
         Command::Db(OrdhookDbCommand::New(cmd)) => {
             let config = ConfigFile::default(false, false, false, &cmd.config_path)?;
             initialize_ordhook_db(&config.expected_cache_path(), &ctx);
+            open_readwrite_ordhook_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
         }
         Command::Db(OrdhookDbCommand::Sync(cmd)) => {
             let config = ConfigFile::default(false, false, false, &cmd.config_path)?;
