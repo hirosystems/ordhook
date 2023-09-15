@@ -25,7 +25,6 @@ jobs:
       - name: Cargo test
         run: |
           rustup update
-          cargo check
           cargo test --all
 
       - name: Semantic Release
