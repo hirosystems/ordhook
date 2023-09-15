@@ -470,7 +470,7 @@ impl Service {
         while let Some((start_block, end_block, speed)) =
             should_sync_ordhook_db(&self.config, &self.ctx)?
         {
-            if end_block <= last_block_processed {
+            if last_block_processed == end_block  {
                 break;
             }
             let blocks_post_processor = start_inscription_indexing_processor(
