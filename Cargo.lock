@@ -439,9 +439,9 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
 name = "chainhook-sdk"
-version = "0.9.0"
+version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "67a61b8ae5c29652bdc22ec7f51074852a208cbd62a09f5ef155af0cea853155"
+checksum = "bca1a7d46cc42a06eb96400d6fcbed18abe8fe1313e50c49e9a005e2329fc25c"
 dependencies = [
  "base58 0.2.0",
  "base64 0.13.1",
@@ -454,7 +454,7 @@ dependencies = [
  "futures",
  "fxhash",
  "hex",
- "hiro-system-kit",
+ "hiro-system-kit 0.3.1",
  "hyper",
  "lazy_static",
  "rand 0.8.5",
@@ -593,7 +593,7 @@ dependencies = [
  "chrono",
  "clarity-vm",
  "getrandom 0.2.8",
- "hiro-system-kit",
+ "hiro-system-kit 0.1.0",
  "integer-sqrt",
  "lazy_static",
  "rand 0.7.3",
@@ -1501,6 +1501,18 @@ dependencies = [
  "ansi_term",
  "atty",
  "futures",
+ "lazy_static",
+ "tokio",
+]
+
+[[package]]
+name = "hiro-system-kit"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "94a96596d2b33489f33f79b2df6f340dbbd2baba05a251715bb84661d33bf1c9"
+dependencies = [
+ "ansi_term",
+ "atty",
  "lazy_static",
  "slog",
  "slog-async",
@@ -2440,7 +2452,7 @@ dependencies = [
  "futures-util",
  "fxhash",
  "hex",
- "hiro-system-kit",
+ "hiro-system-kit 0.3.1",
  "num_cpus",
  "pprof",
  "progressing",
@@ -2469,7 +2481,7 @@ dependencies = [
  "clap",
  "clap_generate",
  "ctrlc",
- "hiro-system-kit",
+ "hiro-system-kit 0.3.1",
  "num_cpus",
  "ordhook",
  "reqwest",
@@ -2485,7 +2497,7 @@ version = "0.4.0"
 dependencies = [
  "crossbeam-channel",
  "error-chain",
- "hiro-system-kit",
+ "hiro-system-kit 0.1.0",
  "neon",
  "num",
  "ordhook",
