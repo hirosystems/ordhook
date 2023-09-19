@@ -1,11 +1,9 @@
 use std::{
-    sync::mpsc::Sender,
     thread::{sleep, JoinHandle},
     time::Duration,
 };
-
+use crossbeam_channel::{Sender, TryRecvError};
 use chainhook_sdk::{types::BitcoinBlockData, utils::Context};
-use crossbeam_channel::TryRecvError;
 use rocksdb::DB;
 
 use crate::{
