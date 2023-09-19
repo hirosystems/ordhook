@@ -492,7 +492,7 @@ impl Service {
                 blocks.into(),
                 first_inscription_height,
                 Some(&blocks_post_processor),
-                1000,
+                10_000,
                 &self.ctx,
             )
             .await?;

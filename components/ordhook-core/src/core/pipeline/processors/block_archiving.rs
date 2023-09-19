@@ -10,7 +10,7 @@ use crate::{
     config::Config,
     core::pipeline::{PostProcessorCommand, PostProcessorController, PostProcessorEvent},
     db::{
-        insert_entry_in_blocks, open_ordhook_db_conn_rocks_db_loop,
+        insert_entry_in_blocks,
         open_readwrite_ordhook_db_conn_rocks_db, LazyBlock,
     },
 };
@@ -28,10 +28,9 @@ pub fn start_block_archiving_processor(
     let ctx = ctx.clone();
     let handle: JoinHandle<()> = hiro_system_kit::thread_named("Processor Runloop")
         .spawn(move || {
-            let mut blocks_db_rw =
+            let blocks_db_rw =
                 open_readwrite_ordhook_db_conn_rocks_db(&config.expected_cache_path(), &ctx)
                     .unwrap();
-            let mut empty_cycles = 0;
             let mut processed_blocks = 0;
 
             loop {
@@ -47,16 +46,7 @@ pub fn start_block_archiving_processor(
                     }
                     Err(e) => match e {
                         TryRecvError::Empty => {
-                            empty_cycles += 1;
-                            if empty_cycles == 30 {
-                                warn!(ctx.expect_logger(), "Block processor reached expiration");
-                                let _ = events_tx.send(PostProcessorEvent::Expired);
-                                break;
-                            }
                             sleep(Duration::from_secs(1));
-                            if empty_cycles > 120 {
-                                break;
-                            }
                             continue;
                         }
                         _ => {
@@ -69,11 +59,6 @@ pub fn start_block_archiving_processor(
 
                 if processed_blocks % 10_000 == 0 {
                     let _ = blocks_db_rw.flush_wal(true);
-                    blocks_db_rw = open_ordhook_db_conn_rocks_db_loop(
-                        true,
-                        &config.expected_cache_path(),
-                        &ctx,
-                    );
                 }
             }
 
