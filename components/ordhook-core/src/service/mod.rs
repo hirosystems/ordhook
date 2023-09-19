@@ -4,6 +4,7 @@ mod runloops;
 
 use crate::config::{Config, PredicatesApi};
 use crate::core::pipeline::download_and_pipeline_blocks;
+use crate::core::pipeline::processors::block_archiving::start_block_archiving_processor;
 use crate::core::pipeline::processors::inscription_indexing::process_block;
 use crate::core::pipeline::processors::start_inscription_indexing_processor;
 use crate::core::pipeline::processors::transfers_recomputing::start_transfers_recomputing_processor;
@@ -11,7 +12,7 @@ use crate::core::protocol::inscription_parsing::{
     get_inscriptions_revealed_in_block, parse_inscriptions_in_standardized_block,
 };
 use crate::core::protocol::inscription_sequencing::SequenceCursor;
-use crate::core::{new_traversals_lazy_cache, should_sync_ordhook_db};
+use crate::core::{new_traversals_lazy_cache, should_sync_ordhook_db, should_sync_rocks_db};
 use crate::db::{
     delete_data_in_ordhook_db, insert_entry_in_blocks,
     update_inscriptions_with_block, update_locations_with_block,
@@ -465,6 +466,38 @@ impl Service {
         &self,
         block_post_processor: Option<crossbeam_channel::Sender<BitcoinBlockData>>,
     ) -> Result<(), String> {
+        // First, make sure that rocksdb and sqlite are aligned.
+        // If rocksdb.chain_tip.height <= sqlite.chain_tip.height
+        // Perform some block compression until that height.
+        if let Some((start_block, end_block)) = should_sync_rocks_db(&self.config, &self.ctx)? {
+            let blocks_post_processor = start_block_archiving_processor(
+                &self.config,
+                &self.ctx,
+                false,
+                block_post_processor.clone(),
+            );
+
+            self.ctx.try_log(|logger| {
+                info!(
+                    logger,
+                    "Compressing blocks (from #{start_block} to #{end_block})"
+                )
+            });
+
+            let ordhook_config = self.config.get_ordhook_config();
+            let first_inscription_height = ordhook_config.first_inscription_height;
+            let blocks = BlockHeights::BlockRange(start_block, end_block).get_sorted_entries();
+            download_and_pipeline_blocks(
+                &self.config,
+                blocks.into(),
+                first_inscription_height,
+                Some(&blocks_post_processor),
+                1000,
+                &self.ctx,
+            )
+            .await?;
+        }
+
         // Start predicate processor
         let mut last_block_processed = 0;
         while let Some((start_block, end_block, speed)) =
