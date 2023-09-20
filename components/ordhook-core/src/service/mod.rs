@@ -473,7 +473,7 @@ impl Service {
             let blocks_post_processor = start_block_archiving_processor(
                 &self.config,
                 &self.ctx,
-                false,
+                true,
                 block_post_processor.clone(),
             );
 
