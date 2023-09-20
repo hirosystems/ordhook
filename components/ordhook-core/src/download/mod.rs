@@ -61,7 +61,7 @@ pub async fn download_sqlite_file(config: &Config, _ctx: &Context) -> Result<(),
     });
 
     if res.status() == reqwest::StatusCode::OK {
-        let limit = 10_000_000_000;
+        let limit = res.content_length().unwrap_or(10_000_000_000) as i64;
         let mut progress_bar = MappingBar::with_range(0i64, limit);
         progress_bar.set_len(60);
         let mut stdout = std::io::stdout();
