@@ -1,3 +1,10 @@
+## [1.0.1](https://github.com/hirosystems/ordhook/compare/v1.0.0...v1.0.1) (2023-09-15)
+
+
+### Bug Fixes
+
+* release v1.0.1 ([#176](https://github.com/hirosystems/ordhook/issues/176)) ([f2cb8b2](https://github.com/hirosystems/ordhook/commit/f2cb8b2c89a357dfcab051c5be4ee6d8b22c2da9))
+
 ## 1.0.0 (2023-09-07)
 
 
