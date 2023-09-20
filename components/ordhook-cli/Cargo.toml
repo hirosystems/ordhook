@@ -1,6 +1,6 @@
 [package]
 name = "ordhook-cli"
-version = "1.0.1"
+version = "1.0.2"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -15,7 +15,7 @@ serde = "1"
 serde_json = "1"
 serde_derive = "1"
 reqwest = { version = "0.11", features = ["stream", "json"] }
-hiro-system-kit = "0.1.0"
+hiro-system-kit = "0.3.1"
 clap = { version = "3.2.23", features = ["derive"], optional = true }
 clap_generate = { version = "3.0.3", optional = true }
 toml = { version = "0.5.6", features = ["preserve_order"], optional = true }

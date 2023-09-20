@@ -37,7 +37,7 @@ max_caching_memory_size_mb = 32000
 # Disable the following section if the state
 # must be built locally
 [bootstrap]
-download_url = "https://archive.hiro.so/mainnet/chainhooks/hord.sqlite"
+download_url = "https://archive.hiro.so/mainnet/ordhook/mainnet-ordhook-sqlite-latest"
 
 [logs]
 ordinals_internals = true

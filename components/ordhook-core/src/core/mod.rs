@@ -14,12 +14,12 @@ use chainhook_sdk::{
 
 use crate::{
     config::{Config, LogConfig},
-    db::find_lazy_block_at_block_height,
+    db::{find_lazy_block_at_block_height, open_readwrite_ordhook_db_conn_rocks_db},
 };
 
 use crate::db::{
     find_last_block_inserted, find_latest_inscription_block_height, initialize_ordhook_db,
-    open_readonly_ordhook_db_conn, open_readonly_ordhook_db_conn_rocks_db,
+    open_readonly_ordhook_db_conn,
 };
 
 use crate::db::LazyBlockTransaction;
@@ -94,6 +94,26 @@ pub fn compute_next_satpoint_data(
     SatPosition::Output((output_index, (offset_cross_inputs - offset_intra_outputs)))
 }
 
+pub fn should_sync_rocks_db(
+    config: &Config,
+    ctx: &Context,
+) -> Result<Option<(u64, u64)>, String> {
+    let blocks_db = open_readwrite_ordhook_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
+    let inscriptions_db_conn = open_readonly_ordhook_db_conn(&config.expected_cache_path(), &ctx)?;
+    let last_compressed_block = find_last_block_inserted(&blocks_db) as u64;    
+    let last_indexed_block = match find_latest_inscription_block_height(&inscriptions_db_conn, ctx)? {
+        Some(last_indexed_block) => last_indexed_block,
+        None => 0
+    };
+
+    let res = if last_compressed_block < last_indexed_block {
+        Some((last_compressed_block, last_indexed_block))
+    } else {
+        None
+    };
+    Ok(res)
+}
+
 pub fn should_sync_ordhook_db(
     config: &Config,
     ctx: &Context,
@@ -110,7 +130,7 @@ pub fn should_sync_ordhook_db(
         }
     };
 
-    let blocks_db = open_readonly_ordhook_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
+    let blocks_db = open_readwrite_ordhook_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
     let mut start_block = find_last_block_inserted(&blocks_db) as u64;
 
     if start_block == 0 {

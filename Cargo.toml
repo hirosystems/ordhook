@@ -4,5 +4,5 @@ members = [
     "components/ordhook-core",
     "components/ordhook-sdk-js"
 ]
-
 default-members = ["components/ordhook-cli"]
+resolver = "2"

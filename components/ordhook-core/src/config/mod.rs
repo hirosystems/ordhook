@@ -7,7 +7,7 @@ use chainhook_sdk::types::{
 use std::path::PathBuf;
 
 const DEFAULT_MAINNET_ORDINALS_SQLITE_ARCHIVE: &str =
-    "https://archive.hiro.so/mainnet/chainhooks/hord.sqlite";
+    "https://archive.hiro.so/mainnet/ordhook/mainnet-ordhook-sqlite-latest";
 
 pub const DEFAULT_INGESTION_PORT: u16 = 20455;
 pub const DEFAULT_CONTROL_PORT: u16 = 20456;
@@ -155,7 +155,7 @@ impl Config {
     }
 
     pub fn expected_remote_ordinals_sqlite_url(&self) -> String {
-        format!("{}.gz", self.expected_remote_ordinals_sqlite_base_url())
+        format!("{}.tar.gz", self.expected_remote_ordinals_sqlite_base_url())
     }
 
     pub fn devnet_default() -> Config {

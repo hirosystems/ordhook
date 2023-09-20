@@ -6,6 +6,7 @@ use flate2::read::GzDecoder;
 use futures_util::StreamExt;
 use progressing::mapping::Bar as MappingBar;
 use progressing::Baring;
+use tar::Archive;
 use std::fs;
 use std::io::{self, Cursor};
 use std::io::{Read, Write};
@@ -19,7 +20,7 @@ pub fn default_sqlite_sha_file_path(_network: &BitcoinNetwork) -> String {
 }
 
 pub async fn download_sqlite_file(config: &Config, _ctx: &Context) -> Result<(), String> {
-    let mut destination_path = config.expected_cache_path();
+    let destination_path = config.expected_cache_path();
     std::fs::create_dir_all(&destination_path).unwrap_or_else(|e| {
         println!("{}", e.to_string());
     });
@@ -46,22 +47,21 @@ pub async fn download_sqlite_file(config: &Config, _ctx: &Context) -> Result<(),
 
     // Download chunks
     let (tx, rx) = flume::bounded(0);
-    destination_path.push(default_sqlite_file_path(&config.network.bitcoin_network));
 
     let decoder_thread = std::thread::spawn(move || {
         let input = ChannelRead::new(rx);
         let mut decoder = GzDecoder::new(input);
         let mut content = Vec::new();
         let _ = decoder.read_to_end(&mut content);
-        let mut file = fs::File::create(&destination_path).unwrap();
-        if let Err(e) = file.write_all(&content[..]) {
+        let mut archive = Archive::new(&content[..]);          
+        if let Err(e) = archive.unpack(&destination_path) {
             println!("unable to write file: {}", e.to_string());
             std::process::exit(1);
         }
     });
 
     if res.status() == reqwest::StatusCode::OK {
-        let limit = 5_400_000_000;
+        let limit = res.content_length().unwrap_or(10_000_000_000) as i64;
         let mut progress_bar = MappingBar::with_range(0i64, limit);
         progress_bar.set_len(60);
         let mut stdout = std::io::stdout();

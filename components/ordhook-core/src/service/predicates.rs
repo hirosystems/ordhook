@@ -248,6 +248,7 @@ pub fn create_and_consolidate_chainhook_config_with_predicates(
                 blocks: None,
                 start_block: None,
                 end_block: None,
+                expired_at: None,
                 expire_after_occurrence: None,
                 predicate: chainhook_sdk::chainhooks::types::BitcoinPredicateType::OrdinalsProtocol(
                     chainhook_sdk::chainhooks::types::OrdinalOperations::InscriptionFeed,
