@@ -112,4 +112,15 @@ will spin up a HTTP API for managing events destinations.
 
 A comprehensive OpenAPI specification explaining how to interact with this HTTP REST API can be found [here](https://github.com/hirosystems/chainhook/blob/develop/docs/chainhook-openapi.json).
 
+---
+### Troubleshooting: Performance and System Requirements
 
+The Ordinals Theory protocol is resource-intensive, demanding significant CPU, memory, and disk capabilities. As we continue to refine and optimize, keep in mind the following system requirements and recommendations to ensure optimal performance:
+
+CPU: The ordhook tool efficiently utilizes multiple cores when detected at runtime, parallelizing tasks to boost performance.
+
+Memory: A minimum of 16GB RAM is recommended.
+
+Disk: To enhance I/O performance, SSD or NVMe storage is suggested.
+
+OS Requirements: Ensure your system allows for a minimum of 4096 open file descriptors. Configuration may vary based on your operating system. On certain systems, this can be adjusted using the `ulimit` command or the `launchctl limit` command.

@@ -234,14 +234,14 @@ pub async fn process_block_with_predicates(
     predicates: &Vec<&BitcoinChainhookSpecification>,
     event_observer_config: &EventObserverConfig,
     ctx: &Context,
-) -> Result<u32, ()> {
+) -> Result<u32, String> {
     let chain_event =
         BitcoinChainEvent::ChainUpdatedWithBlocks(BitcoinChainUpdatedWithBlocksData {
             new_blocks: vec![block],
             confirmed_blocks: vec![],
         });
 
-    let (predicates_triggered, _predicates_evaluated) =
+    let (predicates_triggered, _predicates_evaluated, _) =
         evaluate_bitcoin_chainhooks_on_chain_event(&chain_event, predicates, ctx);
 
     execute_predicates_action(predicates_triggered, &event_observer_config, &ctx).await
@@ -251,7 +251,7 @@ pub async fn execute_predicates_action<'a>(
     hits: Vec<BitcoinTriggerChainhook<'a>>,
     config: &EventObserverConfig,
     ctx: &Context,
-) -> Result<u32, ()> {
+) -> Result<u32, String> {
     let mut actions_triggered = 0;
     let mut proofs = HashMap::new();
     for trigger in hits.into_iter() {
