@@ -155,7 +155,7 @@ impl Config {
     }
 
     pub fn expected_remote_ordinals_sqlite_url(&self) -> String {
-        format!("{}.gz", self.expected_remote_ordinals_sqlite_base_url())
+        format!("{}", self.expected_remote_ordinals_sqlite_base_url())
     }
 
     pub fn devnet_default() -> Config {
