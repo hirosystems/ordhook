@@ -2408,7 +2408,7 @@ version = "0.5.0"
 dependencies = [
  "crossbeam-channel",
  "error-chain",
- "hiro-system-kit 0.1.0",
+ "hiro-system-kit 0.3.1",
  "neon",
  "num",
  "ordhook",

@@ -7,7 +7,6 @@ use futures_util::StreamExt;
 use progressing::mapping::Bar as MappingBar;
 use progressing::Baring;
 use tar::Archive;
-use std::fs;
 use std::io::{self, Cursor};
 use std::io::{Read, Write};
 
