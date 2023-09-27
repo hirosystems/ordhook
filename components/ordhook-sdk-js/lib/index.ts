@@ -86,7 +86,7 @@ export class OrdinalsIndexer {
    * @summary Apply Block
    * @memberof OrdinalsIndexer
    */
-  applyBlock(callback: (block: any) => void) {
+  onBlock(callback: (block: any) => void) {
     return ordinalsIndexerOnBlockApply.call(this.handle, callback);
   }
 
@@ -94,7 +94,7 @@ export class OrdinalsIndexer {
    * @summary Undo Block
    * @memberof OrdinalsIndexer
    */
-  undoBlock(callback: (block: any) => void) {
+  onBlockRollBack(callback: (block: any) => void) {
     return ordinalsIndexerOnBlockUndo.call(this.handle, callback);
   }
 

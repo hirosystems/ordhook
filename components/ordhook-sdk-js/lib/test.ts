@@ -8,11 +8,11 @@ const indexer = new OrdinalsIndexer({
     logs: false
 });
 
-indexer.applyBlock(block => {
+indexer.onBlock(block => {
     console.log(`Hello from JS ${JSON.stringify(block)}`);
 });
 
-indexer.undoBlock(block => {
+indexer.onBlockRollBack(block => {
     console.log(`Hello from JS ${JSON.stringify(block)}`);
 });
 
