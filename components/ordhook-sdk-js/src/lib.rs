@@ -1,10 +1,8 @@
-#[macro_use]
-extern crate error_chain;
-
 mod serde;
 
 use core::panic;
-use crossbeam_channel::{select, Sender};
+use crossbeam_channel::Sender;
+use neon::event::TaskBuilder;
 use neon::prelude::*;
 use ordhook::chainhook_sdk::observer::DataHandlerEvent;
 use ordhook::chainhook_sdk::utils::Context as OrdhookContext;
@@ -98,53 +96,87 @@ impl OrdinalsIndexer {
                 let mut undo_callback: Option<Root<JsFunction>> = None;
 
                 loop {
-                    select! {
-                        recv(payload_rx) -> msg => {
-                            match msg {
-                                Ok(DataHandlerEvent::Process(payload)) => {
-                                    if let Some(ref callback) = undo_callback {
-                                        for to_rollback in payload.rollback.into_iter() {
-                                            let callback = callback.clone(&mut cx).into_inner(&mut cx);
-                                            let this = cx.undefined();
-                                            let payload = serde::to_value(&mut cx, &to_rollback).expect("Unable to serialize block");
-                                            let args: Vec<Handle<JsValue>> = vec![payload];
-                                            callback.call(&mut cx, this, args)?;
-                                        }
-                                    }
+                    let mut sel = crossbeam_channel::Select::new();
+                    let payload_rx_sel = sel.recv(&payload_rx);
+                    let custom_indexer_command_rx_sel = sel.recv(&custom_indexer_command_rx);
 
-                                    if let Some(ref callback) = apply_callback {
-                                        for to_apply in payload.apply.into_iter() {
-                                            let callback = callback.clone(&mut cx).into_inner(&mut cx);
-                                            let this = cx.undefined();
-                                            let payload = serde::to_value(&mut cx, &to_apply).expect("Unable to serialize block");
-                                            let args: Vec<Handle<JsValue>> = vec![payload];
-                                            callback.call(&mut cx, this, args)?;
-                                        }
+                    // The second operation will be selected because it becomes ready first.
+                    let oper = sel.select();
+                    match oper.index() {
+                        i if i == payload_rx_sel => match oper.recv(&payload_rx) {
+                            Ok(DataHandlerEvent::Process(payload)) => {
+                                if let Some(ref callback) = undo_callback {
+                                    for to_rollback in payload.rollback.into_iter() {
+                                        let callback = callback.clone(&mut cx).into_inner(&mut cx);
+                                        let this = cx.undefined();
+                                        let payload = serde::to_value(&mut cx, &to_rollback)
+                                            .expect("Unable to serialize block");
+                                        let args: Vec<Handle<JsValue>> = vec![payload];
+                                        callback.call(&mut cx, this, args)?;
                                     }
                                 }
-                                Ok(DataHandlerEvent::Terminate) => {
-                                    return Ok(());
-                                }
-                                _ => {
 
+                                if let Some(ref callback) = apply_callback {
+                                    for to_apply in payload.apply.into_iter() {
+
+                                        let callback = callback.clone(&mut cx).into_inner(&mut cx);
+                                        let this = cx.undefined();
+                                        let payload = serde::to_value(&mut cx, &to_apply)
+                                            .expect("Unable to serialize block");
+                                        let args: Vec<Handle<JsValue>> = vec![payload];
+                                        callback.call(&mut cx, this, args)?;
+
+                                        // cx.task(|| {
+                                        //     callback.call(&cx, this, args);
+                                        // })
+                                        //     .promise(|ref mut cx, _| {
+                                        //         callback.call(&cx, this, args)?;
+
+                                        //         let result = cx.empty_object();
+                                        //         Ok(result)
+                                        //     });
+
+
+                                        // let channel: Channel = cx.channel();
+                                        // let (deferred, promise) = cx.promise();
+
+                                        // channel.send(                                        );
+
+                                        // channel.settle_with(deferred, move |cx| {
+                                        //     callback.call(&mut cx, this, args);
+                                        // });
+
+                                        // cx.task(|| {
+                                        // });
+                                    }
                                 }
+                                // .and_then(move |cx, _| {
+                                //     let n = cx.boolean(true);
+                                //     deferred.resolve(&mut cx, n);
+                                //     Ok(())
+                                // });
                             }
-                        }
-                        recv(custom_indexer_command_rx) -> msg => {
-                            match msg {
+                            Ok(DataHandlerEvent::Terminate) => {
+                                return Ok(());
+                            }
+                            Err(e) => {
+                                // Do something
+                            }
+                        },
+                        i if i == custom_indexer_command_rx_sel => {
+                            match oper.recv(&custom_indexer_command_rx) {
                                 Ok(CustomIndexerCommand::UpdateApplyCallback(callback)) => {
                                     apply_callback = Some(callback);
                                 }
                                 Ok(CustomIndexerCommand::UpdateUndoCallback(callback)) => {
                                     undo_callback = Some(callback);
                                 }
-                                Ok(CustomIndexerCommand::Terminate) => {
-                                    return Ok(())
-                                }
+                                Ok(CustomIndexerCommand::Terminate) => return Ok(()),
                                 _ => {}
                             }
                         }
-                    }
+                        _ => unreachable!(),
+                    };
                 }
             });
         });
@@ -250,34 +282,34 @@ impl OrdinalsIndexer {
         let mut config = OrdinalsIndexerConfig::default();
 
         if let Ok(res) = settings
-            .get(&mut cx, "bitcoinRpcUrl")?
+            .get::<JsString, _, _>(&mut cx, "bitcoinRpcUrl")?
             .downcast::<JsString, _>(&mut cx)
         {
             config.bitcoin_rpc_url = res.value(&mut cx);
         }
         if let Ok(res) = settings
-            .get(&mut cx, "bitcoinRpcUsername")?
+            .get::<JsString, _, _>(&mut cx, "bitcoinRpcUsername")?
             .downcast::<JsString, _>(&mut cx)
         {
             config.bitcoin_rpc_username = res.value(&mut cx);
         }
 
         if let Ok(res) = settings
-            .get(&mut cx, "bitcoinRpcPassword")?
+            .get::<JsString, _, _>(&mut cx, "bitcoinRpcPassword")?
             .downcast::<JsString, _>(&mut cx)
         {
             config.bitcoin_rpc_password = res.value(&mut cx);
         }
 
         if let Ok(res) = settings
-            .get(&mut cx, "workingDirectory")?
+            .get::<JsString, _, _>(&mut cx, "workingDirectory")?
             .downcast::<JsString, _>(&mut cx)
         {
             config.working_directory = res.value(&mut cx);
         }
 
         if let Ok(res) = settings
-            .get(&mut cx, "logs")?
+            .get::<JsBoolean, _, _>(&mut cx, "logs")?
             .downcast::<JsBoolean, _>(&mut cx)
         {
             config.logs_enabled = res.value(&mut cx);

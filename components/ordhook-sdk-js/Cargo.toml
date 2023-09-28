@@ -9,15 +9,14 @@ crate-type = ["cdylib"]
 
 [dependencies]
 serde = "1"
-error-chain = "0.12"
 ordhook = { path = "../ordhook-core" }
 hiro-system-kit = "0.3.1"
 crossbeam-channel = "0.5.6"
 
 [dependencies.neon]
-version = "0.9.1"
+version = "0.10.1"
 default-features = false
-features = ["napi-4", "channel-api", "event-queue-api", "try-catch-api"]
+features = ["napi-6", "channel-api", "event-queue-api", "try-catch-api", "promise-api", "task-api"]
 
 [dependencies.num]
 version = "0.2"

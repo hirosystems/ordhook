@@ -2,18 +2,16 @@
 //! Serialize a Rust data structure into a `JsValue`
 //!
 
-use super::errors::Error;
-use super::errors::ErrorKind;
-use super::errors::Result as LibResult;
-use neon::prelude::*;
+use super::errors::{Error as LibError, Result as LibResult};
+use neon::{prelude::*, types::buffer::TypedArray};
 use num;
-use serde::ser::{self, Serialize};
+use serde::{ser, ser::Serialize};
 use std::marker::PhantomData;
 
 fn as_num<T: num::cast::NumCast, OutT: num::cast::NumCast>(n: T) -> LibResult<OutT> {
     match num::cast::<T, OutT>(n) {
         Some(n2) => Ok(n2),
-        None => bail!(ErrorKind::CastError),
+        None => Err(LibError::CastError),
     }
 }
 
@@ -61,7 +59,7 @@ pub struct TupleVariantSerializer<'a, 'j, C: 'a>
 where
     C: Context<'j>,
 {
-    outer_object: Handle<'j, JsObject>,
+    outter_object: Handle<'j, JsObject>,
     inner: ArraySerializer<'a, 'j, C>,
 }
 
@@ -99,7 +97,7 @@ where
     C: Context<'j>,
 {
     type Ok = Handle<'j, JsValue>;
-    type Error = Error;
+    type Error = LibError;
 
     type SerializeSeq = ArraySerializer<'a, 'j, C>;
     type SerializeTuple = ArraySerializer<'a, 'j, C>;
@@ -177,23 +175,22 @@ where
     fn serialize_char(self, v: char) -> Result<Self::Ok, Self::Error> {
         let mut b = [0; 4];
         let result = v.encode_utf8(&mut b);
-        let js_str =
-            JsString::try_new(self.cx, result).map_err(|_| ErrorKind::StringTooLongForChar(4))?;
+        let js_str = JsString::try_new(self.cx, result)
+            .map_err(|_| LibError::StringTooLongForChar { len: 4 })?;
         Ok(js_str.upcast())
     }
 
     #[inline]
     fn serialize_str(self, v: &str) -> Result<Self::Ok, Self::Error> {
         let len = v.len();
-        let js_str = JsString::try_new(self.cx, v).map_err(|_| ErrorKind::StringTooLong(len))?;
+        let js_str = JsString::try_new(self.cx, v).map_err(|_| LibError::StringTooLong { len })?;
         Ok(js_str.upcast())
     }
 
     #[inline]
     fn serialize_bytes(self, v: &[u8]) -> Result<Self::Ok, Self::Error> {
-        let mut buff = JsBuffer::new(self.cx, as_num::<_, u32>(v.len())?)?;
-        self.cx
-            .borrow_mut(&mut buff, |buff| buff.as_mut_slice().clone_from_slice(v));
+        let mut buff = JsBuffer::new(self.cx, v.len())?;
+        buff.as_mut_slice(self.cx).clone_from_slice(v);
         Ok(buff.upcast())
     }
 
@@ -334,7 +331,7 @@ where
     C: Context<'j>,
 {
     type Ok = Handle<'j, JsValue>;
-    type Error = Error;
+    type Error = LibError;
 
     fn serialize_element<T: ?Sized>(&mut self, value: &T) -> Result<(), Self::Error>
     where
@@ -359,7 +356,7 @@ where
     C: Context<'j>,
 {
     type Ok = Handle<'j, JsValue>;
-    type Error = Error;
+    type Error = LibError;
 
     #[inline]
     fn serialize_element<T: ?Sized>(&mut self, value: &T) -> Result<(), Self::Error>
@@ -381,7 +378,7 @@ where
     C: Context<'j>,
 {
     type Ok = Handle<'j, JsValue>;
-    type Error = Error;
+    type Error = LibError;
 
     #[inline]
     fn serialize_field<T: ?Sized>(&mut self, value: &T) -> Result<(), Self::Error>
@@ -404,10 +401,10 @@ where
 {
     fn new(cx: &'a mut C, key: &'static str) -> LibResult<Self> {
         let inner_array = JsArray::new(cx, 0);
-        let outer_object = JsObject::new(cx);
-        outer_object.set(cx, key, inner_array)?;
+        let outter_object = JsObject::new(cx);
+        outter_object.set(cx, key, inner_array)?;
         Ok(TupleVariantSerializer {
-            outer_object,
+            outter_object,
             inner: ArraySerializer {
                 cx,
                 array: inner_array,
@@ -422,7 +419,7 @@ where
     C: Context<'j>,
 {
     type Ok = Handle<'j, JsValue>;
-    type Error = Error;
+    type Error = LibError;
 
     #[inline]
     fn serialize_field<T: ?Sized>(&mut self, value: &T) -> Result<(), Self::Error>
@@ -435,7 +432,7 @@ where
 
     #[inline]
     fn end(self) -> Result<Self::Ok, Self::Error> {
-        Ok(self.outer_object.upcast())
+        Ok(self.outter_object.upcast())
     }
 }
 
@@ -461,7 +458,7 @@ where
     C: Context<'j>,
 {
     type Ok = Handle<'j, JsValue>;
-    type Error = Error;
+    type Error = LibError;
 
     fn serialize_key<T: ?Sized>(&mut self, key: &T) -> Result<(), Self::Error>
     where
@@ -506,7 +503,7 @@ where
     C: Context<'j>,
 {
     type Ok = Handle<'j, JsValue>;
-    type Error = Error;
+    type Error = LibError;
 
     #[inline]
     fn serialize_field<T: ?Sized>(
@@ -535,10 +532,10 @@ where
 {
     fn new(cx: &'a mut C, key: &'static str) -> LibResult<Self> {
         let inner_object = JsObject::new(cx);
-        let outer_object = JsObject::new(cx);
-        outer_object.set(cx, key, inner_object)?;
+        let outter_object = JsObject::new(cx);
+        outter_object.set(cx, key, inner_object)?;
         Ok(StructVariantSerializer {
-            outer_object: outer_object,
+            outer_object: outter_object,
             inner: StructSerializer {
                 cx,
                 object: inner_object,
@@ -553,7 +550,7 @@ where
     C: Context<'j>,
 {
     type Ok = Handle<'j, JsValue>;
-    type Error = Error;
+    type Error = LibError;
 
     #[inline]
     fn serialize_field<T: ?Sized>(
