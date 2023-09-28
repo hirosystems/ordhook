@@ -1,18 +1,15 @@
+use chainhook_sdk::{types::BitcoinBlockData, utils::Context};
+use crossbeam_channel::{Sender, TryRecvError};
+use rocksdb::DB;
 use std::{
     thread::{sleep, JoinHandle},
     time::Duration,
 };
-use crossbeam_channel::{Sender, TryRecvError};
-use chainhook_sdk::{types::BitcoinBlockData, utils::Context};
-use rocksdb::DB;
 
 use crate::{
     config::Config,
     core::pipeline::{PostProcessorCommand, PostProcessorController, PostProcessorEvent},
-    db::{
-        insert_entry_in_blocks,
-        open_readwrite_ordhook_db_conn_rocks_db, LazyBlock,
-    },
+    db::{insert_entry_in_blocks, open_readwrite_ordhook_db_conn_rocks_db, LazyBlock},
 };
 
 pub fn start_block_archiving_processor(

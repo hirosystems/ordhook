@@ -20,7 +20,10 @@ use chainhook_sdk::{
 };
 
 use crate::{
-    core::protocol::inscription_parsing::{get_inscriptions_revealed_in_block, get_inscriptions_transferred_in_block}, ord::sat::Sat,
+    core::protocol::inscription_parsing::{
+        get_inscriptions_revealed_in_block, get_inscriptions_transferred_in_block,
+    },
+    ord::sat::Sat,
 };
 
 pub fn get_default_ordhook_db_file_path(base_dir: &PathBuf) -> PathBuf {
@@ -824,15 +827,15 @@ pub fn find_all_inscriptions_in_block(
             { parse_inscription_id(&inscription_id) };
         let Some(transfer_data) = transfers_data
             .get(&inscription_id)
-            .and_then(|entries| entries.first()) else {
-                ctx.try_log(|logger| {
-                    error!(
-                        logger,
-                        "unable to retrieve inscription genesis transfer data: {}",
-                        inscription_id,
-                    )
-                });
-                continue;
+            .and_then(|entries| entries.first())
+        else {
+            ctx.try_log(|logger| {
+                error!(
+                    logger,
+                    "unable to retrieve inscription genesis transfer data: {}", inscription_id,
+                )
+            });
+            continue;
         };
         let traversal = TraversalResult {
             inscription_number,

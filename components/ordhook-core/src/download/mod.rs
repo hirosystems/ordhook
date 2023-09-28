@@ -6,9 +6,9 @@ use flate2::read::GzDecoder;
 use futures_util::StreamExt;
 use progressing::mapping::Bar as MappingBar;
 use progressing::Baring;
-use tar::Archive;
 use std::io::{self, Cursor};
 use std::io::{Read, Write};
+use tar::Archive;
 
 pub fn default_sqlite_file_path(_network: &BitcoinNetwork) -> String {
     format!("hord.sqlite").to_lowercase()
@@ -52,7 +52,7 @@ pub async fn download_sqlite_file(config: &Config, _ctx: &Context) -> Result<(),
         let mut decoder = GzDecoder::new(input);
         let mut content = Vec::new();
         let _ = decoder.read_to_end(&mut content);
-        let mut archive = Archive::new(&content[..]);          
+        let mut archive = Archive::new(&content[..]);
         if let Err(e) = archive.unpack(&destination_path) {
             println!("unable to write file: {}", e.to_string());
             std::process::exit(1);
