@@ -8,6 +8,7 @@ use ordhook::chainhook_sdk::observer::DataHandlerEvent;
 use ordhook::chainhook_sdk::utils::Context as OrdhookContext;
 use ordhook::config::Config;
 use ordhook::service::Service;
+use std::sync::{Arc, Mutex};
 use std::thread;
 
 struct OrdinalsIndexerConfig {
@@ -91,94 +92,73 @@ impl OrdinalsIndexer {
         thread::spawn(move || {
             let payload_rx = payload_rx.unwrap();
 
-            channel.send(move |mut cx| {
-                let mut apply_callback: Option<Root<JsFunction>> = None;
-                let mut undo_callback: Option<Root<JsFunction>> = None;
+            let mut apply_callback: Option<Arc<Mutex<Root<JsFunction>>>> = None;
+            let mut undo_callback: Option<Arc<Mutex<Root<JsFunction>>>> = None;
 
-                loop {
-                    let mut sel = crossbeam_channel::Select::new();
-                    let payload_rx_sel = sel.recv(&payload_rx);
-                    let custom_indexer_command_rx_sel = sel.recv(&custom_indexer_command_rx);
+            loop {
+                let mut sel = crossbeam_channel::Select::new();
+                let payload_rx_sel = sel.recv(&payload_rx);
+                let custom_indexer_command_rx_sel = sel.recv(&custom_indexer_command_rx);
 
-                    // The second operation will be selected because it becomes ready first.
-                    let oper = sel.select();
-                    match oper.index() {
-                        i if i == payload_rx_sel => match oper.recv(&payload_rx) {
-                            Ok(DataHandlerEvent::Process(payload)) => {
-                                if let Some(ref callback) = undo_callback {
-                                    for to_rollback in payload.rollback.into_iter() {
+                // The second operation will be selected because it becomes ready first.
+                let oper = sel.select();
+                match oper.index() {
+                    i if i == payload_rx_sel => match oper.recv(&payload_rx) {
+                        Ok(DataHandlerEvent::Process(payload)) => {
+                            if let Some(ref callback) = undo_callback {
+                                for to_rollback in payload.rollback.into_iter() {
+                                    let callback_clone = callback.clone();
+                                    channel.send(move |mut cx| {
+                                        let callback = callback_clone.lock().unwrap();
                                         let callback = callback.clone(&mut cx).into_inner(&mut cx);
                                         let this = cx.undefined();
                                         let payload = serde::to_value(&mut cx, &to_rollback)
                                             .expect("Unable to serialize block");
                                         let args: Vec<Handle<JsValue>> = vec![payload];
                                         callback.call(&mut cx, this, args)?;
-                                    }
+                                        Ok(())
+                                    });
                                 }
+                            }
 
-                                if let Some(ref callback) = apply_callback {
-                                    for to_apply in payload.apply.into_iter() {
-
+                            if let Some(ref callback) = apply_callback {
+                                for to_apply in payload.apply.into_iter() {
+                                    let callback_clone = callback.clone();
+                                    channel.send(move |mut cx| {
+                                        let callback = callback_clone.lock().unwrap();
                                         let callback = callback.clone(&mut cx).into_inner(&mut cx);
                                         let this = cx.undefined();
                                         let payload = serde::to_value(&mut cx, &to_apply)
                                             .expect("Unable to serialize block");
                                         let args: Vec<Handle<JsValue>> = vec![payload];
                                         callback.call(&mut cx, this, args)?;
-
-                                        // cx.task(|| {
-                                        //     callback.call(&cx, this, args);
-                                        // })
-                                        //     .promise(|ref mut cx, _| {
-                                        //         callback.call(&cx, this, args)?;
-
-                                        //         let result = cx.empty_object();
-                                        //         Ok(result)
-                                        //     });
-
-
-                                        // let channel: Channel = cx.channel();
-                                        // let (deferred, promise) = cx.promise();
-
-                                        // channel.send(                                        );
-
-                                        // channel.settle_with(deferred, move |cx| {
-                                        //     callback.call(&mut cx, this, args);
-                                        // });
-
-                                        // cx.task(|| {
-                                        // });
-                                    }
+                                        Ok(())
+                                    });
                                 }
-                                // .and_then(move |cx, _| {
-                                //     let n = cx.boolean(true);
-                                //     deferred.resolve(&mut cx, n);
-                                //     Ok(())
-                                // });
-                            }
-                            Ok(DataHandlerEvent::Terminate) => {
-                                return Ok(());
-                            }
-                            Err(e) => {
-                                // Do something
-                            }
-                        },
-                        i if i == custom_indexer_command_rx_sel => {
-                            match oper.recv(&custom_indexer_command_rx) {
-                                Ok(CustomIndexerCommand::UpdateApplyCallback(callback)) => {
-                                    apply_callback = Some(callback);
-                                }
-                                Ok(CustomIndexerCommand::UpdateUndoCallback(callback)) => {
-                                    undo_callback = Some(callback);
-                                }
-                                Ok(CustomIndexerCommand::Terminate) => return Ok(()),
-                                _ => {}
                             }
                         }
-                        _ => unreachable!(),
-                    };
-                }
-            });
+                        Ok(DataHandlerEvent::Terminate) => {
+                            break;
+                        }
+                        Err(e) => {
+                            // Do something
+                        }
+                    },
+                    i if i == custom_indexer_command_rx_sel => {
+                        match oper.recv(&custom_indexer_command_rx) {
+                            Ok(CustomIndexerCommand::UpdateApplyCallback(callback)) => {
+                                apply_callback = Some(Arc::new(Mutex::new(callback)));
+                            }
+                            Ok(CustomIndexerCommand::UpdateUndoCallback(callback)) => {
+                                undo_callback = Some(Arc::new(Mutex::new(callback)));
+                            }
+                            Ok(CustomIndexerCommand::Terminate) => break,
+                            _ => {}
+                        }
+                    }
+                    _ => unreachable!(),
+                };
+            }
         });
 
         // Processing thread
