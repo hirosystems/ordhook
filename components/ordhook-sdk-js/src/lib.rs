@@ -2,12 +2,18 @@ mod serde;
 
 use core::panic;
 use crossbeam_channel::Sender;
-use neon::event::TaskBuilder;
 use neon::prelude::*;
+use ordhook::chainhook_sdk::bitcoincore_rpc_json::bitcoin::Block;
+use ordhook::chainhook_sdk::chainhooks::types::{
+    BitcoinChainhookFullSpecification, BitcoinChainhookNetworkSpecification, BitcoinPredicateType,
+    HookAction, OrdinalOperations,
+};
 use ordhook::chainhook_sdk::observer::DataHandlerEvent;
-use ordhook::chainhook_sdk::utils::Context as OrdhookContext;
+use ordhook::chainhook_sdk::utils::{Context as OrdhookContext, BlockHeights};
 use ordhook::config::Config;
+use ordhook::scan::bitcoin::scan_bitcoin_chainstate_via_rpc_using_predicate;
 use ordhook::service::Service;
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -185,7 +191,46 @@ impl OrdinalsIndexer {
                         break;
                     }
                     IndexerCommand::ReplayBlocks(blocks) => {
-                        println!("Will replay blocks {:?}", blocks);
+
+                        let network = &service.config.network.bitcoin_network;
+                        let mut networks = BTreeMap::new();
+                        // Retrieve last block height known, and display it
+                        networks.insert(
+                            network.clone(),
+                            BitcoinChainhookNetworkSpecification {
+                                start_block: None,
+                                end_block: None,
+                                blocks: Some(blocks),
+                                expire_after_occurrence: None,
+                                include_proof: None,
+                                include_inputs: None,
+                                include_outputs: None,
+                                include_witness: None,
+                                predicate: BitcoinPredicateType::OrdinalsProtocol(
+                                    OrdinalOperations::InscriptionFeed,
+                                ),
+                                action: HookAction::Noop,
+                            },
+                        );
+                        let predicate_spec = BitcoinChainhookFullSpecification {
+                            uuid: "replay".to_string(),
+                            owner_uuid: None,
+                            name: "replay".to_string(),
+                            version: 1,
+                            networks,
+                        }
+                        .into_selected_network_specification(&network)
+                        .unwrap();
+
+                        let future = scan_bitcoin_chainstate_via_rpc_using_predicate(
+                            &predicate_spec,
+                            &service.config,
+                            Some(&observer_config),
+                            &service.ctx,
+                        );
+                        let _ = hiro_system_kit::nestable_block_on(future)
+                            .expect("unable to start indexer");
+                        break;
                     }
                     IndexerCommand::DropBlocks(blocks) => {
                         println!("Will drop blocks {:?}", blocks);
@@ -339,6 +384,23 @@ impl OrdinalsIndexer {
         Ok(cx.undefined())
     }
 
+    fn js_replay_block_range(mut cx: FunctionContext) -> JsResult<JsUndefined> {
+        let start_block = cx.argument::<JsNumber>(0)?;
+        let end_block = cx.argument::<JsNumber>(1)?;
+
+        let range = BlockHeights::BlockRange(start_block.value(&mut cx) as u64, end_block.value(&mut cx) as u64);
+        let blocks = range.get_sorted_entries().into_iter().collect();
+
+        println!("{:?}", blocks);
+
+        cx.this()
+            .downcast_or_throw::<JsBox<OrdinalsIndexer>, _>(&mut cx)?
+            .replay_blocks(blocks)
+            .or_else(|err| cx.throw_error(err.to_string()))?;
+
+        Ok(cx.undefined())
+    }
+
     fn js_drop_blocks(mut cx: FunctionContext) -> JsResult<JsUndefined> {
         let blocks = {
             let seq = cx
@@ -436,6 +498,10 @@ fn main(mut cx: ModuleContext) -> NeonResult<()> {
     cx.export_function(
         "ordinalsIndexerReplayBlocks",
         OrdinalsIndexer::js_replay_blocks,
+    )?;
+    cx.export_function(
+        "ordinalsIndexerReplayBlockRange",
+        OrdinalsIndexer::js_replay_block_range,
     )?;
     cx.export_function("ordinalsIndexerDropBlocks", OrdinalsIndexer::js_drop_blocks)?;
     cx.export_function("ordinalsIndexerSyncBlocks", OrdinalsIndexer::js_sync_blocks)?;

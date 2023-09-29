@@ -26,10 +26,10 @@ use chainhook_sdk::types::{
 use chainhook_sdk::utils::{file_append, send_request, BlockHeights, Context};
 use std::collections::HashMap;
 
-// TODO(lgalabru): Re-introduce support for blocks[] !!! gracefully handle hints for non consecutive blocks
 pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
     predicate_spec: &BitcoinChainhookSpecification,
     config: &Config,
+    event_observer_config_override: Option<&EventObserverConfig>,
     ctx: &Context,
 ) -> Result<(), String> {
     let _ = download_ordinals_dataset_if_required(config, ctx).await;
@@ -85,7 +85,10 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
     let mut actions_triggered = 0;
     let mut err_count = 0;
 
-    let event_observer_config = config.get_event_observer_config();
+    let event_observer_config = match event_observer_config_override {
+        Some(config_override) => config_override.clone(),
+        None => config.get_event_observer_config(),
+    };
     let bitcoin_config = event_observer_config.get_bitcoin_config();
     let number_of_blocks_to_scan = block_heights_to_scan.len() as u64;
     let mut number_of_blocks_scanned = 0;

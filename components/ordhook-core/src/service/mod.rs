@@ -48,8 +48,8 @@ use std::sync::mpsc::channel;
 use std::sync::Arc;
 
 pub struct Service {
-    config: Config,
-    ctx: Context,
+    pub config: Config,
+    pub ctx: Context,
 }
 
 impl Service {

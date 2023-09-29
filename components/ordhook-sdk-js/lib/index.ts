@@ -4,6 +4,7 @@ const {
   ordinalsIndexerNew,
   ordinalsIndexerStreamBlocks,
   ordinalsIndexerReplayBlocks,
+  ordinalsIndexerReplayBlockRange,
   ordinalsIndexerDropBlocks,
   ordinalsIndexerSyncBlocks,
   ordinalsIndexerRewriteBlocks,
@@ -72,6 +73,14 @@ export class OrdinalsIndexer {
    */
   replayBlocks(blocks: number[]) {
     return ordinalsIndexerReplayBlocks.call(this.handle, blocks);
+  }
+
+  /**
+   * @summary Replay a range of blocks
+   * @memberof OrdinalsIndexer
+   */
+  replayBlockRange(startBlock: number, endBlock: number) {
+    return ordinalsIndexerReplayBlockRange.call(this.handle, startBlock, endBlock);
   }
 
   /**
