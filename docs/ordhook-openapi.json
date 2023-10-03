@@ -1,0 +1,1159 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "chainhook",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/ping": {
+      "get": {
+        "tags": [
+          "Health Check"
+        ],
+        "operationId": "handle_ping",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/chainhooks": {
+      "get": {
+        "tags": [
+          "Managing Predicates"
+        ],
+        "operationId": "handle_get_predicates",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Managing Predicates"
+        ],
+        "operationId": "handle_create_predicate",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChainhookFullSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/chainhooks/{predicate_uuid}": {
+      "get": {
+        "tags": [
+          "Managing Predicates"
+        ],
+        "operationId": "handle_get_predicate",
+        "parameters": [
+          {
+            "name": "predicate_uuid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/chainhooks/bitcoin/{predicate_uuid}": {
+      "delete": {
+        "tags": [
+          "Managing Predicates"
+        ],
+        "operationId": "handle_delete_bitcoin_predicate",
+        "parameters": [
+          {
+            "name": "predicate_uuid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/chainhooks/stacks/{predicate_uuid}": {
+      "delete": {
+        "tags": [
+          "Managing Predicates"
+        ],
+        "operationId": "handle_delete_stacks_predicate",
+        "parameters": [
+          {
+            "name": "predicate_uuid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ChainhookFullSpecification": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "chain",
+              "name",
+              "networks",
+              "uuid",
+              "version"
+            ],
+            "properties": {
+              "chain": {
+                "type": "string",
+                "enum": [
+                  "bitcoin"
+                ]
+              },
+              "uuid": {
+                "type": "string"
+              },
+              "owner_uuid": {
+                "type": "string",
+                "nullable": true
+              },
+              "name": {
+                "type": "string"
+              },
+              "version": {
+                "type": "integer",
+                "format": "uint32",
+                "minimum": 0.0
+              },
+              "networks": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "required": [
+                      "regtest"
+                    ],
+                    "properties": {
+                      "regtest": {
+                        "$ref": "#/components/schemas/BitcoinChainhookNetworkSpecification"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "testnet"
+                    ],
+                    "properties": {
+                      "testnet": {
+                        "$ref": "#/components/schemas/BitcoinChainhookNetworkSpecification"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "mainnet"
+                    ],
+                    "properties": {
+                      "mainnet": {
+                        "$ref": "#/components/schemas/BitcoinChainhookNetworkSpecification"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "chain",
+              "name",
+              "networks",
+              "uuid",
+              "version"
+            ],
+            "properties": {
+              "chain": {
+                "type": "string",
+                "enum": [
+                  "stacks"
+                ]
+              },
+              "uuid": {
+                "type": "string"
+              },
+              "owner_uuid": {
+                "type": "string",
+                "nullable": true
+              },
+              "name": {
+                "type": "string"
+              },
+              "version": {
+                "type": "integer",
+                "format": "uint32",
+                "minimum": 0.0
+              },
+              "networks": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "required": [
+                      "simnet"
+                    ],
+                    "properties": {
+                      "simnet": {
+                        "$ref": "#/components/schemas/StacksChainhookNetworkSpecification"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "devnet"
+                    ],
+                    "properties": {
+                      "devnet": {
+                        "$ref": "#/components/schemas/StacksChainhookNetworkSpecification"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "testnet"
+                    ],
+                    "properties": {
+                      "testnet": {
+                        "$ref": "#/components/schemas/StacksChainhookNetworkSpecification"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "mainnet"
+                    ],
+                    "properties": {
+                      "mainnet": {
+                        "$ref": "#/components/schemas/StacksChainhookNetworkSpecification"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "BitcoinNetwork": {
+        "type": "string",
+        "enum": [
+          "regtest",
+          "testnet",
+          "mainnet"
+        ]
+      },
+      "BitcoinChainhookNetworkSpecification": {
+        "type": "object",
+        "required": [
+          "if_this",
+          "then_that"
+        ],
+        "properties": {
+          "blocks": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0.0
+            },
+            "nullable": true
+          },
+          "start_block": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0.0,
+            "nullable": true
+          },
+          "end_block": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0.0,
+            "nullable": true
+          },
+          "expire_after_occurrence": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0.0,
+            "nullable": true
+          },
+          "include_proof": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "include_inputs": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "include_outputs": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "include_witness": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "if_this": {
+            "$ref": "#/components/schemas/BitcoinPredicateType"
+          },
+          "then_that": {
+            "$ref": "#/components/schemas/HookAction"
+          }
+        }
+      },
+      "BitcoinPredicateType": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "scope"
+            ],
+            "properties": {
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "block"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "equals"
+                ],
+                "properties": {
+                  "equals": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              }
+            ],
+            "required": [
+              "scope"
+            ],
+            "properties": {
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "txid"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "txid"
+                ],
+                "properties": {
+                  "txid": {
+                    "$ref": "#/components/schemas/TxinPredicate"
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": [
+                  "witness_script"
+                ],
+                "properties": {
+                  "witness_script": {
+                    "$ref": "#/components/schemas/MatchingRule"
+                  }
+                },
+                "additionalProperties": false
+              }
+            ],
+            "required": [
+              "scope"
+            ],
+            "properties": {
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "inputs"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "op_return"
+                ],
+                "properties": {
+                  "op_return": {
+                    "$ref": "#/components/schemas/MatchingRule"
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": [
+                  "p2pkh"
+                ],
+                "properties": {
+                  "p2pkh": {
+                    "$ref": "#/components/schemas/ExactMatchingRule"
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": [
+                  "p2sh"
+                ],
+                "properties": {
+                  "p2sh": {
+                    "$ref": "#/components/schemas/ExactMatchingRule"
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": [
+                  "p2wpkh"
+                ],
+                "properties": {
+                  "p2wpkh": {
+                    "$ref": "#/components/schemas/ExactMatchingRule"
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": [
+                  "p2wsh"
+                ],
+                "properties": {
+                  "p2wsh": {
+                    "$ref": "#/components/schemas/ExactMatchingRule"
+                  }
+                },
+                "additionalProperties": false
+              }
+            ],
+            "required": [
+              "scope"
+            ],
+            "properties": {
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "outputs"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "operation"
+                ],
+                "properties": {
+                  "operation": {
+                    "type": "string",
+                    "enum": [
+                      "stacker_rewarded"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "operation"
+                ],
+                "properties": {
+                  "operation": {
+                    "type": "string",
+                    "enum": [
+                      "block_committed"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "operation"
+                ],
+                "properties": {
+                  "operation": {
+                    "type": "string",
+                    "enum": [
+                      "leader_registered"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "operation"
+                ],
+                "properties": {
+                  "operation": {
+                    "type": "string",
+                    "enum": [
+                      "stx_transferred"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "operation"
+                ],
+                "properties": {
+                  "operation": {
+                    "type": "string",
+                    "enum": [
+                      "stx_locked"
+                    ]
+                  }
+                }
+              }
+            ],
+            "required": [
+              "scope"
+            ],
+            "properties": {
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "stacks_protocol"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "operation"
+                ],
+                "properties": {
+                  "operation": {
+                    "type": "string",
+                    "enum": [
+                      "inscription_feed"
+                    ]
+                  }
+                }
+              }
+            ],
+            "required": [
+              "scope"
+            ],
+            "properties": {
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "ordinals_protocol"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "TxinPredicate": {
+        "type": "object",
+        "required": [
+          "txid",
+          "vout"
+        ],
+        "properties": {
+          "txid": {
+            "type": "string"
+          },
+          "vout": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0.0
+          }
+        }
+      },
+      "MatchingRule": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "equals"
+            ],
+            "properties": {
+              "equals": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": [
+              "starts_with"
+            ],
+            "properties": {
+              "starts_with": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": [
+              "ends_with"
+            ],
+            "properties": {
+              "ends_with": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        ]
+      },
+      "ExactMatchingRule": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "equals"
+            ],
+            "properties": {
+              "equals": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        ]
+      },
+      "HookAction": {
+        "oneOf": [
+          {
+            "type": "string",
+            "enum": [
+              "noop"
+            ]
+          },
+          {
+            "type": "object",
+            "required": [
+              "http_post"
+            ],
+            "properties": {
+              "http_post": {
+                "$ref": "#/components/schemas/HttpHook"
+              }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": [
+              "file_append"
+            ],
+            "properties": {
+              "file_append": {
+                "$ref": "#/components/schemas/FileHook"
+              }
+            },
+            "additionalProperties": false
+          }
+        ]
+      },
+      "HttpHook": {
+        "type": "object",
+        "required": [
+          "authorization_header",
+          "url"
+        ],
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "authorization_header": {
+            "type": "string"
+          }
+        }
+      },
+      "FileHook": {
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        }
+      },
+      "StacksNetwork": {
+        "type": "string",
+        "enum": [
+          "simnet",
+          "devnet",
+          "testnet",
+          "mainnet"
+        ]
+      },
+      "StacksChainhookNetworkSpecification": {
+        "type": "object",
+        "required": [
+          "if_this",
+          "then_that"
+        ],
+        "properties": {
+          "blocks": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0.0
+            },
+            "nullable": true
+          },
+          "start_block": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0.0,
+            "nullable": true
+          },
+          "end_block": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0.0,
+            "nullable": true
+          },
+          "expire_after_occurrence": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0.0,
+            "nullable": true
+          },
+          "capture_all_events": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "decode_clarity_values": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "include_contract_abi": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "if_this": {
+            "$ref": "#/components/schemas/StacksPredicate"
+          },
+          "then_that": {
+            "$ref": "#/components/schemas/HookAction"
+          }
+        }
+      },
+      "StacksPredicate": {
+        "oneOf": [
+          {
+            "type": "object",
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "equals"
+                ],
+                "properties": {
+                  "equals": {
+                    "type": "integer",
+                    "format": "uint64",
+                    "minimum": 0.0
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": [
+                  "higher_than"
+                ],
+                "properties": {
+                  "higher_than": {
+                    "type": "integer",
+                    "format": "uint64",
+                    "minimum": 0.0
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": [
+                  "lower_than"
+                ],
+                "properties": {
+                  "lower_than": {
+                    "type": "integer",
+                    "format": "uint64",
+                    "minimum": 0.0
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": [
+                  "between"
+                ],
+                "properties": {
+                  "between": {
+                    "type": "array",
+                    "items": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "format": "uint64",
+                          "minimum": 0.0
+                        },
+                        {
+                          "type": "integer",
+                          "format": "uint64",
+                          "minimum": 0.0
+                        }
+                      ]
+                    },
+                    "maxItems": 2,
+                    "minItems": 2
+                  }
+                },
+                "additionalProperties": false
+              }
+            ],
+            "required": [
+              "scope"
+            ],
+            "properties": {
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "block_height"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "deployer"
+                ],
+                "properties": {
+                  "deployer": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": [
+                  "implement_trait"
+                ],
+                "properties": {
+                  "implement_trait": {
+                    "$ref": "#/components/schemas/StacksTrait"
+                  }
+                },
+                "additionalProperties": false
+              }
+            ],
+            "required": [
+              "scope"
+            ],
+            "properties": {
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "contract_deployment"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "contract_identifier",
+              "method",
+              "scope"
+            ],
+            "properties": {
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "contract_call"
+                ]
+              },
+              "contract_identifier": {
+                "type": "string"
+              },
+              "method": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "anyOf": [
+              {
+                "type": "object",
+                "required": [
+                  "contains",
+                  "contract_identifier"
+                ],
+                "properties": {
+                  "contract_identifier": {
+                    "type": "string"
+                  },
+                  "contains": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "contract_identifier",
+                  "matches_regex"
+                ],
+                "properties": {
+                  "contract_identifier": {
+                    "type": "string"
+                  },
+                  "matches_regex": {
+                    "type": "string"
+                  }
+                }
+              }
+            ],
+            "required": [
+              "scope"
+            ],
+            "properties": {
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "print_event"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "actions",
+              "asset_identifier",
+              "scope"
+            ],
+            "properties": {
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "ft_event"
+                ]
+              },
+              "asset_identifier": {
+                "type": "string"
+              },
+              "actions": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "actions",
+              "asset_identifier",
+              "scope"
+            ],
+            "properties": {
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "nft_event"
+                ]
+              },
+              "asset_identifier": {
+                "type": "string"
+              },
+              "actions": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "actions",
+              "scope"
+            ],
+            "properties": {
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "stx_event"
+                ]
+              },
+              "actions": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "equals"
+                ],
+                "properties": {
+                  "equals": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              }
+            ],
+            "required": [
+              "scope"
+            ],
+            "properties": {
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "txid"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "StacksTrait": {
+        "type": "string",
+        "enum": [
+          "sip09",
+          "sip10",
+          "*"
+        ]
+      }
+    }
+  }
+}
