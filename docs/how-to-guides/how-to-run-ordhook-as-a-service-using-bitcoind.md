@@ -6,16 +6,16 @@ title: Run Ordhook as a Service using Bitcoind
 
 ### Setting up a Bitcoin Node
 
-The Bitcoin Core daemon (bitcoind) is a program that implements the Bitcoin protocol for remote procedure call (RPC) use. Chainhook can be set up to interact with the Bitcoin chainstate through bitcoind's ZeroMQ interface, its embedded networking library, passing raw blockchain data to be evaluated for relevant events.
+The Bitcoin Core daemon (bitcoind) is a program that implements the Bitcoin protocol for remote procedure call (RPC) use. Ordhook can be set up to interact with the Bitcoin chainstate through bitcoind's ZeroMQ interface, its embedded networking library, passing raw blockchain data to be evaluated for relevant events.
 
 This guide is written to work with the latest Bitcoin Core software containing bitcoind, [Bitcoin Core 25.0](https://bitcoincore.org/bin/bitcoin-core-25.0/).
 
 > **_NOTE:_**
 >
-> While bitcoind can and will start syncing a Bitcoin node, customizing this node to your use cases beyond supporting a Chainhook is out of scope for this guide. See the Bitcoin wiki for ["Running Bitcoin"](https://en.bitcoin.it/wiki/Running_Bitcoin) or bitcoin.org [Running A Full Node guide](https://bitcoin.org/en/full-node).
+> While bitcoind can and will start syncing a Bitcoin node, customizing this node to your use cases beyond supporting a Ordhook is out of scope for this guide. See the Bitcoin wiki for ["Running Bitcoin"](https://en.bitcoin.it/wiki/Running_Bitcoin) or bitcoin.org [Running A Full Node guide](https://bitcoin.org/en/full-node).
 
 - Make note of the path of your `bitcoind` executable (located within the `bin` directory of the `bitcoin-25.0` folder you downloaded above appropriate to your operating system)
-- Navigate to your project folder where your Chainhook node will reside, create a new file, and rename it to `bitcoin.conf`. Copy the configuration below to this `bitcoin.conf` file.
+- Navigate to your project folder where your Ordhook node will reside, create a new file, and rename it to `bitcoin.conf`. Copy the configuration below to this `bitcoin.conf` file.
 - Find and copy your Bitcoin data directory and paste to the `datadir` field in the `bitcoin.conf` file below. Either copy the default path (see [list of default directories by operating system](https://en.bitcoin.it/wiki/Data_directory)) or copy the custom path you set for your Bitcoin data
 - Set a username of your choice for bitcoind and use it in the `rpcuser` configuration below (`devnet` is a default).
 - Set a password of your choice for bitcoind and use it in the `rpcpassword` configuration below (`devnet` is a default).
@@ -54,7 +54,7 @@ zmqpubhashblock=tcp://0.0.0.0:18543
 Now that you have the `bitcoin.conf` file ready with the bitcoind configurations, you can run the bitcoind node. The command takes the form `path/to/bitcoind -conf=path/to/bitcoin.conf`, for example:
 
 ```console
-/Volumes/SSD/bitcoin-25.0/bin/bitcoind -conf=/Volumes/SSD/project/Chainhook/bitcoin.conf
+/Volumes/SSD/bitcoin-25.0/bin/bitcoind -conf=/Volumes/SSD/project/Ordhook/bitcoin.conf
 ```
 
 Once the above command runs, you will see `zmq_url` entries in the console's stdout, displaying ZeroMQ logs of your bitcoin node.
@@ -66,10 +66,10 @@ In this section, you will configure Ordhook to match the network configurations 
 Next, you will generate a `Ordhook.toml` file to connect Ordhook with your bitcoind node. Navigate to the directory where you want to generate the `Ordhook.toml` file and use the following command in your terminal:
 
 ```console
-chainhook config generate --mainnet
+ordhook config generate --mainnet
 ```
 
-Several network parameters in the generated `Chainhook.toml` configuration file need to match those in the `bitcoin.conf` file created earlier in the [Setting up a Bitcoin Node](#setting-up-a-bitcoin-node) section. Please update the following parameters accordingly:
+Several network parameters in the generated `Ordhook.toml` configuration file need to match those in the `bitcoin.conf` file created earlier in the [Setting up a Bitcoin Node](#setting-up-a-bitcoin-node) section. Please update the following parameters accordingly:
 
 1. Update `bitcoind_rpc_username` with the username set for `rpcuser` in `bitcoin.conf`.
 2. Update `bitcoind_rpc_password` with the password set for `rpcpassword` in `bitcoin.conf`.
@@ -94,7 +94,7 @@ mode = "mainnet"
 bitcoind_rpc_url = "http://localhost:8332"
 bitcoind_rpc_username = "devnet"
 bitcoind_rpc_password = "devnet"
-# Bitcoin block events can be received by Chainhook
+# Bitcoin block events can be received by Ordhook
 # either through a Bitcoin node's ZeroMQ interface,
 # or through the Stacks node. The Stacks node is
 # used by default:
@@ -117,7 +117,7 @@ tsv_file_url = "https://archive.hiro.so/mainnet/stacks-blockchain-api/mainnet-st
 
 Here is a table of the relevant parameters this guide changes in our configuration files.
 
-| bitcoin.conf    | Chainhook.toml        |
+| bitcoin.conf    | Ordhook.toml        |
 | --------------- | --------------------- |
 | rpcuser         | bitcoind_rpc_username |
 | rpcpassword     | bitcoind_rpc_password |
@@ -132,7 +132,7 @@ Use the following command to start the Ordhook service for streaming and process
 
 `ordhook service start --post-to=http://localhost:3000/api/events --config-path=./Ordhook.toml`
 
-When the Ordhook service starts, the chainhook service gets initiated in the background to augment the blocks from Bitcoin. Bitcoind sends ZeroMQ notifications to Ordhook to retrieve the inscriptions.
+When the Ordhook service starts, it is initiated in the background to augment the blocks from Bitcoin. Bitcoind sends ZeroMQ notifications to Ordhook to retrieve the inscriptions.
 
 ### Add `http-post` endpoints dynamically
 
