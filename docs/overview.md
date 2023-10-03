@@ -1,5 +1,5 @@
 ---
-title: Ordhook Overview
+title: Overview
 ---
 
 ## Ordinal Theory
