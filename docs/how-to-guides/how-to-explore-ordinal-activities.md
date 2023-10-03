@@ -2,7 +2,7 @@
 title: Explore Ordinal activities in your terminal
 ---
 
-Ordhook can be used to extract ordinal activities from the Bitcoin chain and stream these activities to the indexer. This guide helps you with the steps to explore ordinal activities and post these activities to the indexer.
+Ordhook is a tool that helps you find ordinal activities from the Bitcoin chain. Think of it like a detective that can find and track these activities for you. Once it finds these activities, it can be used to help build your own database. This guide will show you how to use Ordhook to stream these activities.
 
 ### Explore ordinal activity
 
@@ -32,9 +32,9 @@ Inscription 6fb976ab49dcec017f1e201e84395983204ae1a7c2abf7ced0a85d692e442799i0 r
 Number of transfers: 2
 ```
 
-### Configure ordhook
+### Configure Ordhook
 
-This section walks you through streaming ordinal activities to an indexer. To post the ordinal activity, you'll need to configure bitcoind. Refer to [Setting up a bitcoin node](https://docs.hiro.so/chainhook/how-to-guides/how-to-run-chainhook-as-a-service-using-bitcoind#setting-up-a-bitcoin-node) to understand the steps to configure Bitcoind.
+This section walks you through streaming ordinal activities. To post the ordinal activity, you'll need to configure bitcoind. Refer to [Setting up a bitcoin node](https://docs.hiro.so/ordhook/how-to-guides/how-to-run-chainhook-as-a-service-using-bitcoind#setting-up-a-bitcoin-node) to understand the steps to configure Bitcoind.
 
 > **_NOTE_**
 > Ordhook is applicable to the Bitcoin chain only.
@@ -98,7 +98,7 @@ bitcoind_rpc_password = "devnet"
 bitcoind_zmq_url = "tcp://0.0.0.0:18543"
 ```
 
-### Post ordinal activity to the indexer
+### Post ordinal activity to an external endpoint
 
 After adjusting the `Ordhook.toml` settings to make them match the bitcoind configuration, the following command can be run to scan blocks and post events to a local server.
 
