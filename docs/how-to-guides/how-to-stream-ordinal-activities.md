@@ -17,7 +17,7 @@ Once the Bitcoin node is configured, you can use the following command in your t
 
 You will see a success message "Created file Ordhook.toml" in your terminal.
 
-The generated `ordhook.toml` file looks like this:
+The generated `Ordhook.toml` file looks like this:
 
 ```toml
 [storage]
@@ -61,7 +61,7 @@ ordinals_internals = true
 chainhook_internals = true
 ```
 
-Observe that the bitcoind configured fields will appear in the `ordhook.toml` file. Now, ensure that these fields are configured with the right values and URLs, as shown below:
+Observe that the bitcoind configured fields will appear in the `Ordhook.toml` file. Now, ensure that these fields are configured with the right values and URLs, as shown below:
 
 ```toml
 bitcoind_rpc_url = "http://0.0.0.0:8332"
