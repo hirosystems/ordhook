@@ -64,7 +64,7 @@ mode = "mainnet"
 bitcoind_rpc_url = "http://0.0.0.0:8332"
 bitcoind_rpc_username = "devnet"
 bitcoind_rpc_password = "devnet"
-# Bitcoin block events can be received by Chainhook
+# Bitcoin block events can be received by Ordhook
 # either through a Bitcoin node's ZeroMQ interface,
 # or through the Stacks node. Zmq is being
 # used by default:
@@ -104,6 +104,6 @@ After adjusting the `Ordhook.toml` settings to make them match the bitcoind conf
 
 `ordhook scan blocks 767430 767753 --post-to=http://localhost:3000/api/events --config-path=./Ordhook.toml`
 
-The above command uses chainhook to create a predicate ordinal theory where one of the inscriptions is created and posts the events to `http://localhost:3000/api/events`.
+The above command uses Ordhook to create a predicate ordinal theory where one of the inscriptions is created and posts the events to `http://localhost:3000/api/events`.
 
 You can update the above command to scan between block heights and post events to the local server.
