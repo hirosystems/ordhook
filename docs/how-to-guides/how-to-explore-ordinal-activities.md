@@ -34,7 +34,7 @@ Number of transfers: 2
 
 ### Configure Ordhook
 
-This section walks you through streaming ordinal activities. To post the ordinal activity, you'll need to configure bitcoind. Refer to [Setting up a bitcoin node](https://docs.hiro.so/ordhook/how-to-guides/how-to-run-chainhook-as-a-service-using-bitcoind#setting-up-a-bitcoin-node) to understand the steps to configure Bitcoind.
+This section walks you through streaming ordinal activities. To post the ordinal activity, you'll need to configure bitcoind. Refer to [Setting up a bitcoin node](https://docs.hiro.so/chainhook/how-to-guides/how-to-run-chainhook-as-a-service-using-bitcoind#setting-up-a-bitcoin-node) to understand the steps to configure Bitcoind.
 
 > **_NOTE_**
 > Ordhook is applicable to the Bitcoin chain only.
