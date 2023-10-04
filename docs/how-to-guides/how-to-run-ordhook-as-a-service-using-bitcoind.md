@@ -132,7 +132,7 @@ Use the following command to start the Ordhook service for streaming and process
 
 `ordhook service start --post-to=http://localhost:3000/api/events --config-path=./Ordhook.toml`
 
-When the Ordhook service starts, the chainhook service gets initiated in the background to augment the blocks from Bitcoin. Bitcoind sends ZeroMQ notifications to Ordhook to retrieve the inscriptions.
+When the Ordhook service starts, it's initiated in the background to augment the blocks from Bitcoin. Bitcoind sends ZeroMQ notifications to Ordhook to retrieve the inscriptions.
 
 ### Add `http-post` endpoints dynamically
 
