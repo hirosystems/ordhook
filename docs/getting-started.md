@@ -2,7 +2,7 @@
 title: Getting Started
 ---
 
-Ordhook is a utility designed for interacting with the [Ordinal Theory](https://trustmachines.co/glossary/ordinal-theory) protocol, enabling you to assign distinct identifiers to newly minted satoshis for diverse applications. Follow the steps below to install Ordhook.
+Ordhook is a developer tool designed for interacting with the [Ordinal Theory](https://trustmachines.co/glossary/ordinal-theory) protocol, enabling you to retrieve ordinal activities from the Bitcoin chain. Follow the steps below to install Ordhook.
 
 ## Installing Ordhook
 
@@ -31,6 +31,10 @@ You are now inside the Ordhook directory.
 
 ### Install Ordhook
 
+> **_NOTE:_**
+>
+> Ordhook requires Rust to be installed on your system. If you haven't installed Rust yet, you can do so by following the instructions on the [official Rust website](https://www.rust-lang.org/tools/install).
+
 Use the Rust package manager, Cargo, to install Ordhook. Run the following command:
 
 ```bash
@@ -38,3 +42,10 @@ cargo ordhook-install
 ```
 
 This command compiles the Ordhook code and installs it on your system.
+
+### Next Steps
+
+With Ordhook installed, you can:
+
+- Scan blocks in your terminal. See the [Scanning Ordinal Activities](./how-to-guides/how-to-scan-ordinal-activities.md) guide.
+- Stream ordinal activity to an external API. Refer to the [Streaming Ordinal Activities](./how-to-guides/how-to-stream-ordinal-activities.md) guide.
