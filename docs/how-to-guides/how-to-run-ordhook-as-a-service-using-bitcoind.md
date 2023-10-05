@@ -79,45 +79,49 @@ Additionally, if you want to receive events from the configured Bitcoin node, su
 
 ```toml
 [storage]
-working_dir = "cache"
+working_dir = "ordhook"
 
 # The Http Api allows you to register / deregister
-# predicates dynamically.
-# This is disabled by default.
-
+# dynamically predicates.
+# Disable by default.
+#
 # [http_api]
 # http_port = 20456
 # database_uri = "redis://localhost:6379/"
 
 [network]
 mode = "mainnet"
-bitcoind_rpc_url = "http://localhost:8332"
+bitcoind_rpc_url = "http://0.0.0.0:8332"
 bitcoind_rpc_username = "devnet"
 bitcoind_rpc_password = "devnet"
-# Bitcoin block events can be received by Ordhook
+# Bitcoin block events can be received by Chainhook
 # either through a Bitcoin node's ZeroMQ interface,
-# or through the Stacks node. The Stacks node is
+# or through the Stacks node. Zmq is being
 # used by default:
-# stacks_node_rpc_url = "http://localhost:20443"
-# but zmq can be used instead:
 bitcoind_zmq_url = "tcp://0.0.0.0:18543"
+# but stacks can also be used:
+# stacks_node_rpc_url = "http://0.0.0.0:20443"
 
 [limits]
 max_number_of_bitcoin_predicates = 100
 max_number_of_concurrent_bitcoin_scans = 100
-max_number_of_stacks_predicates = 10
-max_number_of_concurrent_stacks_scans = 10
 max_number_of_processing_threads = 16
-max_number_of_networking_threads = 16
+bitcoin_concurrent_http_requests_max = 16
 max_caching_memory_size_mb = 32000
 
-[[event_source]]
-tsv_file_url = "https://archive.hiro.so/mainnet/stacks-blockchain-api/mainnet-stacks-blockchain-api-latest"
+# Disable the following section if the state
+# must be built locally
+[bootstrap]
+download_url = "https://archive.hiro.so/mainnet/ordhook/mainnet-ordhook-sqlite-latest"
+
+[logs]
+ordinals_internals = true
+chainhook_internals = true
 ```
 
 Here is a table of the relevant parameters this guide changes in our configuration files.
 
-| bitcoin.conf    | Ordhook.toml        |
+| bitcoin.conf    | Ordhook.toml          |
 | --------------- | --------------------- |
 | rpcuser         | bitcoind_rpc_username |
 | rpcpassword     | bitcoind_rpc_password |
