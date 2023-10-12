@@ -98,8 +98,6 @@ jobs:
         working-directory: ./components/ordhook-sdk-js
     steps:
       - uses: actions/checkout@v3
-      - name: Change directory
-        working-directory: ./components/ordhook-sdk-js
       - name: Setup node
         uses: actions/setup-node@v3
         if: ${{ !matrix.settings.docker }}
