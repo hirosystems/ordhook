@@ -1,8 +1,8 @@
 name: ordhook-sdk-js
 env:
   DEBUG: napi:*
-  APP_NAME: ordhook-sdk-js
   COMPONENT_PATH: components/ordhook-sdk-js
+  APP_NAME: ordhook-sdk-js
   MACOSX_DEPLOYMENT_TARGET: '10.13'
 permissions:
   contents: write
