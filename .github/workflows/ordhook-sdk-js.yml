@@ -57,15 +57,15 @@ jobs:
               rustup target add aarch64-apple-darwin
               yarn build --target aarch64-apple-darwin
               strip -x *.node
-          - host: ubuntu-latest
-            target: aarch64-unknown-linux-gnu
-            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-aarch64
-            build: |-
-              sudo apt-get install libssl-dev &&
-              set -e &&
-              rustup target add aarch64-unknown-linux-gnu &&
-              yarn --cwd components/ordhook-sdk-js build --target aarch64-unknown-linux-gnu &&
-              aarch64-unknown-linux-gnu-strip components/ordhook-sdk-js/*.node
+          # - host: ubuntu-latest
+          #   target: aarch64-unknown-linux-gnu
+          #   docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-aarch64
+          #   build: |-
+          #     sudo apt-get install libssl-dev &&
+          #     set -e &&
+          #     rustup target add aarch64-unknown-linux-gnu &&
+          #     yarn --cwd components/ordhook-sdk-js build --target aarch64-unknown-linux-gnu &&
+          #     aarch64-unknown-linux-gnu-strip components/ordhook-sdk-js/*.node
           # - host: ubuntu-latest
           #   target: armv7-unknown-linux-gnueabihf
           #   setup: |
