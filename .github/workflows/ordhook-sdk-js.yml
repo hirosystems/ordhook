@@ -2,6 +2,7 @@ name: ordhook-sdk-js
 env:
   DEBUG: napi:*
   APP_NAME: ordhook-sdk-js
+  COMPONENT_PATH: components/ordhook-sdk-js
   MACOSX_DEPLOYMENT_TARGET: '10.13'
 permissions:
   contents: write
@@ -92,8 +93,13 @@ jobs:
             build: yarn build --target aarch64-pc-windows-msvc
     name: stable - ${{ matrix.settings.target }} - node@18
     runs-on: ${{ matrix.settings.host }}
+    defaults:
+      run:
+        working-directory: ./components/ordhook-sdk-js
     steps:
       - uses: actions/checkout@v3
+      - name: Change directory
+        working-directory: ./components/ordhook-sdk-js
       - name: Setup node
         uses: actions/setup-node@v3
         if: ${{ !matrix.settings.docker }}
@@ -154,7 +160,7 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: bindings-${{ matrix.settings.target }}
-          path: ${{ env.APP_NAME }}.*.node
+          path: ${{ env.COMPONENT_PATH }}/${{ env.APP_NAME }}.*.node
           if-no-files-found: error
   build-freebsd:
     runs-on: macos-12
@@ -202,7 +208,7 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: bindings-freebsd
-          path: ${{ env.APP_NAME }}.*.node
+          path: ${{ env.COMPONENT_PATH }}/${{ env.APP_NAME }}.*.node
           if-no-files-found: error
   test-macOS-windows-binding:
     name: Test bindings on ${{ matrix.settings.target }} - node@${{ matrix.node }}
@@ -452,7 +458,7 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: bindings-universal-apple-darwin
-          path: ${{ env.APP_NAME }}.*.node
+          path: ${{ env.COMPONENT_PATH }}/${{ env.APP_NAME }}.*.node
           if-no-files-found: error
   publish:
     name: Publish
