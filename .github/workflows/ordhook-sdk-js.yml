@@ -29,6 +29,7 @@ jobs:
           - host: macos-latest
             target: x86_64-apple-darwin
             build: |
+              cd ./components/ordhook-sdk-js
               yarn build
               strip -x *.node
           - host: windows-latest
@@ -36,6 +37,7 @@ jobs:
             target: x86_64-pc-windows-msvc
           - host: windows-latest
             build: |
+              cd ./components/ordhook-sdk-js
               yarn build --target i686-pc-windows-msvc
               yarn test
             target: i686-pc-windows-msvc
@@ -43,6 +45,7 @@ jobs:
             target: x86_64-unknown-linux-gnu
             docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian
             build: |-
+              cd ./components/ordhook-sdk-js &&
               set -e &&
               yarn build --target x86_64-unknown-linux-gnu &&
               strip *.node
@@ -53,14 +56,15 @@ jobs:
           - host: macos-latest
             target: aarch64-apple-darwin
             build: |
-              yarn build --target aarch64-apple-darwin
+              cd ./components/ordhook-sdk-js
+              yarn --cwd components/ordhook-sdk-js build --target aarch64-apple-darwin
               strip -x *.node
           - host: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-aarch64
             build: |-
               set -e &&
-              yarn build --target aarch64-unknown-linux-gnu &&
+              yarn --cwd components/ordhook-sdk-js build --target aarch64-unknown-linux-gnu &&
               aarch64-unknown-linux-gnu-strip *.node
           - host: ubuntu-latest
             target: armv7-unknown-linux-gnueabihf
@@ -68,22 +72,26 @@ jobs:
               sudo apt-get update
               sudo apt-get install gcc-arm-linux-gnueabihf -y
             build: |
-              yarn build --target armv7-unknown-linux-gnueabihf
+              cd ./components/ordhook-sdk-js
+              yarn --cwd components/ordhook-sdk-js build --target armv7-unknown-linux-gnueabihf
               arm-linux-gnueabihf-strip *.node
           - host: ubuntu-latest
             target: aarch64-linux-android
             build: |
+              cd ./components/ordhook-sdk-js
               yarn build --target aarch64-linux-android
               ${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip *.node
           - host: ubuntu-latest
             target: armv7-linux-androideabi
             build: |
+              cd ./components/ordhook-sdk-js
               yarn build --target armv7-linux-androideabi
               ${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip *.node
           - host: ubuntu-latest
             target: aarch64-unknown-linux-musl
             docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
             build: |-
+              cd ./components/ordhook-sdk-js &&
               set -e &&
               rustup target add aarch64-unknown-linux-musl &&
               yarn build --target aarch64-unknown-linux-musl &&
@@ -105,6 +113,7 @@ jobs:
           node-version: 18
           check-latest: true
           cache: yarn
+          cache-dependency-path: ./components/ordhook-sdk-js/yarn.lock
       - name: Install
         uses: dtolnay/rust-toolchain@stable
         if: ${{ !matrix.settings.docker }}
@@ -142,6 +151,7 @@ jobs:
           node-version: 18
           check-latest: true
           cache: yarn
+          cache-dependency-path: ./components/ordhook-sdk-js/yarn.lock
           architecture: x86
       - name: Build in docker
         uses: addnab/docker-run-action@v3
@@ -163,6 +173,9 @@ jobs:
   build-freebsd:
     runs-on: macos-12
     name: Build FreeBSD
+    defaults:
+      run:
+        working-directory: ./components/ordhook-sdk-js
     steps:
       - uses: actions/checkout@v3
       - name: Build
@@ -195,6 +208,7 @@ jobs:
             whoami
             env
             freebsd-version
+            cd ./components/ordhook-sdk-js
             yarn install
             yarn build
             strip -x *.node
@@ -233,6 +247,7 @@ jobs:
           node-version: ${{ matrix.node }}
           check-latest: true
           cache: yarn
+          cache-dependency-path: ./components/ordhook-sdk-js/yarn.lock
       - name: Install dependencies
         run: yarn install
       - name: Download artifacts
@@ -265,6 +280,7 @@ jobs:
           node-version: ${{ matrix.node }}
           check-latest: true
           cache: yarn
+          cache-dependency-path: ./components/ordhook-sdk-js/yarn.lock
       - name: Install dependencies
         run: yarn install
       - name: Download artifacts
@@ -297,6 +313,7 @@ jobs:
           node-version: ${{ matrix.node }}
           check-latest: true
           cache: yarn
+          cache-dependency-path: ./components/ordhook-sdk-js/yarn.lock
       - name: Install dependencies
         run: |
           yarn config set supportedArchitectures.libc "musl"
@@ -438,6 +455,7 @@ jobs:
           node-version: 18
           check-latest: true
           cache: yarn
+          cache-dependency-path: ./components/ordhook-sdk-js/yarn.lock
       - name: Install dependencies
         run: yarn install
       - name: Download macOS x64 artifact
@@ -461,6 +479,9 @@ jobs:
   publish:
     name: Publish
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./components/ordhook-sdk-js
     needs:
       - build-freebsd
       - test-macOS-windows-binding
@@ -478,6 +499,7 @@ jobs:
           node-version: 18
           check-latest: true
           cache: yarn
+          cache-dependency-path: ./components/ordhook-sdk-js/yarn.lock
       - name: Install dependencies
         run: yarn install
       - name: Download all artifacts
