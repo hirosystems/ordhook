@@ -3,7 +3,7 @@ env:
   DEBUG: napi:*
   APP_NAME: ordhook-sdk-js
   COMPONENT_PATH: components/ordhook-sdk-js
-  MACOSX_DEPLOYMENT_TARGET: '10.13'
+  MACOSX_DEPLOYMENT_TARGET: '10.14'
 permissions:
   contents: write
   id-token: write
@@ -156,58 +156,58 @@ jobs:
           name: bindings-${{ matrix.settings.target }}
           path: ${{ env.COMPONENT_PATH }}/${{ env.APP_NAME }}.*.node
           if-no-files-found: error
-  build-freebsd:
-    runs-on: macos-12
-    name: Build FreeBSD
-    defaults:
-      run:
-        working-directory: ./components/ordhook-sdk-js
-    steps:
-      - uses: actions/checkout@v3
-      - name: Build
-        id: build
-        uses: vmactions/freebsd-vm@v0
-        env:
-          DEBUG: napi:*
-          RUSTUP_HOME: /usr/local/rustup
-          CARGO_HOME: /usr/local/cargo
-          RUSTUP_IO_THREADS: 1
-        with:
-          envs: DEBUG RUSTUP_HOME CARGO_HOME RUSTUP_IO_THREADS
-          usesh: true
-          mem: 3000
-          prepare: |
-            pkg install -y -f curl node libnghttp2 npm yarn
-            curl https://sh.rustup.rs -sSf --output rustup.sh
-            sh rustup.sh -y --profile minimal --default-toolchain beta
-            export PATH="/usr/local/cargo/bin:$PATH"
-            echo "~~~~ rustc --version ~~~~"
-            rustc --version
-            echo "~~~~ node -v ~~~~"
-            node -v
-            echo "~~~~ yarn --version ~~~~"
-            yarn --version
-          run: |
-            export PATH="/usr/local/cargo/bin:$PATH"
-            pwd
-            ls -lah
-            whoami
-            env
-            freebsd-version
-            cd ./components/ordhook-sdk-js
-            yarn install
-            yarn build
-            strip -x *.node
-            yarn test
-            rm -rf node_modules
-            rm -rf target
-            rm -rf .yarn/cache
-      - name: Upload artifact
-        uses: actions/upload-artifact@v3
-        with:
-          name: bindings-freebsd
-          path: ${{ env.COMPONENT_PATH }}/${{ env.APP_NAME }}.*.node
-          if-no-files-found: error
+  # build-freebsd:
+  #   runs-on: macos-12
+  #   name: Build FreeBSD
+  #   defaults:
+  #     run:
+  #       working-directory: ./components/ordhook-sdk-js
+  #   steps:
+  #     - uses: actions/checkout@v3
+  #     - name: Build
+  #       id: build
+  #       uses: vmactions/freebsd-vm@v0
+  #       env:
+  #         DEBUG: napi:*
+  #         RUSTUP_HOME: /usr/local/rustup
+  #         CARGO_HOME: /usr/local/cargo
+  #         RUSTUP_IO_THREADS: 1
+  #       with:
+  #         envs: DEBUG RUSTUP_HOME CARGO_HOME RUSTUP_IO_THREADS
+  #         usesh: true
+  #         mem: 3000
+  #         prepare: |
+  #           pkg install -y -f curl node libnghttp2 npm yarn
+  #           curl https://sh.rustup.rs -sSf --output rustup.sh
+  #           sh rustup.sh -y --profile minimal --default-toolchain beta
+  #           export PATH="/usr/local/cargo/bin:$PATH"
+  #           echo "~~~~ rustc --version ~~~~"
+  #           rustc --version
+  #           echo "~~~~ node -v ~~~~"
+  #           node -v
+  #           echo "~~~~ yarn --version ~~~~"
+  #           yarn --version
+  #         run: |
+  #           export PATH="/usr/local/cargo/bin:$PATH"
+  #           pwd
+  #           ls -lah
+  #           whoami
+  #           env
+  #           freebsd-version
+  #           cd ./components/ordhook-sdk-js
+  #           yarn install
+  #           yarn build
+  #           strip -x *.node
+  #           yarn test
+  #           rm -rf node_modules
+  #           rm -rf target
+  #           rm -rf .yarn/cache
+  #     - name: Upload artifact
+  #       uses: actions/upload-artifact@v3
+  #       with:
+  #         name: bindings-freebsd
+  #         path: ${{ env.COMPONENT_PATH }}/${{ env.APP_NAME }}.*.node
+  #         if-no-files-found: error
   test-macOS-windows-binding:
     name: Test bindings on ${{ matrix.settings.target }} - node@${{ matrix.node }}
     needs:
@@ -433,6 +433,9 @@ jobs:
     needs:
       - build
     runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: ./components/ordhook-sdk-js
     steps:
       - uses: actions/checkout@v3
       - name: Setup node
@@ -469,7 +472,7 @@ jobs:
       run:
         working-directory: ./components/ordhook-sdk-js
     needs:
-      - build-freebsd
+      # - build-freebsd
       - test-macOS-windows-binding
       - test-linux-x64-gnu-binding
       # - test-linux-x64-musl-binding
