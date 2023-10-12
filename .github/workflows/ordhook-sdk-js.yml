@@ -3,7 +3,7 @@ env:
   DEBUG: napi:*
   APP_NAME: ordhook-sdk-js
   COMPONENT_PATH: components/ordhook-sdk-js
-  MACOSX_DEPLOYMENT_TARGET: '12.0'
+  MACOSX_DEPLOYMENT_TARGET: '13.0'
 permissions:
   contents: write
   id-token: write
@@ -36,6 +36,7 @@ jobs:
             target: x86_64-pc-windows-msvc
           - host: windows-latest
             build: |
+              rustup target add i686-pc-windows-msvc
               yarn build --target i686-pc-windows-msvc
             target: i686-pc-windows-msvc
           - host: ubuntu-latest
@@ -83,7 +84,9 @@ jobs:
           #     /aarch64-linux-musl-cross/bin/aarch64-linux-musl-strip components/ordhook-sdk-js/*.node
           - host: windows-latest
             target: aarch64-pc-windows-msvc
-            build: yarn build --target aarch64-pc-windows-msvc
+            build: |-
+              rustup target add aarch64-pc-windows-msvc
+              yarn build --target aarch64-pc-windows-msvc
     name: stable - ${{ matrix.settings.target }} - node@18
     runs-on: ${{ matrix.settings.host }}
     defaults:
