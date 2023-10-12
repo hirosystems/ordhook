@@ -497,12 +497,18 @@ pub fn insert_transfer_in_locations(
 pub fn get_any_entry_in_ordinal_activities(
     block_height: &u64,
     inscriptions_db_tx: &Connection,
-    _ctx: &Context,
+    ctx: &Context,
 ) -> bool {
     let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
-    let mut stmt = inscriptions_db_tx
+    let mut stmt = match inscriptions_db_tx
         .prepare("SELECT DISTINCT block_height FROM inscriptions WHERE block_height = ?")
-        .unwrap();
+    {
+        Ok(stmt) => stmt,
+        Err(e) => {
+            ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
+            panic!();
+        }
+    };
     let mut rows = stmt.query(args).unwrap();
     while let Ok(Some(_)) = rows.next() {
         return true;

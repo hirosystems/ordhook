@@ -387,7 +387,7 @@ impl Service {
         );
         event_observer_config.chainhook_config = Some(chainhook_config);
         let data_rx = if enable_internal_trigger {
-            let (tx, rx) = crossbeam_channel::unbounded();
+            let (tx, rx) = crossbeam_channel::bounded(256);
             event_observer_config.data_handler_tx = Some(tx);
             Some(rx)
         } else {
