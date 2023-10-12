@@ -247,8 +247,6 @@ jobs:
       - name: List packages
         run: ls -R .
         shell: bash
-      - name: Test bindings
-        run: yarn test
   test-linux-x64-gnu-binding:
     name: Test bindings on Linux-x64-gnu - node@${{ matrix.node }}
     needs:
@@ -449,7 +447,7 @@ jobs:
           cache: yarn
           cache-dependency-path: ./components/ordhook-sdk-js/yarn.lock
       - name: Install dependencies
-        run: yarn install
+        run: yarn --cwd components/ordhook-sdk-js install
       - name: Download macOS x64 artifact
         uses: actions/download-artifact@v3
         with:
@@ -461,7 +459,7 @@ jobs:
           name: bindings-aarch64-apple-darwin
           path: artifacts
       - name: Combine binaries
-        run: yarn universal
+        run: yarn --cwd components/ordhook-sdk-js universal
       - name: Upload artifact
         uses: actions/upload-artifact@v3
         with:
@@ -493,18 +491,19 @@ jobs:
           cache: yarn
           cache-dependency-path: ./components/ordhook-sdk-js/yarn.lock
       - name: Install dependencies
-        run: yarn install
+        run: yarn --cwd components/ordhook-sdk-js install
       - name: Download all artifacts
         uses: actions/download-artifact@v3
         with:
           path: artifacts
       - name: Move artifacts
-        run: yarn artifacts
+        run: yarn --cwd components/ordhook-sdk-js artifacts
       - name: List packages
-        run: ls -R ./npm
+        run: ls -R components/ordhook-sdk-js/./npm
         shell: bash
       - name: Publish
         run: |
+          cd components/ordhook-sdk-js
           npm config set provenance true
           if git log -1 --pretty=%B | grep "^[0-9]\+\.[0-9]\+\.[0-9]\+$";
           then
