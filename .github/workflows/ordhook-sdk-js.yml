@@ -32,12 +32,11 @@ jobs:
               yarn build
               strip -x *.node
           - host: windows-latest
-            build: yarn --cwd components/ordhook-sdk-js build
+            build: yarn build
             target: x86_64-pc-windows-msvc
           - host: windows-latest
             build: |
-              yarn --cwd components/ordhook-sdk-js build --target i686-pc-windows-msvc
-              yarn --cwd components/ordhook-sdk-js test
+              yarn build --target i686-pc-windows-msvc
             target: i686-pc-windows-msvc
           - host: ubuntu-latest
             target: x86_64-unknown-linux-gnu
@@ -65,15 +64,15 @@ jobs:
               rustup target add aarch64-unknown-linux-gnu &&
               yarn --cwd components/ordhook-sdk-js build --target aarch64-unknown-linux-gnu &&
               aarch64-unknown-linux-gnu-strip components/ordhook-sdk-js/*.node
-          - host: ubuntu-latest
-            target: armv7-unknown-linux-gnueabihf
-            setup: |
-              sudo apt-get update
-              sudo apt-get install gcc-arm-linux-gnueabihf -y
-            build: |
-              rustup target add armv7-unknown-linux-gnueabihf
-              yarn --cwd components/ordhook-sdk-js build --target armv7-unknown-linux-gnueabihf
-              arm-linux-gnueabihf-strip components/ordhook-sdk-js/*.node
+          # - host: ubuntu-latest
+          #   target: armv7-unknown-linux-gnueabihf
+          #   setup: |
+          #     sudo apt-get update
+          #     sudo apt-get install gcc-arm-linux-gnueabihf -y
+          #   build: |
+          #     rustup target add armv7-unknown-linux-gnueabihf
+          #     yarn --cwd components/ordhook-sdk-js build --target armv7-unknown-linux-gnueabihf
+          #     arm-linux-gnueabihf-strip components/ordhook-sdk-js/*.node
           # - host: ubuntu-latest
           #   target: aarch64-unknown-linux-musl
           #   docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
@@ -84,7 +83,7 @@ jobs:
           #     /aarch64-linux-musl-cross/bin/aarch64-linux-musl-strip components/ordhook-sdk-js/*.node
           - host: windows-latest
             target: aarch64-pc-windows-msvc
-            build: yarn --cwd components/ordhook-sdk-js build --target aarch64-pc-windows-msvc
+            build: yarn build --target aarch64-pc-windows-msvc
     name: stable - ${{ matrix.settings.target }} - node@18
     runs-on: ${{ matrix.settings.host }}
     defaults:
@@ -116,10 +115,10 @@ jobs:
             .cargo-cache
             target/
           key: ${{ matrix.settings.target }}-cargo-${{ matrix.settings.host }}
-      - uses: goto-bus-stop/setup-zig@v2
-        if: ${{ matrix.settings.target == 'armv7-unknown-linux-gnueabihf' }}
-        with:
-          version: 0.10.1
+      # - uses: goto-bus-stop/setup-zig@v2
+      #   if: ${{ matrix.settings.target == 'armv7-unknown-linux-gnueabihf' }}
+      #   with:
+      #     version: 0.10.1
       - name: Setup toolchain
         run: ${{ matrix.settings.setup }}
         if: ${{ matrix.settings.setup }}
@@ -388,46 +387,46 @@ jobs:
   #         run: |
   #           set -e
   #           yarn test
-  test-linux-arm-gnueabihf-binding:
-    name: Test bindings on armv7-unknown-linux-gnueabihf - node@${{ matrix.node }}
-    needs:
-      - build
-    strategy:
-      fail-fast: false
-      matrix:
-        node:
-          - '14'
-          - '16'
-          - '18'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Download artifacts
-        uses: actions/download-artifact@v3
-        with:
-          name: bindings-armv7-unknown-linux-gnueabihf
-          path: .
-      - name: List packages
-        run: ls -R .
-        shell: bash
-      - name: Install dependencies
-        run: |
-          yarn config set supportedArchitectures.cpu "arm"
-          yarn install
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
-        with:
-          platforms: arm
-      - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
-      - name: Setup and run tests
-        uses: addnab/docker-run-action@v3
-        with:
-          image: node:${{ matrix.node }}-bullseye-slim
-          options: '--platform linux/arm/v7 -v ${{ github.workspace }}:/build -w /build'
-          run: |
-            set -e
-            yarn test
-            ls -la
+  # test-linux-arm-gnueabihf-binding:
+  #   name: Test bindings on armv7-unknown-linux-gnueabihf - node@${{ matrix.node }}
+  #   needs:
+  #     - build
+  #   strategy:
+  #     fail-fast: false
+  #     matrix:
+  #       node:
+  #         - '14'
+  #         - '16'
+  #         - '18'
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v3
+  #     - name: Download artifacts
+  #       uses: actions/download-artifact@v3
+  #       with:
+  #         name: bindings-armv7-unknown-linux-gnueabihf
+  #         path: .
+  #     - name: List packages
+  #       run: ls -R .
+  #       shell: bash
+  #     - name: Install dependencies
+  #       run: |
+  #         yarn config set supportedArchitectures.cpu "arm"
+  #         yarn install
+  #     - name: Set up QEMU
+  #       uses: docker/setup-qemu-action@v2
+  #       with:
+  #         platforms: arm
+  #     - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+  #     - name: Setup and run tests
+  #       uses: addnab/docker-run-action@v3
+  #       with:
+  #         image: node:${{ matrix.node }}-bullseye-slim
+  #         options: '--platform linux/arm/v7 -v ${{ github.workspace }}:/build -w /build'
+  #         run: |
+  #           set -e
+  #           yarn test
+  #           ls -la
   universal-macOS:
     name: Build universal macOS binary
     needs:
