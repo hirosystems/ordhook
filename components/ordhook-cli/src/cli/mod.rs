@@ -289,7 +289,7 @@ struct StartCommand {
     pub start_at_block: Option<u64>,
     /// HTTP Auth token
     #[clap(long = "auth-token")]
-    pub auth_token: Option<String>,    
+    pub auth_token: Option<String>,
 }
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
@@ -505,7 +505,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                     &post_to,
                     cmd.start_block,
                     Some(cmd.end_block),
-                    cmd.auth_token
+                    cmd.auth_token,
                 )?
                 .into_selected_network_specification(&config.network.bitcoin_network)?;
                 scan_bitcoin_chainstate_via_rpc_using_predicate(
@@ -647,7 +647,13 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 let mut predicates = vec![];
 
                 for post_to in cmd.post_to.iter() {
-                    let predicate = build_predicate_from_cli(&config, post_to, start_block, None, cmd.auth_token.clone())?;
+                    let predicate = build_predicate_from_cli(
+                        &config,
+                        post_to,
+                        start_block,
+                        None,
+                        cmd.auth_token.clone(),
+                    )?;
                     predicates.push(ChainhookFullSpecification::Bitcoin(predicate));
                 }
 
