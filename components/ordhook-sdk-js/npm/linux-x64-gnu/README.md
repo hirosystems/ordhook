@@ -1,3 +1,3 @@
-# `ordhook-sdk-js-linux-x64-gnu`
+# `@hirosystems/ordhook-sdk-js-linux-x64-gnu`
 
-This is the **x86_64-unknown-linux-gnu** binary for `ordhook-sdk-js`
+This is the **x86_64-unknown-linux-gnu** binary for `@hirosystems/ordhook-sdk-js`

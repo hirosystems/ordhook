@@ -1,3 +1,3 @@
-# `ordhook-sdk-js-darwin-arm64`
+# `@hirosystems/ordhook-sdk-js-darwin-arm64`
 
-This is the **aarch64-apple-darwin** binary for `ordhook-sdk-js`
+This is the **aarch64-apple-darwin** binary for `@hirosystems/ordhook-sdk-js`
