@@ -1,6 +1,6 @@
 {
   "name": "@hirosystems/ordhook-sdk-js",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "main": "index.js",
   "repository": {
     "type": "git",
@@ -38,11 +38,5 @@
     "universal": "napi universal",
     "version": "napi version"
   },
-  "packageManager": "yarn@3.6.4",
-  "optionalDependencies": {
-    "@hirosystems/ordhook-sdk-js-darwin-x64": "0.6.2",
-    "@hirosystems/ordhook-sdk-js-linux-x64-gnu": "0.6.2",
-    "@hirosystems/ordhook-sdk-js-darwin-arm64": "0.6.2",
-    "@hirosystems/ordhook-sdk-js-darwin-universal": "0.6.2"
-  }
+  "packageManager": "yarn@3.6.4"
 }
