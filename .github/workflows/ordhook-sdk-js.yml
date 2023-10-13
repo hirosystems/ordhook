@@ -437,9 +437,6 @@ jobs:
     needs:
       - build
     runs-on: macos-latest
-    defaults:
-      run:
-        working-directory: ./components/ordhook-sdk-js
     steps:
       - uses: actions/checkout@v3
       - name: Setup node
@@ -455,12 +452,12 @@ jobs:
         uses: actions/download-artifact@v3
         with:
           name: bindings-x86_64-apple-darwin
-          path: artifacts
+          path: components/ordhook-sdk-js/artifacts
       - name: Download macOS arm64 artifact
         uses: actions/download-artifact@v3
         with:
           name: bindings-aarch64-apple-darwin
-          path: artifacts
+          path: components/ordhook-sdk-js/artifacts
       - name: Combine binaries
         run: yarn --cwd components/ordhook-sdk-js universal
       - name: Upload artifact
@@ -472,9 +469,6 @@ jobs:
   publish:
     name: Publish
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./components/ordhook-sdk-js
     needs:
       # - build-freebsd
       - test-macOS-binding
