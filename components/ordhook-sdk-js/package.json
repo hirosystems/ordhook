@@ -2,6 +2,11 @@
   "name": "@hirosystems/ordhook-sdk-js",
   "version": "0.6.2",
   "main": "index.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hirosystems/ordhook",
+    "directory": "components/ordhook-sdk-js"
+  },
   "types": "index.d.ts",
   "napi": {
     "name": "ordhook-sdk-js",
