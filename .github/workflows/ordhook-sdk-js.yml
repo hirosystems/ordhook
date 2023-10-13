@@ -259,6 +259,9 @@ jobs:
           - '16'
           - '18'
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./components/ordhook-sdk-js
     steps:
       - uses: actions/checkout@v3
       - name: Setup node
