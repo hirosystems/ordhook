@@ -1,10 +1,10 @@
 ---
-title: Run Ordhook as a Service using Bitcoind
+title: Run Ordhook as a Service Using Bitcoind
 ---
 
 ## Prerequisites
 
-### Setting up a Bitcoin Node
+### Setting Up a Bitcoin Node
 
 The Bitcoin Core daemon (bitcoind) is a program that implements the Bitcoin protocol for remote procedure call (RPC) use. Ordhook can be set up to interact with the Bitcoin chainstate through bitcoind's ZeroMQ interface, its embedded networking library, passing raw blockchain data to be evaluated for relevant events.
 
@@ -132,7 +132,7 @@ Here is a table of the relevant parameters this guide changes in our configurati
 
 In this section, you'll learn how to run Ordhook as a service using [Ordhook SDK](https://github.com/hirosystems/ordhook/tree/develop/components/ordhook-sdk-js) to post events to a server.
 
-Use the following command to start the Ordhook service for streaming and processing new blocks appended to the Bitcoin blockchain.
+Use the following command to start the Ordhook service for streaming and processing new blocks appended to the Bitcoin blockchain:
 
 `ordhook service start --post-to=http://localhost:3000/api/events --config-path=./Ordhook.toml`
 
@@ -140,7 +140,7 @@ When the Ordhook service starts, it is initiated in the background to augment th
 
 ### Add `http-post` endpoints dynamically
 
-To enable dynamically posting endpoints to the server, you can spin up the Redis server by enabling the following lines of code in the `Ordhook.toml` file.
+To enable dynamically posting endpoints to the server, you can spin up the Redis server by enabling the following lines of code in the `Ordhook.toml` file:
 
 ```toml
 [http_api]
@@ -150,7 +150,7 @@ database_uri = "redis://localhost:6379/"
 
 ## Run ordhook service
 
-Based on the `Ordhook.toml` file configuration, the ordhook service spins up an HTTP API to manage event destinations. Use the following command to start the ordhook service.
+Based on the `Ordhook.toml` file configuration, the ordhook service spins up an HTTP API to manage event destinations. Use the following command to start the ordhook service:
 
 `ordhook service start --config-path=./Ordhook.toml`
 
