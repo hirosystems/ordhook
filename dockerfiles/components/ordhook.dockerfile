@@ -44,11 +44,11 @@ RUN cp target/release/ordhook /out
 
 FROM debian:bullseye-slim
 
-WORKDIR /artifacts
+WORKDIR /ordhook-sdk-js
 
 RUN apt update && apt install -y ca-certificates libssl-dev
 
-COPY --from=build /out/*.node /artifacts/
+COPY --from=build /out/*.node /ordhook-sdk-js/
 
 COPY --from=build /out/ordhook /bin/ordhook
 
