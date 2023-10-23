@@ -597,12 +597,14 @@ fn chainhook_sidecar_mutate_ordhook_db(command: HandleBlock, config: &Config, ct
             let compressed_block: LazyBlock = match LazyBlock::from_standardized_block(&block) {
                 Ok(block) => block,
                 Err(e) => {
-                    error!(
-                        ctx.expect_logger(),
-                        "Unable to compress block #{}: #{}",
-                        block.block_identifier.index,
-                        e.to_string()
-                    );
+                    ctx.try_log(|logger| {
+                        error!(
+                            logger,
+                            "Unable to compress block #{}: #{}",
+                            block.block_identifier.index,
+                            e.to_string()
+                        )
+                    });
                     return;
                 }
             };
@@ -700,12 +702,14 @@ pub fn chainhook_sidecar_mutate_blocks(
         let compressed_block: LazyBlock = match LazyBlock::from_standardized_block(&cache.block) {
             Ok(block) => block,
             Err(e) => {
-                error!(
-                    ctx.expect_logger(),
-                    "Unable to compress block #{}: #{}",
-                    cache.block.block_identifier.index,
-                    e.to_string()
-                );
+                ctx.try_log(|logger| {
+                    error!(
+                        logger,
+                        "Unable to compress block #{}: #{}",
+                        cache.block.block_identifier.index,
+                        e.to_string()
+                    )
+                });
                 continue;
             }
         };

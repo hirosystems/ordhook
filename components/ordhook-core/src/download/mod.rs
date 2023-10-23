@@ -66,8 +66,10 @@ pub async fn download_sqlite_file(config: &Config, ctx: &Context) -> Result<(), 
                         Ok(0) => break,
                         Ok(n) => {
                             if let Err(e) = tmp.write_all(&buffer[..n]) {
-                                let err =
-                                    format!("unable to update compressed archive: {}", e.to_string());
+                                let err = format!(
+                                    "unable to update compressed archive: {}",
+                                    e.to_string()
+                                );
                                 return Err(err);
                             }
                         }
@@ -95,7 +97,7 @@ pub async fn download_sqlite_file(config: &Config, ctx: &Context) -> Result<(), 
         let mut stdout = std::io::stdout();
         if ctx.logger.is_some() {
             print!("{}", progress_bar);
-            let _ = stdout.flush();    
+            let _ = stdout.flush();
         }
         let mut stream = res.bytes_stream();
         let mut progress = 0;
@@ -112,7 +114,7 @@ pub async fn download_sqlite_file(config: &Config, ctx: &Context) -> Result<(), 
             if steps == 0 {
                 if ctx.logger.is_some() {
                     print!("\r{}", progress_bar);
-                    let _ = stdout.flush();    
+                    let _ = stdout.flush();
                 }
             }
             if let Err(e) = tx.send_async(chunk.to_vec()).await {
@@ -130,8 +132,7 @@ pub async fn download_sqlite_file(config: &Config, ctx: &Context) -> Result<(), 
         drop(tx);
 
         decoder_thread.join().unwrap()?;
-        if let Some(_e) = tx_err.take() {
-        }
+        if let Some(_e) = tx_err.take() {}
     }
 
     Ok(())
