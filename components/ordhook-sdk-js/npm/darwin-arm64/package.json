@@ -1,6 +1,6 @@
 {
   "name": "@hirosystems/ordhook-sdk-js-darwin-arm64",
-  "version": "0.0.0",
+  "version": "0.6.2",
   "os": [
     "darwin"
   ],

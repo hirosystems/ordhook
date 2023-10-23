@@ -46,7 +46,7 @@ jobs:
               sudo apt-get install libssl-dev &&
               set -e &&
               yarn --cwd components/ordhook-sdk-js build --target x86_64-unknown-linux-gnu &&
-              strip components/ordhook-sdk-js/*.node
+              strip -x components/ordhook-sdk-js/*.node
           # - host: ubuntu-latest
           #   target: x86_64-unknown-linux-musl
           #   docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine

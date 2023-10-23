@@ -1,12 +1,15 @@
 target
+Cargo.toml
 Cargo.lock
 .cargo
 .github
 npm
+src
 .eslintrc
 .prettierignore
 rustfmt.toml
 yarn.lock
+**/*.rs
 *.node
 .yarn
 __test__

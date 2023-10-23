@@ -52,6 +52,8 @@ COPY --from=build /out/*.node /artifacts/
 
 COPY --from=build /out/ordhook /bin/ordhook
 
+COPY --from=build /out/ordhook /bin/ordhook
+
 WORKDIR /workspace
 
 ENTRYPOINT ["ordhook"]
