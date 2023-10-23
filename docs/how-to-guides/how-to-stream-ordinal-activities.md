@@ -2,7 +2,7 @@
 title: Stream Ordinal Activities to an API
 ---
 
-Ordhook is a tool that helps you find ordinal activities from the Bitcoin chain. Think of it like a detective that can find and track these activities for you. Once it finds these activities, it can be used to help build your own database. This guide will show you how to use Ordhook to stream these activities.
+Ordhook is a tool that helps you find ordinal activity from the Bitcoin chain and build your own customized database with that data. This guide will show you how to use Ordhook to stream ordinal activity.
 
 ### Configure Ordhook
 
@@ -11,7 +11,7 @@ This section walks you through streaming ordinal activities. To post the ordinal
 > **_NOTE_**
 > Ordhook is applicable to the Bitcoin chain only.
 
-Once the Bitcoin node is configured, you can use the following command in your terminal to create a configuration for Ordhook.
+Once the Bitcoin node is configured, you can use the following command in your terminal to create a configuration for Ordhook:
 
 `ordhook config new --mainnet`
 
@@ -70,9 +70,9 @@ bitcoind_rpc_password = "devnet"
 bitcoind_zmq_url = "tcp://0.0.0.0:18543"
 ```
 
-### Post ordinal activity to an external endpoint
+### Post Ordinal Activity to an External Endpoint
 
-After adjusting the `Ordhook.toml` settings to make them match the bitcoind configuration, the following command can be run to scan blocks and post events to a local server.
+After adjusting the `Ordhook.toml` settings to make them match the bitcoind configuration, the following command can be run to scan blocks and post events to a local server:
 
 `ordhook scan blocks 767430 767753 --post-to=http://localhost:3000/api/events --config-path=./Ordhook.toml`
 
