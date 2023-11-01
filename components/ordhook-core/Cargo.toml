@@ -12,7 +12,7 @@ redis = "0.21.5"
 serde-redis = "0.12.0"
 hex = "0.4.3"
 rand = "0.8.5"
-chainhook-sdk = { version = "=0.10.1", default-features = false, features = ["zeromq", "log"] }
+chainhook-sdk = { version = "=0.10.3", features = ["zeromq"] }
 # chainhook-sdk = { version = "=0.10.1", path = "../../../chainhook/components/chainhook-sdk", default-features = false, features = ["zeromq", "log"] }
 hiro-system-kit = "0.3.1"
 reqwest = { version = "0.11", default-features = false, features = ["stream", "json", "rustls-tls"] }
