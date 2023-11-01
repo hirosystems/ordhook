@@ -4,36 +4,58 @@ on:
   push:
     branches:
       - develop
-      - main
-    tags-ignore:
-      - "**"
+      - feat/ordhook-sdk-js
     paths-ignore:
-      - "**/CHANGELOG.md"
+      - '**/CHANGELOG.md'
   pull_request:
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }} @ ${{ github.event.pull_request.head.label || github.head_ref || github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build-publish:
+  test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
-          fetch-depth: 0
           persist-credentials: false
+
+      - name: Cache cargo
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cargo test
         run: |
           rustup update
-          cargo test --all
+          RUST_BACKTRACE=1 cargo test --all -- --test-threads=1
+
+  build-publish:
+    runs-on: ubuntu-latest
+    needs: test
+    outputs:
+      docker_image_digest: ${{ steps.docker_push.outputs.digest }}
+      new_release_published: ${{ steps.semantic.outputs.new_release_published }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Semantic Release
-        uses: cycjimmy/semantic-release-action@v3
+        uses: cycjimmy/semantic-release-action@v4
         id: semantic
         # Only run on non-PR events or only PRs that aren't from forks
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SEMANTIC_RELEASE_PACKAGE: ${{ github.event.repository.name }}
         with:
           semantic_version: 19
@@ -42,15 +64,21 @@ jobs:
             @semantic-release/git@10.0.1
             conventional-changelog-conventionalcommits@6.1.0
 
+      - name: Checkout tag
+        if: steps.semantic.outputs.new_release_version != ''
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: v${{ steps.semantic.outputs.new_release_version }}
+
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v1
+        uses: docker/setup-buildx-action@v3
 
       - name: Docker Meta
         id: meta
-        uses: docker/metadata-action@v4
+        uses: docker/metadata-action@v5
         with:
           images: |
-            blockstack/${{ github.event.repository.name }}
             hirosystems/${{ github.event.repository.name }}
           tags: |
             type=ref,event=branch
@@ -59,18 +87,134 @@ jobs:
             type=semver,pattern={{major}}.{{minor}},value=${{ steps.semantic.outputs.new_release_version }},enable=${{ steps.semantic.outputs.new_release_version != '' }}
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Login to DockerHub
-        uses: docker/login-action@v2
+      - name: Log in to DockerHub
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
-      - name: Build/Tag/Push Image
-        uses: docker/build-push-action@v2
+      - name: Build/Push Image
+        uses: docker/build-push-action@v5
+        id: docker_push
         with:
           context: .
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           file: ./dockerfiles/components/ordhook.dockerfile
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           # Only push if (there's a new release on main branch, or if building a non-main branch) and (Only run on non-PR events or only PRs that aren't from forks)
-          push: ${{ (github.ref != 'refs/heads/master' || steps.semantic.outputs.new_release_version != '') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+          push: ${{ (github.ref != 'refs/heads/main' || steps.semantic.outputs.new_release_version != '') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+
+  deploy-dev:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        k8s-env: [mainnet]
+    needs: build-publish
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    env:
+      DEPLOY_ENV: dev
+    environment:
+      name: Development-${{ matrix.k8s-env }}
+      url: https://platform.dev.hiro.so/
+    steps:
+      - name: Checkout actions repo
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GH_TOKEN }}
+          repository: ${{ secrets.DEVOPS_ACTIONS_REPO }}
+
+      - name: Deploy Ordhook build to Dev ${{ matrix.k8s-env }}
+        uses: ./actions/deploy
+        with:
+          docker_tag: ${{ needs.build-publish.outputs.docker_image_digest }}
+          file_pattern: manifests/bitcoin/${{ matrix.k8s-env }}/ordhook/${{ env.DEPLOY_ENV }}/base/kustomization.yaml
+          gh_token: ${{ secrets.GH_TOKEN }}
+
+  auto-approve-dev:
+    runs-on: ubuntu-latest
+    if: needs.build-publish.outputs.new_release_published == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    needs: build-publish
+    steps:
+      - name: Approve pending deployments
+        run: |
+          sleep 5
+          ENV_IDS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/hirosystems/ordhook/actions/runs/${{ github.run_id }}/pending_deployments" | jq -r '[.[].environment.id // empty]')
+          if [[ "${ENV_IDS}" != "[]" ]]; then
+            curl -s -X POST -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/hirosystems/ordhook/actions/runs/${{ github.run_id }}/pending_deployments" -d "{\"environment_ids\":${ENV_IDS},\"state\":\"approved\",\"comment\":\"auto approve\"}"
+          fi
+
+  deploy-staging:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        k8s-env: [mainnet]
+    needs:
+      - build-publish
+      - deploy-dev
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    env:
+      DEPLOY_ENV: stg
+    environment:
+      name: Staging-${{ matrix.k8s-env }}
+      url: https://platform.stg.hiro.so/
+    steps:
+      - name: Checkout actions repo
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GH_TOKEN }}
+          repository: ${{ secrets.DEVOPS_ACTIONS_REPO }}
+
+      - name: Deploy Chainhook build to Stg ${{ matrix.k8s-env }}
+        uses: ./actions/deploy
+        with:
+          docker_tag: ${{ needs.build-publish.outputs.docker_image_digest }}
+          file_pattern: manifests/bitcoin/${{ matrix.k8s-env }}/ordhook/${{ env.DEPLOY_ENV }}/base/kustomization.yaml
+          gh_token: ${{ secrets.GH_TOKEN }}
+
+  auto-approve-stg:
+    runs-on: ubuntu-latest
+    if: needs.build-publish.outputs.new_release_published == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    needs:
+      - build-publish
+      - deploy-dev
+    steps:
+      - name: Approve pending deployments
+        run: |
+          sleep 5
+          ENV_IDS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/hirosystems/ordhook/actions/runs/${{ github.run_id }}/pending_deployments" | jq -r '[.[].environment.id // empty]')
+          if [[ "${ENV_IDS}" != "[]" ]]; then
+            curl -s -X POST -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/hirosystems/ordhook/actions/runs/${{ github.run_id }}/pending_deployments" -d "{\"environment_ids\":${ENV_IDS},\"state\":\"approved\",\"comment\":\"auto approve\"}"
+          fi
+
+  deploy-prod:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        k8s-env: [mainnet,testnet]
+    needs:
+      - build-publish
+      - deploy-staging
+    if: needs.build-publish.outputs.new_release_published == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    env:
+      DEPLOY_ENV: prd
+    environment:
+      name: Production-${{ matrix.k8s-env }}
+      url: https://platform.hiro.so/
+    steps:
+      - name: Checkout actions repo
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GH_TOKEN }}
+          repository: ${{ secrets.DEVOPS_ACTIONS_REPO }}
+
+      - name: Deploy Ordhook build to Prd ${{ matrix.k8s-env }}
+        uses: ./actions/deploy
+        with:
+          docker_tag: ${{ needs.build-publish.outputs.docker_image_digest }}
+          file_pattern: manifests/bitcoin/${{ matrix.k8s-env }}/ordhook/${{ env.DEPLOY_ENV }}/base/kustomization.yaml
+          gh_token: ${{ secrets.GH_TOKEN }}
