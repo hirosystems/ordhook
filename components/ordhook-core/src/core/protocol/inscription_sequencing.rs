@@ -24,8 +24,7 @@ use crate::{
         find_blessed_inscription_with_ordinal_number,
         find_latest_cursed_inscription_number_at_block_height,
         find_latest_inscription_number_at_block_height, format_satpoint_to_watch,
-        update_inscriptions_with_block, LazyBlockTransaction,
-        TraversalResult,
+        update_inscriptions_with_block, LazyBlockTransaction, TraversalResult,
     },
     ord::height::Height,
 };
@@ -473,11 +472,7 @@ pub fn augment_block_with_ordinals_inscriptions_data_and_write_to_db_tx(
     );
 
     // Store inscriptions
-    update_inscriptions_with_block(
-        block,
-        inscriptions_db_tx,
-        ctx,
-    );
+    update_inscriptions_with_block(block, inscriptions_db_tx, ctx);
 
     any_events
 }
@@ -523,7 +518,9 @@ pub fn augment_block_with_ordinals_inscriptions_data(
 
     // Handle sats overflow
     while let Some((tx_index, op_index)) = sats_overflows.pop_front() {
-        let OrdinalOperation::InscriptionRevealed(ref mut inscription_data) = block.transactions[tx_index].metadata.ordinal_operations[op_index] else {
+        let OrdinalOperation::InscriptionRevealed(ref mut inscription_data) =
+            block.transactions[tx_index].metadata.ordinal_operations[op_index]
+        else {
             continue;
         };
         let is_curse = inscription_data.curse_type.is_some();
@@ -711,7 +708,10 @@ fn consolidate_transaction_with_pre_computed_inscription_data(
             OrdinalOperation::InscriptionTransferred(_) => continue,
         };
 
-        let Some(traversal) = inscriptions_data.remove(&(tx.transaction_identifier.clone(), inscription.inscription_input_index)) else {
+        let Some(traversal) = inscriptions_data.remove(&(
+            tx.transaction_identifier.clone(),
+            inscription.inscription_input_index,
+        )) else {
             continue;
         };
 

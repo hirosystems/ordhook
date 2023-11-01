@@ -1,48 +1,42 @@
 {
   "name": "@hirosystems/ordhook-sdk-js",
-  "version": "1.7.1",
-  "description": "ordhook-sdk-js is a library for writing protocols .",
-  "author": "Ludo Galabru",
-  "repository": "https://github.com/hirosystems/ordhook/tree/main/components/ordhook-sdk-js",
-  "license": "GPL-3.0",
-  "main": "dist/index.js",
-  "files": [
-    "dist"
-  ],
-  "scripts": {
-    "build": "tsc --build && cargo-cp-artifact -nc native/index.node -- cargo build --message-format=json-render-diagnostics",
-    "build-debug": "npm run build --",
-    "build-release": "npm run build -- --release",
-    "build-linux-x64-glibc": "npm run build-release -- --target x86_64-unknown-linux-gnu",
-    "build-linux-x64-musl": "npm run build-release -- --target x86_64-unknown-linux-musl",
-    "build-windows-x64": "npm run build-release -- --target x86_64-pc-windows-msvc",
-    "build-darwin-x64": "npm run build-release -- --target x86_64-apple-darwin",
-    "build-darwin-arm64": "npm run build-release -- --target aarch64-apple-darwin",
-    "install": "node-pre-gyp install --fallback-to-build=false || npm run build-release",
-    "lint": "eslint .",
-    "package": "node-pre-gyp package",
-    "spec": "jest",
-    "test": "npm run build && npm run spec",
-    "upload-binary": "npm run build-release && node-pre-gyp package && node-pre-gyp-github publish",
-    "version": "npm run build-release"
+  "version": "0.6.3",
+  "main": "index.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hirosystems/ordhook",
+    "directory": "components/ordhook-sdk-js"
   },
-  "dependencies": {
-    "@hirosystems/chainhook-types": "^1.1.2",
-    "@mapbox/node-pre-gyp": "^1.0.8",
-    "neon-cli": "^0.9.1",
-    "node-pre-gyp-github": "^1.4.3",
-    "typescript": "^4.5.5"
+  "types": "index.d.ts",
+  "napi": {
+    "name": "ordhook-sdk-js",
+    "triples": {
+      "additional": [
+        "aarch64-apple-darwin",
+        "aarch64-unknown-linux-gnu",
+        "universal-apple-darwin"
+      ]
+    }
   },
+  "license": "MIT",
   "devDependencies": {
-    "@types/node": "^16.11.11",
-    "cargo-cp-artifact": "^0.1"
+    "@napi-rs/cli": "^2.16.3",
+    "ava": "^5.1.1"
   },
-  "binary": {
-    "module_name": "index",
-    "host": "https://github.com/hirosystems/clarinet/releases/download/",
-    "remote_path": "v{version}",
-    "package_name": "stacks-devnet-js-{platform}-{arch}-{libc}.tar.gz",
-    "module_path": "./native",
-    "pkg_path": "."
-  }
+  "ava": {
+    "timeout": "45m"
+  },
+  "engines": {
+    "node": ">= 10"
+  },
+  "scripts": {
+    "artifacts": "napi artifacts",
+    "build": "napi build --platform --release",
+    "build:debug": "napi build --platform",
+    "prepublishOnly": "napi prepublish -t npm",
+    "test": "ava",
+    "universal": "napi universal",
+    "version": "napi version"
+  },
+  "packageManager": "yarn@3.6.4"
 }

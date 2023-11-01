@@ -1,0 +1,15 @@
+{
+  "name": "@hirosystems/ordhook-sdk-js-darwin-universal",
+  "version": "0.6.2",
+  "os": [
+    "darwin"
+  ],
+  "main": "ordhook-sdk-js.darwin-universal.node",
+  "files": [
+    "ordhook-sdk-js.darwin-universal.node"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">= 10"
+  }
+}

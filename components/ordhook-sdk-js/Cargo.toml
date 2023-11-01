@@ -1,24 +1,30 @@
 [package]
-name = "ordhook-sdk-js"
-version = "0.5.0"
 edition = "2021"
-exclude = ["index.node"]
+name = "ordhook-sdk-js"
+version = "0.6.0"
 
 [lib]
 crate-type = ["cdylib"]
 
 [dependencies]
-serde = "1"
-error-chain = "0.12"
+# Default enable napi4 feature, see https://nodejs.org/api/n-api.html#node-api-version-matrix
+napi = { version = "2.12.2", default-features = false, features = ["napi4", "async", "tokio_rt", "serde-json"] }
+napi-derive = "2.12.2"
+crossbeam-channel = "0.5.6"
 ordhook = { path = "../ordhook-core" }
 hiro-system-kit = "0.3.1"
-crossbeam-channel = "0.5.6"
+serde_json = "1"
+serde = "1"
 
-[dependencies.neon]
-version = "0.9.1"
-default-features = false
-features = ["napi-4", "channel-api", "event-queue-api", "try-catch-api"]
+[build-dependencies]
+napi-build = "2.0.1"
 
-[dependencies.num]
-version = "0.2"
-default-features = false
+[build]
+target = "armv7-unknown-linux-gnueabihf"
+rustflags = ["-C", "link-args=-L/lib/arm-linux-gnueabihf"]
+
+[target.armv7-unknown-linux-gnueabihf]
+linker = "arm-linux-gnueabihf-g++"
+
+[profile.release]
+lto = true

@@ -2,7 +2,7 @@ use chainhook_sdk::{
     bitcoincore_rpc_json::bitcoin::{hashes::hex::FromHex, Address, Network, Script},
     types::{
         BitcoinBlockData, BitcoinNetwork, BitcoinTransactionData, BlockIdentifier,
-        OrdinalInscriptionTransferData, OrdinalOperation, TransactionIdentifier,
+        OrdinalInscriptionTransferData, OrdinalOperation, TransactionIdentifier, OrdinalInscriptionTransferDestination,
     },
     utils::Context,
 };
@@ -114,7 +114,7 @@ pub fn augment_transaction_with_ordinals_transfers_data(
             let (
                 outpoint_post_transfer,
                 offset_post_transfer,
-                updated_address,
+                destination,
                 post_transfer_output_value,
             ) = match post_transfer_data {
                 SatPosition::Output((output_index, offset)) => {
@@ -124,7 +124,7 @@ pub fn augment_transaction_with_ordinals_transfers_data(
                         tx.metadata.outputs[output_index].get_script_pubkey_hex();
                     let updated_address = match Script::from_hex(&script_pub_key_hex) {
                         Ok(script) => match Address::from_script(&script, network.clone()) {
-                            Ok(address) => Some(address.to_string()),
+                            Ok(address) => OrdinalInscriptionTransferDestination::Transferred(address.to_string()),
                             Err(e) => {
                                 ctx.try_log(|logger| {
                                     warn!(
@@ -133,7 +133,7 @@ pub fn augment_transaction_with_ordinals_transfers_data(
                                         e.to_string()
                                     )
                                 });
-                                None
+                                OrdinalInscriptionTransferDestination::Burnt(script.to_string())
                             }
                         },
                         Err(e) => {
@@ -144,7 +144,7 @@ pub fn augment_transaction_with_ordinals_transfers_data(
                                     e.to_string()
                                 )
                             });
-                            None
+                            OrdinalInscriptionTransferDestination::Burnt(script_pub_key_hex.to_string())
                         }
                     };
 
@@ -181,7 +181,7 @@ pub fn augment_transaction_with_ordinals_transfers_data(
                             offset
                         )
                     });
-                    (outpoint, total_offset, None, None)
+                    (outpoint, total_offset, OrdinalInscriptionTransferDestination::SpentInFees, None)
                 }
             };
 
@@ -190,7 +190,7 @@ pub fn augment_transaction_with_ordinals_transfers_data(
 
             let transfer_data = OrdinalInscriptionTransferData {
                 inscription_id: watched_satpoint.inscription_id.clone(),
-                updated_address,
+                destination,
                 tx_index,
                 satpoint_pre_transfer,
                 satpoint_post_transfer,

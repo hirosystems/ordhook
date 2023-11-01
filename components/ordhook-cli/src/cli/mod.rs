@@ -108,6 +108,9 @@ struct ScanBlocksCommand {
     /// HTTP Post activity to a URL
     #[clap(long = "post-to")]
     pub post_to: Option<String>,
+    /// HTTP Auth token
+    #[clap(long = "auth-token")]
+    pub auth_token: Option<String>,
 }
 
 #[derive(Parser, PartialEq, Clone, Debug)]
@@ -284,6 +287,9 @@ struct StartCommand {
     /// Block height where ordhook will start posting Ordinals activities
     #[clap(long = "start-at-block")]
     pub start_at_block: Option<u64>,
+    /// HTTP Auth token
+    #[clap(long = "auth-token")]
+    pub auth_token: Option<String>,
 }
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
@@ -499,10 +505,16 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                     &post_to,
                     cmd.start_block,
                     Some(cmd.end_block),
+                    cmd.auth_token,
                 )?
                 .into_selected_network_specification(&config.network.bitcoin_network)?;
-                scan_bitcoin_chainstate_via_rpc_using_predicate(&predicate_spec, &config, &ctx)
-                    .await?;
+                scan_bitcoin_chainstate_via_rpc_using_predicate(
+                    &predicate_spec,
+                    &config,
+                    None,
+                    &ctx,
+                )
+                .await?;
             } else {
                 let _ = download_ordinals_dataset_if_required(&config, ctx).await;
                 let mut total_inscriptions = 0;
@@ -635,7 +647,13 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 let mut predicates = vec![];
 
                 for post_to in cmd.post_to.iter() {
-                    let predicate = build_predicate_from_cli(&config, post_to, start_block, None)?;
+                    let predicate = build_predicate_from_cli(
+                        &config,
+                        post_to,
+                        start_block,
+                        None,
+                        cmd.auth_token.clone(),
+                    )?;
                     predicates.push(ChainhookFullSpecification::Bitcoin(predicate));
                 }
 
@@ -830,6 +848,7 @@ pub fn build_predicate_from_cli(
     post_to: &str,
     start_block: u64,
     end_block: Option<u64>,
+    auth_token: Option<String>,
 ) -> Result<BitcoinChainhookFullSpecification, String> {
     let mut networks = BTreeMap::new();
     // Retrieve last block height known, and display it
@@ -847,7 +866,7 @@ pub fn build_predicate_from_cli(
             predicate: BitcoinPredicateType::OrdinalsProtocol(OrdinalOperations::InscriptionFeed),
             action: HookAction::HttpPost(HttpHook {
                 url: post_to.to_string(),
-                authorization_header: "".to_string(),
+                authorization_header: format!("Bearer {}", auth_token.unwrap_or("".to_string())),
             }),
         },
     );

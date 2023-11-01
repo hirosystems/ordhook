@@ -32,6 +32,7 @@ pub fn start_bitcoin_scan_runloop(
             let op = scan_bitcoin_chainstate_via_rpc_using_predicate(
                 &predicate_spec,
                 &moved_config,
+                None,
                 &moved_ctx,
             );
 

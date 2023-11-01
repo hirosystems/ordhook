@@ -6,9 +6,11 @@ use flate2::read::GzDecoder;
 use futures_util::StreamExt;
 use progressing::mapping::Bar as MappingBar;
 use progressing::Baring;
-use tar::Archive;
+use std::fs::{self, File};
 use std::io::{self, Cursor};
 use std::io::{Read, Write};
+use std::path::PathBuf;
+use tar::Archive;
 
 pub fn default_sqlite_file_path(_network: &BitcoinNetwork) -> String {
     format!("hord.sqlite").to_lowercase()
@@ -18,10 +20,12 @@ pub fn default_sqlite_sha_file_path(_network: &BitcoinNetwork) -> String {
     format!("hord.sqlite.sha256").to_lowercase()
 }
 
-pub async fn download_sqlite_file(config: &Config, _ctx: &Context) -> Result<(), String> {
+pub async fn download_sqlite_file(config: &Config, ctx: &Context) -> Result<(), String> {
     let destination_path = config.expected_cache_path();
     std::fs::create_dir_all(&destination_path).unwrap_or_else(|e| {
-        println!("{}", e.to_string());
+        if ctx.logger.is_some() {
+            println!("{}", e.to_string());
+        }
     });
 
     // let remote_sha_url = config.expected_remote_ordinals_sqlite_sha256();
@@ -39,36 +43,66 @@ pub async fn download_sqlite_file(config: &Config, _ctx: &Context) -> Result<(),
     // write_file_content_at_path(&local_sha_file_path, &res.to_vec())?;
 
     let file_url = config.expected_remote_ordinals_sqlite_url();
-    println!("=> {file_url}");
+    if ctx.logger.is_some() {
+        println!("=> {file_url}");
+    }
     let res = reqwest::get(&file_url)
         .await
         .or(Err(format!("Failed to GET from '{}'", &file_url)))?;
 
     // Download chunks
     let (tx, rx) = flume::bounded(0);
-
-    let decoder_thread = std::thread::spawn(move || {
-        let input = ChannelRead::new(rx);
-        let mut decoder = GzDecoder::new(input);
-        let mut content = Vec::new();
-        let _ = decoder.read_to_end(&mut content);
-        let mut archive = Archive::new(&content[..]);          
-        if let Err(e) = archive.unpack(&destination_path) {
-            println!("unable to write file: {}", e.to_string());
-            std::process::exit(1);
-        }
-    });
-
     if res.status() == reqwest::StatusCode::OK {
         let limit = res.content_length().unwrap_or(10_000_000_000) as i64;
+        let archive_tmp_file = PathBuf::from("db.tar");
+        let decoder_thread = std::thread::spawn(move || {
+            {
+                let input = ChannelRead::new(rx);
+                let mut decoder = GzDecoder::new(input);
+                let mut tmp = File::create(&archive_tmp_file).unwrap();
+                let mut buffer = [0; 512_000];
+                loop {
+                    match decoder.read(&mut buffer) {
+                        Ok(0) => break,
+                        Ok(n) => {
+                            if let Err(e) = tmp.write_all(&buffer[..n]) {
+                                let err = format!(
+                                    "unable to update compressed archive: {}",
+                                    e.to_string()
+                                );
+                                return Err(err);
+                            }
+                        }
+                        Err(e) => {
+                            let err =
+                                format!("unable to write compressed archive: {}", e.to_string());
+                            return Err(err);
+                        }
+                    }
+                }
+                let _ = tmp.flush();
+            }
+            let archive_file = File::open(&archive_tmp_file).unwrap();
+            let mut archive = Archive::new(archive_file);
+            if let Err(e) = archive.unpack(&destination_path) {
+                let err = format!("unable to decompress file: {}", e.to_string());
+                return Err(err);
+            }
+            let _ = fs::remove_file(archive_tmp_file);
+            Ok(())
+        });
+
         let mut progress_bar = MappingBar::with_range(0i64, limit);
         progress_bar.set_len(60);
         let mut stdout = std::io::stdout();
-        print!("{}", progress_bar);
-        let _ = stdout.flush();
+        if ctx.logger.is_some() {
+            print!("{}", progress_bar);
+            let _ = stdout.flush();
+        }
         let mut stream = res.bytes_stream();
         let mut progress = 0;
         let mut steps = 0;
+        let mut tx_err = None;
         while let Some(item) = stream.next().await {
             let chunk = item.or(Err(format!("Error while downloading file")))?;
             progress += chunk.len() as i64;
@@ -78,24 +112,28 @@ pub async fn download_sqlite_file(config: &Config, _ctx: &Context) -> Result<(),
             }
             progress_bar.set(progress);
             if steps == 0 {
-                print!("\r{}", progress_bar);
-                let _ = stdout.flush();
+                if ctx.logger.is_some() {
+                    print!("\r{}", progress_bar);
+                    let _ = stdout.flush();
+                }
             }
-            tx.send_async(chunk.to_vec())
-                .await
-                .map_err(|e| format!("unable to download stacks event: {}", e.to_string()))?;
+            if let Err(e) = tx.send_async(chunk.to_vec()).await {
+                let err = format!("unable to download archive: {}", e.to_string());
+                tx_err = Some(err);
+                break;
+            }
         }
         progress_bar.set(limit);
-        print!("\r{}", progress_bar);
-        let _ = stdout.flush();
-        println!();
+        if ctx.logger.is_some() {
+            print!("\r{}", progress_bar);
+            let _ = stdout.flush();
+            println!();
+        }
         drop(tx);
-    }
 
-    tokio::task::spawn_blocking(|| decoder_thread.join())
-        .await
-        .unwrap()
-        .unwrap();
+        decoder_thread.join().unwrap()?;
+        if let Some(_e) = tx_err.take() {}
+    }
 
     Ok(())
 }
