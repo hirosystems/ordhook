@@ -91,14 +91,18 @@ impl OrdinalsIndexingRunloop {
                 for to_rollback in payload.rollback.into_iter() {
                   loop {
                     let (tx, rx) = crossbeam_channel::bounded(1);
-                    callback.call_with_return_value::<bool, _>(to_rollback.clone(), ThreadsafeFunctionCallMode::Blocking, move |p| {
-                      let _ = tx.send(p);
-                      Ok(())
-                    });
+                    callback.call_with_return_value::<bool, _>(
+                      to_rollback.clone(),
+                      ThreadsafeFunctionCallMode::Blocking,
+                      move |p| {
+                        let _ = tx.send(p);
+                        Ok(())
+                      },
+                    );
                     match rx.recv() {
                       Ok(true) => break,
                       Ok(false) => continue,
-                      _ => panic!(), 
+                      _ => panic!(),
                     }
                   }
                 }
@@ -108,14 +112,18 @@ impl OrdinalsIndexingRunloop {
                 for to_apply in payload.apply.into_iter() {
                   loop {
                     let (tx, rx) = crossbeam_channel::bounded(1);
-                    callback.call_with_return_value::<bool, _>(to_apply.clone(), ThreadsafeFunctionCallMode::Blocking, move |p| {
-                      let _ = tx.send(p);
-                      Ok(())
-                    });
+                    callback.call_with_return_value::<bool, _>(
+                      to_apply.clone(),
+                      ThreadsafeFunctionCallMode::Blocking,
+                      move |p| {
+                        let _ = tx.send(p);
+                        Ok(())
+                      },
+                    );
                     match rx.recv() {
                       Ok(true) => break,
                       Ok(false) => continue,
-                      _ => panic!(), 
+                      _ => panic!(),
                     }
                   }
                 }
