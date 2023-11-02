@@ -73,20 +73,20 @@ pub fn initialize_ordhook_db(path: &PathBuf, ctx: &Context) -> Connection {
             "CREATE INDEX IF NOT EXISTS index_inscriptions_on_ordinal_number ON inscriptions(ordinal_number);",
             [],
         ) {
-            ctx.try_log(|logger| warn!(logger, "{}", e.to_string()));
+            ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
         }
         if let Err(e) = conn.execute(
             "CREATE INDEX IF NOT EXISTS index_inscriptions_on_inscription_number ON inscriptions(inscription_number);",
             [],
         ) {
-            ctx.try_log(|logger| warn!(logger, "{}", e.to_string()));
+            ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
         }
 
         if let Err(e) = conn.execute(
             "CREATE INDEX IF NOT EXISTS index_inscriptions_on_block_height ON inscriptions(block_height);",
             [],
         ) {
-            ctx.try_log(|logger| warn!(logger, "{}", e.to_string()));
+            ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
         }
     }
     if let Err(e) = conn.execute(
@@ -111,19 +111,19 @@ pub fn initialize_ordhook_db(path: &PathBuf, ctx: &Context) -> Connection {
             "CREATE INDEX IF NOT EXISTS locations_indexed_on_block_height ON locations(block_height);",
             [],
         ) {
-            ctx.try_log(|logger| warn!(logger, "{}", e.to_string()));
+            ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
         }
         if let Err(e) = conn.execute(
             "CREATE INDEX IF NOT EXISTS locations_indexed_on_outpoint_to_watch ON locations(outpoint_to_watch);",
             [],
         ) {
-            ctx.try_log(|logger| warn!(logger, "{}", e.to_string()));
+            ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
         }
         if let Err(e) = conn.execute(
             "CREATE INDEX IF NOT EXISTS locations_indexed_on_inscription_id ON locations(inscription_id);",
             [],
         ) {
-            ctx.try_log(|logger| warn!(logger, "{}", e.to_string()));
+            ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
         }
     }
 
@@ -386,11 +386,29 @@ pub fn insert_entry_in_inscriptions(
     inscriptions_db_conn_rw: &Connection,
     ctx: &Context,
 ) {
-    if let Err(e) = inscriptions_db_conn_rw.execute(
+    while let Err(e) = inscriptions_db_conn_rw.execute(
         "INSERT INTO inscriptions (inscription_id, ordinal_number, inscription_number, block_height) VALUES (?1, ?2, ?3, ?4)",
         rusqlite::params![&inscription_data.inscription_id, &inscription_data.ordinal_number, &inscription_data.inscription_number, &block_identifier.index],
     ) {
         ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
+    }
+}
+
+pub fn insert_inscription_in_locations(
+    inscription_data: &OrdinalInscriptionRevealData,
+    block_identifier: &BlockIdentifier,
+    inscriptions_db_conn_rw: &Connection,
+    ctx: &Context,
+) {
+    let (tx, output_index, offset) =
+        parse_satpoint_to_watch(&inscription_data.satpoint_post_inscription);
+    let outpoint_to_watch = format_outpoint_to_watch(&tx, output_index);
+    while let Err(e) = inscriptions_db_conn_rw.execute(
+        "INSERT INTO locations (inscription_id, outpoint_to_watch, offset, block_height, tx_index) VALUES (?1, ?2, ?3, ?4, ?5)",
+        rusqlite::params![&inscription_data.inscription_id, &outpoint_to_watch, offset, &block_identifier.index, &inscription_data.tx_index],
+    ) {
+        ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+        std::thread::sleep(std::time::Duration::from_secs(1));
     }
 }
 
@@ -445,23 +463,6 @@ pub fn insert_new_inscriptions_from_block_in_locations(
     }
 }
 
-pub fn insert_inscription_in_locations(
-    inscription_data: &OrdinalInscriptionRevealData,
-    block_identifier: &BlockIdentifier,
-    inscriptions_db_conn_rw: &Connection,
-    ctx: &Context,
-) {
-    let (tx, output_index, offset) =
-        parse_satpoint_to_watch(&inscription_data.satpoint_post_inscription);
-    let outpoint_to_watch = format_outpoint_to_watch(&tx, output_index);
-    if let Err(e) = inscriptions_db_conn_rw.execute(
-        "INSERT INTO locations (inscription_id, outpoint_to_watch, offset, block_height, tx_index) VALUES (?1, ?2, ?3, ?4, ?5)",
-        rusqlite::params![&inscription_data.inscription_id, &outpoint_to_watch, offset, &block_identifier.index, &inscription_data.tx_index],
-    ) {
-        ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
-    }
-}
-
 pub fn insert_transfer_in_locations_tx(
     transfer_data: &OrdinalInscriptionTransferData,
     block_identifier: &BlockIdentifier,
@@ -470,11 +471,12 @@ pub fn insert_transfer_in_locations_tx(
 ) {
     let (tx, output_index, offset) = parse_satpoint_to_watch(&transfer_data.satpoint_post_transfer);
     let outpoint_to_watch = format_outpoint_to_watch(&tx, output_index);
-    if let Err(e) = inscriptions_db_conn_rw.execute(
+    while let Err(e) = inscriptions_db_conn_rw.execute(
         "INSERT INTO locations (inscription_id, outpoint_to_watch, offset, block_height, tx_index) VALUES (?1, ?2, ?3, ?4, ?5)",
         rusqlite::params![&transfer_data.inscription_id, &outpoint_to_watch, offset, &block_identifier.index, &transfer_data.tx_index],
     ) {
-        ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
+        ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+        std::thread::sleep(std::time::Duration::from_secs(1));
     }
 }
 
@@ -486,11 +488,12 @@ pub fn insert_transfer_in_locations(
 ) {
     let (tx, output_index, offset) = parse_satpoint_to_watch(&transfer_data.satpoint_post_transfer);
     let outpoint_to_watch = format_outpoint_to_watch(&tx, output_index);
-    if let Err(e) = inscriptions_db_conn_rw.execute(
+    while let Err(e) = inscriptions_db_conn_rw.execute(
         "INSERT INTO locations (inscription_id, outpoint_to_watch, offset, block_height, tx_index) VALUES (?1, ?2, ?3, ?4, ?5)",
         rusqlite::params![&transfer_data.inscription_id, &outpoint_to_watch, offset, &block_identifier.index, &transfer_data.tx_index],
     ) {
-        ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
+        ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+        std::thread::sleep(std::time::Duration::from_secs(1));
     }
 }
 
@@ -509,33 +512,80 @@ pub fn get_any_entry_in_ordinal_activities(
             panic!();
         }
     };
-    let mut rows = stmt.query(args).unwrap();
-    while let Ok(Some(_)) = rows.next() {
-        return true;
+    let mut rows = loop {
+        match stmt.query(args) {
+            Ok(rows) => break rows,
+            Err(e) => {
+                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
+    };
+    loop {
+        match rows.next() {
+            Ok(Some(_row)) => return true,
+            Ok(None) => break,
+            Err(e) => {
+                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
     }
+
     let mut stmt = inscriptions_db_tx
         .prepare("SELECT DISTINCT block_height FROM locations WHERE block_height = ?")
         .unwrap();
-    let mut rows = stmt.query(args).unwrap();
-    while let Ok(Some(_)) = rows.next() {
-        return true;
+    let mut rows = loop {
+        match stmt.query(args) {
+            Ok(rows) => break rows,
+            Err(e) => {
+                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
+    };
+    loop {
+        match rows.next() {
+            Ok(Some(_row)) => return true,
+            Ok(None) => break,
+            Err(e) => {
+                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
     }
-
     false
 }
 
 pub fn find_latest_inscription_block_height(
     inscriptions_db_conn: &Connection,
-    _ctx: &Context,
+    ctx: &Context,
 ) -> Result<Option<u64>, String> {
     let args: &[&dyn ToSql] = &[];
     let mut stmt = inscriptions_db_conn
         .prepare("SELECT block_height FROM inscriptions ORDER BY block_height DESC LIMIT 1")
         .unwrap();
-    let mut rows = stmt.query(args).unwrap();
-    while let Ok(Some(row)) = rows.next() {
-        let block_height: u64 = row.get(0).unwrap();
-        return Ok(Some(block_height));
+    let mut rows = loop {
+        match stmt.query(args) {
+            Ok(rows) => break rows,
+            Err(e) => {
+                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
+    };
+    loop {
+        match rows.next() {
+            Ok(Some(row)) => {
+                let block_height: u64 = row.get(0).unwrap();
+                return Ok(Some(block_height));
+            }
+            Ok(None) => break,
+            Err(e) => {
+                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
     }
     Ok(None)
 }
@@ -543,25 +593,42 @@ pub fn find_latest_inscription_block_height(
 pub fn find_initial_inscription_transfer_data(
     inscription_id: &str,
     inscriptions_db_conn: &Connection,
-    _ctx: &Context,
+    ctx: &Context,
 ) -> Result<Option<TransferData>, String> {
     let args: &[&dyn ToSql] = &[&inscription_id.to_sql().unwrap()];
     let mut stmt = inscriptions_db_conn
         .prepare("SELECT outpoint_to_watch, offset, tx_index FROM locations WHERE inscription_id = ? ORDER BY block_height ASC, tx_index ASC LIMIT 1")
         .unwrap();
-    let mut rows = stmt.query(args).unwrap();
-    while let Ok(Some(row)) = rows.next() {
-        let outpoint_to_watch: String = row.get(0).unwrap();
-        let (transaction_identifier_location, output_index) =
-            parse_outpoint_to_watch(&outpoint_to_watch);
-        let inscription_offset_intra_output: u64 = row.get(1).unwrap();
-        let tx_index: u64 = row.get(2).unwrap();
-        return Ok(Some(TransferData {
-            transaction_identifier_location,
-            output_index,
-            inscription_offset_intra_output,
-            tx_index,
-        }));
+    let mut rows = loop {
+        match stmt.query(args) {
+            Ok(rows) => break rows,
+            Err(e) => {
+                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
+    };
+    loop {
+        match rows.next() {
+            Ok(Some(row)) => {
+                let outpoint_to_watch: String = row.get(0).unwrap();
+                let (transaction_identifier_location, output_index) =
+                    parse_outpoint_to_watch(&outpoint_to_watch);
+                let inscription_offset_intra_output: u64 = row.get(1).unwrap();
+                let tx_index: u64 = row.get(2).unwrap();
+                return Ok(Some(TransferData {
+                    transaction_identifier_location,
+                    output_index,
+                    inscription_offset_intra_output,
+                    tx_index,
+                }));
+            }
+            Ok(None) => break,
+            Err(e) => {
+                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
     }
     Ok(None)
 }
@@ -569,41 +636,75 @@ pub fn find_initial_inscription_transfer_data(
 pub fn find_latest_inscription_transfer_data(
     inscription_id: &str,
     inscriptions_db_conn: &Connection,
-    _ctx: &Context,
+    ctx: &Context,
 ) -> Result<Option<TransferData>, String> {
     let args: &[&dyn ToSql] = &[&inscription_id.to_sql().unwrap()];
     let mut stmt = inscriptions_db_conn
         .prepare("SELECT outpoint_to_watch, offset, tx_index FROM locations WHERE inscription_id = ? ORDER BY block_height DESC, tx_index DESC LIMIT 1")
         .unwrap();
-    let mut rows = stmt.query(args).unwrap();
-    while let Ok(Some(row)) = rows.next() {
-        let outpoint_to_watch: String = row.get(0).unwrap();
-        let (transaction_identifier_location, output_index) =
-            parse_outpoint_to_watch(&outpoint_to_watch);
-        let inscription_offset_intra_output: u64 = row.get(1).unwrap();
-        let tx_index: u64 = row.get(2).unwrap();
-        return Ok(Some(TransferData {
-            transaction_identifier_location,
-            output_index,
-            inscription_offset_intra_output,
-            tx_index,
-        }));
+    let mut rows = loop {
+        match stmt.query(args) {
+            Ok(rows) => break rows,
+            Err(e) => {
+                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
+    };
+    loop {
+        match rows.next() {
+            Ok(Some(row)) => {
+                let outpoint_to_watch: String = row.get(0).unwrap();
+                let (transaction_identifier_location, output_index) =
+                    parse_outpoint_to_watch(&outpoint_to_watch);
+                let inscription_offset_intra_output: u64 = row.get(1).unwrap();
+                let tx_index: u64 = row.get(2).unwrap();
+                return Ok(Some(TransferData {
+                    transaction_identifier_location,
+                    output_index,
+                    inscription_offset_intra_output,
+                    tx_index,
+                }));
+            }
+            Ok(None) => break,
+            Err(e) => {
+                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
     }
     Ok(None)
 }
 
 pub fn find_latest_transfers_block_height(
     inscriptions_db_conn: &Connection,
-    _ctx: &Context,
+    ctx: &Context,
 ) -> Option<u64> {
     let args: &[&dyn ToSql] = &[];
     let mut stmt = inscriptions_db_conn
         .prepare("SELECT block_height FROM locations ORDER BY block_height DESC LIMIT 1")
         .unwrap();
-    let mut rows = stmt.query(args).unwrap();
-    while let Ok(Some(row)) = rows.next() {
-        let block_height: u64 = row.get(0).unwrap();
-        return Some(block_height);
+    let mut rows = loop {
+        match stmt.query(args) {
+            Ok(rows) => break rows,
+            Err(e) => {
+                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
+    };
+    loop {
+        match rows.next() {
+            Ok(Some(row)) => {
+                let block_height: u64 = row.get(0).unwrap();
+                return Some(block_height);
+            }
+            Ok(None) => break,
+            Err(e) => {
+                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
     }
     None
 }
@@ -619,31 +720,48 @@ pub struct TransferData {
 pub fn find_all_transfers_in_block(
     block_height: &u64,
     inscriptions_db_conn: &Connection,
-    _ctx: &Context,
+    ctx: &Context,
 ) -> BTreeMap<String, Vec<TransferData>> {
     let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
     let mut stmt = inscriptions_db_conn
     .prepare("SELECT inscription_id, offset, outpoint_to_watch, tx_index FROM locations WHERE block_height = ? ORDER BY tx_index ASC")
     .unwrap();
     let mut results: BTreeMap<String, Vec<TransferData>> = BTreeMap::new();
-    let mut rows = stmt.query(args).unwrap();
-    while let Ok(Some(row)) = rows.next() {
-        let inscription_id: String = row.get(0).unwrap();
-        let inscription_offset_intra_output: u64 = row.get(1).unwrap();
-        let outpoint_to_watch: String = row.get(2).unwrap();
-        let tx_index: u64 = row.get(3).unwrap();
-        let (transaction_identifier_location, output_index) =
-            parse_outpoint_to_watch(&outpoint_to_watch);
-        let transfer = TransferData {
-            inscription_offset_intra_output,
-            transaction_identifier_location,
-            output_index,
-            tx_index,
-        };
-        results
-            .entry(inscription_id)
-            .and_modify(|v| v.push(transfer.clone()))
-            .or_insert(vec![transfer]);
+    let mut rows = loop {
+        match stmt.query(args) {
+            Ok(rows) => break rows,
+            Err(e) => {
+                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
+    };
+    loop {
+        match rows.next() {
+            Ok(Some(row)) => {
+                let inscription_id: String = row.get(0).unwrap();
+                let inscription_offset_intra_output: u64 = row.get(1).unwrap();
+                let outpoint_to_watch: String = row.get(2).unwrap();
+                let tx_index: u64 = row.get(3).unwrap();
+                let (transaction_identifier_location, output_index) =
+                    parse_outpoint_to_watch(&outpoint_to_watch);
+                let transfer = TransferData {
+                    inscription_offset_intra_output,
+                    transaction_identifier_location,
+                    output_index,
+                    tx_index,
+                };
+                results
+                    .entry(inscription_id)
+                    .and_modify(|v| v.push(transfer.clone()))
+                    .or_insert(vec![transfer]);
+            }
+            Ok(None) => break,
+            Err(e) => {
+                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
     }
     return results;
 }
@@ -651,29 +769,46 @@ pub fn find_all_transfers_in_block(
 pub fn find_all_inscription_transfers(
     inscription_id: &str,
     inscriptions_db_conn: &Connection,
-    _ctx: &Context,
+    ctx: &Context,
 ) -> Vec<(TransferData, u64)> {
     let args: &[&dyn ToSql] = &[&inscription_id.to_sql().unwrap()];
     let mut stmt = inscriptions_db_conn
     .prepare("SELECT offset, outpoint_to_watch, tx_index, block_height FROM locations WHERE inscription_id = ? ORDER BY block_height ASC, tx_index ASC")
     .unwrap();
     let mut results = vec![];
-    let mut rows = stmt.query(args).unwrap();
-    while let Ok(Some(row)) = rows.next() {
-        let inscription_offset_intra_output: u64 = row.get(0).unwrap();
-        let outpoint_to_watch: String = row.get(1).unwrap();
-        let tx_index: u64 = row.get(2).unwrap();
-        let block_height: u64 = row.get(3).unwrap();
+    let mut rows = loop {
+        match stmt.query(args) {
+            Ok(rows) => break rows,
+            Err(e) => {
+                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
+    };
+    loop {
+        match rows.next() {
+            Ok(Some(row)) => {
+                let inscription_offset_intra_output: u64 = row.get(0).unwrap();
+                let outpoint_to_watch: String = row.get(1).unwrap();
+                let tx_index: u64 = row.get(2).unwrap();
+                let block_height: u64 = row.get(3).unwrap();
 
-        let (transaction_identifier_location, output_index) =
-            parse_outpoint_to_watch(&outpoint_to_watch);
-        let transfer = TransferData {
-            inscription_offset_intra_output,
-            transaction_identifier_location,
-            output_index,
-            tx_index,
-        };
-        results.push((transfer, block_height));
+                let (transaction_identifier_location, output_index) =
+                    parse_outpoint_to_watch(&outpoint_to_watch);
+                let transfer = TransferData {
+                    inscription_offset_intra_output,
+                    transaction_identifier_location,
+                    output_index,
+                    tx_index,
+                };
+                results.push((transfer, block_height));
+            }
+            Ok(None) => break,
+            Err(e) => {
+                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
     }
     return results;
 }
@@ -682,7 +817,7 @@ pub fn find_latest_inscription_number_at_block_height(
     block_height: &u64,
     latest_blessed_inscription_heigth: &Option<u64>,
     inscriptions_db_conn: &Connection,
-    _ctx: &Context,
+    ctx: &Context,
 ) -> Result<Option<i64>, String> {
     let (query, params) = match latest_blessed_inscription_heigth {
         Some(hint) => {
@@ -701,13 +836,28 @@ pub fn find_latest_inscription_number_at_block_height(
     let mut stmt = inscriptions_db_conn
         .prepare(query)
         .map_err(|e| format!("unable to query inscriptions: {}", e.to_string()))?;
-    let mut rows = stmt
-        .query(params)
-        .map_err(|e| format!("unable to query inscriptions: {}", e.to_string()))?;
 
-    while let Ok(Some(row)) = rows.next() {
-        let inscription_number: i64 = row.get(0).unwrap();
-        return Ok(Some(inscription_number));
+    let mut rows = loop {
+        match stmt.query(params.clone()) {
+            Ok(rows) => break rows,
+            Err(e) => {
+                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
+    };
+    loop {
+        match rows.next() {
+            Ok(Some(row)) => {
+                let inscription_number: i64 = row.get(0).unwrap();
+                return Ok(Some(inscription_number));
+            }
+            Ok(None) => break,
+            Err(e) => {
+                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
     }
     Ok(None)
 }
@@ -716,7 +866,7 @@ pub fn find_latest_cursed_inscription_number_at_block_height(
     block_height: &u64,
     latest_cursed_inscription_heigth: &Option<u64>,
     inscriptions_db_conn: &Connection,
-    _ctx: &Context,
+    ctx: &Context,
 ) -> Result<Option<i64>, String> {
     let (query, params) = match latest_cursed_inscription_heigth {
         Some(hint) => {
@@ -735,13 +885,28 @@ pub fn find_latest_cursed_inscription_number_at_block_height(
     let mut stmt = inscriptions_db_conn
         .prepare(query)
         .map_err(|e| format!("unable to query inscriptions: {}", e.to_string()))?;
-    let mut rows = stmt
-        .query(params)
-        .map_err(|e| format!("unable to query inscriptions: {}", e.to_string()))?;
 
-    while let Ok(Some(row)) = rows.next() {
-        let inscription_number: i64 = row.get(0).unwrap();
-        return Ok(Some(inscription_number));
+    let mut rows = loop {
+        match stmt.query(params.clone()) {
+            Ok(rows) => break rows,
+            Err(e) => {
+                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
+    };
+    loop {
+        match rows.next() {
+            Ok(Some(row)) => {
+                let inscription_number: i64 = row.get(0).unwrap();
+                return Ok(Some(inscription_number));
+            }
+            Ok(None) => break,
+            Err(e) => {
+                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
     }
     Ok(None)
 }
@@ -749,16 +914,34 @@ pub fn find_latest_cursed_inscription_number_at_block_height(
 pub fn find_blessed_inscription_with_ordinal_number(
     ordinal_number: &u64,
     inscriptions_db_conn: &Connection,
-    _ctx: &Context,
+    ctx: &Context,
 ) -> Option<String> {
     let args: &[&dyn ToSql] = &[&ordinal_number.to_sql().unwrap()];
     let mut stmt = inscriptions_db_conn
         .prepare("SELECT inscription_id FROM inscriptions WHERE ordinal_number = ? AND inscription_number >= 0")
-        .unwrap();
-    let mut rows = stmt.query(args).unwrap();
-    while let Ok(Some(row)) = rows.next() {
-        let inscription_id: String = row.get(0).unwrap();
-        return Some(inscription_id);
+    .unwrap();
+
+    let mut rows = loop {
+        match stmt.query(args) {
+            Ok(rows) => break rows,
+            Err(e) => {
+                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
+    };
+    loop {
+        match rows.next() {
+            Ok(Some(row)) => {
+                let inscription_id: String = row.get(0).unwrap();
+                return Some(inscription_id);
+            }
+            Ok(None) => break,
+            Err(e) => {
+                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
     }
     return None;
 }
@@ -768,6 +951,11 @@ pub fn find_inscription_with_id(
     inscriptions_db_conn: &Connection,
     ctx: &Context,
 ) -> Result<Option<(TraversalResult, u64)>, String> {
+    let Some(transfer_data) =
+        find_initial_inscription_transfer_data(inscription_id, inscriptions_db_conn, ctx)?
+    else {
+        return Err(format!("unable to retrieve location for {inscription_id}"));
+    };
     let args: &[&dyn ToSql] = &[&inscription_id.to_sql().unwrap()];
     let mut stmt = loop {
         match inscriptions_db_conn.prepare(
@@ -786,27 +974,39 @@ pub fn find_inscription_with_id(
             }
         }
     };
-    let mut rows = stmt.query(args).unwrap();
+    let mut rows = loop {
+        match stmt.query(args) {
+            Ok(rows) => break rows,
+            Err(e) => {
+                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
+    };
+    loop {
+        match rows.next() {
+            Ok(Some(row)) => {
+                let inscription_number: i64 = row.get(0).unwrap();
+                let ordinal_number: u64 = row.get(1).unwrap();
+                let block_height: u64 = row.get(2).unwrap();
+                let (transaction_identifier_inscription, inscription_input_index) =
+                    parse_inscription_id(inscription_id);
 
-    if let Some(transfer_data) =
-        find_initial_inscription_transfer_data(inscription_id, inscriptions_db_conn, ctx)?
-    {
-        while let Ok(Some(row)) = rows.next() {
-            let inscription_number: i64 = row.get(0).unwrap();
-            let ordinal_number: u64 = row.get(1).unwrap();
-            let block_height: u64 = row.get(2).unwrap();
-            let (transaction_identifier_inscription, inscription_input_index) =
-                parse_inscription_id(inscription_id);
-
-            let traversal = TraversalResult {
-                inscription_number,
-                ordinal_number,
-                inscription_input_index,
-                transaction_identifier_inscription,
-                transfers: 0,
-                transfer_data,
-            };
-            return Ok(Some((traversal, block_height)));
+                let traversal = TraversalResult {
+                    inscription_number,
+                    ordinal_number,
+                    inscription_input_index,
+                    transaction_identifier_inscription,
+                    transfers: 0,
+                    transfer_data,
+                };
+                return Ok(Some((traversal, block_height)));
+            }
+            Ok(None) => break,
+            Err(e) => {
+                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
         }
     }
     return Ok(None);
@@ -817,44 +1017,62 @@ pub fn find_all_inscriptions_in_block(
     inscriptions_db_tx: &Connection,
     ctx: &Context,
 ) -> BTreeMap<(TransactionIdentifier, usize), TraversalResult> {
+    let transfers_data = find_all_transfers_in_block(block_height, inscriptions_db_tx, ctx);
+
     let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
     let mut stmt = inscriptions_db_tx
         .prepare("SELECT inscription_number, ordinal_number, inscription_id FROM inscriptions where block_height = ? ORDER BY inscription_number ASC")
         .unwrap();
+    let mut rows = loop {
+        match stmt.query(args) {
+            Ok(rows) => break rows,
+            Err(e) => {
+                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
+    };
     let mut results = BTreeMap::new();
-    let mut rows = stmt.query(args).unwrap();
-
-    let transfers_data = find_all_transfers_in_block(block_height, inscriptions_db_tx, ctx);
-    while let Ok(Some(row)) = rows.next() {
-        let inscription_number: i64 = row.get(0).unwrap();
-        let ordinal_number: u64 = row.get(1).unwrap();
-        let inscription_id: String = row.get(2).unwrap();
-        let (transaction_identifier_inscription, inscription_input_index) =
-            { parse_inscription_id(&inscription_id) };
-        let Some(transfer_data) = transfers_data
-            .get(&inscription_id)
-            .and_then(|entries| entries.first())
-        else {
-            ctx.try_log(|logger| {
-                error!(
-                    logger,
-                    "unable to retrieve inscription genesis transfer data: {}", inscription_id,
-                )
-            });
-            continue;
-        };
-        let traversal = TraversalResult {
-            inscription_number,
-            ordinal_number,
-            inscription_input_index,
-            transfers: 0,
-            transaction_identifier_inscription: transaction_identifier_inscription.clone(),
-            transfer_data: transfer_data.clone(),
-        };
-        results.insert(
-            (transaction_identifier_inscription, inscription_input_index),
-            traversal,
-        );
+    loop {
+        match rows.next() {
+            Ok(Some(row)) => {
+                let inscription_number: i64 = row.get(0).unwrap();
+                let ordinal_number: u64 = row.get(1).unwrap();
+                let inscription_id: String = row.get(2).unwrap();
+                let (transaction_identifier_inscription, inscription_input_index) =
+                    { parse_inscription_id(&inscription_id) };
+                let Some(transfer_data) = transfers_data
+                    .get(&inscription_id)
+                    .and_then(|entries| entries.first())
+                else {
+                    ctx.try_log(|logger| {
+                        error!(
+                            logger,
+                            "unable to retrieve inscription genesis transfer data: {}",
+                            inscription_id,
+                        )
+                    });
+                    continue;
+                };
+                let traversal = TraversalResult {
+                    inscription_number,
+                    ordinal_number,
+                    inscription_input_index,
+                    transfers: 0,
+                    transaction_identifier_inscription: transaction_identifier_inscription.clone(),
+                    transfer_data: transfer_data.clone(),
+                };
+                results.insert(
+                    (transaction_identifier_inscription, inscription_input_index),
+                    traversal,
+                );
+            }
+            Ok(None) => break,
+            Err(e) => {
+                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
     }
     return results;
 }
@@ -875,25 +1093,42 @@ impl WatchedSatpoint {
 pub fn find_watched_satpoint_for_inscription(
     inscription_id: &str,
     inscriptions_db_conn: &Connection,
+    ctx: &Context,
 ) -> Result<(u64, WatchedSatpoint), String> {
     let args: &[&dyn ToSql] = &[&inscription_id.to_sql().unwrap()];
     let mut stmt = inscriptions_db_conn
         .prepare("SELECT inscription_id, offset, block_height FROM locations WHERE inscription_id = ? ORDER BY offset ASC")
         .map_err(|e| format!("unable to query locations table: {}", e.to_string()))?;
-    let mut rows = stmt
-        .query(args)
-        .map_err(|e| format!("unable to query locations table: {}", e.to_string()))?;
-    while let Ok(Some(row)) = rows.next() {
-        let inscription_id: String = row.get(0).unwrap();
-        let offset: u64 = row.get(1).unwrap();
-        let block_height: u64 = row.get(2).unwrap();
-        return Ok((
-            block_height,
-            WatchedSatpoint {
-                inscription_id,
-                offset,
-            },
-        ));
+
+    let mut rows = loop {
+        match stmt.query(args) {
+            Ok(rows) => break rows,
+            Err(e) => {
+                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
+    };
+    loop {
+        match rows.next() {
+            Ok(Some(row)) => {
+                let inscription_id: String = row.get(0).unwrap();
+                let offset: u64 = row.get(1).unwrap();
+                let block_height: u64 = row.get(2).unwrap();
+                return Ok((
+                    block_height,
+                    WatchedSatpoint {
+                        inscription_id,
+                        offset,
+                    },
+                ));
+            }
+            Ok(None) => break,
+            Err(e) => {
+                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
     }
     return Err(format!(
         "unable to find inscription with id {}",
@@ -904,22 +1139,38 @@ pub fn find_watched_satpoint_for_inscription(
 pub fn find_inscriptions_at_wached_outpoint(
     outpoint: &str,
     ordhook_db_conn: &Connection,
+    ctx: &Context,
 ) -> Result<Vec<WatchedSatpoint>, String> {
     let args: &[&dyn ToSql] = &[&outpoint.to_sql().unwrap()];
     let mut stmt = ordhook_db_conn
         .prepare("SELECT inscription_id, offset FROM locations WHERE outpoint_to_watch = ? ORDER BY offset ASC")
         .map_err(|e| format!("unable to query locations table: {}", e.to_string()))?;
     let mut results = vec![];
-    let mut rows = stmt
-        .query(args)
-        .map_err(|e| format!("unable to query locations table: {}", e.to_string()))?;
-    while let Ok(Some(row)) = rows.next() {
-        let inscription_id: String = row.get(0).unwrap();
-        let offset: u64 = row.get(1).unwrap();
-        results.push(WatchedSatpoint {
-            inscription_id,
-            offset,
-        });
+    let mut rows = loop {
+        match stmt.query(args) {
+            Ok(rows) => break rows,
+            Err(e) => {
+                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
+    };
+    loop {
+        match rows.next() {
+            Ok(Some(row)) => {
+                let inscription_id: String = row.get(0).unwrap();
+                let offset: u64 = row.get(1).unwrap();
+                results.push(WatchedSatpoint {
+                    inscription_id,
+                    offset,
+                });
+            }
+            Ok(None) => break,
+            Err(e) => {
+                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
     }
     return Ok(results);
 }
@@ -930,17 +1181,19 @@ pub fn delete_inscriptions_in_block_range(
     inscriptions_db_conn_rw: &Connection,
     ctx: &Context,
 ) {
-    if let Err(e) = inscriptions_db_conn_rw.execute(
+    while let Err(e) = inscriptions_db_conn_rw.execute(
         "DELETE FROM inscriptions WHERE block_height >= ?1 AND block_height <= ?2",
         rusqlite::params![&start_block, &end_block],
     ) {
-        ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
+        ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+        std::thread::sleep(std::time::Duration::from_secs(1));
     }
-    if let Err(e) = inscriptions_db_conn_rw.execute(
+    while let Err(e) = inscriptions_db_conn_rw.execute(
         "DELETE FROM locations WHERE block_height >= ?1 AND block_height <= ?2",
         rusqlite::params![&start_block, &end_block],
     ) {
-        ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
+        ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+        std::thread::sleep(std::time::Duration::from_secs(1));
     }
 }
 
@@ -949,17 +1202,19 @@ pub fn remove_entry_from_inscriptions(
     inscriptions_db_rw_conn: &Connection,
     ctx: &Context,
 ) {
-    if let Err(e) = inscriptions_db_rw_conn.execute(
+    while let Err(e) = inscriptions_db_rw_conn.execute(
         "DELETE FROM inscriptions WHERE inscription_id = ?1",
         rusqlite::params![&inscription_id],
     ) {
-        ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
+        ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+        std::thread::sleep(std::time::Duration::from_secs(1));
     }
-    if let Err(e) = inscriptions_db_rw_conn.execute(
+    while let Err(e) = inscriptions_db_rw_conn.execute(
         "DELETE FROM locations WHERE inscription_id = ?1",
         rusqlite::params![&inscription_id],
     ) {
-        ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
+        ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+        std::thread::sleep(std::time::Duration::from_secs(1));
     }
 }
 
@@ -968,11 +1223,12 @@ pub fn remove_entries_from_locations_at_block_height(
     inscriptions_db_rw_conn: &Transaction,
     ctx: &Context,
 ) {
-    if let Err(e) = inscriptions_db_rw_conn.execute(
+    while let Err(e) = inscriptions_db_rw_conn.execute(
         "DELETE FROM locations WHERE block_height = ?1",
         rusqlite::params![&block_height],
     ) {
-        ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
+        ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+        std::thread::sleep(std::time::Duration::from_secs(1));
     }
 }
 
@@ -987,11 +1243,12 @@ pub fn insert_entry_in_locations(
         &transfer_data.transaction_identifier_location,
         transfer_data.output_index,
     );
-    if let Err(e) = inscriptions_db_rw_conn.execute(
+    while let Err(e) = inscriptions_db_rw_conn.execute(
         "INSERT INTO locations (inscription_id, outpoint_to_watch, offset, block_height, tx_index) VALUES (?1, ?2, ?3, ?4, ?5)",
         rusqlite::params![&inscription_id, &outpoint_to_watch, &transfer_data.inscription_offset_intra_output, &block_height, &transfer_data.tx_index],
     ) {
-        ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
+        ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+        std::thread::sleep(std::time::Duration::from_secs(1));
     }
 }
 
