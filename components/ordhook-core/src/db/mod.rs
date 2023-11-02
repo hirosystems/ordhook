@@ -516,7 +516,9 @@ pub fn get_any_entry_in_ordinal_activities(
         match stmt.query(args) {
             Ok(rows) => break rows,
             Err(e) => {
-                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                ctx.try_log(|logger| {
+                    warn!(logger, "unable to query hord.sqlite: {}", e.to_string())
+                });
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
@@ -526,7 +528,9 @@ pub fn get_any_entry_in_ordinal_activities(
             Ok(Some(_row)) => return true,
             Ok(None) => break,
             Err(e) => {
-                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                ctx.try_log(|logger| {
+                    warn!(logger, "unable to query hord.sqlite: {}", e.to_string())
+                });
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
@@ -539,7 +543,9 @@ pub fn get_any_entry_in_ordinal_activities(
         match stmt.query(args) {
             Ok(rows) => break rows,
             Err(e) => {
-                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                ctx.try_log(|logger| {
+                    warn!(logger, "unable to query hord.sqlite: {}", e.to_string())
+                });
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
@@ -549,7 +555,9 @@ pub fn get_any_entry_in_ordinal_activities(
             Ok(Some(_row)) => return true,
             Ok(None) => break,
             Err(e) => {
-                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                ctx.try_log(|logger| {
+                    warn!(logger, "unable to query hord.sqlite: {}", e.to_string())
+                });
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
@@ -569,7 +577,9 @@ pub fn find_latest_inscription_block_height(
         match stmt.query(args) {
             Ok(rows) => break rows,
             Err(e) => {
-                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                ctx.try_log(|logger| {
+                    warn!(logger, "unable to query hord.sqlite: {}", e.to_string())
+                });
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
@@ -582,7 +592,9 @@ pub fn find_latest_inscription_block_height(
             }
             Ok(None) => break,
             Err(e) => {
-                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                ctx.try_log(|logger| {
+                    warn!(logger, "unable to query hord.sqlite: {}", e.to_string())
+                });
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
@@ -603,7 +615,9 @@ pub fn find_initial_inscription_transfer_data(
         match stmt.query(args) {
             Ok(rows) => break rows,
             Err(e) => {
-                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                ctx.try_log(|logger| {
+                    warn!(logger, "unable to query hord.sqlite: {}", e.to_string())
+                });
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
@@ -625,7 +639,9 @@ pub fn find_initial_inscription_transfer_data(
             }
             Ok(None) => break,
             Err(e) => {
-                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                ctx.try_log(|logger| {
+                    warn!(logger, "unable to query hord.sqlite: {}", e.to_string())
+                });
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
@@ -646,7 +662,9 @@ pub fn find_latest_inscription_transfer_data(
         match stmt.query(args) {
             Ok(rows) => break rows,
             Err(e) => {
-                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                ctx.try_log(|logger| {
+                    warn!(logger, "unable to query hord.sqlite: {}", e.to_string())
+                });
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
@@ -668,7 +686,9 @@ pub fn find_latest_inscription_transfer_data(
             }
             Ok(None) => break,
             Err(e) => {
-                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                ctx.try_log(|logger| {
+                    warn!(logger, "unable to query hord.sqlite: {}", e.to_string())
+                });
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
@@ -688,7 +708,9 @@ pub fn find_latest_transfers_block_height(
         match stmt.query(args) {
             Ok(rows) => break rows,
             Err(e) => {
-                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                ctx.try_log(|logger| {
+                    warn!(logger, "unable to query hord.sqlite: {}", e.to_string())
+                });
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
@@ -701,7 +723,9 @@ pub fn find_latest_transfers_block_height(
             }
             Ok(None) => break,
             Err(e) => {
-                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                ctx.try_log(|logger| {
+                    warn!(logger, "unable to query hord.sqlite: {}", e.to_string())
+                });
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
@@ -731,7 +755,9 @@ pub fn find_all_transfers_in_block(
         match stmt.query(args) {
             Ok(rows) => break rows,
             Err(e) => {
-                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                ctx.try_log(|logger| {
+                    warn!(logger, "unable to query hord.sqlite: {}", e.to_string())
+                });
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
@@ -758,7 +784,9 @@ pub fn find_all_transfers_in_block(
             }
             Ok(None) => break,
             Err(e) => {
-                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                ctx.try_log(|logger| {
+                    warn!(logger, "unable to query hord.sqlite: {}", e.to_string())
+                });
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
@@ -780,7 +808,9 @@ pub fn find_all_inscription_transfers(
         match stmt.query(args) {
             Ok(rows) => break rows,
             Err(e) => {
-                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                ctx.try_log(|logger| {
+                    warn!(logger, "unable to query hord.sqlite: {}", e.to_string())
+                });
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
@@ -805,7 +835,9 @@ pub fn find_all_inscription_transfers(
             }
             Ok(None) => break,
             Err(e) => {
-                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                ctx.try_log(|logger| {
+                    warn!(logger, "unable to query hord.sqlite: {}", e.to_string())
+                });
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
@@ -841,7 +873,9 @@ pub fn find_latest_inscription_number_at_block_height(
         match stmt.query(params.clone()) {
             Ok(rows) => break rows,
             Err(e) => {
-                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                ctx.try_log(|logger| {
+                    warn!(logger, "unable to query hord.sqlite: {}", e.to_string())
+                });
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
@@ -854,7 +888,9 @@ pub fn find_latest_inscription_number_at_block_height(
             }
             Ok(None) => break,
             Err(e) => {
-                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                ctx.try_log(|logger| {
+                    warn!(logger, "unable to query hord.sqlite: {}", e.to_string())
+                });
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
@@ -890,7 +926,9 @@ pub fn find_latest_cursed_inscription_number_at_block_height(
         match stmt.query(params.clone()) {
             Ok(rows) => break rows,
             Err(e) => {
-                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                ctx.try_log(|logger| {
+                    warn!(logger, "unable to query hord.sqlite: {}", e.to_string())
+                });
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
@@ -903,7 +941,9 @@ pub fn find_latest_cursed_inscription_number_at_block_height(
             }
             Ok(None) => break,
             Err(e) => {
-                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                ctx.try_log(|logger| {
+                    warn!(logger, "unable to query hord.sqlite: {}", e.to_string())
+                });
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
@@ -925,7 +965,9 @@ pub fn find_blessed_inscription_with_ordinal_number(
         match stmt.query(args) {
             Ok(rows) => break rows,
             Err(e) => {
-                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                ctx.try_log(|logger| {
+                    warn!(logger, "unable to query hord.sqlite: {}", e.to_string())
+                });
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
@@ -938,7 +980,9 @@ pub fn find_blessed_inscription_with_ordinal_number(
             }
             Ok(None) => break,
             Err(e) => {
-                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                ctx.try_log(|logger| {
+                    warn!(logger, "unable to query hord.sqlite: {}", e.to_string())
+                });
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
@@ -978,7 +1022,9 @@ pub fn find_inscription_with_id(
         match stmt.query(args) {
             Ok(rows) => break rows,
             Err(e) => {
-                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                ctx.try_log(|logger| {
+                    warn!(logger, "unable to query hord.sqlite: {}", e.to_string())
+                });
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
@@ -1004,7 +1050,9 @@ pub fn find_inscription_with_id(
             }
             Ok(None) => break,
             Err(e) => {
-                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                ctx.try_log(|logger| {
+                    warn!(logger, "unable to query hord.sqlite: {}", e.to_string())
+                });
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
@@ -1027,7 +1075,9 @@ pub fn find_all_inscriptions_in_block(
         match stmt.query(args) {
             Ok(rows) => break rows,
             Err(e) => {
-                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                ctx.try_log(|logger| {
+                    warn!(logger, "unable to query hord.sqlite: {}", e.to_string())
+                });
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
@@ -1069,7 +1119,9 @@ pub fn find_all_inscriptions_in_block(
             }
             Ok(None) => break,
             Err(e) => {
-                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                ctx.try_log(|logger| {
+                    warn!(logger, "unable to query hord.sqlite: {}", e.to_string())
+                });
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
@@ -1104,7 +1156,9 @@ pub fn find_watched_satpoint_for_inscription(
         match stmt.query(args) {
             Ok(rows) => break rows,
             Err(e) => {
-                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                ctx.try_log(|logger| {
+                    warn!(logger, "unable to query hord.sqlite: {}", e.to_string())
+                });
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
@@ -1125,7 +1179,9 @@ pub fn find_watched_satpoint_for_inscription(
             }
             Ok(None) => break,
             Err(e) => {
-                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                ctx.try_log(|logger| {
+                    warn!(logger, "unable to query hord.sqlite: {}", e.to_string())
+                });
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
@@ -1150,7 +1206,9 @@ pub fn find_inscriptions_at_wached_outpoint(
         match stmt.query(args) {
             Ok(rows) => break rows,
             Err(e) => {
-                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                ctx.try_log(|logger| {
+                    warn!(logger, "unable to query hord.sqlite: {}", e.to_string())
+                });
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
@@ -1167,7 +1225,9 @@ pub fn find_inscriptions_at_wached_outpoint(
             }
             Ok(None) => break,
             Err(e) => {
-                ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+                ctx.try_log(|logger| {
+                    warn!(logger, "unable to query hord.sqlite: {}", e.to_string())
+                });
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }

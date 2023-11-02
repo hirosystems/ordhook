@@ -184,9 +184,9 @@ impl RepairStorageCommand {
     pub fn get_blocks(&self) -> Vec<u64> {
         let blocks = match (&self.blocks_interval, &self.blocks) {
             (Some(interval), None) => {
-                let blocks = interval.split(":").collect::<Vec<_>>();
+                let blocks = interval.split(':').collect::<Vec<_>>();
                 let start_block: u64 = blocks
-                    .get(0)
+                    .first()
                     .expect("unable to get start_block")
                     .parse::<u64>()
                     .expect("unable to parse start_block");
@@ -199,7 +199,7 @@ impl RepairStorageCommand {
             }
             (None, Some(blocks)) => {
                 let blocks = blocks
-                    .split(",")
+                    .split(',')
                     .map(|b| b.parse::<u64>().expect("unable to parse block"))
                     .collect::<Vec<_>>();
                 BlockHeights::Blocks(blocks).get_sorted_entries()
@@ -464,13 +464,10 @@ pub fn main() {
         }
     };
 
-    match hiro_system_kit::nestable_block_on(handle_command(opts, &ctx)) {
-        Err(e) => {
-            error!(ctx.expect_logger(), "{e}");
-            std::thread::sleep(std::time::Duration::from_millis(500));
-            process::exit(1);
-        }
-        Ok(_) => {}
+    if let Err(e) = hiro_system_kit::nestable_block_on(handle_command(opts, &ctx)) {
+        error!(ctx.expect_logger(), "{e}");
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        process::exit(1);
     }
 }
 
@@ -502,7 +499,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
 
                 let predicate_spec = build_predicate_from_cli(
                     &config,
-                    &post_to,
+                    post_to,
                     cmd.start_block,
                     Some(cmd.end_block),
                     cmd.auth_token,
@@ -512,7 +509,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                     &predicate_spec,
                     &config,
                     None,
-                    &ctx,
+                    ctx,
                 )
                 .await?;
             } else {
@@ -521,12 +518,12 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 let mut total_transfers = 0;
 
                 let inscriptions_db_conn =
-                    initialize_ordhook_db(&config.expected_cache_path(), &ctx);
+                    initialize_ordhook_db(&config.expected_cache_path(), ctx);
                 while let Some(block_height) = block_range.pop_front() {
                     let inscriptions =
-                        find_all_inscriptions_in_block(&block_height, &inscriptions_db_conn, &ctx);
+                        find_all_inscriptions_in_block(&block_height, &inscriptions_db_conn, ctx);
                     let mut locations =
-                        find_all_transfers_in_block(&block_height, &inscriptions_db_conn, &ctx);
+                        find_all_transfers_in_block(&block_height, &inscriptions_db_conn, ctx);
 
                     let mut total_transfers_in_block = 0;
 
@@ -553,7 +550,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                             );
                         }
                     }
-                    if total_transfers_in_block > 0 && inscriptions.len() > 0 {
+                    if total_transfers_in_block > 0 && !inscriptions.is_empty() {
                         println!(
                             "Inscriptions revealed: {}, inscriptions transferred: {total_transfers_in_block}",
                             inscriptions.len()
@@ -578,9 +575,9 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
             let _ = download_ordinals_dataset_if_required(&config, ctx).await;
 
             let inscriptions_db_conn =
-                open_readonly_ordhook_db_conn(&config.expected_cache_path(), &ctx)?;
+                open_readonly_ordhook_db_conn(&config.expected_cache_path(), ctx)?;
             let (inscription, block_height) =
-                match find_inscription_with_id(&cmd.inscription_id, &inscriptions_db_conn, &ctx)? {
+                match find_inscription_with_id(&cmd.inscription_id, &inscriptions_db_conn, ctx)? {
                     Some(entry) => entry,
                     _ => {
                         return Err(format!(
@@ -599,7 +596,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
             let transfers = find_all_inscription_transfers(
                 &inscription.get_inscription_id(),
                 &inscriptions_db_conn,
-                &ctx,
+                ctx,
             );
             for (transfer, block_height) in transfers.iter().skip(1) {
                 println!(
@@ -614,15 +611,15 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 let config =
                     ConfigFile::default(cmd.regtest, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
 
-                let _ = initialize_ordhook_db(&config.expected_cache_path(), &ctx);
+                let _ = initialize_ordhook_db(&config.expected_cache_path(), ctx);
 
                 let inscriptions_db_conn =
-                    open_readonly_ordhook_db_conn(&config.expected_cache_path(), &ctx)?;
+                    open_readonly_ordhook_db_conn(&config.expected_cache_path(), ctx)?;
 
                 let last_known_block =
-                    find_latest_inscription_block_height(&inscriptions_db_conn, &ctx)?;
+                    find_latest_inscription_block_height(&inscriptions_db_conn, ctx)?;
                 if last_known_block.is_none() {
-                    open_readwrite_ordhook_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
+                    open_readwrite_ordhook_db_conn_rocks_db(&config.expected_cache_path(), ctx)?;
                 }
 
                 let ordhook_config = config.get_ordhook_config();
@@ -684,12 +681,12 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
         },
         Command::Db(OrdhookDbCommand::New(cmd)) => {
             let config = ConfigFile::default(false, false, false, &cmd.config_path)?;
-            initialize_ordhook_db(&config.expected_cache_path(), &ctx);
-            open_readwrite_ordhook_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
+            initialize_ordhook_db(&config.expected_cache_path(), ctx);
+            open_readwrite_ordhook_db_conn_rocks_db(&config.expected_cache_path(), ctx)?;
         }
         Command::Db(OrdhookDbCommand::Sync(cmd)) => {
             let config = ConfigFile::default(false, false, false, &cmd.config_path)?;
-            initialize_ordhook_db(&config.expected_cache_path(), &ctx);
+            initialize_ordhook_db(&config.expected_cache_path(), ctx);
             let service = Service::new(config, ctx.clone());
             service.update_state(None).await?;
         }
@@ -712,7 +709,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                     ordhook_config.first_inscription_height,
                     Some(&block_ingestion_processor),
                     10_000,
-                    &ctx,
+                    ctx,
                 )
                 .await?
             }
@@ -725,7 +722,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 let block_post_processor = match cmd.repair_observers {
                     Some(true) => {
                         let tx_replayer =
-                            start_observer_forwarding(&config.get_event_observer_config(), &ctx);
+                            start_observer_forwarding(&config.get_event_observer_config(), ctx);
                         Some(tx_replayer)
                     }
                     _ => None,
@@ -740,7 +737,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                     ordhook_config.first_inscription_height,
                     Some(&inscription_indexing_processor),
                     10_000,
-                    &ctx,
+                    ctx,
                 )
                 .await?;
             }
@@ -749,7 +746,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 let block_post_processor = match cmd.repair_observers {
                     Some(true) => {
                         let tx_replayer =
-                            start_observer_forwarding(&config.get_event_observer_config(), &ctx);
+                            start_observer_forwarding(&config.get_event_observer_config(), ctx);
                         Some(tx_replayer)
                     }
                     _ => None,
@@ -772,13 +769,13 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
             let config = ConfigFile::default(false, false, false, &cmd.config_path)?;
             {
                 let blocks_db =
-                    open_readonly_ordhook_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
+                    open_readonly_ordhook_db_conn_rocks_db(&config.expected_cache_path(), ctx)?;
                 let tip = find_last_block_inserted(&blocks_db) as u64;
                 println!("Tip: {}", tip);
 
                 let mut missing_blocks = vec![];
                 for i in cmd.start_block..=cmd.end_block {
-                    if find_lazy_block_at_block_height(i as u32, 0, false, &blocks_db, &ctx)
+                    if find_lazy_block_at_block_height(i as u32, 0, false, &blocks_db, ctx)
                         .is_none()
                     {
                         println!("Missing block #{i}");
@@ -791,16 +788,16 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
         Command::Db(OrdhookDbCommand::Drop(cmd)) => {
             let config = ConfigFile::default(false, false, false, &cmd.config_path)?;
             let blocks_db =
-                open_readwrite_ordhook_db_conn_rocks_db(&config.expected_cache_path(), &ctx)?;
+                open_readwrite_ordhook_db_conn_rocks_db(&config.expected_cache_path(), ctx)?;
             let inscriptions_db_conn_rw =
-                open_readwrite_ordhook_db_conn(&config.expected_cache_path(), &ctx)?;
+                open_readwrite_ordhook_db_conn(&config.expected_cache_path(), ctx)?;
 
             delete_data_in_ordhook_db(
                 cmd.start_block,
                 cmd.end_block,
                 &blocks_db,
                 &inscriptions_db_conn_rw,
-                &ctx,
+                ctx,
             )?;
             info!(
                 ctx.expect_logger(),
@@ -815,7 +812,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
 pub fn load_predicate_from_path(
     predicate_path: &str,
 ) -> Result<ChainhookFullSpecification, String> {
-    let file = std::fs::File::open(&predicate_path)
+    let file = std::fs::File::open(predicate_path)
         .map_err(|e| format!("unable to read file {}\n{:?}", predicate_path, e))?;
     let mut file_reader = BufReader::new(file);
     let mut file_buffer = vec![];
@@ -834,12 +831,11 @@ pub async fn fetch_and_standardize_block(
     ctx: &Context,
 ) -> Result<BitcoinBlockData, String> {
     let block_hash =
-        retrieve_block_hash_with_retry(http_client, &block_height, &bitcoin_config, &ctx).await?;
+        retrieve_block_hash_with_retry(http_client, &block_height, bitcoin_config, ctx).await?;
     let block_breakdown =
-        download_and_parse_block_with_retry(http_client, &block_hash, &bitcoin_config, &ctx)
-            .await?;
+        download_and_parse_block_with_retry(http_client, &block_hash, bitcoin_config, ctx).await?;
 
-    parse_inscriptions_and_standardize_block(block_breakdown, &bitcoin_config.network, &ctx)
+    parse_inscriptions_and_standardize_block(block_breakdown, &bitcoin_config.network, ctx)
         .map_err(|(e, _)| e)
 }
 
@@ -890,17 +886,14 @@ pub async fn check_bitcoind_connection(config: &Config) -> Result<u64, String> {
     let bitcoin_rpc = match Client::new(&config.network.bitcoind_rpc_url, auth) {
         Ok(con) => con,
         Err(message) => {
-            return Err(format!(
-                "unable to connect to bitcoind: {}",
-                message.to_string()
-            ));
+            return Err(format!("unable to connect to bitcoind: {}", message));
         }
     };
 
     let end_block = match bitcoin_rpc.get_blockchain_info() {
         Ok(result) => result.blocks,
         Err(e) => {
-            return Err(format!("unable to connect to bitcoind: {}", e.to_string()));
+            return Err(format!("unable to connect to bitcoind: {}", e));
         }
     };
 

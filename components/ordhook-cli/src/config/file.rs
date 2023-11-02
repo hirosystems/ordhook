@@ -41,7 +41,7 @@ impl ConfigFile {
         let config_file: ConfigFile = match toml::from_slice(&file_buffer) {
             Ok(s) => s,
             Err(e) => {
-                return Err(format!("Config file malformatted {}", e.to_string()));
+                return Err(format!("Config file malformatted {}", e));
             }
         };
         ConfigFile::from_config_file(config_file)
@@ -153,7 +153,7 @@ impl ConfigFile {
             (true, false, false, _) => Config::devnet_default(),
             (false, true, false, _) => Config::testnet_default(),
             (false, false, true, _) => Config::mainnet_default(),
-            (false, false, false, Some(config_path)) => ConfigFile::from_file_path(&config_path)?,
+            (false, false, false, Some(config_path)) => ConfigFile::from_file_path(config_path)?,
             _ => Err("Invalid combination of arguments".to_string())?,
         };
         Ok(config)
