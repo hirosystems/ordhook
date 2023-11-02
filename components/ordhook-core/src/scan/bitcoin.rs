@@ -26,10 +26,10 @@ use chainhook_sdk::types::{
 use chainhook_sdk::utils::{file_append, send_request, BlockHeights, Context};
 use std::collections::HashMap;
 
-// TODO(lgalabru): Re-introduce support for blocks[] !!! gracefully handle hints for non consecutive blocks
 pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
     predicate_spec: &BitcoinChainhookSpecification,
     config: &Config,
+    event_observer_config_override: Option<&EventObserverConfig>,
     ctx: &Context,
 ) -> Result<(), String> {
     let _ = download_ordinals_dataset_if_required(config, ctx).await;
@@ -85,7 +85,10 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
     let mut actions_triggered = 0;
     let mut err_count = 0;
 
-    let event_observer_config = config.get_event_observer_config();
+    let event_observer_config = match event_observer_config_override {
+        Some(config_override) => config_override.clone(),
+        None => config.get_event_observer_config(),
+    };
     let bitcoin_config = event_observer_config.get_bitcoin_config();
     let number_of_blocks_to_scan = block_heights_to_scan.len() as u64;
     let mut number_of_blocks_scanned = 0;
@@ -94,15 +97,6 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
 
     while let Some(current_block_height) = block_heights_to_scan.pop_front() {
         number_of_blocks_scanned += 1;
-
-        // Re-initiate connection every 250 blocks (pessimistic) to avoid stale connections
-        let conn_updated = if number_of_blocks_scanned % 250 == 0 {
-            inscriptions_db_conn =
-                open_readonly_ordhook_db_conn(&config.expected_cache_path(), ctx)?;
-            true
-        } else {
-            false
-        };
 
         if !get_any_entry_in_ordinal_activities(&current_block_height, &inscriptions_db_conn, &ctx)
         {
@@ -151,7 +145,7 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
 
         info!(
             ctx.expect_logger(),
-            "Processing block #{current_block_height} through {} predicate ({} inscriptions revealed: [{}], db_conn updated: {conn_updated})",
+            "Processing block #{current_block_height} through {} predicate ({} inscriptions revealed: [{}])",
             predicate_spec.uuid,
             inscriptions_revealed.len(),
             inscriptions_revealed.join(", ")

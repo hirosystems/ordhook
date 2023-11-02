@@ -32,7 +32,10 @@ use crate::{
         },
         OrdhookConfig,
     },
-    db::{get_any_entry_in_ordinal_activities, open_readonly_ordhook_db_conn},
+    db::{
+        get_any_entry_in_ordinal_activities, open_ordhook_db_conn_rocks_db_loop,
+        open_readonly_ordhook_db_conn,
+    },
 };
 
 use crate::db::{LazyBlockTransaction, TraversalResult};
@@ -43,7 +46,7 @@ use crate::{
         new_traversals_lazy_cache,
         pipeline::{PostProcessorCommand, PostProcessorController, PostProcessorEvent},
     },
-    db::{open_readwrite_ordhook_db_conn, open_readwrite_ordhook_db_conn_rocks_db},
+    db::open_readwrite_ordhook_db_conn,
 };
 
 pub fn start_inscription_indexing_processor(
@@ -66,8 +69,7 @@ pub fn start_inscription_indexing_processor(
                 open_readwrite_ordhook_db_conn(&config.expected_cache_path(), &ctx).unwrap();
             let ordhook_config = config.get_ordhook_config();
             let blocks_db_rw =
-                open_readwrite_ordhook_db_conn_rocks_db(&config.expected_cache_path(), &ctx)
-                    .unwrap();
+                open_ordhook_db_conn_rocks_db_loop(true, &config.expected_cache_path(), &ctx);
             let mut empty_cycles = 0;
 
             let inscriptions_db_conn =

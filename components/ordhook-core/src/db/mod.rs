@@ -20,7 +20,10 @@ use chainhook_sdk::{
 };
 
 use crate::{
-    core::protocol::inscription_parsing::{get_inscriptions_revealed_in_block, get_inscriptions_transferred_in_block}, ord::sat::Sat,
+    core::protocol::inscription_parsing::{
+        get_inscriptions_revealed_in_block, get_inscriptions_transferred_in_block,
+    },
+    ord::sat::Sat,
 };
 
 pub fn get_default_ordhook_db_file_path(base_dir: &PathBuf) -> PathBuf {
@@ -228,7 +231,7 @@ pub fn open_readonly_ordhook_db_conn_rocks_db(
     opts.set_disable_auto_compactions(true);
     opts.set_max_background_jobs(0);
     let db = DB::open_for_read_only(&opts, path, false)
-        .map_err(|e| format!("unable to open hord.rocksdb: {}", e.to_string()))?;
+        .map_err(|e| format!("unable to read hord.rocksdb: {}", e.to_string()))?;
     Ok(db)
 }
 
@@ -276,7 +279,7 @@ pub fn open_readwrite_ordhook_db_conn_rocks_db(
     let path = get_default_ordhook_db_file_path_rocks_db(&base_dir);
     let opts = rocks_db_default_options();
     let db = DB::open(&opts, path)
-        .map_err(|e| format!("unable to open hord.rocksdb: {}", e.to_string()))?;
+        .map_err(|e| format!("unable to read-write hord.rocksdb: {}", e.to_string()))?;
     Ok(db)
 }
 
@@ -494,12 +497,18 @@ pub fn insert_transfer_in_locations(
 pub fn get_any_entry_in_ordinal_activities(
     block_height: &u64,
     inscriptions_db_tx: &Connection,
-    _ctx: &Context,
+    ctx: &Context,
 ) -> bool {
     let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
-    let mut stmt = inscriptions_db_tx
+    let mut stmt = match inscriptions_db_tx
         .prepare("SELECT DISTINCT block_height FROM inscriptions WHERE block_height = ?")
-        .unwrap();
+    {
+        Ok(stmt) => stmt,
+        Err(e) => {
+            ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
+            panic!();
+        }
+    };
     let mut rows = stmt.query(args).unwrap();
     while let Ok(Some(_)) = rows.next() {
         return true;
@@ -824,15 +833,15 @@ pub fn find_all_inscriptions_in_block(
             { parse_inscription_id(&inscription_id) };
         let Some(transfer_data) = transfers_data
             .get(&inscription_id)
-            .and_then(|entries| entries.first()) else {
-                ctx.try_log(|logger| {
-                    error!(
-                        logger,
-                        "unable to retrieve inscription genesis transfer data: {}",
-                        inscription_id,
-                    )
-                });
-                continue;
+            .and_then(|entries| entries.first())
+        else {
+            ctx.try_log(|logger| {
+                error!(
+                    logger,
+                    "unable to retrieve inscription genesis transfer data: {}", inscription_id,
+                )
+            });
+            continue;
         };
         let traversal = TraversalResult {
             inscription_number,
