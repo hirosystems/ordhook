@@ -84,17 +84,8 @@ pub fn augment_transaction_with_ordinals_transfers_data(
             input.previous_output.vout as usize,
         );
 
-        let entries = match find_inscriptions_at_wached_outpoint(
-            &outpoint_pre_transfer,
-            &inscriptions_db_tx,
-            ctx,
-        ) {
-            Ok(entries) => entries,
-            Err(e) => {
-                ctx.try_log(|logger| warn!(logger, "unable query inscriptions: {e}"));
-                continue;
-            }
-        };
+        let entries =
+            find_inscriptions_at_wached_outpoint(&outpoint_pre_transfer, &inscriptions_db_tx, ctx);
         // For each satpoint inscribed retrieved, we need to compute the next
         // outpoint to watch
         for watched_satpoint in entries.into_iter() {
