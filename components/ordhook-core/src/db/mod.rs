@@ -390,7 +390,8 @@ pub fn insert_entry_in_inscriptions(
         "INSERT INTO inscriptions (inscription_id, ordinal_number, inscription_number, block_height) VALUES (?1, ?2, ?3, ?4)",
         rusqlite::params![&inscription_data.inscription_id, &inscription_data.ordinal_number, &inscription_data.inscription_number, &block_identifier.index],
     ) {
-        ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
+        ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+        std::thread::sleep(std::time::Duration::from_secs(1));
     }
 }
 

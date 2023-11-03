@@ -75,9 +75,6 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
         BlockHeights::BlockRange(start_block, end_block).get_sorted_entries()
     };
 
-    let mut inscriptions_db_conn =
-        open_readonly_ordhook_db_conn(&config.expected_cache_path(), ctx)?;
-
     info!(
         ctx.expect_logger(),
         "Starting predicate evaluation on Bitcoin blocks",
@@ -96,6 +93,9 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
     let http_client = build_http_client();
 
     while let Some(current_block_height) = block_heights_to_scan.pop_front() {
+        let mut inscriptions_db_conn =
+            open_readonly_ordhook_db_conn(&config.expected_cache_path(), ctx)?;
+
         number_of_blocks_scanned += 1;
 
         if !get_any_entry_in_ordinal_activities(&current_block_height, &inscriptions_db_conn, &ctx)
