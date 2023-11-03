@@ -162,7 +162,7 @@ pub fn create_or_open_readwrite_db(cache_path: &PathBuf, ctx: &Context) -> Conne
         std::thread::sleep(std::time::Duration::from_secs(1));
     };
     // db.profile(Some(trace_profile));
-    // db.busy_handler(Some(tx_busy_handler))?;
+    conn.busy_timeout(std::time::Duration::from_secs(300)).expect("unable to set db timeout");
     // let mmap_size: i64 = 256 * 1024 * 1024;
     // let page_size: i64 = 16384;
     // conn.pragma_update(None, "mmap_size", mmap_size).unwrap();
@@ -197,6 +197,7 @@ fn open_existing_readonly_db(path: &PathBuf, ctx: &Context) -> Connection {
         };
         std::thread::sleep(std::time::Duration::from_secs(1));
     };
+    conn.busy_timeout(std::time::Duration::from_secs(300)).expect("unable to set db timeout");
     return conn;
 }
 

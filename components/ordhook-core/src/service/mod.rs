@@ -9,7 +9,7 @@ use crate::core::pipeline::processors::inscription_indexing::process_block;
 use crate::core::pipeline::processors::start_inscription_indexing_processor;
 use crate::core::pipeline::processors::transfers_recomputing::start_transfers_recomputing_processor;
 use crate::core::protocol::inscription_parsing::{
-    get_inscriptions_revealed_in_block, parse_inscriptions_in_standardized_block,
+    get_inscriptions_revealed_in_block, parse_inscriptions_in_standardized_block, get_inscriptions_transferred_in_block,
 };
 use crate::core::protocol::inscription_sequencing::SequenceCursor;
 use crate::core::{new_traversals_lazy_cache, should_sync_ordhook_db, should_sync_rocks_db};
@@ -750,10 +750,12 @@ pub fn chainhook_sidecar_mutate_blocks(
                 .map(|d| d.inscription_number.to_string())
                 .collect::<Vec<String>>();
 
+            let inscriptions_transferred = get_inscriptions_transferred_in_block(&cache.block).len();
+
             ctx.try_log(|logger| {
                 info!(
                     logger,
-                    "Block #{} processed, mutated and revealed {} inscriptions [{}]",
+                    "Block #{} processed, mutated and revealed {} inscriptions [{}] and {inscriptions_transferred} transfers",
                     cache.block.block_identifier.index,
                     inscriptions_revealed.len(),
                     inscriptions_revealed.join(", ")

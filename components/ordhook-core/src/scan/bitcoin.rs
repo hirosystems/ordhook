@@ -1,7 +1,6 @@
 use crate::config::{Config, PredicatesApi};
 use crate::core::protocol::inscription_parsing::{
-    get_inscriptions_revealed_in_block, get_inscriptions_transferred_in_block,
-    parse_inscriptions_and_standardize_block,
+    get_inscriptions_revealed_in_block, parse_inscriptions_and_standardize_block, get_inscriptions_transferred_in_block,
 };
 use crate::core::protocol::inscription_sequencing::consolidate_block_with_pre_computed_ordinals_data;
 use crate::db::{get_any_entry_in_ordinal_activities, open_readonly_ordhook_db_conn};
@@ -148,7 +147,7 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
 
         info!(
             ctx.expect_logger(),
-            "Processing block #{current_block_height} through {} predicate ({} inscriptions revealed: [{}], inscriptions transfered: {inscriptions_transferred})",
+            "Processing block #{current_block_height} through {} predicate revealed {} new inscriptions [{}] and {inscriptions_transferred} transfers",
             predicate_spec.uuid,
             inscriptions_revealed.len(),
             inscriptions_revealed.join(", ")
