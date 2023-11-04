@@ -162,7 +162,8 @@ pub fn create_or_open_readwrite_db(cache_path: &PathBuf, ctx: &Context) -> Conne
         std::thread::sleep(std::time::Duration::from_secs(1));
     };
     // db.profile(Some(trace_profile));
-    conn.busy_timeout(std::time::Duration::from_secs(300)).expect("unable to set db timeout");
+    conn.busy_timeout(std::time::Duration::from_secs(300))
+        .expect("unable to set db timeout");
     // let mmap_size: i64 = 256 * 1024 * 1024;
     // let page_size: i64 = 16384;
     // conn.pragma_update(None, "mmap_size", mmap_size).unwrap();
@@ -197,7 +198,8 @@ fn open_existing_readonly_db(path: &PathBuf, ctx: &Context) -> Connection {
         };
         std::thread::sleep(std::time::Duration::from_secs(1));
     };
-    conn.busy_timeout(std::time::Duration::from_secs(300)).expect("unable to set db timeout");
+    conn.busy_timeout(std::time::Duration::from_secs(300))
+        .expect("unable to set db timeout");
     return conn;
 }
 
@@ -1112,15 +1114,19 @@ pub fn delete_data_in_ordhook_db(
     inscriptions_db_conn_rw: &Connection,
     ctx: &Context,
 ) -> Result<(), String> {
-    info!(
-        ctx.expect_logger(),
-        "Deleting entries from block #{start_block} to block #{end_block}"
-    );
+    ctx.try_log(|logger| {
+        info!(
+            logger,
+            "Deleting entries from block #{start_block} to block #{end_block}"
+        )
+    });
     delete_blocks_in_block_range(start_block as u32, end_block as u32, blocks_db_rw, &ctx);
-    info!(
-        ctx.expect_logger(),
-        "Deleting inscriptions and locations from block #{start_block} to block #{end_block}"
-    );
+    ctx.try_log(|logger| {
+        info!(
+            logger,
+            "Deleting inscriptions and locations from block #{start_block} to block #{end_block}"
+        )
+    });
     delete_inscriptions_in_block_range(
         start_block as u32,
         end_block as u32,
