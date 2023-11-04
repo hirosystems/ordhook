@@ -31,13 +31,11 @@ pub fn start_block_archiving_processor(
             let mut processed_blocks = 0;
 
             loop {
-                debug!(ctx.expect_logger(), "Tick");
                 let (compacted_blocks, _) = match commands_rx.try_recv() {
                     Ok(PostProcessorCommand::ProcessBlocks(compacted_blocks, blocks)) => {
                         (compacted_blocks, blocks)
                     }
                     Ok(PostProcessorCommand::Terminate) => {
-                        debug!(ctx.expect_logger(), "Terminating block processor");
                         let _ = events_tx.send(PostProcessorEvent::Terminated);
                         break;
                     }

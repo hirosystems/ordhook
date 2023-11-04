@@ -575,10 +575,12 @@ fn chainhook_sidecar_mutate_ordhook_db(command: HandleBlock, config: &Config, ct
 
     match command {
         HandleBlock::UndoBlock(block) => {
-            info!(
-                ctx.expect_logger(),
-                "Re-org handling: reverting changes in block #{}", block.block_identifier.index
-            );
+            ctx.try_log(|logger| {
+                info!(
+                    logger,
+                    "Re-org handling: reverting changes in block #{}", block.block_identifier.index
+                )
+            });
             if let Err(e) = delete_data_in_ordhook_db(
                 block.block_identifier.index,
                 block.block_identifier.index,
@@ -686,7 +688,7 @@ pub fn chainhook_sidecar_mutate_blocks(
             block_id_to_rollback.index,
             &blocks_db_rw,
             &inscriptions_db_tx,
-            &Context::empty(),
+            &ctx,
         ) {
             ctx.try_log(|logger| {
                 error!(

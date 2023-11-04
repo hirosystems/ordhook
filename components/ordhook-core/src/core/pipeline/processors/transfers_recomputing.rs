@@ -44,7 +44,6 @@ pub fn start_transfers_recomputing_processor(
                         blocks
                     }
                     Ok(PostProcessorCommand::Terminate) => {
-                        debug!(ctx.expect_logger(), "Terminating block processor");
                         let _ = events_tx.send(PostProcessorEvent::Terminated);
                         break;
                     }
@@ -52,7 +51,9 @@ pub fn start_transfers_recomputing_processor(
                         TryRecvError::Empty => {
                             empty_cycles += 1;
                             if empty_cycles == 10 {
-                                warn!(ctx.expect_logger(), "Block processor reached expiration");
+                                ctx.try_log(|logger| {
+                                    warn!(logger, "Block processor reached expiration")
+                                });
                                 let _ = events_tx.send(PostProcessorEvent::Expired);
                                 break;
                             }
@@ -65,7 +66,7 @@ pub fn start_transfers_recomputing_processor(
                     },
                 };
 
-                info!(ctx.expect_logger(), "Processing {} blocks", blocks.len());
+                ctx.try_log(|logger| info!(logger, "Processing {} blocks", blocks.len()));
                 let inscriptions_db_tx = inscriptions_db_conn_rw.transaction().unwrap();
 
                 for block in blocks.iter_mut() {
