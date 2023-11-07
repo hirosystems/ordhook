@@ -556,8 +556,6 @@ where
 {
     let mut results = vec![];
     loop {
-        results.clear();
-
         let mut stmt = match db_conn.prepare(query) {
             Ok(stmt) => stmt,
             Err(e) => {
@@ -570,25 +568,27 @@ where
         };
 
         match stmt.query(args) {
-            Ok(mut rows) => match rows.next() {
-                Ok(Some(row)) => {
-                    let r = mapping_func(row);
-                    results.push(r);
-                    if stop_at_first {
-                        break;
+            Ok(mut rows) => loop {
+                match rows.next() {
+                    Ok(Some(row)) => {
+                        let r = mapping_func(row);
+                        results.push(r);
+                        if stop_at_first {
+                            break;
+                        }
                     }
-                }
-                Ok(None) => break,
-                Err(e) => {
-                    ctx.try_log(|logger| {
-                        warn!(
-                            logger,
-                            "unable to iterate over results from {query}: {}",
-                            e.to_string()
-                        )
-                    });
-                    std::thread::sleep(std::time::Duration::from_secs(5));
-                    continue;
+                    Ok(None) => break,
+                    Err(e) => {
+                        ctx.try_log(|logger| {
+                            warn!(
+                                logger,
+                                "unable to iterate over results from {query}: {}",
+                                e.to_string()
+                            )
+                        });
+                        std::thread::sleep(std::time::Duration::from_secs(5));
+                        continue;
+                    }
                 }
             },
             Err(e) => {
@@ -596,6 +596,7 @@ where
                     warn!(logger, "unable to execute query {query}: {}", e.to_string())
                 });
                 std::thread::sleep(std::time::Duration::from_secs(5));
+                continue;
             }
         };
         break;

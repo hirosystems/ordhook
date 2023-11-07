@@ -39,7 +39,7 @@ pub fn start_bitcoin_scan_runloop(
             match hiro_system_kit::nestable_block_on(op) {
                 Ok(_) => {}
                 Err(e) => {
-                    ctx.try_log(|logger| {
+                    moved_ctx.try_log(|logger| {
                         error!(
                             logger,
                             "Unable to evaluate predicate on Bitcoin chainstate: {e}",
