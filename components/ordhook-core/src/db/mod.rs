@@ -1259,7 +1259,7 @@ impl LazyBlock {
         &self,
         searched_txid: &[u8],
     ) -> Option<LazyBlockTransaction> {
-        // println!("{:?}", hex::encode(searched_txid));
+        println!("{:?}", hex::encode(searched_txid));
         let mut entry = None;
         let mut cursor = Cursor::new(&self.bytes);
         let mut cumulated_offset = 0;
@@ -1267,12 +1267,13 @@ impl LazyBlock {
         while entry.is_none() {
             let pos = self.get_transactions_data_pos() + cumulated_offset;
             let (inputs_len, outputs_len, size) = self.get_transaction_format(i);
-            // println!("{inputs_len} / {outputs_len} / {size}");
+            println!("{inputs_len} / {outputs_len} / {size}");
             cursor.set_position(pos as u64);
             let mut txid = [0u8; 8]; // todo 20 bytes
             let _ = cursor.read_exact(&mut txid);
-            // println!("-> {}", hex::encode(txid));
+            println!("-> {}", hex::encode(txid));
             if searched_txid.eq(&txid) {
+                println!("1267");
                 entry = Some(self.get_lazy_transaction_at_pos(
                     &mut cursor,
                     txid,
@@ -1280,6 +1281,7 @@ impl LazyBlock {
                     outputs_len,
                 ));
             } else {
+                println!("1275");
                 cumulated_offset += size;
                 i += 1;
                 if i >= self.tx_len {
