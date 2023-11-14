@@ -216,7 +216,7 @@ pub fn process_blocks(
 
         if any_existing_activity {
             ctx.try_log(|logger| {
-                warn!(
+                error!(
                     logger,
                     "Dropping updates for block #{}, activities present in database",
                     block.block_identifier.index,
