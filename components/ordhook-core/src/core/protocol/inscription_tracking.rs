@@ -123,7 +123,7 @@ pub fn augment_transaction_with_ordinals_transfers_data(
                             ),
                             Err(e) => {
                                 ctx.try_log(|logger| {
-                                    warn!(
+                                    info!(
                                         logger,
                                         "unable to retrieve address from {script_pub_key_hex}: {}",
                                         e.to_string()
@@ -134,7 +134,7 @@ pub fn augment_transaction_with_ordinals_transfers_data(
                         },
                         Err(e) => {
                             ctx.try_log(|logger| {
-                                warn!(
+                                info!(
                                     logger,
                                     "unable to retrieve address from {script_pub_key_hex}: {}",
                                     e.to_string()
