@@ -8,18 +8,21 @@ use ordhook::chainhook_sdk::chainhooks::types::{
     BitcoinChainhookFullSpecification, BitcoinChainhookNetworkSpecification, BitcoinPredicateType,
     ChainhookFullSpecification, HookAction, OrdinalOperations,
 };
+use ordhook::chainhook_sdk::dashmap::DashMap;
 use ordhook::chainhook_sdk::indexer::bitcoin::{
-    download_and_parse_block_with_retry, retrieve_block_hash_with_retry,
+    download_and_parse_block_with_retry, retrieve_block_hash_with_retry, build_http_client,
 };
 use ordhook::chainhook_sdk::observer::BitcoinConfig;
-use ordhook::chainhook_sdk::types::BitcoinBlockData;
+use ordhook::chainhook_sdk::types::{BitcoinBlockData, BlockIdentifier, TransactionIdentifier};
 use ordhook::chainhook_sdk::utils::BlockHeights;
 use ordhook::chainhook_sdk::utils::Context;
 use ordhook::config::Config;
+use ordhook::core::{new_traversals_cache, new_traversals_lazy_cache};
 use ordhook::core::pipeline::download_and_pipeline_blocks;
 use ordhook::core::pipeline::processors::block_archiving::start_block_archiving_processor;
 use ordhook::core::pipeline::processors::start_inscription_indexing_processor;
 use ordhook::core::protocol::inscription_parsing::parse_inscriptions_and_standardize_block;
+use ordhook::core::protocol::satoshi_numbering::compute_satoshi_number;
 use ordhook::db::{
     delete_data_in_ordhook_db, find_all_inscription_transfers, find_all_inscriptions_in_block,
     find_all_transfers_in_block, find_inscription_with_id, find_last_block_inserted,
@@ -36,6 +39,9 @@ use std::collections::BTreeMap;
 use std::io::{BufReader, Read};
 use std::path::PathBuf;
 use std::process;
+use std::sync::Arc;
+use std::thread::sleep;
+use std::time::Duration;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -68,14 +74,20 @@ enum ScanCommand {
     /// Retrieve activities for a given inscription
     #[clap(name = "inscription", bin_name = "inscription")]
     Inscription(ScanInscriptionCommand),
+    /// Retrieve activities for a given inscription
+    #[clap(name = "transaction", bin_name = "transaction")]
+    Transaction(ScanTransactionCommand),
+
 }
 
 #[derive(Parser, PartialEq, Clone, Debug)]
 struct ScanBlocksCommand {
-    /// Starting block
-    pub start_block: u64,
-    /// Ending block
-    pub end_block: u64,
+    /// Interval of blocks (--interval 767430:800000)
+    #[clap(long = "interval", conflicts_with = "blocks")]
+    pub blocks_interval: Option<String>,
+    /// List of blocks (--blocks 767430,767431,767433,800000)
+    #[clap(long = "blocks", conflicts_with = "interval")]
+    pub blocks: Option<String>,
     /// Target Regtest network
     #[clap(
         long = "regtest",
@@ -117,6 +129,43 @@ struct ScanBlocksCommand {
 struct ScanInscriptionCommand {
     /// Inscription Id
     pub inscription_id: String,
+    /// Target Regtest network
+    #[clap(
+        long = "regtest",
+        conflicts_with = "testnet",
+        conflicts_with = "mainnet"
+    )]
+    pub regtest: bool,
+    /// Target Testnet network
+    #[clap(
+        long = "testnet",
+        conflicts_with = "regtest",
+        conflicts_with = "mainnet"
+    )]
+    pub testnet: bool,
+    /// Target Mainnet network
+    #[clap(
+        long = "mainnet",
+        conflicts_with = "testnet",
+        conflicts_with = "regtest"
+    )]
+    pub mainnet: bool,
+    /// Load config file path
+    #[clap(
+        long = "config-path",
+        conflicts_with = "mainnet",
+        conflicts_with = "testnet",
+        conflicts_with = "regtest"
+    )]
+    pub config_path: Option<String>,
+}
+
+#[derive(Parser, PartialEq, Clone, Debug)]
+struct ScanTransactionCommand {
+    /// Block Hash
+    pub block_height: u64,
+    /// Inscription Id
+    pub transaction_id: String,
     /// Target Regtest network
     #[clap(
         long = "regtest",
@@ -456,6 +505,12 @@ pub fn main() {
         tracer: false,
     };
 
+    let maintenance_enabled = std::env::var("ORDHOOK_MAINTENANCE").unwrap_or("0".into());
+    if maintenance_enabled.eq("1") {
+        info!(ctx.expect_logger(), "Entering maintenance mode (default duration = 7 days). Unset ORDHOOK_MAINTENANCE and reboot to resume operations");
+        sleep(Duration::from_secs(3600 * 24 * 7))
+    }
+
     let opts: Opts = match Opts::try_parse() {
         Ok(opts) => opts,
         Err(e) => {
@@ -481,9 +536,8 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
             // - Replay based on SQLite queries
             // If post-to:
             // - Replay that requires connection to bitcoind
-            let mut block_range =
-                BlockHeights::BlockRange(cmd.start_block, cmd.end_block).get_sorted_entries();
-
+            let block_heights = parse_blocks_heights_spec(&cmd.blocks_interval, &cmd.blocks);
+            let mut block_range = block_heights.get_sorted_entries();
             if let Some(ref post_to) = cmd.post_to {
                 info!(ctx.expect_logger(), "A fully synchronized bitcoind node is required for retrieving inscriptions content.");
                 info!(
@@ -491,17 +545,20 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                     "Checking {}...", config.network.bitcoind_rpc_url
                 );
                 let tip = check_bitcoind_connection(&config).await?;
-                if tip < cmd.end_block {
-                    error!(ctx.expect_logger(), "Unable to scan block range [{}, {}]: underlying bitcoind synchronized until block #{} ", cmd.start_block, cmd.end_block, tip);
-                } else {
-                    info!(ctx.expect_logger(), "Starting scan");
+                if let Some(highest_desired) = block_range.pop_back() {
+                    if tip < highest_desired {
+                        error!(ctx.expect_logger(), "Unable to scan desired block range: underlying bitcoind synchronized until block #{} ", tip);
+                    } else {
+                        info!(ctx.expect_logger(), "Starting scan");
+                    }
+                    block_range.push_back(highest_desired);
                 }
 
                 let predicate_spec = build_predicate_from_cli(
                     &config,
                     post_to,
-                    cmd.start_block,
-                    Some(cmd.end_block),
+                    Some(&block_heights),
+                    None,
                     cmd.auth_token,
                 )?
                 .into_selected_network_specification(&config.network.bitcoin_network)?;
@@ -606,6 +663,16 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
             }
             println!("Number of transfers: {}", transfers.len() - 1);
         }
+        Command::Scan(ScanCommand::Transaction(cmd)) => {
+            let config: Config =
+                ConfigFile::default(cmd.regtest, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
+            let http_client = build_http_client();
+            let block = fetch_and_standardize_block(&http_client, cmd.block_height, &config.get_event_observer_config().get_bitcoin_config(), ctx).await?;
+            let transaction_identifier = TransactionIdentifier::new(&cmd.transaction_id);
+            let cache = new_traversals_lazy_cache(100);
+            let res = compute_satoshi_number(&config.get_ordhook_config().db_path, &block.block_identifier, &transaction_identifier, 0, 0, &Arc::new(cache), ctx)?;
+            println!("{:?}", res);
+        }
         Command::Service(subcmd) => match subcmd {
             ServiceCommand::Start(cmd) => {
                 let config =
@@ -647,18 +714,12 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                     let predicate = build_predicate_from_cli(
                         &config,
                         post_to,
-                        start_block,
                         None,
+                        Some(start_block),
                         cmd.auth_token.clone(),
                     )?;
                     predicates.push(ChainhookFullSpecification::Bitcoin(predicate));
                 }
-
-                // let predicates = cmd
-                //     .predicates_paths
-                //     .iter()
-                //     .map(|p| load_predicate_from_path(p))
-                //     .collect::<Result<Vec<ChainhookFullSpecification>, _>>()?;
 
                 let mut service = Service::new(config, ctx.clone());
                 return service.run(predicates, None).await;
@@ -842,18 +903,24 @@ pub async fn fetch_and_standardize_block(
 pub fn build_predicate_from_cli(
     config: &Config,
     post_to: &str,
-    start_block: u64,
-    end_block: Option<u64>,
+    block_heights: Option<&BlockHeights>,
+    start_block: Option<u64>,
     auth_token: Option<String>,
 ) -> Result<BitcoinChainhookFullSpecification, String> {
     let mut networks = BTreeMap::new();
     // Retrieve last block height known, and display it
+    let (start_block, end_block, blocks) = match (start_block, block_heights) {
+        (None, Some(BlockHeights::BlockRange(start, end))) => (Some(*start), Some(*end), None),
+        (None, Some(BlockHeights::Blocks(blocks))) => (None, None, Some(blocks.clone())),
+        (Some(start), None) => (Some(start), None, None),
+        _ => unreachable!(),
+    };
     networks.insert(
         config.network.bitcoin_network.clone(),
         BitcoinChainhookNetworkSpecification {
-            start_block: Some(start_block),
+            start_block,
             end_block,
-            blocks: None,
+            blocks,
             expire_after_occurrence: None,
             include_proof: None,
             include_inputs: None,
@@ -898,4 +965,35 @@ pub async fn check_bitcoind_connection(config: &Config) -> Result<u64, String> {
     };
 
     Ok(end_block)
+}
+
+fn parse_blocks_heights_spec(
+    blocks_interval: &Option<String>,
+    blocks: &Option<String>,
+) -> BlockHeights {
+    let blocks = match (blocks_interval, blocks) {
+        (Some(interval), None) => {
+            let blocks = interval.split(':').collect::<Vec<_>>();
+            let start_block: u64 = blocks
+                .first()
+                .expect("unable to get start_block")
+                .parse::<u64>()
+                .expect("unable to parse start_block");
+            let end_block: u64 = blocks
+                .get(1)
+                .expect("unable to get end_block")
+                .parse::<u64>()
+                .expect("unable to parse end_block");
+            BlockHeights::BlockRange(start_block, end_block)
+        }
+        (None, Some(blocks)) => {
+            let blocks = blocks
+                .split(',')
+                .map(|b| b.parse::<u64>().expect("unable to parse block"))
+                .collect::<Vec<_>>();
+            BlockHeights::Blocks(blocks)
+        }
+        _ => unreachable!(),
+    };
+    blocks
 }
