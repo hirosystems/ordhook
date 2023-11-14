@@ -8,16 +8,15 @@ use ordhook::chainhook_sdk::chainhooks::types::{
     BitcoinChainhookFullSpecification, BitcoinChainhookNetworkSpecification, BitcoinPredicateType,
     ChainhookFullSpecification, HookAction, OrdinalOperations,
 };
-use ordhook::chainhook_sdk::dashmap::DashMap;
 use ordhook::chainhook_sdk::indexer::bitcoin::{
     download_and_parse_block_with_retry, retrieve_block_hash_with_retry, build_http_client,
 };
 use ordhook::chainhook_sdk::observer::BitcoinConfig;
-use ordhook::chainhook_sdk::types::{BitcoinBlockData, BlockIdentifier, TransactionIdentifier};
+use ordhook::chainhook_sdk::types::{BitcoinBlockData, TransactionIdentifier};
 use ordhook::chainhook_sdk::utils::BlockHeights;
 use ordhook::chainhook_sdk::utils::Context;
 use ordhook::config::Config;
-use ordhook::core::{new_traversals_cache, new_traversals_lazy_cache};
+use ordhook::core::new_traversals_lazy_cache;
 use ordhook::core::pipeline::download_and_pipeline_blocks;
 use ordhook::core::pipeline::processors::block_archiving::start_block_archiving_processor;
 use ordhook::core::pipeline::processors::start_inscription_indexing_processor;
@@ -505,12 +504,6 @@ pub fn main() {
         tracer: false,
     };
 
-    let maintenance_enabled = std::env::var("ORDHOOK_MAINTENANCE").unwrap_or("0".into());
-    if maintenance_enabled.eq("1") {
-        info!(ctx.expect_logger(), "Entering maintenance mode (default duration = 7 days). Unset ORDHOOK_MAINTENANCE and reboot to resume operations");
-        sleep(Duration::from_secs(3600 * 24 * 7))
-    }
-
     let opts: Opts = match Opts::try_parse() {
         Ok(opts) => opts,
         Err(e) => {
@@ -675,6 +668,12 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
         }
         Command::Service(subcmd) => match subcmd {
             ServiceCommand::Start(cmd) => {
+                let maintenance_enabled = std::env::var("ORDHOOK_MAINTENANCE").unwrap_or("0".into());
+                if maintenance_enabled.eq("1") {
+                    info!(ctx.expect_logger(), "Entering maintenance mode (default duration = 7 days). Unset ORDHOOK_MAINTENANCE and reboot to resume operations");
+                    sleep(Duration::from_secs(3600 * 24 * 7))
+                }
+            
                 let config =
                     ConfigFile::default(cmd.regtest, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
 
