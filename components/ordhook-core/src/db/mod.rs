@@ -272,7 +272,7 @@ pub fn open_readwrite_ordhook_dbs(
     base_dir: &PathBuf,
     ctx: &Context,
 ) -> Result<(DB, Connection), String> {
-    let blocks_db = open_readwrite_ordhook_db_conn_rocks_db(&base_dir, &ctx)?;
+    let blocks_db = open_ordhook_db_conn_rocks_db_loop(true, &base_dir, &ctx);
     let inscriptions_db = open_readwrite_ordhook_db_conn(&base_dir, &ctx)?;
     Ok((blocks_db, inscriptions_db))
 }

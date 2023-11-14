@@ -451,7 +451,7 @@ impl Service {
 
             delete_data_in_ordhook_db(
                 767430,
-                800000,
+                820000,
                 &blocks_db,
                 &inscriptions_db_conn_rw,
                 &self.ctx,
