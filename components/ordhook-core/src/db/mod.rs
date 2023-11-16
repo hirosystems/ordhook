@@ -161,15 +161,7 @@ pub fn create_or_open_readwrite_db(cache_path: &PathBuf, ctx: &Context) -> Conne
         };
         std::thread::sleep(std::time::Duration::from_secs(1));
     };
-    // db.profile(Some(trace_profile));
-    conn.busy_timeout(std::time::Duration::from_secs(300))
-        .expect("unable to set db timeout");
-    // let mmap_size: i64 = 256 * 1024 * 1024;
-    // let page_size: i64 = 16384;
-    // conn.pragma_update(None, "mmap_size", mmap_size).unwrap();
-    // conn.pragma_update(None, "page_size", page_size).unwrap();
-    // conn.pragma_update(None, "synchronous", &"NORMAL").unwrap();
-    conn
+    connection_with_defaults_pragma(conn)
 }
 
 fn open_existing_readonly_db(path: &PathBuf, ctx: &Context) -> Connection {
@@ -198,9 +190,19 @@ fn open_existing_readonly_db(path: &PathBuf, ctx: &Context) -> Connection {
         };
         std::thread::sleep(std::time::Duration::from_secs(1));
     };
+    connection_with_defaults_pragma(conn)
+}
+
+fn connection_with_defaults_pragma(conn: Connection) -> Connection {
     conn.busy_timeout(std::time::Duration::from_secs(300))
         .expect("unable to set db timeout");
-    return conn;
+    conn.pragma_update(None, "mmap_size", 512 * 1024 * 1024)
+        .expect("unable to enable mmap_size");
+    conn.pragma_update(None, "cache_size", 512 * 1024 * 1024)
+        .expect("unable to enable cache_size");
+    conn.pragma_update(None, "journal_mode", &"WAL")
+        .expect("unable to enable wal");
+    conn
 }
 
 fn get_default_ordhook_db_file_path_rocks_db(base_dir: &PathBuf) -> PathBuf {
@@ -211,11 +213,6 @@ fn get_default_ordhook_db_file_path_rocks_db(base_dir: &PathBuf) -> PathBuf {
 
 fn rocks_db_default_options() -> rocksdb::Options {
     let mut opts = rocksdb::Options::default();
-    opts.create_if_missing(true);
-    // opts.prepare_for_bulk_load();
-    // opts.set_compression_type(rocksdb::DBCompressionType::Lz4);
-    // opts.set_blob_compression_type(rocksdb::DBCompressionType::Lz4);
-    // opts.increase_parallelism(parallelism)
     // Per rocksdb's documentation:
     // If cache_index_and_filter_blocks is false (which is default),
     // the number of index/filter blocks is controlled by option max_open_files.
@@ -223,7 +220,24 @@ fn rocks_db_default_options() -> rocksdb::Options {
     // we recommend setting max_open_files to -1, which means infinity.
     // This option will preload all filter and index blocks and will not need to maintain LRU of files.
     // Setting max_open_files to -1 will get you the best possible performance.
-    opts.set_max_open_files(4096);
+    // Additional documentation:
+    // https://betterprogramming.pub/navigating-the-minefield-of-rocksdb-configuration-options-246af1e1d3f9
+    opts.set_write_buffer_size(128 * 1024 * 1024);
+    opts.set_blob_file_size(64 * 1024 * 1024);
+    opts.set_target_file_size_base(16 * 1024 * 1024);
+    opts.set_max_open_files(-1);
+    opts.create_if_missing(true);
+    opts.optimize_for_point_lookup(512 * 1024 * 1024);
+    opts.set_level_zero_stop_writes_trigger(48);
+    opts.set_level_zero_slowdown_writes_trigger(0);
+    opts.set_enable_blob_files(true);
+    opts.set_enable_blob_gc(true);
+    // opts.set_use_fsync(false);
+    // opts.set_bytes_per_sync(8388608);
+    // opts.set_compaction_style(DBCompactionStyle::Universal);
+    // opts.set_disable_auto_compactions(true);
+    // opts.set_compression_type(rocksdb::DBCompressionType::Lz4);
+    // opts.set_blob_compression_type(rocksdb::DBCompressionType::Lz4);
     opts
 }
 
