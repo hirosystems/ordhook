@@ -52,6 +52,7 @@ impl ConfigFile {
             "devnet" => (StacksNetwork::Devnet, BitcoinNetwork::Regtest),
             "testnet" => (StacksNetwork::Testnet, BitcoinNetwork::Testnet),
             "mainnet" => (StacksNetwork::Mainnet, BitcoinNetwork::Mainnet),
+            "signet" => (StacksNetwork::Testnet, BitcoinNetwork::Signet),
             _ => return Err("network.mode not supported".to_string()),
         };
 

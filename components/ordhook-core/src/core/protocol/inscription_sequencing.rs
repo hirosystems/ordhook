@@ -498,6 +498,7 @@ pub fn augment_block_with_ordinals_inscriptions_data(
         BitcoinNetwork::Mainnet => Network::Bitcoin,
         BitcoinNetwork::Regtest => Network::Regtest,
         BitcoinNetwork::Testnet => Network::Testnet,
+        BitcoinNetwork::Signet => Network::Signet,
     };
 
     for (tx_index, tx) in block.transactions.iter_mut().enumerate() {
@@ -770,6 +771,7 @@ pub fn consolidate_block_with_pre_computed_ordinals_data(
         BitcoinNetwork::Mainnet => Network::Bitcoin,
         BitcoinNetwork::Regtest => Network::Regtest,
         BitcoinNetwork::Testnet => Network::Testnet,
+        BitcoinNetwork::Signet => Network::Signet,
     };
 
     let coinbase_subsidy = Height(block.block_identifier.index).subsidy();
