@@ -9,7 +9,7 @@ use ordhook::chainhook_sdk::chainhooks::types::{
     ChainhookFullSpecification, HookAction, OrdinalOperations,
 };
 use ordhook::chainhook_sdk::indexer::bitcoin::{
-    download_and_parse_block_with_retry, retrieve_block_hash_with_retry, build_http_client,
+    build_http_client, download_and_parse_block_with_retry, retrieve_block_hash_with_retry,
 };
 use ordhook::chainhook_sdk::observer::BitcoinConfig;
 use ordhook::chainhook_sdk::types::{BitcoinBlockData, TransactionIdentifier};
@@ -27,8 +27,8 @@ use ordhook::db::{
     find_all_transfers_in_block, find_inscription_with_id, find_last_block_inserted,
     find_latest_inscription_block_height, find_lazy_block_at_block_height,
     get_default_ordhook_db_file_path, initialize_ordhook_db, open_readonly_ordhook_db_conn,
-    open_readonly_ordhook_db_conn_rocks_db, open_readwrite_ordhook_db_conn,
-    open_readwrite_ordhook_db_conn_rocks_db,
+    open_readonly_ordhook_db_conn_rocks_db, open_readwrite_ordhook_db_conn, open_ordhook_db_conn_rocks_db_loop,
+    
 };
 use ordhook::download::download_ordinals_dataset_if_required;
 use ordhook::scan::bitcoin::scan_bitcoin_chainstate_via_rpc_using_predicate;
@@ -76,7 +76,6 @@ enum ScanCommand {
     /// Retrieve activities for a given inscription
     #[clap(name = "transaction", bin_name = "transaction")]
     Transaction(ScanTransactionCommand),
-
 }
 
 #[derive(Parser, PartialEq, Clone, Debug)]
@@ -660,20 +659,35 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
             let config: Config =
                 ConfigFile::default(cmd.regtest, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
             let http_client = build_http_client();
-            let block = fetch_and_standardize_block(&http_client, cmd.block_height, &config.get_event_observer_config().get_bitcoin_config(), ctx).await?;
+            let block = fetch_and_standardize_block(
+                &http_client,
+                cmd.block_height,
+                &config.get_event_observer_config().get_bitcoin_config(),
+                ctx,
+            )
+            .await?;
             let transaction_identifier = TransactionIdentifier::new(&cmd.transaction_id);
             let cache = new_traversals_lazy_cache(100);
-            let res = compute_satoshi_number(&config.get_ordhook_config().db_path, &block.block_identifier, &transaction_identifier, 0, 0, &Arc::new(cache), ctx)?;
+            let res = compute_satoshi_number(
+                &config.get_ordhook_config().db_path,
+                &block.block_identifier,
+                &transaction_identifier,
+                0,
+                0,
+                &Arc::new(cache),
+                ctx,
+            )?;
             println!("{:?}", res);
         }
         Command::Service(subcmd) => match subcmd {
             ServiceCommand::Start(cmd) => {
-                let maintenance_enabled = std::env::var("ORDHOOK_MAINTENANCE").unwrap_or("0".into());
+                let maintenance_enabled =
+                    std::env::var("ORDHOOK_MAINTENANCE").unwrap_or("0".into());
                 if maintenance_enabled.eq("1") {
                     info!(ctx.expect_logger(), "Entering maintenance mode (default duration = 7 days). Unset ORDHOOK_MAINTENANCE and reboot to resume operations");
                     sleep(Duration::from_secs(3600 * 24 * 7))
                 }
-            
+
                 let config =
                     ConfigFile::default(cmd.regtest, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
 
@@ -685,7 +699,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 let last_known_block =
                     find_latest_inscription_block_height(&inscriptions_db_conn, ctx)?;
                 if last_known_block.is_none() {
-                    open_readwrite_ordhook_db_conn_rocks_db(&config.expected_cache_path(), ctx)?;
+                    open_ordhook_db_conn_rocks_db_loop(true, &config.expected_cache_path(), ctx);
                 }
 
                 let ordhook_config = config.get_ordhook_config();
@@ -742,7 +756,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
         Command::Db(OrdhookDbCommand::New(cmd)) => {
             let config = ConfigFile::default(false, false, false, &cmd.config_path)?;
             initialize_ordhook_db(&config.expected_cache_path(), ctx);
-            open_readwrite_ordhook_db_conn_rocks_db(&config.expected_cache_path(), ctx)?;
+            open_ordhook_db_conn_rocks_db_loop(true, &config.expected_cache_path(), ctx);
         }
         Command::Db(OrdhookDbCommand::Sync(cmd)) => {
             let config = ConfigFile::default(false, false, false, &cmd.config_path)?;
@@ -848,7 +862,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
         Command::Db(OrdhookDbCommand::Drop(cmd)) => {
             let config = ConfigFile::default(false, false, false, &cmd.config_path)?;
             let blocks_db =
-                open_readwrite_ordhook_db_conn_rocks_db(&config.expected_cache_path(), ctx)?;
+            open_ordhook_db_conn_rocks_db_loop(true, &config.expected_cache_path(), ctx);
             let inscriptions_db_conn_rw =
                 open_readwrite_ordhook_db_conn(&config.expected_cache_path(), ctx)?;
 

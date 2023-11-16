@@ -1,7 +1,7 @@
 use std::{
     collections::BTreeMap,
     io::{Read, Write},
-    path::PathBuf,
+    path::PathBuf, thread::sleep, time::Duration,
 };
 
 use rand::{thread_rng, Rng};
@@ -277,7 +277,7 @@ pub fn open_readwrite_ordhook_dbs(
     Ok((blocks_db, inscriptions_db))
 }
 
-pub fn open_readwrite_ordhook_db_conn_rocks_db(
+fn open_readwrite_ordhook_db_conn_rocks_db(
     base_dir: &PathBuf,
     _ctx: &Context,
 ) -> Result<DB, String> {
@@ -293,12 +293,30 @@ pub fn insert_entry_in_blocks(
     lazy_block: &LazyBlock,
     update_tip: bool,
     blocks_db_rw: &DB,
-    _ctx: &Context,
+    ctx: &Context,
 ) {
     let block_height_bytes = block_height.to_be_bytes();
-    blocks_db_rw
-        .put(&block_height_bytes, &lazy_block.bytes)
-        .expect("unable to insert blocks");
+    let mut retries = 0;
+    loop {
+        let res = blocks_db_rw.put(&block_height_bytes, &lazy_block.bytes);
+        match res {
+            Ok(_) => break,
+            Err(e) => {
+                retries += 1;
+                if retries > 10 {
+                    ctx.try_log(|logger| {
+                        error!(
+                            logger,
+                            "unable to insert block {block_height} ({}). will retry in 5 secs",
+                            e.to_string()
+                        );
+                    });
+                    sleep(Duration::from_secs(5));
+                }
+            }
+        }
+    }
+
     if update_tip {
         blocks_db_rw
             .put(b"metadata::last_insert", block_height_bytes)

@@ -16,7 +16,7 @@ use crate::core::protocol::inscription_sequencing::SequenceCursor;
 use crate::core::{new_traversals_lazy_cache, should_sync_ordhook_db, should_sync_rocks_db};
 use crate::db::{
     delete_data_in_ordhook_db, insert_entry_in_blocks, open_readwrite_ordhook_db_conn,
-    open_readwrite_ordhook_db_conn_rocks_db, open_readwrite_ordhook_dbs,
+    open_ordhook_db_conn_rocks_db_loop, open_readwrite_ordhook_dbs,
     update_inscriptions_with_block, update_locations_with_block, LazyBlock, LazyBlockTransaction,
 };
 use crate::scan::bitcoin::process_block_with_predicates;
@@ -442,10 +442,11 @@ impl Service {
         event_observer_config: &EventObserverConfig,
     ) -> Result<(), String> {
         if rebuild_from_scratch {
-            let blocks_db = open_readwrite_ordhook_db_conn_rocks_db(
+            let blocks_db = open_ordhook_db_conn_rocks_db_loop(
+                true,
                 &self.config.expected_cache_path(),
                 &self.ctx,
-            )?;
+            );
             let inscriptions_db_conn_rw =
                 open_readwrite_ordhook_db_conn(&self.config.expected_cache_path(), &self.ctx)?;
 

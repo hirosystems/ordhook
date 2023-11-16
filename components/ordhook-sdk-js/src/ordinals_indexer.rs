@@ -52,11 +52,6 @@ impl OrdinalsIndexingRunloop {
       tracer: false,
     };
 
-    // Initialize service
-    // {
-    //     let _ = initialize_ordhook_db(&ordhook_config.expected_cache_path(), &ctx);
-    //     let _ = open_readwrite_ordhook_db_conn_rocks_db(&ordhook_config.expected_cache_path(), &ctx);
-    // }
     let mut service: Service = Service::new(ordhook_config, ctx);
 
     // Set-up the observer sidecar - used for augmenting the bitcoin blocks with
