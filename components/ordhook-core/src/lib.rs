@@ -10,6 +10,7 @@ extern crate serde_derive;
 extern crate serde;
 
 pub extern crate chainhook_sdk;
+pub extern crate hex;
 
 pub mod config;
 pub mod core;

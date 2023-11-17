@@ -225,6 +225,9 @@ struct RepairStorageCommand {
     /// Cascade to observers
     #[clap(short, long, action = clap::ArgAction::SetTrue)]
     pub repair_observers: Option<bool>,
+    /// Display debug logs
+    #[clap(short, long, action = clap::ArgAction::SetTrue)]
+    pub debug: Option<bool>,
 }
 
 impl RepairStorageCommand {
@@ -785,7 +788,28 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                     10_000,
                     ctx,
                 )
-                .await?
+                .await?;
+                if let Some(true) = cmd.debug {
+                    let blocks_db = open_ordhook_db_conn_rocks_db_loop(false, &config.get_ordhook_config().db_path, ctx);
+                    for i in cmd.get_blocks().into_iter() {
+                        let block = find_lazy_block_at_block_height(i as u32, 10, false, &blocks_db, ctx).expect("unable to retrieve block {i}");
+                        info!(
+                            ctx.expect_logger(),
+                            "--------------------"
+                        );
+                        info!(
+                            ctx.expect_logger(),
+                            "Block: {i}"
+                        );
+                        for tx in block.iter_tx() {
+                            info!(
+                                ctx.expect_logger(),
+                                "Tx: {}",
+                                ordhook::hex::encode(tx.txid)
+                            );
+                        }
+                    }    
+                }
             }
             RepairCommand::Inscriptions(cmd) => {
                 let config = ConfigFile::default(false, false, false, &cmd.config_path)?;
