@@ -1300,9 +1300,18 @@ impl LazyBlock {
         let tx_len = block.tx.len() as u16 - 1;
         buffer.write(&tx_len.to_be_bytes())?;
         // For each transaction:
+        let u16_max = u16::MAX as usize;
         for tx in block.tx.iter().skip(1) {
-            let inputs_len = tx.vin.len() as u16;
-            let outputs_len = tx.vout.len() as u16;
+            let inputs_len = if tx.vin.len() > u16_max {
+                0 
+            } else {
+                tx.vin.len() as u16
+            };
+            let outputs_len = if tx.vout.len() > u16_max {
+                0 
+            } else {
+                tx.vout.len() as u16
+            };
             // Number of inputs
             buffer.write(&inputs_len.to_be_bytes())?;
             // Number of outputs
@@ -1332,8 +1341,21 @@ impl LazyBlock {
                 ]
             };
             buffer.write_all(&txid)?;
+
+            let inputs_len = if tx.vin.len() > u16_max {
+                0 
+            } else {
+                tx.vin.len() as usize
+            };
+            let outputs_len = if tx.vout.len() > u16_max {
+                0 
+            } else {
+                tx.vout.len() as usize
+            };
+
             // For each transaction input:
-            for input in tx.vin.iter() {
+            for i in 0..inputs_len {
+                let input = &tx.vin[i];
                 // txin - 8 first bytes
                 let txin = {
                     let txid = hex::decode(input.txid.as_ref().unwrap().to_string()).unwrap();
@@ -1353,7 +1375,8 @@ impl LazyBlock {
                 buffer.write(&sats.to_be_bytes())?;
             }
             // For each transaction output:
-            for output in tx.vout.iter() {
+            for i in 0..outputs_len {
+                let output = &tx.vout[i];
                 let sats = output.value.to_sat();
                 buffer.write(&sats.to_be_bytes())?;
             }
