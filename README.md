@@ -52,13 +52,13 @@ The activity for a given inscription can be retrieved using the following comman
 ```console
 $ ordhook scan inscription 6fb976ab49dcec017f1e201e84395983204ae1a7c2abf7ced0a85d692e442799i0 --mainnet
 Inscription 6fb976ab49dcec017f1e201e84395983204ae1a7c2abf7ced0a85d692e442799i0 revealed at block #767430 (ordinal_number 1252201400444387, inscription_number 0)
-Transfered in transaction bc4c30829a9564c0d58e6287195622b53ced54a25711d1b86be7cd3a70ef61ed at block 785396
+Transferred in transaction bc4c30829a9564c0d58e6287195622b53ced54a25711d1b86be7cd3a70ef61ed at block 785396
 ```
 
 ---
 ### Stream Ordinal activities to an indexer
 
-`ordhook` is designed to help developers extracting ordinals activities (inscriptions and transfers) from the Bitcoin chain and streaming these activities to their indexer / web application.
+`ordhook` is designed to help developers extract ordinals activities (inscriptions and transfers) from the Bitcoin chain and streaming these activities to their indexer / web application.
 
 In order to get started, a `bitcoind` instance with access to the RPC methods `getblockhash` and `getblock` must be running. The RPC calls latency will directly impact the speed of the scans.
 
