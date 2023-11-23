@@ -1,3 +1,28 @@
+## [1.1.0](https://github.com/hirosystems/ordhook/compare/v1.0.1...v1.1.0) (2023-11-23)
+
+
+### Features
+
+* ordhook-sdk-js refactoring ([#186](https://github.com/hirosystems/ordhook/issues/186)) ([0d145df](https://github.com/hirosystems/ordhook/commit/0d145dfb899b564fe56ea04aa554012103af5dec))
+
+
+### Bug Fixes
+
+* add destination to transfer events - release v1.0.2 ([47f365e](https://github.com/hirosystems/ordhook/commit/47f365eb4786721c09524fb3454ba34d70a8dbd9)), closes [#170](https://github.com/hirosystems/ordhook/issues/170) [#171](https://github.com/hirosystems/ordhook/issues/171) [#285](https://github.com/hirosystems/ordhook/issues/285) [#310](https://github.com/hirosystems/ordhook/issues/310) [#168](https://github.com/hirosystems/ordhook/issues/168) [#173](https://github.com/hirosystems/ordhook/issues/173) [#175](https://github.com/hirosystems/ordhook/issues/175) [#178](https://github.com/hirosystems/ordhook/issues/178) [#182](https://github.com/hirosystems/ordhook/issues/182) [#183](https://github.com/hirosystems/ordhook/issues/183)
+* build error / warning ([055c0d7](https://github.com/hirosystems/ordhook/commit/055c0d78d626c51903347bba2c01ebeb29973f9f))
+* ci ([ac3d458](https://github.com/hirosystems/ordhook/commit/ac3d4580f961b3b054047fe81278330c8ce009bc))
+* CI rust version mismatch, create empty db  ([#173](https://github.com/hirosystems/ordhook/issues/173)) ([cd2842e](https://github.com/hirosystems/ordhook/commit/cd2842eac79b624ad76c3cd2bccf3fdd5da800d9))
+* databases lock ([d0b57c5](https://github.com/hirosystems/ordhook/commit/d0b57c5771e623219219f7bdb3d7f9ac055105bc))
+* enable streaming for in-memory observers ([#171](https://github.com/hirosystems/ordhook/issues/171)) ([50f8393](https://github.com/hirosystems/ordhook/commit/50f8393ae351e6c504188103371ad7be6a7a0c74))
+* grammar tweaks ([54e5fa1](https://github.com/hirosystems/ordhook/commit/54e5fa1321fece6f01a248472f5c15d778ea3ae0))
+* grammar tweaks ([e50aef0](https://github.com/hirosystems/ordhook/commit/e50aef00b47fa653fb263a6af63b1e88dbc6a519))
+* grammar updates ([66a4559](https://github.com/hirosystems/ordhook/commit/66a4559aecfd8beea91ebdf24f665a1a58f475d8))
+* initial flow ([#178](https://github.com/hirosystems/ordhook/issues/178)) ([8bb24be](https://github.com/hirosystems/ordhook/commit/8bb24beb9a6eedec546cc1f449b5abfee7fd8aaa))
+* release 1.0.2 ([#179](https://github.com/hirosystems/ordhook/issues/179)) ([ec1f28e](https://github.com/hirosystems/ordhook/commit/ec1f28ea5083443b1598636f2d2efb325eb94d34)), closes [#170](https://github.com/hirosystems/ordhook/issues/170) [#171](https://github.com/hirosystems/ordhook/issues/171) [#285](https://github.com/hirosystems/ordhook/issues/285) [#310](https://github.com/hirosystems/ordhook/issues/310) [#168](https://github.com/hirosystems/ordhook/issues/168) [#173](https://github.com/hirosystems/ordhook/issues/173) [#175](https://github.com/hirosystems/ordhook/issues/175) [#178](https://github.com/hirosystems/ordhook/issues/178)
+* release develop ([#214](https://github.com/hirosystems/ordhook/issues/214)) ([4a31032](https://github.com/hirosystems/ordhook/commit/4a3103233bfe9d44f27ae5a8ed5437f758a5be23))
+* release v1.0.2 ([#180](https://github.com/hirosystems/ordhook/issues/180)) ([ac3915f](https://github.com/hirosystems/ordhook/commit/ac3915f035a2777f1a0aaf00dee66fafc5f04db6)), closes [#170](https://github.com/hirosystems/ordhook/issues/170) [#171](https://github.com/hirosystems/ordhook/issues/171) [#285](https://github.com/hirosystems/ordhook/issues/285) [#310](https://github.com/hirosystems/ordhook/issues/310) [#168](https://github.com/hirosystems/ordhook/issues/168) [#173](https://github.com/hirosystems/ordhook/issues/173) [#175](https://github.com/hirosystems/ordhook/issues/175) [#178](https://github.com/hirosystems/ordhook/issues/178)
+* service boot sequence ([#175](https://github.com/hirosystems/ordhook/issues/175)) ([a744825](https://github.com/hirosystems/ordhook/commit/a74482588ca7acb8121be6724b0a7d8897fe3e7a))
+
 ## [1.0.1](https://github.com/hirosystems/ordhook/compare/v1.0.0...v1.0.1) (2023-09-15)
 
 
