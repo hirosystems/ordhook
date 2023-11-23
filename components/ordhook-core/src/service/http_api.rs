@@ -278,19 +278,23 @@ pub fn get_entries_from_predicates_db(
         let chainhook = match get_entry_from_predicates_db(predicate_key, predicate_db_conn, ctx) {
             Ok(Some((spec, status))) => (spec, status),
             Ok(None) => {
-                warn!(
-                    ctx.expect_logger(),
-                    "unable to load predicate associated with key {}", predicate_key,
-                );
+                ctx.try_log(|logger| {
+                    warn!(
+                        logger,
+                        "unable to load predicate associated with key {}", predicate_key,
+                    )
+                });
                 continue;
             }
             Err(e) => {
-                error!(
-                    ctx.expect_logger(),
-                    "unable to load predicate associated with key {}: {}",
-                    predicate_key,
-                    e.to_string()
-                );
+                ctx.try_log(|logger| {
+                    error!(
+                        logger,
+                        "unable to load predicate associated with key {}: {}",
+                        predicate_key,
+                        e.to_string()
+                    )
+                });
                 continue;
             }
         };

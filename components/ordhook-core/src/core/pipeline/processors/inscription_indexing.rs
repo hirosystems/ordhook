@@ -83,7 +83,6 @@ pub fn start_inscription_indexing_processor(
                         (compacted_blocks, blocks)
                     }
                     Ok(PostProcessorCommand::Terminate) => {
-                        debug!(ctx.expect_logger(), "Terminating block processor");
                         let _ = events_tx.send(PostProcessorEvent::Terminated);
                         break;
                     }
@@ -91,7 +90,9 @@ pub fn start_inscription_indexing_processor(
                         TryRecvError::Empty => {
                             empty_cycles += 1;
                             if empty_cycles == 180 {
-                                warn!(ctx.expect_logger(), "Block processor reached expiration");
+                                ctx.try_log(|logger| {
+                                    info!(logger, "Block processor reached expiration")
+                                });
                                 let _ = events_tx.send(PostProcessorEvent::Expired);
                                 break;
                             }
@@ -117,7 +118,7 @@ pub fn start_inscription_indexing_processor(
                     );
                 }
 
-                info!(ctx.expect_logger(), "Processing {} blocks", blocks.len());
+                ctx.try_log(|logger| info!(logger, "Processing {} blocks", blocks.len()));
 
                 blocks = process_blocks(
                     &mut blocks,
@@ -132,19 +133,19 @@ pub fn start_inscription_indexing_processor(
                 garbage_collect_nth_block += blocks.len();
 
                 if garbage_collect_nth_block > garbage_collect_every_n_blocks {
+                    ctx.try_log(|logger| info!(logger, "Performing garbage collecting"));
+
                     // Clear L2 cache on a regular basis
-                    info!(
-                        ctx.expect_logger(),
-                        "Clearing cache L2 ({} entries)",
-                        cache_l2.len()
-                    );
+                    ctx.try_log(|logger| {
+                        info!(logger, "Clearing cache L2 ({} entries)", cache_l2.len())
+                    });
                     cache_l2.clear();
 
                     // Recreate sqlite db connection on a regular basis
                     inscriptions_db_conn_rw =
                         open_readwrite_ordhook_db_conn(&config.expected_cache_path(), &ctx)
                             .unwrap();
-
+                    inscriptions_db_conn_rw.flush_prepared_statement_cache();
                     garbage_collect_nth_block = 0;
                 }
             }
@@ -215,7 +216,7 @@ pub fn process_blocks(
 
         if any_existing_activity {
             ctx.try_log(|logger| {
-                warn!(
+                error!(
                     logger,
                     "Dropping updates for block #{}, activities present in database",
                     block.block_identifier.index,

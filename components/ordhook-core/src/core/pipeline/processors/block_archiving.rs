@@ -9,7 +9,7 @@ use std::{
 use crate::{
     config::Config,
     core::pipeline::{PostProcessorCommand, PostProcessorController, PostProcessorEvent},
-    db::{insert_entry_in_blocks, open_readwrite_ordhook_db_conn_rocks_db, LazyBlock},
+    db::{insert_entry_in_blocks, LazyBlock, open_ordhook_db_conn_rocks_db_loop},
 };
 
 pub fn start_block_archiving_processor(
@@ -26,18 +26,15 @@ pub fn start_block_archiving_processor(
     let handle: JoinHandle<()> = hiro_system_kit::thread_named("Processor Runloop")
         .spawn(move || {
             let blocks_db_rw =
-                open_readwrite_ordhook_db_conn_rocks_db(&config.expected_cache_path(), &ctx)
-                    .unwrap();
+                open_ordhook_db_conn_rocks_db_loop(true, &config.expected_cache_path(), &ctx);
             let mut processed_blocks = 0;
 
             loop {
-                debug!(ctx.expect_logger(), "Tick");
                 let (compacted_blocks, _) = match commands_rx.try_recv() {
                     Ok(PostProcessorCommand::ProcessBlocks(compacted_blocks, blocks)) => {
                         (compacted_blocks, blocks)
                     }
                     Ok(PostProcessorCommand::Terminate) => {
-                        debug!(ctx.expect_logger(), "Terminating block processor");
                         let _ = events_tx.send(PostProcessorEvent::Terminated);
                         break;
                     }

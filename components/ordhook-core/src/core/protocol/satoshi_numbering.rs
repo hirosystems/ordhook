@@ -234,7 +234,17 @@ pub fn compute_satoshi_number(
             // isolate the target transaction
             let lazy_tx = match lazy_block.find_and_serialize_transaction_with_txid(&txid) {
                 Some(entry) => entry,
-                None => unreachable!(),
+                None => {
+                    ctx.try_log(|logger| {
+                        error!(
+                            logger,
+                            "fatal: unable to retrieve tx ancestor {} in block {ordinal_block_number} (satpoint {}:{inscription_input_index})",
+                            hex::encode(txid),
+                            transaction_identifier.get_hash_bytes_str(),
+                        )
+                    });
+                    std::process::exit(1);
+                },
             };
 
             let mut sats_out = 0;

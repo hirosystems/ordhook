@@ -30,11 +30,11 @@ COPY ./components/ordhook-cli /src/components/ordhook-cli
 
 WORKDIR /src/components/ordhook-sdk-js
 
-RUN yarn install
+# RUN yarn install
 
-RUN yarn build
+# RUN yarn build
 
-RUN cp *.node /out
+# RUN cp *.node /out
 
 WORKDIR /src/components/ordhook-cli
 
@@ -46,11 +46,9 @@ FROM debian:bullseye-slim
 
 WORKDIR /ordhook-sdk-js
 
-RUN apt update && apt install -y ca-certificates libssl-dev
+RUN apt-get update && apt-get install -y ca-certificates libssl-dev
 
-COPY --from=build /out/*.node /ordhook-sdk-js/
-
-COPY --from=build /out/ordhook /bin/ordhook
+# COPY --from=build /out/*.node /ordhook-sdk-js/
 
 COPY --from=build /out/ordhook /bin/ordhook
 

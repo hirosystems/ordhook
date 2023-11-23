@@ -1,6 +1,7 @@
 use crate::config::{Config, PredicatesApi};
 use crate::core::protocol::inscription_parsing::{
-    get_inscriptions_revealed_in_block, parse_inscriptions_and_standardize_block,
+    get_inscriptions_revealed_in_block, get_inscriptions_transferred_in_block,
+    parse_inscriptions_and_standardize_block,
 };
 use crate::core::protocol::inscription_sequencing::consolidate_block_with_pre_computed_ordinals_data;
 use crate::db::{get_any_entry_in_ordinal_activities, open_readonly_ordhook_db_conn};
@@ -75,9 +76,6 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
         BlockHeights::BlockRange(start_block, end_block).get_sorted_entries()
     };
 
-    let mut inscriptions_db_conn =
-        open_readonly_ordhook_db_conn(&config.expected_cache_path(), ctx)?;
-
     info!(
         ctx.expect_logger(),
         "Starting predicate evaluation on Bitcoin blocks",
@@ -96,6 +94,9 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
     let http_client = build_http_client();
 
     while let Some(current_block_height) = block_heights_to_scan.pop_front() {
+        let mut inscriptions_db_conn =
+            open_readonly_ordhook_db_conn(&config.expected_cache_path(), ctx)?;
+
         number_of_blocks_scanned += 1;
 
         if !get_any_entry_in_ordinal_activities(&current_block_height, &inscriptions_db_conn, &ctx)
@@ -143,9 +144,11 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
             .map(|d| d.inscription_number.to_string())
             .collect::<Vec<String>>();
 
+        let inscriptions_transferred = get_inscriptions_transferred_in_block(&block).len();
+
         info!(
             ctx.expect_logger(),
-            "Processing block #{current_block_height} through {} predicate ({} inscriptions revealed: [{}])",
+            "Processing block #{current_block_height} through {} predicate revealed {} new inscriptions [{}] and {inscriptions_transferred} transfers",
             predicate_spec.uuid,
             inscriptions_revealed.len(),
             inscriptions_revealed.join(", ")
