@@ -23,6 +23,7 @@ impl Chain {
             BitcoinNetwork::Mainnet => Chain::Mainnet,
             BitcoinNetwork::Testnet => Chain::Testnet,
             BitcoinNetwork::Regtest => Chain::Regtest,
+            BitcoinNetwork::Signet => Chain::Signet,
         }
     }
 
