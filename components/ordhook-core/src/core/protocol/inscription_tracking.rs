@@ -30,6 +30,7 @@ pub fn augment_block_with_ordinals_transfer_data(
         BitcoinNetwork::Mainnet => Network::Bitcoin,
         BitcoinNetwork::Regtest => Network::Regtest,
         BitcoinNetwork::Testnet => Network::Testnet,
+        BitcoinNetwork::Signet => Network::Signet,
     };
 
     let coinbase_subsidy = Height(block.block_identifier.index).subsidy();

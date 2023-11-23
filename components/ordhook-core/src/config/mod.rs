@@ -96,7 +96,7 @@ impl Config {
                 BitcoinNetwork::Mainnet => 767430,
                 BitcoinNetwork::Regtest => 1,
                 BitcoinNetwork::Testnet => 2413343,
-                // BitcoinNetwork::Signet => 112402,
+                BitcoinNetwork::Signet => 112402,
             },
             logs: self.logs.clone(),
         }
