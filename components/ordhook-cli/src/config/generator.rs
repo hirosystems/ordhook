@@ -45,5 +45,5 @@ chainhook_internals = true
 "#,
         network = network.to_lowercase(),
     );
-    return conf;
+    conf
 }

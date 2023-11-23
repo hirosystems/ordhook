@@ -1,7 +1,7 @@
 use std::{
     collections::BTreeMap,
     io::{Read, Write},
-    path::PathBuf,
+    path::PathBuf, thread::sleep, time::Duration,
 };
 
 use rand::{thread_rng, Rng};
@@ -73,20 +73,20 @@ pub fn initialize_ordhook_db(path: &PathBuf, ctx: &Context) -> Connection {
             "CREATE INDEX IF NOT EXISTS index_inscriptions_on_ordinal_number ON inscriptions(ordinal_number);",
             [],
         ) {
-            ctx.try_log(|logger| warn!(logger, "{}", e.to_string()));
+            ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
         }
         if let Err(e) = conn.execute(
             "CREATE INDEX IF NOT EXISTS index_inscriptions_on_inscription_number ON inscriptions(inscription_number);",
             [],
         ) {
-            ctx.try_log(|logger| warn!(logger, "{}", e.to_string()));
+            ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
         }
 
         if let Err(e) = conn.execute(
             "CREATE INDEX IF NOT EXISTS index_inscriptions_on_block_height ON inscriptions(block_height);",
             [],
         ) {
-            ctx.try_log(|logger| warn!(logger, "{}", e.to_string()));
+            ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
         }
     }
     if let Err(e) = conn.execute(
@@ -111,19 +111,19 @@ pub fn initialize_ordhook_db(path: &PathBuf, ctx: &Context) -> Connection {
             "CREATE INDEX IF NOT EXISTS locations_indexed_on_block_height ON locations(block_height);",
             [],
         ) {
-            ctx.try_log(|logger| warn!(logger, "{}", e.to_string()));
+            ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
         }
         if let Err(e) = conn.execute(
             "CREATE INDEX IF NOT EXISTS locations_indexed_on_outpoint_to_watch ON locations(outpoint_to_watch);",
             [],
         ) {
-            ctx.try_log(|logger| warn!(logger, "{}", e.to_string()));
+            ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
         }
         if let Err(e) = conn.execute(
             "CREATE INDEX IF NOT EXISTS locations_indexed_on_inscription_id ON locations(inscription_id);",
             [],
         ) {
-            ctx.try_log(|logger| warn!(logger, "{}", e.to_string()));
+            ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
         }
     }
 
@@ -162,7 +162,8 @@ pub fn create_or_open_readwrite_db(cache_path: &PathBuf, ctx: &Context) -> Conne
         std::thread::sleep(std::time::Duration::from_secs(1));
     };
     // db.profile(Some(trace_profile));
-    // db.busy_handler(Some(tx_busy_handler))?;
+    conn.busy_timeout(std::time::Duration::from_secs(300))
+        .expect("unable to set db timeout");
     // let mmap_size: i64 = 256 * 1024 * 1024;
     // let page_size: i64 = 16384;
     // conn.pragma_update(None, "mmap_size", mmap_size).unwrap();
@@ -190,11 +191,15 @@ fn open_existing_readonly_db(path: &PathBuf, ctx: &Context) -> Connection {
         match Connection::open_with_flags(path, open_flags) {
             Ok(conn) => break conn,
             Err(e) => {
-                ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
+                ctx.try_log(|logger| {
+                    warn!(logger, "unable to open hord.rocksdb: {}", e.to_string())
+                });
             }
         };
         std::thread::sleep(std::time::Duration::from_secs(1));
     };
+    conn.busy_timeout(std::time::Duration::from_secs(300))
+        .expect("unable to set db timeout");
     return conn;
 }
 
@@ -267,12 +272,12 @@ pub fn open_readwrite_ordhook_dbs(
     base_dir: &PathBuf,
     ctx: &Context,
 ) -> Result<(DB, Connection), String> {
-    let blocks_db = open_readwrite_ordhook_db_conn_rocks_db(&base_dir, &ctx)?;
+    let blocks_db = open_ordhook_db_conn_rocks_db_loop(true, &base_dir, &ctx);
     let inscriptions_db = open_readwrite_ordhook_db_conn(&base_dir, &ctx)?;
     Ok((blocks_db, inscriptions_db))
 }
 
-pub fn open_readwrite_ordhook_db_conn_rocks_db(
+fn open_readwrite_ordhook_db_conn_rocks_db(
     base_dir: &PathBuf,
     _ctx: &Context,
 ) -> Result<DB, String> {
@@ -288,12 +293,30 @@ pub fn insert_entry_in_blocks(
     lazy_block: &LazyBlock,
     update_tip: bool,
     blocks_db_rw: &DB,
-    _ctx: &Context,
+    ctx: &Context,
 ) {
     let block_height_bytes = block_height.to_be_bytes();
-    blocks_db_rw
-        .put(&block_height_bytes, &lazy_block.bytes)
-        .expect("unable to insert blocks");
+    let mut retries = 0;
+    loop {
+        let res = blocks_db_rw.put(&block_height_bytes, &lazy_block.bytes);
+        match res {
+            Ok(_) => break,
+            Err(e) => {
+                retries += 1;
+                if retries > 10 {
+                    ctx.try_log(|logger| {
+                        error!(
+                            logger,
+                            "unable to insert block {block_height} ({}). will retry in 5 secs",
+                            e.to_string()
+                        );
+                    });
+                    sleep(Duration::from_secs(5));
+                }
+            }
+        }
+    }
+
     if update_tip {
         blocks_db_rw
             .put(b"metadata::last_insert", block_height_bytes)
@@ -386,11 +409,30 @@ pub fn insert_entry_in_inscriptions(
     inscriptions_db_conn_rw: &Connection,
     ctx: &Context,
 ) {
-    if let Err(e) = inscriptions_db_conn_rw.execute(
+    while let Err(e) = inscriptions_db_conn_rw.execute(
         "INSERT INTO inscriptions (inscription_id, ordinal_number, inscription_number, block_height) VALUES (?1, ?2, ?3, ?4)",
         rusqlite::params![&inscription_data.inscription_id, &inscription_data.ordinal_number, &inscription_data.inscription_number, &block_identifier.index],
     ) {
-        ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
+        ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    }
+}
+
+pub fn insert_inscription_in_locations(
+    inscription_data: &OrdinalInscriptionRevealData,
+    block_identifier: &BlockIdentifier,
+    inscriptions_db_conn_rw: &Connection,
+    ctx: &Context,
+) {
+    let (tx, output_index, offset) =
+        parse_satpoint_to_watch(&inscription_data.satpoint_post_inscription);
+    let outpoint_to_watch = format_outpoint_to_watch(&tx, output_index);
+    while let Err(e) = inscriptions_db_conn_rw.execute(
+        "INSERT INTO locations (inscription_id, outpoint_to_watch, offset, block_height, tx_index) VALUES (?1, ?2, ?3, ?4, ?5)",
+        rusqlite::params![&inscription_data.inscription_id, &outpoint_to_watch, offset, &block_identifier.index, &inscription_data.tx_index],
+    ) {
+        ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+        std::thread::sleep(std::time::Duration::from_secs(1));
     }
 }
 
@@ -445,23 +487,6 @@ pub fn insert_new_inscriptions_from_block_in_locations(
     }
 }
 
-pub fn insert_inscription_in_locations(
-    inscription_data: &OrdinalInscriptionRevealData,
-    block_identifier: &BlockIdentifier,
-    inscriptions_db_conn_rw: &Connection,
-    ctx: &Context,
-) {
-    let (tx, output_index, offset) =
-        parse_satpoint_to_watch(&inscription_data.satpoint_post_inscription);
-    let outpoint_to_watch = format_outpoint_to_watch(&tx, output_index);
-    if let Err(e) = inscriptions_db_conn_rw.execute(
-        "INSERT INTO locations (inscription_id, outpoint_to_watch, offset, block_height, tx_index) VALUES (?1, ?2, ?3, ?4, ?5)",
-        rusqlite::params![&inscription_data.inscription_id, &outpoint_to_watch, offset, &block_identifier.index, &inscription_data.tx_index],
-    ) {
-        ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
-    }
-}
-
 pub fn insert_transfer_in_locations_tx(
     transfer_data: &OrdinalInscriptionTransferData,
     block_identifier: &BlockIdentifier,
@@ -470,11 +495,12 @@ pub fn insert_transfer_in_locations_tx(
 ) {
     let (tx, output_index, offset) = parse_satpoint_to_watch(&transfer_data.satpoint_post_transfer);
     let outpoint_to_watch = format_outpoint_to_watch(&tx, output_index);
-    if let Err(e) = inscriptions_db_conn_rw.execute(
+    while let Err(e) = inscriptions_db_conn_rw.execute(
         "INSERT INTO locations (inscription_id, outpoint_to_watch, offset, block_height, tx_index) VALUES (?1, ?2, ?3, ?4, ?5)",
         rusqlite::params![&transfer_data.inscription_id, &outpoint_to_watch, offset, &block_identifier.index, &transfer_data.tx_index],
     ) {
-        ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
+        ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+        std::thread::sleep(std::time::Duration::from_secs(1));
     }
 }
 
@@ -486,126 +512,198 @@ pub fn insert_transfer_in_locations(
 ) {
     let (tx, output_index, offset) = parse_satpoint_to_watch(&transfer_data.satpoint_post_transfer);
     let outpoint_to_watch = format_outpoint_to_watch(&tx, output_index);
-    if let Err(e) = inscriptions_db_conn_rw.execute(
+    while let Err(e) = inscriptions_db_conn_rw.execute(
         "INSERT INTO locations (inscription_id, outpoint_to_watch, offset, block_height, tx_index) VALUES (?1, ?2, ?3, ?4, ?5)",
         rusqlite::params![&transfer_data.inscription_id, &outpoint_to_watch, offset, &block_identifier.index, &transfer_data.tx_index],
     ) {
-        ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
+        ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+        std::thread::sleep(std::time::Duration::from_secs(1));
     }
+}
+
+fn perform_query_exists(
+    query: &str,
+    args: &[&dyn ToSql],
+    db_conn: &Connection,
+    ctx: &Context,
+) -> bool {
+    let res = perform_query(query, args, db_conn, ctx, |_| true, true);
+    !res.is_empty()
+}
+
+fn perform_query_one<F, T>(
+    query: &str,
+    args: &[&dyn ToSql],
+    db_conn: &Connection,
+    ctx: &Context,
+    mapping_func: F,
+) -> Option<T>
+where
+    F: Fn(&rusqlite::Row<'_>) -> T,
+{
+    let mut res = perform_query(query, args, db_conn, ctx, mapping_func, true);
+    match res.is_empty() {
+        true => None,
+        false => Some(res.remove(0)),
+    }
+}
+
+fn perform_query_set<F, T>(
+    query: &str,
+    args: &[&dyn ToSql],
+    db_conn: &Connection,
+    ctx: &Context,
+    mapping_func: F,
+) -> Vec<T>
+where
+    F: Fn(&rusqlite::Row<'_>) -> T,
+{
+    perform_query(query, args, db_conn, ctx, mapping_func, false)
+}
+
+fn perform_query<F, T>(
+    query: &str,
+    args: &[&dyn ToSql],
+    db_conn: &Connection,
+    ctx: &Context,
+    mapping_func: F,
+    stop_at_first: bool,
+) -> Vec<T>
+where
+    F: Fn(&rusqlite::Row<'_>) -> T,
+{
+    let mut results = vec![];
+    loop {
+        let mut stmt = match db_conn.prepare(query) {
+            Ok(stmt) => stmt,
+            Err(e) => {
+                ctx.try_log(|logger| {
+                    warn!(logger, "unable to prepare query {query}: {}", e.to_string())
+                });
+                std::thread::sleep(std::time::Duration::from_secs(5));
+                continue;
+            }
+        };
+
+        match stmt.query(args) {
+            Ok(mut rows) => loop {
+                match rows.next() {
+                    Ok(Some(row)) => {
+                        let r = mapping_func(row);
+                        results.push(r);
+                        if stop_at_first {
+                            break;
+                        }
+                    }
+                    Ok(None) => break,
+                    Err(e) => {
+                        ctx.try_log(|logger| {
+                            warn!(
+                                logger,
+                                "unable to iterate over results from {query}: {}",
+                                e.to_string()
+                            )
+                        });
+                        std::thread::sleep(std::time::Duration::from_secs(5));
+                        continue;
+                    }
+                }
+            },
+            Err(e) => {
+                ctx.try_log(|logger| {
+                    warn!(logger, "unable to execute query {query}: {}", e.to_string())
+                });
+                std::thread::sleep(std::time::Duration::from_secs(5));
+                continue;
+            }
+        };
+        break;
+    }
+    results
 }
 
 pub fn get_any_entry_in_ordinal_activities(
     block_height: &u64,
-    inscriptions_db_tx: &Connection,
+    db_conn: &Connection,
     ctx: &Context,
 ) -> bool {
     let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
-    let mut stmt = match inscriptions_db_tx
-        .prepare("SELECT DISTINCT block_height FROM inscriptions WHERE block_height = ?")
-    {
-        Ok(stmt) => stmt,
-        Err(e) => {
-            ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
-            panic!();
-        }
-    };
-    let mut rows = stmt.query(args).unwrap();
-    while let Ok(Some(_)) = rows.next() {
-        return true;
-    }
-    let mut stmt = inscriptions_db_tx
-        .prepare("SELECT DISTINCT block_height FROM locations WHERE block_height = ?")
-        .unwrap();
-    let mut rows = stmt.query(args).unwrap();
-    while let Ok(Some(_)) = rows.next() {
+    let query = "SELECT DISTINCT block_height FROM inscriptions WHERE block_height = ?";
+    if perform_query_exists(query, args, db_conn, ctx) {
         return true;
     }
 
-    false
+    let query = "SELECT DISTINCT block_height FROM locations WHERE block_height = ?";
+    perform_query_exists(query, args, db_conn, ctx)
 }
 
 pub fn find_latest_inscription_block_height(
-    inscriptions_db_conn: &Connection,
-    _ctx: &Context,
+    db_conn: &Connection,
+    ctx: &Context,
 ) -> Result<Option<u64>, String> {
     let args: &[&dyn ToSql] = &[];
-    let mut stmt = inscriptions_db_conn
-        .prepare("SELECT block_height FROM inscriptions ORDER BY block_height DESC LIMIT 1")
-        .unwrap();
-    let mut rows = stmt.query(args).unwrap();
-    while let Ok(Some(row)) = rows.next() {
+    let query = "SELECT block_height FROM inscriptions ORDER BY block_height DESC LIMIT 1";
+    let entry = perform_query_one(query, args, db_conn, ctx, |row| {
         let block_height: u64 = row.get(0).unwrap();
-        return Ok(Some(block_height));
-    }
-    Ok(None)
+        block_height
+    });
+    Ok(entry)
 }
 
 pub fn find_initial_inscription_transfer_data(
     inscription_id: &str,
-    inscriptions_db_conn: &Connection,
-    _ctx: &Context,
+    db_conn: &Connection,
+    ctx: &Context,
 ) -> Result<Option<TransferData>, String> {
     let args: &[&dyn ToSql] = &[&inscription_id.to_sql().unwrap()];
-    let mut stmt = inscriptions_db_conn
-        .prepare("SELECT outpoint_to_watch, offset, tx_index FROM locations WHERE inscription_id = ? ORDER BY block_height ASC, tx_index ASC LIMIT 1")
-        .unwrap();
-    let mut rows = stmt.query(args).unwrap();
-    while let Ok(Some(row)) = rows.next() {
+    let query = "SELECT outpoint_to_watch, offset, tx_index FROM locations WHERE inscription_id = ? ORDER BY block_height ASC, tx_index ASC LIMIT 1";
+    let entry = perform_query_one(query, args, db_conn, ctx, |row| {
         let outpoint_to_watch: String = row.get(0).unwrap();
         let (transaction_identifier_location, output_index) =
             parse_outpoint_to_watch(&outpoint_to_watch);
         let inscription_offset_intra_output: u64 = row.get(1).unwrap();
         let tx_index: u64 = row.get(2).unwrap();
-        return Ok(Some(TransferData {
+        TransferData {
             transaction_identifier_location,
             output_index,
             inscription_offset_intra_output,
             tx_index,
-        }));
-    }
-    Ok(None)
+        }
+    });
+    Ok(entry)
 }
 
 pub fn find_latest_inscription_transfer_data(
     inscription_id: &str,
-    inscriptions_db_conn: &Connection,
-    _ctx: &Context,
+    db_conn: &Connection,
+    ctx: &Context,
 ) -> Result<Option<TransferData>, String> {
     let args: &[&dyn ToSql] = &[&inscription_id.to_sql().unwrap()];
-    let mut stmt = inscriptions_db_conn
-        .prepare("SELECT outpoint_to_watch, offset, tx_index FROM locations WHERE inscription_id = ? ORDER BY block_height DESC, tx_index DESC LIMIT 1")
-        .unwrap();
-    let mut rows = stmt.query(args).unwrap();
-    while let Ok(Some(row)) = rows.next() {
+    let query = "SELECT outpoint_to_watch, offset, tx_index FROM locations WHERE inscription_id = ? ORDER BY block_height DESC, tx_index DESC LIMIT 1";
+    let entry = perform_query_one(query, args, db_conn, ctx, |row| {
         let outpoint_to_watch: String = row.get(0).unwrap();
         let (transaction_identifier_location, output_index) =
             parse_outpoint_to_watch(&outpoint_to_watch);
         let inscription_offset_intra_output: u64 = row.get(1).unwrap();
         let tx_index: u64 = row.get(2).unwrap();
-        return Ok(Some(TransferData {
+        TransferData {
             transaction_identifier_location,
             output_index,
             inscription_offset_intra_output,
             tx_index,
-        }));
-    }
-    Ok(None)
+        }
+    });
+    Ok(entry)
 }
 
-pub fn find_latest_transfers_block_height(
-    inscriptions_db_conn: &Connection,
-    _ctx: &Context,
-) -> Option<u64> {
+pub fn find_latest_transfers_block_height(db_conn: &Connection, ctx: &Context) -> Option<u64> {
     let args: &[&dyn ToSql] = &[];
-    let mut stmt = inscriptions_db_conn
-        .prepare("SELECT block_height FROM locations ORDER BY block_height DESC LIMIT 1")
-        .unwrap();
-    let mut rows = stmt.query(args).unwrap();
-    while let Ok(Some(row)) = rows.next() {
+    let query = "SELECT block_height FROM locations ORDER BY block_height DESC LIMIT 1";
+    let entry = perform_query_one(query, args, db_conn, ctx, |row| {
         let block_height: u64 = row.get(0).unwrap();
-        return Some(block_height);
-    }
-    None
+        block_height
+    });
+    entry
 }
 
 #[derive(Debug, Clone)]
@@ -618,48 +716,76 @@ pub struct TransferData {
 
 pub fn find_all_transfers_in_block(
     block_height: &u64,
-    inscriptions_db_conn: &Connection,
-    _ctx: &Context,
+    db_conn: &Connection,
+    ctx: &Context,
 ) -> BTreeMap<String, Vec<TransferData>> {
     let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
-    let mut stmt = inscriptions_db_conn
-    .prepare("SELECT inscription_id, offset, outpoint_to_watch, tx_index FROM locations WHERE block_height = ? ORDER BY tx_index ASC")
-    .unwrap();
+
+    let mut stmt = loop {
+        match db_conn.prepare("SELECT inscription_id, offset, outpoint_to_watch, tx_index FROM locations WHERE block_height = ? ORDER BY tx_index ASC")
+        {
+            Ok(stmt) => break stmt,
+            Err(e) => {
+                ctx.try_log(|logger| {
+                    warn!(logger, "unable to prepare query hord.sqlite: {}", e.to_string())
+                });
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
+    };
+
     let mut results: BTreeMap<String, Vec<TransferData>> = BTreeMap::new();
-    let mut rows = stmt.query(args).unwrap();
-    while let Ok(Some(row)) = rows.next() {
-        let inscription_id: String = row.get(0).unwrap();
-        let inscription_offset_intra_output: u64 = row.get(1).unwrap();
-        let outpoint_to_watch: String = row.get(2).unwrap();
-        let tx_index: u64 = row.get(3).unwrap();
-        let (transaction_identifier_location, output_index) =
-            parse_outpoint_to_watch(&outpoint_to_watch);
-        let transfer = TransferData {
-            inscription_offset_intra_output,
-            transaction_identifier_location,
-            output_index,
-            tx_index,
-        };
-        results
-            .entry(inscription_id)
-            .and_modify(|v| v.push(transfer.clone()))
-            .or_insert(vec![transfer]);
+    let mut rows = loop {
+        match stmt.query(args) {
+            Ok(rows) => break rows,
+            Err(e) => {
+                ctx.try_log(|logger| {
+                    warn!(logger, "unable to query hord.sqlite: {}", e.to_string())
+                });
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
+    };
+    loop {
+        match rows.next() {
+            Ok(Some(row)) => {
+                let inscription_id: String = row.get(0).unwrap();
+                let inscription_offset_intra_output: u64 = row.get(1).unwrap();
+                let outpoint_to_watch: String = row.get(2).unwrap();
+                let tx_index: u64 = row.get(3).unwrap();
+                let (transaction_identifier_location, output_index) =
+                    parse_outpoint_to_watch(&outpoint_to_watch);
+                let transfer = TransferData {
+                    inscription_offset_intra_output,
+                    transaction_identifier_location,
+                    output_index,
+                    tx_index,
+                };
+                results
+                    .entry(inscription_id)
+                    .and_modify(|v| v.push(transfer.clone()))
+                    .or_insert(vec![transfer]);
+            }
+            Ok(None) => break,
+            Err(e) => {
+                ctx.try_log(|logger| {
+                    warn!(logger, "unable to query hord.sqlite: {}", e.to_string())
+                });
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
     }
     return results;
 }
 
 pub fn find_all_inscription_transfers(
     inscription_id: &str,
-    inscriptions_db_conn: &Connection,
-    _ctx: &Context,
+    db_conn: &Connection,
+    ctx: &Context,
 ) -> Vec<(TransferData, u64)> {
     let args: &[&dyn ToSql] = &[&inscription_id.to_sql().unwrap()];
-    let mut stmt = inscriptions_db_conn
-    .prepare("SELECT offset, outpoint_to_watch, tx_index, block_height FROM locations WHERE inscription_id = ? ORDER BY block_height ASC, tx_index ASC")
-    .unwrap();
-    let mut results = vec![];
-    let mut rows = stmt.query(args).unwrap();
-    while let Ok(Some(row)) = rows.next() {
+    let query = "SELECT offset, outpoint_to_watch, tx_index, block_height FROM locations WHERE inscription_id = ? ORDER BY block_height ASC, tx_index ASC";
+    perform_query_set(query, args, db_conn, ctx, |row| {
         let inscription_offset_intra_output: u64 = row.get(0).unwrap();
         let outpoint_to_watch: String = row.get(1).unwrap();
         let tx_index: u64 = row.get(2).unwrap();
@@ -673,143 +799,123 @@ pub fn find_all_inscription_transfers(
             output_index,
             tx_index,
         };
-        results.push((transfer, block_height));
-    }
-    return results;
+        (transfer, block_height)
+    })
 }
 
 pub fn find_latest_inscription_number_at_block_height(
     block_height: &u64,
     latest_blessed_inscription_heigth: &Option<u64>,
-    inscriptions_db_conn: &Connection,
-    _ctx: &Context,
+    db_conn: &Connection,
+    ctx: &Context,
 ) -> Result<Option<i64>, String> {
-    let (query, params) = match latest_blessed_inscription_heigth {
+    let (query, hint) = match latest_blessed_inscription_heigth {
         Some(hint) => {
             (
                 "SELECT inscription_number FROM inscriptions WHERE block_height = ? ORDER BY inscription_number DESC LIMIT 1",
-                [hint.to_sql().unwrap()]
+                *hint
             )
         }
         None => {
             (
                 "SELECT inscription_number FROM inscriptions WHERE block_height < ? ORDER BY inscription_number DESC LIMIT 1",
-                [block_height.to_sql().unwrap()]
+                *block_height
             )
         }
     };
-    let mut stmt = inscriptions_db_conn
-        .prepare(query)
-        .map_err(|e| format!("unable to query inscriptions: {}", e.to_string()))?;
-    let mut rows = stmt
-        .query(params)
-        .map_err(|e| format!("unable to query inscriptions: {}", e.to_string()))?;
-
-    while let Ok(Some(row)) = rows.next() {
+    let entry = perform_query_one(query, &[&hint.to_sql().unwrap()], db_conn, ctx, |row| {
         let inscription_number: i64 = row.get(0).unwrap();
-        return Ok(Some(inscription_number));
-    }
-    Ok(None)
+        inscription_number
+    });
+    Ok(entry)
 }
 
 pub fn find_latest_cursed_inscription_number_at_block_height(
     block_height: &u64,
     latest_cursed_inscription_heigth: &Option<u64>,
-    inscriptions_db_conn: &Connection,
-    _ctx: &Context,
+    db_conn: &Connection,
+    ctx: &Context,
 ) -> Result<Option<i64>, String> {
-    let (query, params) = match latest_cursed_inscription_heigth {
+    let (query, hint) = match latest_cursed_inscription_heigth {
         Some(hint) => {
             (
                 "SELECT inscription_number FROM inscriptions WHERE block_height = ? ORDER BY inscription_number ASC LIMIT 1",
-                [hint.to_sql().unwrap()]
+                *hint
             )
         }
         None => {
             (
                 "SELECT inscription_number FROM inscriptions WHERE block_height < ? ORDER BY inscription_number ASC LIMIT 1",
-                [block_height.to_sql().unwrap()]
+                *block_height
             )
         }
     };
-    let mut stmt = inscriptions_db_conn
-        .prepare(query)
-        .map_err(|e| format!("unable to query inscriptions: {}", e.to_string()))?;
-    let mut rows = stmt
-        .query(params)
-        .map_err(|e| format!("unable to query inscriptions: {}", e.to_string()))?;
-
-    while let Ok(Some(row)) = rows.next() {
+    let entry = perform_query_one(query, &[&hint.to_sql().unwrap()], db_conn, ctx, |row| {
         let inscription_number: i64 = row.get(0).unwrap();
-        return Ok(Some(inscription_number));
-    }
-    Ok(None)
+        inscription_number
+    });
+    Ok(entry)
 }
 
 pub fn find_blessed_inscription_with_ordinal_number(
     ordinal_number: &u64,
-    inscriptions_db_conn: &Connection,
-    _ctx: &Context,
+    db_conn: &Connection,
+    ctx: &Context,
 ) -> Option<String> {
     let args: &[&dyn ToSql] = &[&ordinal_number.to_sql().unwrap()];
-    let mut stmt = inscriptions_db_conn
-        .prepare("SELECT inscription_id FROM inscriptions WHERE ordinal_number = ? AND inscription_number >= 0")
-        .unwrap();
-    let mut rows = stmt.query(args).unwrap();
-    while let Ok(Some(row)) = rows.next() {
+    let query = "SELECT inscription_id FROM inscriptions WHERE ordinal_number = ? AND inscription_number >= 0";
+    perform_query_one(query, args, db_conn, ctx, |row| {
         let inscription_id: String = row.get(0).unwrap();
-        return Some(inscription_id);
-    }
-    return None;
+        inscription_id
+    })
 }
 
 pub fn find_inscription_with_id(
     inscription_id: &str,
-    inscriptions_db_conn: &Connection,
+    db_conn: &Connection,
     ctx: &Context,
 ) -> Result<Option<(TraversalResult, u64)>, String> {
-    let args: &[&dyn ToSql] = &[&inscription_id.to_sql().unwrap()];
-    let mut stmt = loop {
-        match inscriptions_db_conn.prepare(
-            "SELECT inscription_number, ordinal_number, block_height FROM inscriptions WHERE inscription_id = ?",
-        ) {
-            Ok(stmt) => break stmt,
-            Err(e) => {
-                ctx.try_log(|logger| {
-                    warn!(
-                        logger,
-                        "unable to retrieve inscription with id: {}",
-                        e.to_string(),
-                    )
-                });
-                std::thread::sleep(std::time::Duration::from_secs(5));
-            }
-        }
+    let Some(transfer_data) = find_initial_inscription_transfer_data(inscription_id, db_conn, ctx)?
+    else {
+        return Err(format!("unable to retrieve location for {inscription_id}"));
     };
-    let mut rows = stmt.query(args).unwrap();
-
-    if let Some(transfer_data) =
-        find_initial_inscription_transfer_data(inscription_id, inscriptions_db_conn, ctx)?
-    {
-        while let Ok(Some(row)) = rows.next() {
-            let inscription_number: i64 = row.get(0).unwrap();
-            let ordinal_number: u64 = row.get(1).unwrap();
-            let block_height: u64 = row.get(2).unwrap();
-            let (transaction_identifier_inscription, inscription_input_index) =
-                parse_inscription_id(inscription_id);
-
-            let traversal = TraversalResult {
-                inscription_number,
-                ordinal_number,
-                inscription_input_index,
-                transaction_identifier_inscription,
-                transfers: 0,
-                transfer_data,
-            };
-            return Ok(Some((traversal, block_height)));
-        }
-    }
-    return Ok(None);
+    let args: &[&dyn ToSql] = &[&inscription_id.to_sql().unwrap()];
+    let query = "SELECT inscription_number, ordinal_number, block_height FROM inscriptions WHERE inscription_id = ?";
+    let entry = perform_query_one(query, args, db_conn, ctx, move |row| {
+        let inscription_number: i64 = row.get(0).unwrap();
+        let ordinal_number: u64 = row.get(1).unwrap();
+        let block_height: u64 = row.get(2).unwrap();
+        let (transaction_identifier_inscription, inscription_input_index) =
+            parse_inscription_id(inscription_id);
+        (
+            inscription_number,
+            ordinal_number,
+            inscription_input_index,
+            transaction_identifier_inscription,
+            block_height,
+        )
+    });
+    Ok(entry.map(
+        |(
+            inscription_number,
+            ordinal_number,
+            inscription_input_index,
+            transaction_identifier_inscription,
+            block_height,
+        )| {
+            (
+                TraversalResult {
+                    inscription_number,
+                    ordinal_number,
+                    inscription_input_index,
+                    transaction_identifier_inscription,
+                    transfers: 0,
+                    transfer_data,
+                },
+                block_height,
+            )
+        },
+    ))
 }
 
 pub fn find_all_inscriptions_in_block(
@@ -817,44 +923,77 @@ pub fn find_all_inscriptions_in_block(
     inscriptions_db_tx: &Connection,
     ctx: &Context,
 ) -> BTreeMap<(TransactionIdentifier, usize), TraversalResult> {
-    let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
-    let mut stmt = inscriptions_db_tx
-        .prepare("SELECT inscription_number, ordinal_number, inscription_id FROM inscriptions where block_height = ? ORDER BY inscription_number ASC")
-        .unwrap();
-    let mut results = BTreeMap::new();
-    let mut rows = stmt.query(args).unwrap();
-
     let transfers_data = find_all_transfers_in_block(block_height, inscriptions_db_tx, ctx);
-    while let Ok(Some(row)) = rows.next() {
-        let inscription_number: i64 = row.get(0).unwrap();
-        let ordinal_number: u64 = row.get(1).unwrap();
-        let inscription_id: String = row.get(2).unwrap();
-        let (transaction_identifier_inscription, inscription_input_index) =
-            { parse_inscription_id(&inscription_id) };
-        let Some(transfer_data) = transfers_data
-            .get(&inscription_id)
-            .and_then(|entries| entries.first())
-        else {
-            ctx.try_log(|logger| {
-                error!(
-                    logger,
-                    "unable to retrieve inscription genesis transfer data: {}", inscription_id,
-                )
-            });
-            continue;
-        };
-        let traversal = TraversalResult {
-            inscription_number,
-            ordinal_number,
-            inscription_input_index,
-            transfers: 0,
-            transaction_identifier_inscription: transaction_identifier_inscription.clone(),
-            transfer_data: transfer_data.clone(),
-        };
-        results.insert(
-            (transaction_identifier_inscription, inscription_input_index),
-            traversal,
-        );
+
+    let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
+
+    let mut stmt = loop {
+        match inscriptions_db_tx.prepare("SELECT inscription_number, ordinal_number, inscription_id FROM inscriptions where block_height = ? ORDER BY inscription_number ASC")
+        {
+            Ok(stmt) => break stmt,
+            Err(e) => {
+                ctx.try_log(|logger| {
+                    warn!(logger, "unable to prepare query hord.sqlite: {}", e.to_string())
+                });
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
+    };
+
+    let mut rows = loop {
+        match stmt.query(args) {
+            Ok(rows) => break rows,
+            Err(e) => {
+                ctx.try_log(|logger| {
+                    warn!(logger, "unable to query hord.sqlite: {}", e.to_string())
+                });
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
+    };
+    let mut results = BTreeMap::new();
+    loop {
+        match rows.next() {
+            Ok(Some(row)) => {
+                let inscription_number: i64 = row.get(0).unwrap();
+                let ordinal_number: u64 = row.get(1).unwrap();
+                let inscription_id: String = row.get(2).unwrap();
+                let (transaction_identifier_inscription, inscription_input_index) =
+                    { parse_inscription_id(&inscription_id) };
+                let Some(transfer_data) = transfers_data
+                    .get(&inscription_id)
+                    .and_then(|entries| entries.first())
+                else {
+                    ctx.try_log(|logger| {
+                        error!(
+                            logger,
+                            "unable to retrieve inscription genesis transfer data: {}",
+                            inscription_id,
+                        )
+                    });
+                    continue;
+                };
+                let traversal = TraversalResult {
+                    inscription_number,
+                    ordinal_number,
+                    inscription_input_index,
+                    transfers: 0,
+                    transaction_identifier_inscription: transaction_identifier_inscription.clone(),
+                    transfer_data: transfer_data.clone(),
+                };
+                results.insert(
+                    (transaction_identifier_inscription, inscription_input_index),
+                    traversal,
+                );
+            }
+            Ok(None) => break,
+            Err(e) => {
+                ctx.try_log(|logger| {
+                    warn!(logger, "unable to query hord.sqlite: {}", e.to_string())
+                });
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
     }
     return results;
 }
@@ -874,54 +1013,40 @@ impl WatchedSatpoint {
 
 pub fn find_watched_satpoint_for_inscription(
     inscription_id: &str,
-    inscriptions_db_conn: &Connection,
-) -> Result<(u64, WatchedSatpoint), String> {
+    db_conn: &Connection,
+    ctx: &Context,
+) -> Option<(u64, WatchedSatpoint)> {
     let args: &[&dyn ToSql] = &[&inscription_id.to_sql().unwrap()];
-    let mut stmt = inscriptions_db_conn
-        .prepare("SELECT inscription_id, offset, block_height FROM locations WHERE inscription_id = ? ORDER BY offset ASC")
-        .map_err(|e| format!("unable to query locations table: {}", e.to_string()))?;
-    let mut rows = stmt
-        .query(args)
-        .map_err(|e| format!("unable to query locations table: {}", e.to_string()))?;
-    while let Ok(Some(row)) = rows.next() {
+    let query = "SELECT inscription_id, offset, block_height FROM locations WHERE inscription_id = ? ORDER BY offset ASC";
+    perform_query_one(query, args, db_conn, ctx, |row| {
         let inscription_id: String = row.get(0).unwrap();
         let offset: u64 = row.get(1).unwrap();
         let block_height: u64 = row.get(2).unwrap();
-        return Ok((
+        (
             block_height,
             WatchedSatpoint {
                 inscription_id,
                 offset,
             },
-        ));
-    }
-    return Err(format!(
-        "unable to find inscription with id {}",
-        inscription_id
-    ));
+        )
+    })
 }
 
 pub fn find_inscriptions_at_wached_outpoint(
     outpoint: &str,
-    ordhook_db_conn: &Connection,
-) -> Result<Vec<WatchedSatpoint>, String> {
+    db_conn: &Connection,
+    ctx: &Context,
+) -> Vec<WatchedSatpoint> {
     let args: &[&dyn ToSql] = &[&outpoint.to_sql().unwrap()];
-    let mut stmt = ordhook_db_conn
-        .prepare("SELECT inscription_id, offset FROM locations WHERE outpoint_to_watch = ? ORDER BY offset ASC")
-        .map_err(|e| format!("unable to query locations table: {}", e.to_string()))?;
-    let mut results = vec![];
-    let mut rows = stmt
-        .query(args)
-        .map_err(|e| format!("unable to query locations table: {}", e.to_string()))?;
-    while let Ok(Some(row)) = rows.next() {
+    let query = "SELECT inscription_id, offset FROM locations WHERE outpoint_to_watch = ? ORDER BY offset ASC";
+    perform_query_set(query, args, db_conn, ctx, |row| {
         let inscription_id: String = row.get(0).unwrap();
         let offset: u64 = row.get(1).unwrap();
-        results.push(WatchedSatpoint {
+        WatchedSatpoint {
             inscription_id,
             offset,
-        });
-    }
-    return Ok(results);
+        }
+    })
 }
 
 pub fn delete_inscriptions_in_block_range(
@@ -930,17 +1055,19 @@ pub fn delete_inscriptions_in_block_range(
     inscriptions_db_conn_rw: &Connection,
     ctx: &Context,
 ) {
-    if let Err(e) = inscriptions_db_conn_rw.execute(
+    while let Err(e) = inscriptions_db_conn_rw.execute(
         "DELETE FROM inscriptions WHERE block_height >= ?1 AND block_height <= ?2",
         rusqlite::params![&start_block, &end_block],
     ) {
-        ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
+        ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+        std::thread::sleep(std::time::Duration::from_secs(1));
     }
-    if let Err(e) = inscriptions_db_conn_rw.execute(
+    while let Err(e) = inscriptions_db_conn_rw.execute(
         "DELETE FROM locations WHERE block_height >= ?1 AND block_height <= ?2",
         rusqlite::params![&start_block, &end_block],
     ) {
-        ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
+        ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+        std::thread::sleep(std::time::Duration::from_secs(1));
     }
 }
 
@@ -949,17 +1076,19 @@ pub fn remove_entry_from_inscriptions(
     inscriptions_db_rw_conn: &Connection,
     ctx: &Context,
 ) {
-    if let Err(e) = inscriptions_db_rw_conn.execute(
+    while let Err(e) = inscriptions_db_rw_conn.execute(
         "DELETE FROM inscriptions WHERE inscription_id = ?1",
         rusqlite::params![&inscription_id],
     ) {
-        ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
+        ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+        std::thread::sleep(std::time::Duration::from_secs(1));
     }
-    if let Err(e) = inscriptions_db_rw_conn.execute(
+    while let Err(e) = inscriptions_db_rw_conn.execute(
         "DELETE FROM locations WHERE inscription_id = ?1",
         rusqlite::params![&inscription_id],
     ) {
-        ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
+        ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+        std::thread::sleep(std::time::Duration::from_secs(1));
     }
 }
 
@@ -968,11 +1097,12 @@ pub fn remove_entries_from_locations_at_block_height(
     inscriptions_db_rw_conn: &Transaction,
     ctx: &Context,
 ) {
-    if let Err(e) = inscriptions_db_rw_conn.execute(
+    while let Err(e) = inscriptions_db_rw_conn.execute(
         "DELETE FROM locations WHERE block_height = ?1",
         rusqlite::params![&block_height],
     ) {
-        ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
+        ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+        std::thread::sleep(std::time::Duration::from_secs(1));
     }
 }
 
@@ -987,11 +1117,12 @@ pub fn insert_entry_in_locations(
         &transfer_data.transaction_identifier_location,
         transfer_data.output_index,
     );
-    if let Err(e) = inscriptions_db_rw_conn.execute(
+    while let Err(e) = inscriptions_db_rw_conn.execute(
         "INSERT INTO locations (inscription_id, outpoint_to_watch, offset, block_height, tx_index) VALUES (?1, ?2, ?3, ?4, ?5)",
         rusqlite::params![&inscription_id, &outpoint_to_watch, &transfer_data.inscription_offset_intra_output, &block_height, &transfer_data.tx_index],
     ) {
-        ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
+        ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+        std::thread::sleep(std::time::Duration::from_secs(1));
     }
 }
 
@@ -1002,15 +1133,19 @@ pub fn delete_data_in_ordhook_db(
     inscriptions_db_conn_rw: &Connection,
     ctx: &Context,
 ) -> Result<(), String> {
-    info!(
-        ctx.expect_logger(),
-        "Deleting entries from block #{start_block} to block #{end_block}"
-    );
+    ctx.try_log(|logger| {
+        info!(
+            logger,
+            "Deleting entries from block #{start_block} to block #{end_block}"
+        )
+    });
     delete_blocks_in_block_range(start_block as u32, end_block as u32, blocks_db_rw, &ctx);
-    info!(
-        ctx.expect_logger(),
-        "Deleting inscriptions and locations from block #{start_block} to block #{end_block}"
-    );
+    ctx.try_log(|logger| {
+        info!(
+            logger,
+            "Deleting inscriptions and locations from block #{start_block} to block #{end_block}"
+        )
+    });
     delete_inscriptions_in_block_range(
         start_block as u32,
         end_block as u32,

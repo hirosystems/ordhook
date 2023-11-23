@@ -2,8 +2,6 @@ use std::{
     collections::{BTreeMap, HashMap, VecDeque},
     hash::BuildHasherDefault,
     sync::Arc,
-    thread::sleep,
-    time::Duration,
 };
 
 use chainhook_sdk::{
@@ -784,8 +782,6 @@ pub fn consolidate_block_with_pre_computed_ordinals_data(
         if results.len() == expected_inscriptions_count {
             break results;
         }
-        // Handle race conditions: if the db is being updated, the number of expected entries could be un-met.
-        sleep(Duration::from_secs(3));
         ctx.try_log(|logger| {
             warn!(
                 logger,

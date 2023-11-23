@@ -2,7 +2,8 @@ use chainhook_sdk::{
     bitcoincore_rpc_json::bitcoin::{hashes::hex::FromHex, Address, Network, Script},
     types::{
         BitcoinBlockData, BitcoinNetwork, BitcoinTransactionData, BlockIdentifier,
-        OrdinalInscriptionTransferData, OrdinalOperation, TransactionIdentifier, OrdinalInscriptionTransferDestination,
+        OrdinalInscriptionTransferData, OrdinalInscriptionTransferDestination, OrdinalOperation,
+        TransactionIdentifier,
     },
     utils::Context,
 };
@@ -84,14 +85,7 @@ pub fn augment_transaction_with_ordinals_transfers_data(
         );
 
         let entries =
-            match find_inscriptions_at_wached_outpoint(&outpoint_pre_transfer, &inscriptions_db_tx)
-            {
-                Ok(entries) => entries,
-                Err(e) => {
-                    ctx.try_log(|logger| warn!(logger, "unable query inscriptions: {e}"));
-                    continue;
-                }
-            };
+            find_inscriptions_at_wached_outpoint(&outpoint_pre_transfer, &inscriptions_db_tx, ctx);
         // For each satpoint inscribed retrieved, we need to compute the next
         // outpoint to watch
         for watched_satpoint in entries.into_iter() {
@@ -124,10 +118,12 @@ pub fn augment_transaction_with_ordinals_transfers_data(
                         tx.metadata.outputs[output_index].get_script_pubkey_hex();
                     let updated_address = match Script::from_hex(&script_pub_key_hex) {
                         Ok(script) => match Address::from_script(&script, network.clone()) {
-                            Ok(address) => OrdinalInscriptionTransferDestination::Transferred(address.to_string()),
+                            Ok(address) => OrdinalInscriptionTransferDestination::Transferred(
+                                address.to_string(),
+                            ),
                             Err(e) => {
                                 ctx.try_log(|logger| {
-                                    warn!(
+                                    info!(
                                         logger,
                                         "unable to retrieve address from {script_pub_key_hex}: {}",
                                         e.to_string()
@@ -138,13 +134,15 @@ pub fn augment_transaction_with_ordinals_transfers_data(
                         },
                         Err(e) => {
                             ctx.try_log(|logger| {
-                                warn!(
+                                info!(
                                     logger,
                                     "unable to retrieve address from {script_pub_key_hex}: {}",
                                     e.to_string()
                                 )
                             });
-                            OrdinalInscriptionTransferDestination::Burnt(script_pub_key_hex.to_string())
+                            OrdinalInscriptionTransferDestination::Burnt(
+                                script_pub_key_hex.to_string(),
+                            )
                         }
                     };
 
@@ -181,7 +179,12 @@ pub fn augment_transaction_with_ordinals_transfers_data(
                             offset
                         )
                     });
-                    (outpoint, total_offset, OrdinalInscriptionTransferDestination::SpentInFees, None)
+                    (
+                        outpoint,
+                        total_offset,
+                        OrdinalInscriptionTransferDestination::SpentInFees,
+                        None,
+                    )
                 }
             };
 

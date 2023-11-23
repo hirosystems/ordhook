@@ -39,10 +39,12 @@ pub fn start_bitcoin_scan_runloop(
             match hiro_system_kit::nestable_block_on(op) {
                 Ok(_) => {}
                 Err(e) => {
-                    error!(
-                        moved_ctx.expect_logger(),
-                        "Unable to evaluate predicate on Bitcoin chainstate: {e}",
-                    );
+                    moved_ctx.try_log(|logger| {
+                        error!(
+                            logger,
+                            "Unable to evaluate predicate on Bitcoin chainstate: {e}",
+                        )
+                    });
 
                     // Update predicate status in redis
                     if let PredicatesApi::On(ref api_config) = moved_config.http_api {

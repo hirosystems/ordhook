@@ -9,13 +9,14 @@ use crate::core::pipeline::processors::inscription_indexing::process_block;
 use crate::core::pipeline::processors::start_inscription_indexing_processor;
 use crate::core::pipeline::processors::transfers_recomputing::start_transfers_recomputing_processor;
 use crate::core::protocol::inscription_parsing::{
-    get_inscriptions_revealed_in_block, parse_inscriptions_in_standardized_block,
+    get_inscriptions_revealed_in_block, get_inscriptions_transferred_in_block,
+    parse_inscriptions_in_standardized_block,
 };
 use crate::core::protocol::inscription_sequencing::SequenceCursor;
 use crate::core::{new_traversals_lazy_cache, should_sync_ordhook_db, should_sync_rocks_db};
 use crate::db::{
     delete_data_in_ordhook_db, insert_entry_in_blocks, open_readwrite_ordhook_db_conn,
-    open_readwrite_ordhook_db_conn_rocks_db, open_readwrite_ordhook_dbs,
+    open_ordhook_db_conn_rocks_db_loop, open_readwrite_ordhook_dbs,
     update_inscriptions_with_block, update_locations_with_block, LazyBlock, LazyBlockTransaction,
 };
 use crate::scan::bitcoin::process_block_with_predicates;
@@ -441,16 +442,17 @@ impl Service {
         event_observer_config: &EventObserverConfig,
     ) -> Result<(), String> {
         if rebuild_from_scratch {
-            let blocks_db = open_readwrite_ordhook_db_conn_rocks_db(
+            let blocks_db = open_ordhook_db_conn_rocks_db_loop(
+                true,
                 &self.config.expected_cache_path(),
                 &self.ctx,
-            )?;
+            );
             let inscriptions_db_conn_rw =
                 open_readwrite_ordhook_db_conn(&self.config.expected_cache_path(), &self.ctx)?;
 
             delete_data_in_ordhook_db(
                 767430,
-                800000,
+                820000,
                 &blocks_db,
                 &inscriptions_db_conn_rw,
                 &self.ctx,
@@ -574,10 +576,12 @@ fn chainhook_sidecar_mutate_ordhook_db(command: HandleBlock, config: &Config, ct
 
     match command {
         HandleBlock::UndoBlock(block) => {
-            info!(
-                ctx.expect_logger(),
-                "Re-org handling: reverting changes in block #{}", block.block_identifier.index
-            );
+            ctx.try_log(|logger| {
+                info!(
+                    logger,
+                    "Re-org handling: reverting changes in block #{}", block.block_identifier.index
+                )
+            });
             if let Err(e) = delete_data_in_ordhook_db(
                 block.block_identifier.index,
                 block.block_identifier.index,
@@ -685,7 +689,7 @@ pub fn chainhook_sidecar_mutate_blocks(
             block_id_to_rollback.index,
             &blocks_db_rw,
             &inscriptions_db_tx,
-            &Context::empty(),
+            &ctx,
         ) {
             ctx.try_log(|logger| {
                 error!(
@@ -750,10 +754,13 @@ pub fn chainhook_sidecar_mutate_blocks(
                 .map(|d| d.inscription_number.to_string())
                 .collect::<Vec<String>>();
 
+            let inscriptions_transferred =
+                get_inscriptions_transferred_in_block(&cache.block).len();
+
             ctx.try_log(|logger| {
                 info!(
                     logger,
-                    "Block #{} processed, mutated and revealed {} inscriptions [{}]",
+                    "Block #{} processed, mutated and revealed {} inscriptions [{}] and {inscriptions_transferred} transfers",
                     cache.block.block_identifier.index,
                     inscriptions_revealed.len(),
                     inscriptions_revealed.join(", ")
