@@ -399,28 +399,27 @@ impl<'a> SequenceCursor<'a> {
         self.current_block_height = 0;
     }
 
-    pub fn pick_next(&mut self, cursed: bool, block_height: u64) -> i64 {
+    pub fn pick_next(&mut self, cursed: bool, block_height: u64, ctx: &Context) -> i64 {
         if block_height < self.current_block_height {
             self.reset();
         }
         self.current_block_height = block_height;
 
         match cursed {
-            true => self.pick_next_cursed(),
-            false => self.pick_next_blessed(),
+            true => self.pick_next_cursed(ctx),
+            false => self.pick_next_blessed(ctx),
         }
     }
 
-    fn pick_next_blessed(&mut self) -> i64 {
+    fn pick_next_blessed(&mut self, ctx: &Context) -> i64 {
         match self.blessed {
             None => {
                 match find_latest_inscription_number_at_block_height(
                     &self.current_block_height,
-                    &None,
                     &self.inscriptions_db_conn,
-                    &Context::empty(),
+                    &ctx,
                 ) {
-                    Ok(Some(inscription_number)) => {
+                    Some(inscription_number) => {
                         self.blessed = Some(inscription_number);
                         inscription_number + 1
                     }
@@ -431,16 +430,15 @@ impl<'a> SequenceCursor<'a> {
         }
     }
 
-    fn pick_next_cursed(&mut self) -> i64 {
+    fn pick_next_cursed(&mut self, ctx: &Context) -> i64 {
         match self.cursed {
             None => {
                 match find_latest_cursed_inscription_number_at_block_height(
                     &self.current_block_height,
-                    &None,
                     &self.inscriptions_db_conn,
-                    &Context::empty(),
+                    &ctx,
                 ) {
-                    Ok(Some(inscription_number)) => {
+                    Some(inscription_number) => {
                         self.cursed = Some(inscription_number);
                         inscription_number - 1
                     }
@@ -451,12 +449,12 @@ impl<'a> SequenceCursor<'a> {
         }
     }
 
-    pub fn increment_cursed(&mut self) {
-        self.cursed = Some(self.pick_next_cursed());
+    pub fn increment_cursed(&mut self, ctx: &Context) {
+        self.cursed = Some(self.pick_next_cursed(ctx));
     }
 
-    pub fn increment_blessed(&mut self) {
-        self.blessed = Some(self.pick_next_blessed())
+    pub fn increment_blessed(&mut self, ctx: &Context) {
+        self.blessed = Some(self.pick_next_blessed(ctx))
     }
 }
 
@@ -549,13 +547,14 @@ pub fn augment_block_with_ordinals_inscriptions_data(
             continue;
         };
         let is_curse = inscription_data.curse_type.is_some();
-        let inscription_number = sequence_cursor.pick_next(is_curse, block.block_identifier.index);
+        let inscription_number =
+            sequence_cursor.pick_next(is_curse, block.block_identifier.index, &ctx);
         inscription_data.inscription_number = inscription_number;
 
         if is_curse {
-            sequence_cursor.increment_cursed();
+            sequence_cursor.increment_cursed(ctx);
         } else {
-            sequence_cursor.increment_blessed();
+            sequence_cursor.increment_blessed(ctx);
         };
 
         ctx.try_log(|logger| {
@@ -620,7 +619,8 @@ fn augment_transaction_with_ordinals_inscriptions_data(
         };
 
         // Do we need to curse the inscription?
-        let mut inscription_number = sequence_cursor.pick_next(is_cursed, block_identifier.index);
+        let mut inscription_number =
+            sequence_cursor.pick_next(is_cursed, block_identifier.index, ctx);
         let mut curse_type_override = None;
         if !is_cursed {
             // Is this inscription re-inscribing an existing blessed inscription?
@@ -638,7 +638,8 @@ fn augment_transaction_with_ordinals_inscriptions_data(
                 });
 
                 is_cursed = true;
-                inscription_number = sequence_cursor.pick_next(is_cursed, block_identifier.index);
+                inscription_number =
+                    sequence_cursor.pick_next(is_cursed, block_identifier.index, ctx);
                 curse_type_override = Some(OrdinalInscriptionCurseType::Reinscription)
             }
         };
@@ -709,9 +710,9 @@ fn augment_transaction_with_ordinals_inscriptions_data(
         });
 
         if is_cursed {
-            sequence_cursor.increment_cursed();
+            sequence_cursor.increment_cursed(ctx);
         } else {
-            sequence_cursor.increment_blessed();
+            sequence_cursor.increment_blessed(ctx);
         }
     }
     any_event
