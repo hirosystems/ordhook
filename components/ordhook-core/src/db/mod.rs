@@ -1,7 +1,9 @@
 use std::{
     collections::BTreeMap,
     io::{Read, Write},
-    path::PathBuf, thread::sleep, time::Duration,
+    path::PathBuf,
+    thread::sleep,
+    time::Duration,
 };
 
 use rand::{thread_rng, Rng};
@@ -1440,12 +1442,12 @@ impl LazyBlock {
         let u16_max = u16::MAX as usize;
         for tx in block.tx.iter().skip(1) {
             let inputs_len = if tx.vin.len() > u16_max {
-                0 
+                0
             } else {
                 tx.vin.len() as u16
             };
             let outputs_len = if tx.vout.len() > u16_max {
-                0 
+                0
             } else {
                 tx.vout.len() as u16
             };
@@ -1480,12 +1482,12 @@ impl LazyBlock {
             buffer.write_all(&txid)?;
 
             let inputs_len = if tx.vin.len() > u16_max {
-                0 
+                0
             } else {
                 tx.vin.len() as usize
             };
             let outputs_len = if tx.vout.len() > u16_max {
-                0 
+                0
             } else {
                 tx.vout.len() as usize
             };

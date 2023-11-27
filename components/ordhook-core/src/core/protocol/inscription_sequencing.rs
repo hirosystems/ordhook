@@ -12,6 +12,7 @@ use chainhook_sdk::{
     },
     utils::Context,
 };
+use crossbeam_channel::bounded;
 use dashmap::DashMap;
 use fxhash::FxHasher;
 use rusqlite::{Connection, Transaction};
@@ -71,6 +72,13 @@ pub fn parallelize_inscription_data_computations(
     ordhook_config: &OrdhookConfig,
     ctx: &Context,
 ) -> Result<bool, String> {
+    ctx.try_log(|logger| {
+        info!(
+            logger,
+            "Inscriptions data computation for block #{} started", block.block_identifier.index
+        )
+    });
+
     let (mut transactions_ids, l1_cache_hits) =
         get_transactions_to_process(block, cache_l1, inscriptions_db_tx, ctx);
 
@@ -90,7 +98,7 @@ pub fn parallelize_inscription_data_computations(
     }
 
     let expected_traversals = transactions_ids.len() + l1_cache_hits.len();
-    let (traversal_tx, traversal_rx) = channel();
+    let (traversal_tx, traversal_rx) = bounded(64);
 
     let mut tx_thread_pool = vec![];
     let mut thread_pool_handles = vec![];
@@ -207,6 +215,7 @@ pub fn parallelize_inscription_data_computations(
                 });
             }
         }
+
         if traversals_received == expected_traversals {
             break;
         }
@@ -244,6 +253,12 @@ pub fn parallelize_inscription_data_computations(
             }
         }
     }
+    ctx.try_log(|logger| {
+        info!(
+            logger,
+            "Inscriptions data computation for block #{} collected", block.block_identifier.index
+        )
+    });
 
     // Collect eventual results for incoming blocks
     for tx in tx_thread_pool.iter() {
@@ -273,10 +288,21 @@ pub fn parallelize_inscription_data_computations(
         let _ = tx.send(None);
     }
 
+    let ctx_moved = ctx.clone();
     let _ = hiro_system_kit::thread_named("Garbage collection").spawn(move || {
+        ctx_moved.try_log(|logger| info!(logger, "Cleanup: threadpool deallocation started",));
+
         for handle in thread_pool_handles.into_iter() {
             let _ = handle.join();
         }
+        ctx_moved.try_log(|logger| info!(logger, "Cleanup: threadpool deallocation ended",));
+    });
+
+    ctx.try_log(|logger| {
+        info!(
+            logger,
+            "Inscriptions data computation for block #{} ended", block.block_identifier.index
+        )
     });
 
     Ok(has_transactions_to_process)
