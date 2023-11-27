@@ -9,7 +9,7 @@ use std::{
 use crate::{
     config::Config,
     core::pipeline::{PostProcessorCommand, PostProcessorController, PostProcessorEvent},
-    db::{insert_entry_in_blocks, LazyBlock, open_ordhook_db_conn_rocks_db_loop},
+    db::{insert_entry_in_blocks, open_ordhook_db_conn_rocks_db_loop, LazyBlock},
 };
 
 pub fn start_block_archiving_processor(

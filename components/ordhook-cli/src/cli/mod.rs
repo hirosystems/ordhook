@@ -26,9 +26,9 @@ use ordhook::db::{
     delete_data_in_ordhook_db, find_all_inscription_transfers, find_all_inscriptions_in_block,
     find_all_transfers_in_block, find_inscription_with_id, find_last_block_inserted,
     find_latest_inscription_block_height, find_lazy_block_at_block_height,
-    get_default_ordhook_db_file_path, initialize_ordhook_db, open_readonly_ordhook_db_conn,
-    open_readonly_ordhook_db_conn_rocks_db, open_readwrite_ordhook_db_conn, open_ordhook_db_conn_rocks_db_loop,
-    
+    get_default_ordhook_db_file_path, initialize_ordhook_db, open_ordhook_db_conn_rocks_db_loop,
+    open_readonly_ordhook_db_conn, open_readonly_ordhook_db_conn_rocks_db,
+    open_readwrite_ordhook_db_conn,
 };
 use ordhook::download::download_ordinals_dataset_if_required;
 use ordhook::scan::bitcoin::scan_bitcoin_chainstate_via_rpc_using_predicate;
@@ -790,25 +790,21 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 )
                 .await?;
                 if let Some(true) = cmd.debug {
-                    let blocks_db = open_ordhook_db_conn_rocks_db_loop(false, &config.get_ordhook_config().db_path, ctx);
+                    let blocks_db = open_ordhook_db_conn_rocks_db_loop(
+                        false,
+                        &config.get_ordhook_config().db_path,
+                        ctx,
+                    );
                     for i in cmd.get_blocks().into_iter() {
-                        let block = find_lazy_block_at_block_height(i as u32, 10, false, &blocks_db, ctx).expect("unable to retrieve block {i}");
-                        info!(
-                            ctx.expect_logger(),
-                            "--------------------"
-                        );
-                        info!(
-                            ctx.expect_logger(),
-                            "Block: {i}"
-                        );
+                        let block =
+                            find_lazy_block_at_block_height(i as u32, 10, false, &blocks_db, ctx)
+                                .expect("unable to retrieve block {i}");
+                        info!(ctx.expect_logger(), "--------------------");
+                        info!(ctx.expect_logger(), "Block: {i}");
                         for tx in block.iter_tx() {
-                            info!(
-                                ctx.expect_logger(),
-                                "Tx: {}",
-                                ordhook::hex::encode(tx.txid)
-                            );
+                            info!(ctx.expect_logger(), "Tx: {}", ordhook::hex::encode(tx.txid));
                         }
-                    }    
+                    }
                 }
             }
             RepairCommand::Inscriptions(cmd) => {
@@ -886,7 +882,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
         Command::Db(OrdhookDbCommand::Drop(cmd)) => {
             let config = ConfigFile::default(false, false, false, &cmd.config_path)?;
             let blocks_db =
-            open_ordhook_db_conn_rocks_db_loop(true, &config.expected_cache_path(), ctx);
+                open_ordhook_db_conn_rocks_db_loop(true, &config.expected_cache_path(), ctx);
             let inscriptions_db_conn_rw =
                 open_readwrite_ordhook_db_conn(&config.expected_cache_path(), ctx)?;
 

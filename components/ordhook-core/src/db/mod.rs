@@ -1,7 +1,9 @@
 use std::{
     collections::BTreeMap,
     io::{Read, Write},
-    path::PathBuf, thread::sleep, time::Duration,
+    path::PathBuf,
+    thread::sleep,
+    time::Duration,
 };
 
 use rand::{thread_rng, Rng};
@@ -127,6 +129,30 @@ pub fn initialize_ordhook_db(path: &PathBuf, ctx: &Context) -> Connection {
         }
     }
 
+    if let Err(e) = conn.execute(
+        "CREATE TABLE IF NOT EXISTS sequence_metadata (
+            block_height INTEGER NOT NULL,
+            latest_cursed_inscription_number INTEGER NOT NULL,
+            latest_inscription_number INTEGER NOT NULL
+        )",
+        [],
+    ) {
+        ctx.try_log(|logger| {
+            warn!(
+                logger,
+                "Unable to create table sequence_metadata: {}",
+                e.to_string()
+            )
+        });
+    } else {
+        if let Err(e) = conn.execute(
+            "CREATE INDEX IF NOT EXISTS sequence_metadata_indexed_on_block_height ON sequence_metadata(block_height);",
+            [],
+        ) {
+            ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+        }
+    }
+
     conn
 }
 
@@ -161,15 +187,7 @@ pub fn create_or_open_readwrite_db(cache_path: &PathBuf, ctx: &Context) -> Conne
         };
         std::thread::sleep(std::time::Duration::from_secs(1));
     };
-    // db.profile(Some(trace_profile));
-    conn.busy_timeout(std::time::Duration::from_secs(300))
-        .expect("unable to set db timeout");
-    // let mmap_size: i64 = 256 * 1024 * 1024;
-    // let page_size: i64 = 16384;
-    // conn.pragma_update(None, "mmap_size", mmap_size).unwrap();
-    // conn.pragma_update(None, "page_size", page_size).unwrap();
-    // conn.pragma_update(None, "synchronous", &"NORMAL").unwrap();
-    conn
+    connection_with_defaults_pragma(conn)
 }
 
 fn open_existing_readonly_db(path: &PathBuf, ctx: &Context) -> Connection {
@@ -198,9 +216,19 @@ fn open_existing_readonly_db(path: &PathBuf, ctx: &Context) -> Connection {
         };
         std::thread::sleep(std::time::Duration::from_secs(1));
     };
+    connection_with_defaults_pragma(conn)
+}
+
+fn connection_with_defaults_pragma(conn: Connection) -> Connection {
     conn.busy_timeout(std::time::Duration::from_secs(300))
         .expect("unable to set db timeout");
-    return conn;
+    conn.pragma_update(None, "mmap_size", 512 * 1024 * 1024)
+        .expect("unable to enable mmap_size");
+    conn.pragma_update(None, "cache_size", 512 * 1024 * 1024)
+        .expect("unable to enable cache_size");
+    conn.pragma_update(None, "journal_mode", &"WAL")
+        .expect("unable to enable wal");
+    conn
 }
 
 fn get_default_ordhook_db_file_path_rocks_db(base_dir: &PathBuf) -> PathBuf {
@@ -469,6 +497,36 @@ pub fn update_locations_with_block(
             &inscriptions_db_conn_rw,
             ctx,
         );
+    }
+}
+
+pub fn update_sequence_metadata_with_block(
+    block: &BitcoinBlockData,
+    inscriptions_db_conn_rw: &Connection,
+    ctx: &Context,
+) {
+    let mut latest_blessed = find_latest_inscription_number_at_block_height(
+        &block.block_identifier.index,
+        inscriptions_db_conn_rw,
+        ctx,
+    )
+    .unwrap_or(0);
+    let mut latest_cursed = find_latest_cursed_inscription_number_at_block_height(
+        &block.block_identifier.index,
+        inscriptions_db_conn_rw,
+        ctx,
+    )
+    .unwrap_or(0);
+    for inscription_data in get_inscriptions_revealed_in_block(&block).iter() {
+        latest_blessed = latest_blessed.max(inscription_data.inscription_number);
+        latest_cursed = latest_cursed.min(inscription_data.inscription_number);
+    }
+    while let Err(e) = inscriptions_db_conn_rw.execute(
+        "INSERT INTO sequence_metadata (block_height, latest_inscription_number, latest_cursed_inscription_number) VALUES (?1, ?2, ?3)",
+        rusqlite::params![&block.block_identifier.index, latest_blessed, latest_cursed],
+    ) {
+        ctx.try_log(|logger| warn!(logger, "unable to update sequence_metadata: {}", e.to_string()));
+        std::thread::sleep(std::time::Duration::from_secs(1));
     }
 }
 
@@ -805,56 +863,70 @@ pub fn find_all_inscription_transfers(
 
 pub fn find_latest_inscription_number_at_block_height(
     block_height: &u64,
-    latest_blessed_inscription_heigth: &Option<u64>,
     db_conn: &Connection,
     ctx: &Context,
-) -> Result<Option<i64>, String> {
-    let (query, hint) = match latest_blessed_inscription_heigth {
-        Some(hint) => {
-            (
-                "SELECT inscription_number FROM inscriptions WHERE block_height = ? ORDER BY inscription_number DESC LIMIT 1",
-                *hint
-            )
-        }
-        None => {
-            (
-                "SELECT inscription_number FROM inscriptions WHERE block_height < ? ORDER BY inscription_number DESC LIMIT 1",
-                *block_height
-            )
-        }
-    };
-    let entry = perform_query_one(query, &[&hint.to_sql().unwrap()], db_conn, ctx, |row| {
+) -> Option<i64> {
+    let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
+    let query = "SELECT latest_inscription_number FROM sequence_metadata WHERE block_height < ? ORDER BY block_height DESC LIMIT 1";
+    perform_query_one(query, args, db_conn, ctx, |row| {
         let inscription_number: i64 = row.get(0).unwrap();
         inscription_number
-    });
-    Ok(entry)
+    })
+    .or_else(|| compute_latest_inscription_number_at_block_height(block_height, db_conn, ctx))
 }
 
 pub fn find_latest_cursed_inscription_number_at_block_height(
     block_height: &u64,
-    latest_cursed_inscription_heigth: &Option<u64>,
     db_conn: &Connection,
     ctx: &Context,
-) -> Result<Option<i64>, String> {
-    let (query, hint) = match latest_cursed_inscription_heigth {
-        Some(hint) => {
-            (
-                "SELECT inscription_number FROM inscriptions WHERE block_height = ? ORDER BY inscription_number ASC LIMIT 1",
-                *hint
-            )
-        }
-        None => {
-            (
-                "SELECT inscription_number FROM inscriptions WHERE block_height < ? ORDER BY inscription_number ASC LIMIT 1",
-                *block_height
-            )
-        }
-    };
-    let entry = perform_query_one(query, &[&hint.to_sql().unwrap()], db_conn, ctx, |row| {
+) -> Option<i64> {
+    let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
+    let query = "SELECT latest_cursed_inscription_number FROM sequence_metadata WHERE block_height < ? ORDER BY block_height DESC LIMIT 1";
+    perform_query_one(query, args, db_conn, ctx, |row| {
         let inscription_number: i64 = row.get(0).unwrap();
         inscription_number
+    })
+    .or_else(|| {
+        compute_latest_cursed_inscription_number_at_block_height(block_height, db_conn, ctx)
+    })
+}
+
+pub fn compute_latest_inscription_number_at_block_height(
+    block_height: &u64,
+    db_conn: &Connection,
+    ctx: &Context,
+) -> Option<i64> {
+    ctx.try_log(|logger| {
+        warn!(
+            logger,
+            "Start computing latest_inscription_number at block height: {block_height}"
+        )
     });
-    Ok(entry)
+    let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
+    let query = "SELECT inscription_number FROM inscriptions WHERE block_height < ? ORDER BY inscription_number DESC LIMIT 1";
+    perform_query_one(query, args, db_conn, ctx, |row| {
+        let inscription_number: i64 = row.get(0).unwrap();
+        inscription_number
+    })
+}
+
+pub fn compute_latest_cursed_inscription_number_at_block_height(
+    block_height: &u64,
+    db_conn: &Connection,
+    ctx: &Context,
+) -> Option<i64> {
+    ctx.try_log(|logger| {
+        warn!(
+            logger,
+            "Start computing latest_cursed_inscription_number at block height: {block_height}"
+        )
+    });
+    let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
+    let query = "SELECT inscription_number FROM inscriptions WHERE block_height < ? ORDER BY inscription_number ASC LIMIT 1";
+    perform_query_one(query, args, db_conn, ctx, |row| {
+        let inscription_number: i64 = row.get(0).unwrap();
+        inscription_number
+    })
 }
 
 pub fn find_blessed_inscription_with_ordinal_number(
@@ -1064,6 +1136,13 @@ pub fn delete_inscriptions_in_block_range(
     }
     while let Err(e) = inscriptions_db_conn_rw.execute(
         "DELETE FROM locations WHERE block_height >= ?1 AND block_height <= ?2",
+        rusqlite::params![&start_block, &end_block],
+    ) {
+        ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    }
+    while let Err(e) = inscriptions_db_conn_rw.execute(
+        "DELETE FROM sequence_metadata WHERE block_height >= ?1 AND block_height <= ?2",
         rusqlite::params![&start_block, &end_block],
     ) {
         ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
@@ -1438,12 +1517,12 @@ impl LazyBlock {
         let u16_max = u16::MAX as usize;
         for tx in block.tx.iter().skip(1) {
             let inputs_len = if tx.vin.len() > u16_max {
-                0 
+                0
             } else {
                 tx.vin.len() as u16
             };
             let outputs_len = if tx.vout.len() > u16_max {
-                0 
+                0
             } else {
                 tx.vout.len() as u16
             };
@@ -1478,12 +1557,12 @@ impl LazyBlock {
             buffer.write_all(&txid)?;
 
             let inputs_len = if tx.vin.len() > u16_max {
-                0 
+                0
             } else {
                 tx.vin.len() as usize
             };
             let outputs_len = if tx.vout.len() > u16_max {
-                0 
+                0
             } else {
                 tx.vout.len() as usize
             };
