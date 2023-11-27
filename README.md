@@ -40,7 +40,7 @@ $ cargo ordhook-install
 
 Once `ordhook` is installed, Ordinals activities scanning can simply be performed using the following command:
 ```console
-$ ordhook scan blocks 767430 767753 --mainnet
+$ ordhook scan blocks --interval 767430:767753 --mainnet
 Inscription 6fb976ab49dcec017f1e201e84395983204ae1a7c2abf7ced0a85d692e442799i0 revealed at block #767430 (ordinal_number 1252201400444387, inscription_number 0)
 Inscription 26482871f33f1051f450f2da9af275794c0b5f1c61ebf35e4467fb42c2813403i0 revealed at block #767753 (ordinal_number 727624168684699, inscription_number 1) 
 ```
@@ -80,7 +80,7 @@ $ ordhook config new --mainnet
 After adjusting the `Ordhook.toml` settings to make them match the `bitcoind` configuration, the following command can be ran:  
 
 ```
-$ ordhook scan blocks 767430 767753 --post-to=http://localhost:3000/api/events --config-path=./Ordhook.toml
+$ ordhook scan blocks --interval 767430:767753 --post-to=http://localhost:3000/api/events --config-path=./Ordhook.toml
 ```
 
 `ordhook` will retrieve the full Ordinals activities (including the inscriptions content) and send all these informations to the `http://localhost:3000/api/events` HTTP POST endpoint. 
