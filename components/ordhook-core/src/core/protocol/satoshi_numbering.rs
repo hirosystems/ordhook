@@ -244,7 +244,7 @@ pub fn compute_satoshi_number(
                         )
                     });
                     std::process::exit(1);
-                },
+                }
             };
 
             let mut sats_out = 0;
