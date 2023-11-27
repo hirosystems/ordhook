@@ -161,15 +161,7 @@ pub fn create_or_open_readwrite_db(cache_path: &PathBuf, ctx: &Context) -> Conne
         };
         std::thread::sleep(std::time::Duration::from_secs(1));
     };
-    // db.profile(Some(trace_profile));
-    conn.busy_timeout(std::time::Duration::from_secs(300))
-        .expect("unable to set db timeout");
-    // let mmap_size: i64 = 256 * 1024 * 1024;
-    // let page_size: i64 = 16384;
-    // conn.pragma_update(None, "mmap_size", mmap_size).unwrap();
-    // conn.pragma_update(None, "page_size", page_size).unwrap();
-    // conn.pragma_update(None, "synchronous", &"NORMAL").unwrap();
-    conn
+    connection_with_defaults_pragma(conn)
 }
 
 fn open_existing_readonly_db(path: &PathBuf, ctx: &Context) -> Connection {
@@ -198,9 +190,19 @@ fn open_existing_readonly_db(path: &PathBuf, ctx: &Context) -> Connection {
         };
         std::thread::sleep(std::time::Duration::from_secs(1));
     };
+    connection_with_defaults_pragma(conn)
+}
+
+fn connection_with_defaults_pragma(conn: Connection) -> Connection {
     conn.busy_timeout(std::time::Duration::from_secs(300))
         .expect("unable to set db timeout");
-    return conn;
+    conn.pragma_update(None, "mmap_size", 512 * 1024 * 1024)
+        .expect("unable to enable mmap_size");
+    conn.pragma_update(None, "cache_size", 512 * 1024 * 1024)
+        .expect("unable to enable cache_size");
+    conn.pragma_update(None, "journal_mode", &"WAL")
+        .expect("unable to enable wal");
+    conn
 }
 
 fn get_default_ordhook_db_file_path_rocks_db(base_dir: &PathBuf) -> PathBuf {
