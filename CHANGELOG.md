@@ -1,3 +1,13 @@
+## [1.1.1](https://github.com/hirosystems/ordhook/compare/v1.1.0...v1.1.1) (2023-11-27)
+
+
+### Bug Fixes
+
+* around issue [#187](https://github.com/hirosystems/ordhook/issues/187) for testnet ([#204](https://github.com/hirosystems/ordhook/issues/204)) ([0d2ff31](https://github.com/hirosystems/ordhook/commit/0d2ff313d0193640d6b1ee1e64a8b84735b98b43))
+* better handling of database locks ([#200](https://github.com/hirosystems/ordhook/issues/200)) ([f820169](https://github.com/hirosystems/ordhook/commit/f820169aa047e1015162200dc20e395eb4fef2c7))
+* testnet support ([#208](https://github.com/hirosystems/ordhook/issues/208)) ([490fe01](https://github.com/hirosystems/ordhook/commit/490fe0143404f569e5afb61904cf9ad9da8d21af))
+* tweak sqlite connections ([#217](https://github.com/hirosystems/ordhook/issues/217)) ([334565c](https://github.com/hirosystems/ordhook/commit/334565ce13c2448746962f5b1e744b40188d5b94))
+
 ## [1.1.0](https://github.com/hirosystems/ordhook/compare/v1.0.1...v1.1.0) (2023-11-23)
 
 
