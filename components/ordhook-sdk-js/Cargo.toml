@@ -19,12 +19,12 @@ serde = "1"
 [build-dependencies]
 napi-build = "2.0.1"
 
-[build]
-target = "armv7-unknown-linux-gnueabihf"
-rustflags = ["-C", "link-args=-L/lib/arm-linux-gnueabihf"]
+# [build]
+# target = "armv7-unknown-linux-gnueabihf"
+# rustflags = ["-C", "link-args=-L/lib/arm-linux-gnueabihf"]
 
-[target.armv7-unknown-linux-gnueabihf]
-linker = "arm-linux-gnueabihf-g++"
+# [target.armv7-unknown-linux-gnueabihf]
+# linker = "arm-linux-gnueabihf-g++"
 
-[profile.release]
-lto = true
+# [profile.release]
+# lto = true
