@@ -12,7 +12,7 @@ use chainhook_sdk::{
     },
     utils::Context,
 };
-use crossbeam_channel::bounded;
+use crossbeam_channel::unbounded;
 use dashmap::DashMap;
 use fxhash::FxHasher;
 use rusqlite::{Connection, Transaction};
@@ -98,7 +98,7 @@ pub fn parallelize_inscription_data_computations(
     }
 
     let expected_traversals = transactions_ids.len() + l1_cache_hits.len();
-    let (traversal_tx, traversal_rx) = bounded(64);
+    let (traversal_tx, traversal_rx) = unbounded();
 
     let mut tx_thread_pool = vec![];
     let mut thread_pool_handles = vec![];
