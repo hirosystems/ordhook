@@ -624,6 +624,8 @@ fn chainhook_sidecar_mutate_ordhook_db(command: HandleBlock, config: &Config, ct
             update_inscriptions_with_block(&block, &inscriptions_db_conn_rw, &ctx);
 
             update_locations_with_block(&block, &inscriptions_db_conn_rw, &ctx);
+
+            update_sequence_metadata_with_block(&block, &inscriptions_db_conn_rw, &ctx);
         }
     }
 }
@@ -730,6 +732,7 @@ pub fn chainhook_sidecar_mutate_blocks(
         if cache.processed_by_sidecar {
             update_inscriptions_with_block(&cache.block, &inscriptions_db_tx, &ctx);
             update_locations_with_block(&cache.block, &inscriptions_db_tx, &ctx);
+            update_sequence_metadata_with_block(&cache.block, &inscriptions_db_tx, &ctx);
         } else {
             updated_blocks_ids.push(format!("{}", cache.block.block_identifier.index));
 
