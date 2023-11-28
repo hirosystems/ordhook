@@ -1,3 +1,10 @@
+## [1.1.2](https://github.com/hirosystems/ordhook/compare/v1.1.1...v1.1.2) (2023-11-28)
+
+
+### Bug Fixes
+
+* bounded channel ([6d7de20](https://github.com/hirosystems/ordhook/commit/6d7de209c8045a74a1bc33be633c9268fd5eb6a0))
+
 ## [1.1.1](https://github.com/hirosystems/ordhook/compare/v1.1.0...v1.1.1) (2023-11-27)
 
 
