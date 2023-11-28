@@ -446,19 +446,21 @@ impl Service {
         event_observer_config: &EventObserverConfig,
     ) -> Result<(), String> {
         {
-            let blocks_db = open_ordhook_db_conn_rocks_db_loop(
-                true,
-                &self.config.expected_cache_path(),
-                &self.ctx,
-            );
-
             if compact_and_check_rocksdb_integrity {
-                let tip = find_last_block_inserted(&blocks_db);
-                info!(
-                    self.ctx.expect_logger(),
-                    "Checking database integrity up to block #{tip}",
-                );
-                let missing_blocks = find_missing_blocks(&blocks_db, 0, tip, &self.ctx);
+                let (tip, missing_blocks) = {
+                    let blocks_db = open_ordhook_db_conn_rocks_db_loop(
+                        false,
+                        &self.config.expected_cache_path(),
+                        &self.ctx,
+                    );
+                    let tip = find_last_block_inserted(&blocks_db);
+                    info!(
+                        self.ctx.expect_logger(),
+                        "Checking database integrity up to block #{tip}",
+                    );
+                    let missing_blocks = find_missing_blocks(&blocks_db, 0, tip, &self.ctx);
+                    (tip, missing_blocks)
+                };
                 if !missing_blocks.is_empty() {
                     info!(
                         self.ctx.expect_logger(),
@@ -477,18 +479,29 @@ impl Service {
                     )
                     .await?;
                 }
+                let blocks_db_rw = open_ordhook_db_conn_rocks_db_loop(
+                    false,
+                    &self.config.expected_cache_path(),
+                    &self.ctx,
+                );
                 info!(self.ctx.expect_logger(), "Running database compaction",);
-                run_compaction(&blocks_db, tip);
+                run_compaction(&blocks_db_rw, tip);
             }
 
             if rebuild_from_scratch {
+                let blocks_db_rw = open_ordhook_db_conn_rocks_db_loop(
+                    false,
+                    &self.config.expected_cache_path(),
+                    &self.ctx,
+                );
+
                 let inscriptions_db_conn_rw =
                     open_readwrite_ordhook_db_conn(&self.config.expected_cache_path(), &self.ctx)?;
 
                 delete_data_in_ordhook_db(
                     767430,
                     820000,
-                    &blocks_db,
+                    &blocks_db_rw,
                     &inscriptions_db_conn_rw,
                     &self.ctx,
                 )?;
