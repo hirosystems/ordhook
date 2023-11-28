@@ -14,11 +14,14 @@ use crate::core::protocol::inscription_parsing::{
 };
 use crate::core::protocol::inscription_sequencing::SequenceCursor;
 use crate::core::{new_traversals_lazy_cache, should_sync_ordhook_db, should_sync_rocks_db};
-use crate::db::update_sequence_metadata_with_block;
 use crate::db::{
     delete_data_in_ordhook_db, insert_entry_in_blocks, open_ordhook_db_conn_rocks_db_loop,
     open_readwrite_ordhook_db_conn, open_readwrite_ordhook_dbs, update_inscriptions_with_block,
     update_locations_with_block, LazyBlock, LazyBlockTransaction,
+};
+use crate::db::{
+    find_last_block_inserted, find_missing_blocks, run_compaction,
+    update_sequence_metadata_with_block,
 };
 use crate::scan::bitcoin::process_block_with_predicates;
 use crate::service::http_api::start_predicate_api_server;
@@ -81,7 +84,7 @@ impl Service {
         // std::thread::sleep(std::time::Duration::from_secs(1200));
 
         // Catch-up with chain tip
-        self.catch_up_with_chain_tip(false, &event_observer_config)
+        self.catch_up_with_chain_tip(false, true, &event_observer_config)
             .await?;
         info!(
             self.ctx.expect_logger(),
@@ -439,25 +442,59 @@ impl Service {
     pub async fn catch_up_with_chain_tip(
         &mut self,
         rebuild_from_scratch: bool,
+        compact_and_check_rocksdb_integrity: bool,
         event_observer_config: &EventObserverConfig,
     ) -> Result<(), String> {
-        if rebuild_from_scratch {
+        {
             let blocks_db = open_ordhook_db_conn_rocks_db_loop(
                 true,
                 &self.config.expected_cache_path(),
                 &self.ctx,
             );
-            let inscriptions_db_conn_rw =
-                open_readwrite_ordhook_db_conn(&self.config.expected_cache_path(), &self.ctx)?;
 
-            delete_data_in_ordhook_db(
-                767430,
-                820000,
-                &blocks_db,
-                &inscriptions_db_conn_rw,
-                &self.ctx,
-            )?;
+            if compact_and_check_rocksdb_integrity {
+                let tip = find_last_block_inserted(&blocks_db);
+                info!(
+                    self.ctx.expect_logger(),
+                    "Checking database integrity up to block #{tip}",
+                );
+                let missing_blocks = find_missing_blocks(&blocks_db, 0, tip, &self.ctx);
+                if !missing_blocks.is_empty() {
+                    info!(
+                        self.ctx.expect_logger(),
+                        "{} missing blocks detected, will attempt to repair data",
+                        missing_blocks.len()
+                    );
+                    let block_ingestion_processor =
+                        start_block_archiving_processor(&self.config, &self.ctx, false, None);
+                    download_and_pipeline_blocks(
+                        &self.config,
+                        missing_blocks.into_iter().map(|x| x as u64).collect(),
+                        tip.into(),
+                        Some(&block_ingestion_processor),
+                        10_000,
+                        &self.ctx,
+                    )
+                    .await?;
+                }
+                info!(self.ctx.expect_logger(), "Running database compaction",);
+                run_compaction(&blocks_db, tip);
+            }
+
+            if rebuild_from_scratch {
+                let inscriptions_db_conn_rw =
+                    open_readwrite_ordhook_db_conn(&self.config.expected_cache_path(), &self.ctx)?;
+
+                delete_data_in_ordhook_db(
+                    767430,
+                    820000,
+                    &blocks_db,
+                    &inscriptions_db_conn_rw,
+                    &self.ctx,
+                )?;
+            }
         }
+
         let tx_replayer = start_observer_forwarding(event_observer_config, &self.ctx);
         self.update_state(Some(tx_replayer)).await?;
         Ok(())

@@ -159,7 +159,7 @@ impl OrdinalsIndexingRunloop {
         match cmd {
           IndexerCommand::StreamBlocks => {
             // We start the service as soon as the start() method is being called.
-            let future = service.catch_up_with_chain_tip(false, &observer_config);
+            let future = service.catch_up_with_chain_tip(false, true, &observer_config);
             let _ = hiro_system_kit::nestable_block_on(future).expect("unable to start indexer");
             let future = service.start_event_observer(observer_sidecar);
             let (command_tx, event_rx) =

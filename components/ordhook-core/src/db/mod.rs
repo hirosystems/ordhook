@@ -8,7 +8,7 @@ use std::{
 
 use rand::{thread_rng, Rng};
 
-use rocksdb::{DB, DBCompactionStyle};
+use rocksdb::{DBCompactionStyle, DB};
 use rusqlite::{Connection, OpenFlags, ToSql, Transaction};
 use std::io::Cursor;
 
@@ -419,6 +419,21 @@ pub fn find_lazy_block_at_block_height(
             }
         }
     }
+}
+
+pub fn run_compaction(blocks_db_rw: &DB, lim: u32) {
+    let gen = 0u32.to_be_bytes();
+    let _ = blocks_db_rw.compact_range(Some(&gen), Some(&lim.to_be_bytes()));
+}
+
+pub fn find_missing_blocks(blocks_db: &DB, start: u32, end: u32, ctx: &Context) -> Vec<u32> {
+    let mut missing_blocks = vec![];
+    for i in start..=end {
+        if find_lazy_block_at_block_height(i as u32, 0, false, &blocks_db, ctx).is_none() {
+            missing_blocks.push(i);
+        }
+    }
+    missing_blocks
 }
 
 pub fn remove_entry_from_blocks(block_height: u32, blocks_db_rw: &DB, ctx: &Context) {

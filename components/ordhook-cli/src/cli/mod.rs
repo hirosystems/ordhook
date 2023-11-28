@@ -25,7 +25,7 @@ use ordhook::core::protocol::satoshi_numbering::compute_satoshi_number;
 use ordhook::db::{
     delete_data_in_ordhook_db, find_all_inscription_transfers, find_all_inscriptions_in_block,
     find_all_transfers_in_block, find_inscription_with_id, find_last_block_inserted,
-    find_latest_inscription_block_height, find_lazy_block_at_block_height,
+    find_latest_inscription_block_height, find_lazy_block_at_block_height, find_missing_blocks,
     get_default_ordhook_db_file_path, initialize_ordhook_db, open_ordhook_db_conn_rocks_db_loop,
     open_readonly_ordhook_db_conn, open_readonly_ordhook_db_conn_rocks_db,
     open_readwrite_ordhook_db_conn,
@@ -864,18 +864,9 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
             {
                 let blocks_db =
                     open_readonly_ordhook_db_conn_rocks_db(&config.expected_cache_path(), ctx)?;
-                let tip = find_last_block_inserted(&blocks_db) as u64;
+                let tip = find_last_block_inserted(&blocks_db);
                 println!("Tip: {}", tip);
-
-                let mut missing_blocks = vec![];
-                for i in cmd.start_block..=cmd.end_block {
-                    if find_lazy_block_at_block_height(i as u32, 0, false, &blocks_db, ctx)
-                        .is_none()
-                    {
-                        println!("Missing block #{i}");
-                        missing_blocks.push(i);
-                    }
-                }
+                let missing_blocks = find_missing_blocks(&blocks_db, 1, tip, ctx);
                 println!("{:?}", missing_blocks);
             }
         }
