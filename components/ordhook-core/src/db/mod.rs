@@ -297,8 +297,11 @@ pub fn open_ordhook_db_conn_rocks_db_loop(
                 retries += 1;
                 if retries > 10 {
                     ctx.try_log(|logger| {
-                        warn!(logger, "Unable to open db: {e}",);
+                        warn!(logger, "Unable to open db: {e}. Retrying in 10s",);
                     });
+                    sleep(Duration::from_secs(10));
+                } else {
+                    sleep(Duration::from_secs(2));
                 }
                 continue;
             }
