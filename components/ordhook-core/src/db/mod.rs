@@ -8,7 +8,7 @@ use std::{
 
 use rand::{thread_rng, Rng};
 
-use rocksdb::DB;
+use rocksdb::{DB, DBCompactionStyle};
 use rusqlite::{Connection, OpenFlags, ToSql, Transaction};
 use std::io::Cursor;
 
@@ -253,15 +253,14 @@ fn rocks_db_default_options() -> rocksdb::Options {
     opts.set_target_file_size_base(16 * 1024 * 1024);
     opts.set_max_open_files(-1);
     opts.create_if_missing(true);
-    opts.optimize_for_point_lookup(512 * 1024 * 1024);
-    opts.set_level_zero_stop_writes_trigger(48);
-    opts.set_level_zero_slowdown_writes_trigger(0);
+    opts.optimize_for_point_lookup(2048 * 1024 * 1024);
+    opts.set_level_zero_stop_writes_trigger(64);
+    opts.set_level_zero_slowdown_writes_trigger(20);
     opts.set_enable_blob_files(true);
     opts.set_enable_blob_gc(true);
     // opts.set_use_fsync(false);
     // opts.set_bytes_per_sync(8388608);
-    // opts.set_compaction_style(DBCompactionStyle::Universal);
-    // opts.set_disable_auto_compactions(true);
+    opts.set_compaction_style(DBCompactionStyle::Universal);
     // opts.set_compression_type(rocksdb::DBCompressionType::Lz4);
     // opts.set_blob_compression_type(rocksdb::DBCompressionType::Lz4);
     opts

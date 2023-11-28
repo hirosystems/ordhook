@@ -12,7 +12,7 @@ use chainhook_sdk::{
     },
     utils::Context,
 };
-use crossbeam_channel::bounded;
+use crossbeam_channel::unbounded;
 use dashmap::DashMap;
 use fxhash::FxHasher;
 use rusqlite::{Connection, Transaction};
@@ -72,7 +72,13 @@ pub fn parallelize_inscription_data_computations(
     ordhook_config: &OrdhookConfig,
     ctx: &Context,
 ) -> Result<bool, String> {
-    ctx.try_log(|logger| {
+    let inner_ctx = if ordhook_config.logs.ordinals_internals {
+        ctx.clone()
+    } else {
+        Context::empty()
+    };
+
+    inner_ctx.try_log(|logger| {
         info!(
             logger,
             "Inscriptions data computation for block #{} started", block.block_identifier.index
@@ -81,12 +87,6 @@ pub fn parallelize_inscription_data_computations(
 
     let (mut transactions_ids, l1_cache_hits) =
         get_transactions_to_process(block, cache_l1, inscriptions_db_tx, ctx);
-
-    let inner_ctx = if ordhook_config.logs.ordinals_internals {
-        ctx.clone()
-    } else {
-        Context::empty()
-    };
 
     let has_transactions_to_process = !transactions_ids.is_empty() || !l1_cache_hits.is_empty();
 
@@ -98,7 +98,7 @@ pub fn parallelize_inscription_data_computations(
     }
 
     let expected_traversals = transactions_ids.len() + l1_cache_hits.len();
-    let (traversal_tx, traversal_rx) = bounded(64);
+    let (traversal_tx, traversal_rx) = unbounded();
 
     let mut tx_thread_pool = vec![];
     let mut thread_pool_handles = vec![];
@@ -147,7 +147,7 @@ pub fn parallelize_inscription_data_computations(
         .map(|b| format!("{}", b.block_identifier.index))
         .collect::<Vec<_>>();
 
-    ctx.try_log(|logger| {
+    inner_ctx.try_log(|logger| {
         info!(
             logger,
             "Number of inscriptions in block #{} to process: {} (L1 cache hits: {}, queue: [{}], L1 cache len: {}, L2 cache len: {})",
@@ -230,7 +230,7 @@ pub fn parallelize_inscription_data_computations(
                     let (mut transactions_ids, _) =
                         get_transactions_to_process(next_block, cache_l1, inscriptions_db_tx, ctx);
 
-                    ctx.try_log(|logger| {
+                    inner_ctx.try_log(|logger| {
                         info!(
                             logger,
                             "Number of inscriptions in block #{} to pre-process: {}",
@@ -253,7 +253,7 @@ pub fn parallelize_inscription_data_computations(
             }
         }
     }
-    ctx.try_log(|logger| {
+    inner_ctx.try_log(|logger| {
         info!(
             logger,
             "Inscriptions data computation for block #{} collected", block.block_identifier.index
@@ -288,7 +288,7 @@ pub fn parallelize_inscription_data_computations(
         let _ = tx.send(None);
     }
 
-    let ctx_moved = ctx.clone();
+    let ctx_moved = inner_ctx.clone();
     let _ = hiro_system_kit::thread_named("Garbage collection").spawn(move || {
         ctx_moved.try_log(|logger| info!(logger, "Cleanup: threadpool deallocation started",));
 
@@ -298,7 +298,7 @@ pub fn parallelize_inscription_data_computations(
         ctx_moved.try_log(|logger| info!(logger, "Cleanup: threadpool deallocation ended",));
     });
 
-    ctx.try_log(|logger| {
+    inner_ctx.try_log(|logger| {
         info!(
             logger,
             "Inscriptions data computation for block #{} ended", block.block_identifier.index

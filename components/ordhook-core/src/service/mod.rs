@@ -14,6 +14,7 @@ use crate::core::protocol::inscription_parsing::{
 };
 use crate::core::protocol::inscription_sequencing::SequenceCursor;
 use crate::core::{new_traversals_lazy_cache, should_sync_ordhook_db, should_sync_rocks_db};
+use crate::db::update_sequence_metadata_with_block;
 use crate::db::{
     delete_data_in_ordhook_db, insert_entry_in_blocks, open_ordhook_db_conn_rocks_db_loop,
     open_readwrite_ordhook_db_conn, open_readwrite_ordhook_dbs, update_inscriptions_with_block,
@@ -26,7 +27,6 @@ use crate::service::predicates::{
     update_predicate_spec, update_predicate_status, PredicateStatus,
 };
 use crate::service::runloops::start_bitcoin_scan_runloop;
-
 use chainhook_sdk::chainhooks::bitcoin::BitcoinChainhookOccurrencePayload;
 use chainhook_sdk::chainhooks::types::{
     BitcoinChainhookSpecification, ChainhookFullSpecification, ChainhookSpecification,
