@@ -17,7 +17,7 @@ use crate::core::{new_traversals_lazy_cache, should_sync_ordhook_db, should_sync
 use crate::db::{
     delete_data_in_ordhook_db, insert_entry_in_blocks, open_ordhook_db_conn_rocks_db_loop,
     open_readwrite_ordhook_db_conn, open_readwrite_ordhook_dbs, update_inscriptions_with_block,
-    update_locations_with_block, LazyBlock, LazyBlockTransaction,
+    update_locations_with_block, BlockBytesCursor, TransactionBytesCursor,
 };
 use crate::db::{
     find_last_block_inserted, find_missing_blocks, run_compaction,
@@ -648,8 +648,8 @@ fn chainhook_sidecar_mutate_ordhook_db(command: HandleBlock, config: &Config, ct
             }
         }
         HandleBlock::ApplyBlock(block) => {
-            let compressed_block: LazyBlock = match LazyBlock::from_standardized_block(&block) {
-                Ok(block) => block,
+            let block_bytes = match BlockBytesCursor::from_standardized_block(&block) {
+                Ok(block_bytes) => block_bytes,
                 Err(e) => {
                     ctx.try_log(|logger| {
                         error!(
@@ -664,7 +664,7 @@ fn chainhook_sidecar_mutate_ordhook_db(command: HandleBlock, config: &Config, ct
             };
             insert_entry_in_blocks(
                 block.block_identifier.index as u32,
-                &compressed_block,
+                &block_bytes,
                 true,
                 &blocks_db_rw,
                 &ctx,
@@ -718,7 +718,7 @@ pub fn start_observer_forwarding(
 pub fn chainhook_sidecar_mutate_blocks(
     blocks_to_mutate: &mut Vec<BitcoinBlockDataCached>,
     blocks_ids_to_rollback: &Vec<BlockIdentifier>,
-    cache_l2: &Arc<DashMap<(u32, [u8; 8]), LazyBlockTransaction, BuildHasherDefault<FxHasher>>>,
+    cache_l2: &Arc<DashMap<(u32, [u8; 8]), TransactionBytesCursor, BuildHasherDefault<FxHasher>>>,
     config: &Config,
     ctx: &Context,
 ) {
@@ -755,8 +755,8 @@ pub fn chainhook_sidecar_mutate_blocks(
     let ordhook_config = config.get_ordhook_config();
 
     for cache in blocks_to_mutate.iter_mut() {
-        let compressed_block: LazyBlock = match LazyBlock::from_standardized_block(&cache.block) {
-            Ok(block) => block,
+        let block_bytes = match BlockBytesCursor::from_standardized_block(&cache.block) {
+            Ok(block_bytes) => block_bytes,
             Err(e) => {
                 ctx.try_log(|logger| {
                     error!(
@@ -772,7 +772,7 @@ pub fn chainhook_sidecar_mutate_blocks(
 
         insert_entry_in_blocks(
             cache.block.block_identifier.index as u32,
-            &compressed_block,
+            &block_bytes,
             true,
             &blocks_db_rw,
             &ctx,

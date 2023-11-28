@@ -23,7 +23,7 @@ use crate::{
         find_blessed_inscription_with_ordinal_number,
         find_latest_cursed_inscription_number_at_block_height,
         find_latest_inscription_number_at_block_height, format_satpoint_to_watch,
-        update_inscriptions_with_block, LazyBlockTransaction, TraversalResult,
+        update_inscriptions_with_block, TransactionBytesCursor, TraversalResult,
     },
     ord::height::Height,
 };
@@ -67,7 +67,7 @@ pub fn parallelize_inscription_data_computations(
     block: &BitcoinBlockData,
     next_blocks: &Vec<BitcoinBlockData>,
     cache_l1: &mut BTreeMap<(TransactionIdentifier, usize), TraversalResult>,
-    cache_l2: &Arc<DashMap<(u32, [u8; 8]), LazyBlockTransaction, BuildHasherDefault<FxHasher>>>,
+    cache_l2: &Arc<DashMap<(u32, [u8; 8]), TransactionBytesCursor, BuildHasherDefault<FxHasher>>>,
     inscriptions_db_tx: &Transaction,
     ordhook_config: &OrdhookConfig,
     ctx: &Context,

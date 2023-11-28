@@ -24,11 +24,11 @@ use ordhook::core::protocol::inscription_parsing::parse_inscriptions_and_standar
 use ordhook::core::protocol::satoshi_numbering::compute_satoshi_number;
 use ordhook::db::{
     delete_data_in_ordhook_db, find_all_inscription_transfers, find_all_inscriptions_in_block,
-    find_all_transfers_in_block, find_inscription_with_id, find_last_block_inserted,
-    find_latest_inscription_block_height, find_lazy_block_at_block_height, find_missing_blocks,
+    find_all_transfers_in_block, find_block_bytes_at_block_height, find_inscription_with_id,
+    find_last_block_inserted, find_latest_inscription_block_height, find_missing_blocks,
     get_default_ordhook_db_file_path, initialize_ordhook_db, open_ordhook_db_conn_rocks_db_loop,
     open_readonly_ordhook_db_conn, open_readonly_ordhook_db_conn_rocks_db,
-    open_readwrite_ordhook_db_conn,
+    open_readwrite_ordhook_db_conn, BlockBytesCursor,
 };
 use ordhook::download::download_ordinals_dataset_if_required;
 use ordhook::scan::bitcoin::scan_bitcoin_chainstate_via_rpc_using_predicate;
@@ -796,9 +796,10 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                         ctx,
                     );
                     for i in cmd.get_blocks().into_iter() {
-                        let block =
-                            find_lazy_block_at_block_height(i as u32, 10, false, &blocks_db, ctx)
+                        let block_bytes =
+                            find_block_bytes_at_block_height(i as u32, 10, &blocks_db, ctx)
                                 .expect("unable to retrieve block {i}");
+                        let block = BlockBytesCursor::new(&block_bytes);
                         info!(ctx.expect_logger(), "--------------------");
                         info!(ctx.expect_logger(), "Block: {i}");
                         for tx in block.iter_tx() {

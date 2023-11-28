@@ -7,10 +7,11 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::db::{
-    find_lazy_block_at_block_height, open_ordhook_db_conn_rocks_db_loop, TransferData,
+    find_pinned_block_bytes_at_block_height, open_ordhook_db_conn_rocks_db_loop, BlockBytesCursor,
+    TransferData,
 };
 
-use crate::db::{LazyBlockTransaction, TraversalResult};
+use crate::db::{TransactionBytesCursor, TraversalResult};
 use crate::ord::height::Height;
 
 pub fn compute_satoshi_number(
@@ -20,7 +21,7 @@ pub fn compute_satoshi_number(
     inscription_input_index: usize,
     inscription_number: i64,
     traversals_cache: &Arc<
-        DashMap<(u32, [u8; 8]), LazyBlockTransaction, BuildHasherDefault<FxHasher>>,
+        DashMap<(u32, [u8; 8]), TransactionBytesCursor, BuildHasherDefault<FxHasher>>,
     >,
     ctx: &Context,
 ) -> Result<TraversalResult, String> {
@@ -30,7 +31,7 @@ pub fn compute_satoshi_number(
     let mut ordinal_block_number = block_identifier.index as u32;
     let txid = transaction_identifier.get_8_hash_bytes();
 
-    let mut blocks_db = open_ordhook_db_conn_rocks_db_loop(false, &blocks_db_dir, &ctx);
+    let blocks_db = open_ordhook_db_conn_rocks_db_loop(false, &blocks_db_dir, &ctx);
 
     let (sats_ranges, inscription_offset_cross_outputs) = match traversals_cache
         .get(&(block_identifier.index as u32, txid.clone()))
@@ -42,26 +43,15 @@ pub fn compute_satoshi_number(
                 tx.get_cumulated_sats_in_until_input_index(inscription_input_index),
             )
         }
-        None => {
-            let mut attempt = 0;
-            loop {
-                match find_lazy_block_at_block_height(
-                    ordinal_block_number,
-                    3,
-                    false,
-                    &blocks_db,
-                    &ctx,
-                ) {
-                    None => {
-                        if attempt < 3 {
-                            attempt += 1;
-                            blocks_db =
-                                open_ordhook_db_conn_rocks_db_loop(false, &blocks_db_dir, &ctx);
-                        } else {
-                            return Err(format!("block #{ordinal_block_number} not in database"));
-                        }
-                    }
-                    Some(block) => match block.find_and_serialize_transaction_with_txid(&txid) {
+        None => loop {
+            match find_pinned_block_bytes_at_block_height(ordinal_block_number, 3, &blocks_db, &ctx)
+            {
+                None => {
+                    return Err(format!("block #{ordinal_block_number} not in database"));
+                }
+                Some(block_bytes) => {
+                    let cursor = BlockBytesCursor::new(&block_bytes.as_ref());
+                    match cursor.find_and_serialize_transaction_with_txid(&txid) {
                         Some(tx) => {
                             let sats_ranges = tx.get_sat_ranges();
                             let inscription_offset_cross_outputs =
@@ -70,10 +60,10 @@ pub fn compute_satoshi_number(
                             break (sats_ranges, inscription_offset_cross_outputs);
                         }
                         None => return Err(format!("txid not in block #{ordinal_block_number}")),
-                    },
+                    }
                 }
             }
-        }
+        },
     };
 
     for (i, (min, max)) in sats_ranges.into_iter().enumerate() {
@@ -158,30 +148,22 @@ pub fn compute_satoshi_number(
             }
         }
 
-        let lazy_block = {
-            let mut attempt = 0;
+        let pinned_block_bytes = {
             loop {
-                match find_lazy_block_at_block_height(
+                match find_pinned_block_bytes_at_block_height(
                     ordinal_block_number,
                     3,
-                    false,
                     &blocks_db,
                     &ctx,
                 ) {
                     Some(block) => break block,
                     None => {
-                        if attempt < 3 {
-                            attempt += 1;
-                            blocks_db =
-                                open_ordhook_db_conn_rocks_db_loop(false, &blocks_db_dir, &ctx);
-                        } else {
-                            return Err(format!("block #{ordinal_block_number} not in database"));
-                        }
+                        return Err(format!("block #{ordinal_block_number} not in database"));
                     }
                 }
             }
         };
-
+        let lazy_block = BlockBytesCursor::new(pinned_block_bytes.as_ref());
         let coinbase_txid = lazy_block.get_coinbase_txid();
         let txid = tx_cursor.0;
 

@@ -8,7 +8,7 @@ use std::{
 
 use rand::{thread_rng, Rng};
 
-use rocksdb::{DBCompactionStyle, DB};
+use rocksdb::{DBCompactionStyle, DBPinnableSlice, DB};
 use rusqlite::{Connection, OpenFlags, ToSql, Transaction};
 use std::io::Cursor;
 
@@ -332,7 +332,7 @@ fn open_readwrite_ordhook_db_conn_rocks_db(
 
 pub fn insert_entry_in_blocks(
     block_height: u32,
-    lazy_block: &LazyBlock,
+    block_bytes: &[u8],
     update_tip: bool,
     blocks_db_rw: &DB,
     ctx: &Context,
@@ -340,7 +340,7 @@ pub fn insert_entry_in_blocks(
     let block_height_bytes = block_height.to_be_bytes();
     let mut retries = 0;
     loop {
-        let res = blocks_db_rw.put(&block_height_bytes, &lazy_block.bytes);
+        let res = blocks_db_rw.put(&block_height_bytes, block_bytes);
         match res {
             Ok(_) => break,
             Err(e) => {
@@ -373,13 +373,47 @@ pub fn find_last_block_inserted(blocks_db: &DB) -> u32 {
     }
 }
 
-pub fn find_lazy_block_at_block_height(
+pub fn find_pinned_block_bytes_at_block_height<'a>(
     block_height: u32,
     retry: u8,
-    try_iterator: bool,
+    blocks_db: &'a DB,
+    ctx: &Context,
+) -> Option<DBPinnableSlice<'a>> {
+    let mut attempt = 1;
+    // let mut read_options = rocksdb::ReadOptions::default();
+    // read_options.fill_cache(true);
+    // read_options.set_verify_checksums(false);
+    let mut backoff: f64 = 1.0;
+    let mut rng = thread_rng();
+
+    loop {
+        match blocks_db.get_pinned(block_height.to_be_bytes()) {
+            Ok(Some(res)) => return Some(res),
+            _ => {
+                attempt += 1;
+                backoff = 2.0 * backoff + (backoff * rng.gen_range(0.0..1.0));
+                let duration = std::time::Duration::from_millis((backoff * 1_000.0) as u64);
+                ctx.try_log(|logger| {
+                    warn!(
+                        logger,
+                        "Unable to find block #{}, will retry in {:?}", block_height, duration
+                    )
+                });
+                std::thread::sleep(duration);
+                if attempt > retry {
+                    return None;
+                }
+            }
+        }
+    }
+}
+
+pub fn find_block_bytes_at_block_height<'a>(
+    block_height: u32,
+    retry: u8,
     blocks_db: &DB,
     ctx: &Context,
-) -> Option<LazyBlock> {
+) -> Option<Vec<u8>> {
     let mut attempt = 1;
     // let mut read_options = rocksdb::ReadOptions::default();
     // read_options.fill_cache(true);
@@ -389,23 +423,8 @@ pub fn find_lazy_block_at_block_height(
 
     loop {
         match blocks_db.get(block_height.to_be_bytes()) {
-            Ok(Some(res)) => return Some(LazyBlock::new(res)),
+            Ok(Some(res)) => return Some(res),
             _ => {
-                if attempt == 1 && try_iterator {
-                    ctx.try_log(|logger| {
-                        warn!(
-                            logger,
-                            "Attempt to retrieve block #{} through iterator", block_height,
-                        )
-                    });
-                    let mut iter = blocks_db.iterator(rocksdb::IteratorMode::End);
-                    let block_height_bytes = block_height.to_be_bytes();
-                    while let Some(Ok((k, res))) = iter.next() {
-                        if (*k).eq(&block_height_bytes) {
-                            return Some(LazyBlock::new(res.to_vec()));
-                        }
-                    }
-                }
                 attempt += 1;
                 backoff = 2.0 * backoff + (backoff * rng.gen_range(0.0..1.0));
                 let duration = std::time::Duration::from_millis((backoff * 1_000.0) as u64);
@@ -432,7 +451,7 @@ pub fn run_compaction(blocks_db_rw: &DB, lim: u32) {
 pub fn find_missing_blocks(blocks_db: &DB, start: u32, end: u32, ctx: &Context) -> Vec<u32> {
     let mut missing_blocks = vec![];
     for i in start..=end {
-        if find_lazy_block_at_block_height(i as u32, 0, false, &blocks_db, ctx).is_none() {
+        if find_pinned_block_bytes_at_block_height(i as u32, 0, &blocks_db, ctx).is_none() {
             missing_blocks.push(i);
         }
     }
@@ -1352,21 +1371,21 @@ pub fn parse_outpoint_to_watch(outpoint_to_watch: &str) -> (TransactionIdentifie
 }
 
 #[derive(Debug)]
-pub struct LazyBlock {
-    pub bytes: Vec<u8>,
+pub struct BlockBytesCursor<'a> {
+    pub bytes: &'a [u8],
     pub tx_len: u16,
 }
 
 #[derive(Debug, Clone)]
-pub struct LazyBlockTransaction {
+pub struct TransactionBytesCursor {
     pub txid: [u8; 8],
-    pub inputs: Vec<LazyBlockTransactionInput>,
+    pub inputs: Vec<TransactionInputBytesCursor>,
     pub outputs: Vec<u64>,
 }
 
-impl LazyBlockTransaction {
+impl TransactionBytesCursor {
     pub fn get_average_bytes_size() -> usize {
-        TXID_LEN + 3 * LazyBlockTransactionInput::get_average_bytes_size() + 3 * SATS_LEN
+        TXID_LEN + 3 * TransactionInputBytesCursor::get_average_bytes_size() + 3 * SATS_LEN
     }
 
     pub fn get_sat_ranges(&self) -> Vec<(u64, u64)> {
@@ -1392,14 +1411,14 @@ impl LazyBlockTransaction {
 }
 
 #[derive(Debug, Clone)]
-pub struct LazyBlockTransactionInput {
+pub struct TransactionInputBytesCursor {
     pub txin: [u8; 8],
     pub block_height: u32,
     pub vout: u16,
     pub txin_value: u64,
 }
 
-impl LazyBlockTransactionInput {
+impl TransactionInputBytesCursor {
     pub fn get_average_bytes_size() -> usize {
         TXID_LEN + SATS_LEN + 4 + 2
     }
@@ -1410,10 +1429,10 @@ const SATS_LEN: usize = 8;
 const INPUT_SIZE: usize = TXID_LEN + 4 + 2 + SATS_LEN;
 const OUTPUT_SIZE: usize = 8;
 
-impl LazyBlock {
-    pub fn new(bytes: Vec<u8>) -> LazyBlock {
+impl<'a> BlockBytesCursor<'a> {
+    pub fn new(bytes: &[u8]) -> BlockBytesCursor {
         let tx_len = u16::from_be_bytes([bytes[0], bytes[1]]);
-        LazyBlock { bytes, tx_len }
+        BlockBytesCursor { bytes, tx_len }
     }
 
     pub fn get_coinbase_data_pos(&self) -> usize {
@@ -1461,11 +1480,11 @@ impl LazyBlock {
 
     pub fn get_lazy_transaction_at_pos(
         &self,
-        cursor: &mut Cursor<&Vec<u8>>,
+        cursor: &mut Cursor<&[u8]>,
         txid: [u8; 8],
         inputs_len: u16,
         outputs_len: u16,
-    ) -> LazyBlockTransaction {
+    ) -> TransactionBytesCursor {
         let mut inputs = Vec::with_capacity(inputs_len as usize);
         for _ in 0..inputs_len {
             let mut txin = [0u8; 8];
@@ -1478,7 +1497,7 @@ impl LazyBlock {
             cursor.read_exact(&mut vout).expect("data corrupted");
             let mut txin_value = [0u8; 8];
             cursor.read_exact(&mut txin_value).expect("data corrupted");
-            inputs.push(LazyBlockTransactionInput {
+            inputs.push(TransactionInputBytesCursor {
                 txin: txin,
                 block_height: u32::from_be_bytes(block_height),
                 vout: u16::from_be_bytes(vout),
@@ -1491,7 +1510,7 @@ impl LazyBlock {
             cursor.read_exact(&mut value).expect("data corrupted");
             outputs.push(u64::from_be_bytes(value))
         }
-        LazyBlockTransaction {
+        TransactionBytesCursor {
             txid,
             inputs,
             outputs,
@@ -1501,10 +1520,10 @@ impl LazyBlock {
     pub fn find_and_serialize_transaction_with_txid(
         &self,
         searched_txid: &[u8],
-    ) -> Option<LazyBlockTransaction> {
+    ) -> Option<TransactionBytesCursor> {
         // println!("{:?}", hex::encode(searched_txid));
         let mut entry = None;
-        let mut cursor = Cursor::new(&self.bytes);
+        let mut cursor = Cursor::new(self.bytes);
         let mut cumulated_offset = 0;
         let mut i = 0;
         while entry.is_none() {
@@ -1533,11 +1552,11 @@ impl LazyBlock {
         entry
     }
 
-    pub fn iter_tx(&self) -> LazyBlockTransactionIterator {
-        LazyBlockTransactionIterator::new(&self)
+    pub fn iter_tx(&self) -> TransactionBytesCursorIterator {
+        TransactionBytesCursorIterator::new(&self)
     }
 
-    pub fn from_full_block(block: &BitcoinBlockFullBreakdown) -> std::io::Result<LazyBlock> {
+    pub fn from_full_block<'b>(block: &BitcoinBlockFullBreakdown) -> std::io::Result<Vec<u8>> {
         let mut buffer = vec![];
         // Number of transactions in the block (not including coinbase)
         let tx_len = block.tx.len() as u16 - 1;
@@ -1624,10 +1643,10 @@ impl LazyBlock {
                 buffer.write(&sats.to_be_bytes())?;
             }
         }
-        Ok(Self::new(buffer))
+        Ok(buffer)
     }
 
-    pub fn from_standardized_block(block: &BitcoinBlockData) -> std::io::Result<LazyBlock> {
+    pub fn from_standardized_block<'b>(block: &BitcoinBlockData) -> std::io::Result<Vec<u8>> {
         let mut buffer = vec![];
         // Number of transactions in the block (not including coinbase)
         let tx_len = block.transactions.len() as u16 - 1;
@@ -1678,19 +1697,19 @@ impl LazyBlock {
                 buffer.write(&sats.to_be_bytes())?;
             }
         }
-        Ok(Self::new(buffer))
+        Ok(buffer)
     }
 }
 
-pub struct LazyBlockTransactionIterator<'a> {
-    lazy_block: &'a LazyBlock,
+pub struct TransactionBytesCursorIterator<'a> {
+    lazy_block: &'a BlockBytesCursor<'a>,
     tx_index: u16,
     cumulated_offset: usize,
 }
 
-impl<'a> LazyBlockTransactionIterator<'a> {
-    pub fn new(lazy_block: &'a LazyBlock) -> LazyBlockTransactionIterator<'a> {
-        LazyBlockTransactionIterator {
+impl<'a> TransactionBytesCursorIterator<'a> {
+    pub fn new(lazy_block: &'a BlockBytesCursor) -> TransactionBytesCursorIterator<'a> {
+        TransactionBytesCursorIterator {
             lazy_block,
             tx_index: 0,
             cumulated_offset: 0,
@@ -1698,17 +1717,17 @@ impl<'a> LazyBlockTransactionIterator<'a> {
     }
 }
 
-impl<'a> Iterator for LazyBlockTransactionIterator<'a> {
-    type Item = LazyBlockTransaction;
+impl<'a> Iterator for TransactionBytesCursorIterator<'a> {
+    type Item = TransactionBytesCursor;
 
-    fn next(&mut self) -> Option<LazyBlockTransaction> {
+    fn next(&mut self) -> Option<TransactionBytesCursor> {
         if self.tx_index >= self.lazy_block.tx_len {
             return None;
         }
         let pos = self.lazy_block.get_transactions_data_pos() + self.cumulated_offset;
         let (inputs_len, outputs_len, size) = self.lazy_block.get_transaction_format(self.tx_index);
         // println!("{inputs_len} / {outputs_len} / {size}");
-        let mut cursor = Cursor::new(&self.lazy_block.bytes);
+        let mut cursor = Cursor::new(self.lazy_block.bytes);
         cursor.set_position(pos as u64);
         let mut txid = [0u8; 8];
         let _ = cursor.read_exact(&mut txid);

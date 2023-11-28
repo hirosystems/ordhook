@@ -10,7 +10,7 @@ use std::time::Duration;
 use tokio::task::JoinSet;
 
 use crate::config::Config;
-use crate::db::LazyBlock;
+use crate::db::BlockBytesCursor;
 
 use chainhook_sdk::indexer::bitcoin::{
     build_http_client, parse_downloaded_block, try_download_block_bytes_with_retry,
@@ -19,7 +19,7 @@ use chainhook_sdk::indexer::bitcoin::{
 use super::protocol::inscription_parsing::parse_inscriptions_and_standardize_block;
 
 pub enum PostProcessorCommand {
-    ProcessBlocks(Vec<(u64, LazyBlock)>, Vec<BitcoinBlockData>),
+    ProcessBlocks(Vec<(u64, Vec<u8>)>, Vec<BitcoinBlockData>),
     Terminate,
 }
 
@@ -111,7 +111,7 @@ pub async fn download_and_pipeline_blocks(
                 while let Ok(Some(block_bytes)) = rx.recv() {
                     let raw_block_data =
                         parse_downloaded_block(block_bytes).expect("unable to parse block");
-                    let compressed_block = LazyBlock::from_full_block(&raw_block_data)
+                    let compressed_block = BlockBytesCursor::from_full_block(&raw_block_data)
                         .expect("unable to compress block");
                     let block_height = raw_block_data.height as u64;
                     let block_data = if block_height >= start_sequencing_blocks_at_height {
@@ -195,9 +195,9 @@ pub async fn download_and_pipeline_blocks(
                 let mut ooo_compacted_blocks = vec![];
                 for (block_height, block_opt, compacted_block) in new_blocks.into_iter() {
                     if let Some(block) = block_opt {
-                        inbox.insert(block_height, (block, compacted_block));
+                        inbox.insert(block_height, (block, compacted_block.to_vec()));
                     } else {
-                        ooo_compacted_blocks.push((block_height, compacted_block));
+                        ooo_compacted_blocks.push((block_height, compacted_block.to_vec()));
                     }
                 }
 

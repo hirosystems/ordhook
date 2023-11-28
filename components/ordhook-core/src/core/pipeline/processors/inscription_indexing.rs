@@ -38,7 +38,7 @@ use crate::{
     },
 };
 
-use crate::db::{LazyBlockTransaction, TraversalResult};
+use crate::db::{TransactionBytesCursor, TraversalResult};
 
 use crate::{
     config::Config,
@@ -162,7 +162,7 @@ pub fn start_inscription_indexing_processor(
 pub fn process_blocks(
     next_blocks: &mut Vec<BitcoinBlockData>,
     sequence_cursor: &mut SequenceCursor,
-    cache_l2: &Arc<DashMap<(u32, [u8; 8]), LazyBlockTransaction, BuildHasherDefault<FxHasher>>>,
+    cache_l2: &Arc<DashMap<(u32, [u8; 8]), TransactionBytesCursor, BuildHasherDefault<FxHasher>>>,
     inscriptions_db_conn_rw: &mut Connection,
     ordhook_config: &OrdhookConfig,
     post_processor: &Option<Sender<BitcoinBlockData>>,
@@ -259,7 +259,7 @@ pub fn process_block(
     next_blocks: &Vec<BitcoinBlockData>,
     sequence_cursor: &mut SequenceCursor,
     cache_l1: &mut BTreeMap<(TransactionIdentifier, usize), TraversalResult>,
-    cache_l2: &Arc<DashMap<(u32, [u8; 8]), LazyBlockTransaction, BuildHasherDefault<FxHasher>>>,
+    cache_l2: &Arc<DashMap<(u32, [u8; 8]), TransactionBytesCursor, BuildHasherDefault<FxHasher>>>,
     inscriptions_db_tx: &Transaction,
     ordhook_config: &OrdhookConfig,
     ctx: &Context,
