@@ -1,3 +1,10 @@
+## [1.1.3](https://github.com/hirosystems/ordhook/compare/v1.1.2...v1.1.3) (2023-11-29)
+
+
+### Bug Fixes
+
+* update sequence_metadata when augmenting block ([e0b3dd1](https://github.com/hirosystems/ordhook/commit/e0b3dd110773192c954a0c11e3b6f70ff29991c1))
+
 ## [1.1.2](https://github.com/hirosystems/ordhook/compare/v1.1.1...v1.1.2) (2023-11-28)
 
 
