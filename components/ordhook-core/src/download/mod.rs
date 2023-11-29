@@ -105,6 +105,9 @@ pub async fn download_sqlite_file(config: &Config, ctx: &Context) -> Result<(), 
         let mut tx_err = None;
         while let Some(item) = stream.next().await {
             let chunk = item.or(Err(format!("Error while downloading file")))?;
+            if chunk.is_empty() {
+                continue;
+            }
             progress += chunk.len() as i64;
             steps += chunk.len() as i64;
             if steps > 5_000_000 {
