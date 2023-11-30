@@ -94,12 +94,11 @@ $ ordhook scan blocks --interval 767430:767753 --post-to=http://localhost:3000/a
 $ ordhook service start --post-to=http://localhost:3000/api/events --config-path=./Ordhook.toml
 ```
 
-New `http-post` endpoints can also be added dynamically by spinning up a redis server and adding the following section in the `Ordhook.toml` configuration file:
+New `http-post` endpoints can also be added dynamically by adding the following section in the `Ordhook.toml` configuration file:
 
 ```toml
 [http_api]
 http_port = 20456
-database_uri = "redis://localhost:6379/"
 ```
 
 Running `ordhook` with the command
