@@ -47,12 +47,14 @@ pub fn open_readwrite_ordhook_db_conn(
     base_dir: &PathBuf,
     ctx: &Context,
 ) -> Result<Connection, String> {
-    let conn = create_or_open_readwrite_db(&base_dir, ctx);
+    let db_path = get_default_ordhook_db_file_path(&base_dir);
+    let conn = create_or_open_readwrite_db(&db_path, ctx);
     Ok(conn)
 }
 
-pub fn initialize_ordhook_db(path: &PathBuf, ctx: &Context) -> Connection {
-    let conn = create_or_open_readwrite_db(path, ctx);
+pub fn initialize_ordhook_db(base_dir: &PathBuf, ctx: &Context) -> Connection {
+    let db_path = get_default_ordhook_db_file_path(&base_dir);
+    let conn = create_or_open_readwrite_db(&db_path, ctx);
     // TODO: introduce initial output
     if let Err(e) = conn.execute(
         "CREATE TABLE IF NOT EXISTS inscriptions (
@@ -156,20 +158,19 @@ pub fn initialize_ordhook_db(path: &PathBuf, ctx: &Context) -> Connection {
     conn
 }
 
-pub fn create_or_open_readwrite_db(cache_path: &PathBuf, ctx: &Context) -> Connection {
-    let path = get_default_ordhook_db_file_path(&cache_path);
-    let open_flags = match std::fs::metadata(&path) {
+pub fn create_or_open_readwrite_db(db_path: &PathBuf, ctx: &Context) -> Connection {
+    let open_flags = match std::fs::metadata(&db_path) {
         Err(e) => {
             if e.kind() == std::io::ErrorKind::NotFound {
                 // need to create
-                if let Some(dirp) = PathBuf::from(&path).parent() {
+                if let Some(dirp) = PathBuf::from(&db_path).parent() {
                     std::fs::create_dir_all(dirp).unwrap_or_else(|e| {
                         ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
                     });
                 }
                 OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE
             } else {
-                panic!("FATAL: could not stat {}", path.display());
+                panic!("FATAL: could not stat {}", db_path.display());
             }
         }
         Ok(_md) => {
@@ -179,7 +180,7 @@ pub fn create_or_open_readwrite_db(cache_path: &PathBuf, ctx: &Context) -> Conne
     };
 
     let conn = loop {
-        match Connection::open_with_flags(&path, open_flags) {
+        match Connection::open_with_flags(&db_path, open_flags) {
             Ok(conn) => break conn,
             Err(e) => {
                 ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
@@ -190,13 +191,13 @@ pub fn create_or_open_readwrite_db(cache_path: &PathBuf, ctx: &Context) -> Conne
     connection_with_defaults_pragma(conn)
 }
 
-fn open_existing_readonly_db(path: &PathBuf, ctx: &Context) -> Connection {
-    let open_flags = match std::fs::metadata(path) {
+pub fn open_existing_readonly_db(db_path: &PathBuf, ctx: &Context) -> Connection {
+    let open_flags = match std::fs::metadata(db_path) {
         Err(e) => {
             if e.kind() == std::io::ErrorKind::NotFound {
-                panic!("FATAL: could not find {}", path.display());
+                panic!("FATAL: could not find {}", db_path.display());
             } else {
-                panic!("FATAL: could not stat {}", path.display());
+                panic!("FATAL: could not stat {}", db_path.display());
             }
         }
         Ok(_md) => {
@@ -206,7 +207,7 @@ fn open_existing_readonly_db(path: &PathBuf, ctx: &Context) -> Connection {
     };
 
     let conn = loop {
-        match Connection::open_with_flags(path, open_flags) {
+        match Connection::open_with_flags(db_path, open_flags) {
             Ok(conn) => break conn,
             Err(e) => {
                 ctx.try_log(|logger| {
@@ -627,7 +628,7 @@ pub fn insert_transfer_in_locations(
     }
 }
 
-fn perform_query_exists(
+pub fn perform_query_exists(
     query: &str,
     args: &[&dyn ToSql],
     db_conn: &Connection,
@@ -637,7 +638,7 @@ fn perform_query_exists(
     !res.is_empty()
 }
 
-fn perform_query_one<F, T>(
+pub fn perform_query_one<F, T>(
     query: &str,
     args: &[&dyn ToSql],
     db_conn: &Connection,
@@ -654,7 +655,7 @@ where
     }
 }
 
-fn perform_query_set<F, T>(
+pub fn perform_query_set<F, T>(
     query: &str,
     args: &[&dyn ToSql],
     db_conn: &Connection,
