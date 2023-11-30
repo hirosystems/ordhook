@@ -1,5 +1,5 @@
 mod http_api;
-pub mod predicates;
+pub mod observers;
 mod runloops;
 
 use crate::config::{Config, PredicatesApi};
@@ -22,9 +22,10 @@ use crate::db::{
 };
 use crate::scan::bitcoin::process_block_with_predicates;
 use crate::service::http_api::start_predicate_api_server;
-use crate::service::predicates::{
-    create_and_consolidate_chainhook_config_with_predicates, open_readwrite_predicates_db_conn,
-    update_predicate_spec, update_predicate_status, PredicateStatus,
+use crate::service::observers::{
+    create_and_consolidate_chainhook_config_with_predicates, insert_entry_in_observers,
+    open_readwrite_observers_db_conn, remove_entry_from_observers, update_observer_progress,
+    update_observer_streaming_enabled, ObserverReport,
 };
 use crate::service::runloops::start_bitcoin_scan_runloop;
 
@@ -42,7 +43,6 @@ use crossbeam_channel::unbounded;
 use crossbeam_channel::{select, Sender};
 use dashmap::DashMap;
 use fxhash::FxHasher;
-use redis::Commands;
 
 use std::collections::BTreeMap;
 use std::hash::BuildHasherDefault;
@@ -61,29 +61,15 @@ impl Service {
 
     pub async fn run(
         &mut self,
-        predicates: Vec<ChainhookFullSpecification>,
+        predicates: Vec<BitcoinChainhookSpecification>,
         predicate_activity_relayer: Option<
             crossbeam_channel::Sender<BitcoinChainhookOccurrencePayload>,
         >,
     ) -> Result<(), String> {
         let mut event_observer_config = self.config.get_event_observer_config();
-        let chainhook_config = create_and_consolidate_chainhook_config_with_predicates(
-            predicates,
-            predicate_activity_relayer.is_some(),
-            &self.config,
-            &self.ctx,
-        );
-
-        event_observer_config.chainhook_config = Some(chainhook_config);
-
-        let ordhook_config = self.config.get_ordhook_config();
-
-        // Sleep
-        // std::thread::sleep(std::time::Duration::from_secs(1200));
 
         // Catch-up with chain tip
-        self.catch_up_with_chain_tip(false, &event_observer_config)
-            .await?;
+        let chain_tip_height = self.catch_up_with_chain_tip(false).await?;
         info!(
             self.ctx.expect_logger(),
             "Database up to date, service will start streaming blocks"
@@ -95,11 +81,31 @@ impl Service {
         // Create the chainhook runloop tx/rx comms
         let (observer_command_tx, observer_command_rx) = channel();
         let (observer_event_tx, observer_event_rx) = crossbeam_channel::unbounded();
+        let ordhook_config = self.config.get_ordhook_config();
         let inner_ctx = if ordhook_config.logs.chainhook_internals {
             self.ctx.clone()
         } else {
             Context::empty()
         };
+
+        // Observers handling
+        // 1) update event_observer_config with observers ready to be used
+        // 2) catch-up outdated observers by dispatching replays
+        let (chainhook_config, outdated_observers) =
+            create_and_consolidate_chainhook_config_with_predicates(
+                predicates,
+                chain_tip_height,
+                predicate_activity_relayer.is_some(),
+                &self.config,
+                &self.ctx,
+            )?;
+        // Dispatch required replays
+        for outdated_observer_spec in outdated_observers.into_iter() {
+            let _ = observer_command_tx.send(ObserverCommand::RegisterPredicate(
+                ChainhookFullSpecification::Bitcoin(outdated_observer_spec),
+            ));
+        }
+        event_observer_config.chainhook_config = Some(chainhook_config);
 
         let _ = start_event_observer(
             event_observer_config,
@@ -140,12 +146,13 @@ impl Service {
         String,
     > {
         let mut event_observer_config = self.config.get_event_observer_config();
-        let chainhook_config = create_and_consolidate_chainhook_config_with_predicates(
+        let (chainhook_config, _) = create_and_consolidate_chainhook_config_with_predicates(
             vec![],
+            0,
             true,
             &self.config,
             &self.ctx,
-        );
+        )?;
 
         event_observer_config.chainhook_config = Some(chainhook_config);
 
@@ -243,9 +250,15 @@ impl Service {
         let ctx = self.ctx.clone();
         let api_config = api_config.clone();
         let moved_observer_command_tx = observer_command_tx.clone();
+        let db_dir_path = self.config.expected_cache_path();
         // Test and initialize a database connection
         let _ = hiro_system_kit::thread_named("HTTP Predicate API").spawn(move || {
-            let future = start_predicate_api_server(api_config, moved_observer_command_tx, ctx);
+            let future = start_predicate_api_server(
+                api_config.http_port,
+                db_dir_path,
+                moved_observer_command_tx,
+                ctx,
+            );
             let _ = hiro_system_kit::nestable_block_on(future);
         });
 
@@ -266,32 +279,22 @@ impl Service {
                     // If start block specified, use it.
                     // If no start block specified, depending on the nature the hook, we'd like to retrieve:
                     // - contract-id
-                    if let PredicatesApi::On(ref config) = self.config.http_api {
-                        let mut predicates_db_conn = match open_readwrite_predicates_db_conn(config)
-                        {
-                            Ok(con) => con,
-                            Err(e) => {
-                                error!(
-                                    self.ctx.expect_logger(),
-                                    "unable to register predicate: {}",
-                                    e.to_string()
-                                );
-                                continue;
-                            }
-                        };
-                        update_predicate_spec(
-                            &spec.key(),
-                            &spec,
-                            &mut predicates_db_conn,
-                            &self.ctx,
-                        );
-                        update_predicate_status(
-                            &spec.key(),
-                            PredicateStatus::Disabled,
-                            &mut predicates_db_conn,
-                            &self.ctx,
-                        );
-                    }
+                    let observers_db_conn = match open_readwrite_observers_db_conn(
+                        &self.config.expected_cache_path(),
+                        &self.ctx,
+                    ) {
+                        Ok(con) => con,
+                        Err(e) => {
+                            error!(
+                                self.ctx.expect_logger(),
+                                "unable to register predicate: {}",
+                                e.to_string()
+                            );
+                            continue;
+                        }
+                    };
+                    let report = ObserverReport::default();
+                    insert_entry_in_observers(&spec, &report, &observers_db_conn, &self.ctx);
                     match spec {
                         ChainhookSpecification::Stacks(_predicate_spec) => {}
                         ChainhookSpecification::Bitcoin(predicate_spec) => {
@@ -300,60 +303,68 @@ impl Service {
                     }
                 }
                 ObserverEvent::PredicateEnabled(spec) => {
-                    if let PredicatesApi::On(ref config) = self.config.http_api {
-                        let mut predicates_db_conn = match open_readwrite_predicates_db_conn(config)
-                        {
-                            Ok(con) => con,
-                            Err(e) => {
-                                error!(
-                                    self.ctx.expect_logger(),
-                                    "unable to enable predicate: {}",
-                                    e.to_string()
-                                );
-                                continue;
-                            }
-                        };
-                        update_predicate_spec(
-                            &spec.key(),
-                            &spec,
-                            &mut predicates_db_conn,
-                            &self.ctx,
-                        );
-                        update_predicate_status(
-                            &spec.key(),
-                            PredicateStatus::InitialScanCompleted,
-                            &mut predicates_db_conn,
-                            &self.ctx,
-                        );
-                    }
-                }
-                ObserverEvent::PredicateDeregistered(spec) => {
-                    if let PredicatesApi::On(ref config) = self.config.http_api {
-                        let mut predicates_db_conn = match open_readwrite_predicates_db_conn(config)
-                        {
-                            Ok(con) => con,
-                            Err(e) => {
-                                error!(
-                                    self.ctx.expect_logger(),
-                                    "unable to deregister predicate: {}",
-                                    e.to_string()
-                                );
-                                continue;
-                            }
-                        };
-                        let predicate_key = spec.key();
-                        let res: Result<(), redis::RedisError> =
-                            predicates_db_conn.del(predicate_key);
-                        if let Err(e) = res {
+                    let observers_db_conn = match open_readwrite_observers_db_conn(
+                        &self.config.expected_cache_path(),
+                        &self.ctx,
+                    ) {
+                        Ok(con) => con,
+                        Err(e) => {
                             error!(
                                 self.ctx.expect_logger(),
-                                "unable to delete predicate: {}",
+                                "unable to enable observer: {}",
                                 e.to_string()
                             );
+                            continue;
                         }
-                    }
+                    };
+                    update_observer_streaming_enabled(
+                        &spec.uuid(),
+                        true,
+                        &observers_db_conn,
+                        &self.ctx,
+                    );
+                }
+                ObserverEvent::PredicateDeregistered(spec) => {
+                    let observers_db_conn = match open_readwrite_observers_db_conn(
+                        &self.config.expected_cache_path(),
+                        &self.ctx,
+                    ) {
+                        Ok(con) => con,
+                        Err(e) => {
+                            error!(
+                                self.ctx.expect_logger(),
+                                "unable to deregister observer: {}",
+                                e.to_string()
+                            );
+                            continue;
+                        }
+                    };
+                    remove_entry_from_observers(&spec.uuid(), &observers_db_conn, &self.ctx);
                 }
                 ObserverEvent::BitcoinPredicateTriggered(data) => {
+                    if let Some(ref tip) = data.apply.last() {
+                        let observers_db_conn = match open_readwrite_observers_db_conn(
+                            &self.config.expected_cache_path(),
+                            &self.ctx,
+                        ) {
+                            Ok(con) => con,
+                            Err(e) => {
+                                error!(
+                                    self.ctx.expect_logger(),
+                                    "unable to update observer: {}",
+                                    e.to_string()
+                                );
+                                continue;
+                            }
+                        };
+                        let last_block_height_update = tip.block.block_identifier.index;
+                        update_observer_progress(
+                            &data.chainhook.uuid,
+                            last_block_height_update,
+                            &observers_db_conn,
+                            &self.ctx,
+                        )
+                    }
                     if let Some(ref tx) = predicate_activity_relayer {
                         let _ = tx.send(data);
                     }
@@ -371,7 +382,7 @@ impl Service {
 
     pub fn set_up_observer_config(
         &self,
-        predicates: Vec<ChainhookFullSpecification>,
+        predicates: Vec<BitcoinChainhookSpecification>,
         enable_internal_trigger: bool,
     ) -> Result<
         (
@@ -381,12 +392,13 @@ impl Service {
         String,
     > {
         let mut event_observer_config = self.config.get_event_observer_config();
-        let chainhook_config = create_and_consolidate_chainhook_config_with_predicates(
+        let (chainhook_config, _) = create_and_consolidate_chainhook_config_with_predicates(
             predicates,
+            0,
             enable_internal_trigger,
             &self.config,
             &self.ctx,
-        );
+        )?;
         event_observer_config.chainhook_config = Some(chainhook_config);
         let data_rx = if enable_internal_trigger {
             let (tx, rx) = crossbeam_channel::bounded(256);
@@ -440,8 +452,7 @@ impl Service {
     pub async fn catch_up_with_chain_tip(
         &mut self,
         rebuild_from_scratch: bool,
-        event_observer_config: &EventObserverConfig,
-    ) -> Result<(), String> {
+    ) -> Result<u64, String> {
         if rebuild_from_scratch {
             let blocks_db = open_ordhook_db_conn_rocks_db_loop(
                 true,
@@ -459,15 +470,13 @@ impl Service {
                 &self.ctx,
             )?;
         }
-        let tx_replayer = start_observer_forwarding(event_observer_config, &self.ctx);
-        self.update_state(Some(tx_replayer)).await?;
-        Ok(())
+        self.update_state(None).await
     }
 
     pub async fn update_state(
         &self,
         block_post_processor: Option<crossbeam_channel::Sender<BitcoinBlockData>>,
-    ) -> Result<(), String> {
+    ) -> Result<u64, String> {
         // First, make sure that rocksdb and sqlite are aligned.
         // If rocksdb.chain_tip.height <= sqlite.chain_tip.height
         // Perform some block compression until that height.
@@ -537,7 +546,7 @@ impl Service {
             last_block_processed = end_block;
         }
 
-        Ok(())
+        Ok(last_block_processed)
     }
 
     pub async fn replay_transfers(
