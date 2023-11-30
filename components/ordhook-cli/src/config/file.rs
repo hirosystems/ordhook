@@ -9,8 +9,6 @@ use ordhook::config::{
 use std::fs::File;
 use std::io::{BufReader, Read};
 
-const DEFAULT_REDIS_URI: &str = "redis://localhost:6379/";
-
 pub const DEFAULT_INGESTION_PORT: u16 = 20455;
 pub const DEFAULT_CONTROL_PORT: u16 = 20456;
 pub const STACKS_SCAN_THREAD_POOL_SIZE: usize = 10;
@@ -75,9 +73,6 @@ impl ConfigFile {
                     _ => PredicatesApi::On(PredicatesApiConfig {
                         http_port: http_api.http_port.unwrap_or(DEFAULT_CONTROL_PORT),
                         display_logs: http_api.display_logs.unwrap_or(true),
-                        database_uri: http_api
-                            .database_uri
-                            .unwrap_or(DEFAULT_REDIS_URI.to_string()),
                     }),
                 },
             },

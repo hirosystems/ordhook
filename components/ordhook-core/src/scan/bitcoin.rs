@@ -1,4 +1,4 @@
-use crate::config::{Config, PredicatesApi};
+use crate::config::Config;
 use crate::core::protocol::inscription_parsing::{
     get_inscriptions_revealed_in_block, get_inscriptions_transferred_in_block,
     parse_inscriptions_and_standardize_block,
@@ -6,9 +6,8 @@ use crate::core::protocol::inscription_parsing::{
 use crate::core::protocol::inscription_sequencing::consolidate_block_with_pre_computed_ordinals_data;
 use crate::db::{get_any_entry_in_ordinal_activities, open_readonly_ordhook_db_conn};
 use crate::download::download_ordinals_dataset_if_required;
-use crate::service::predicates::{
-    open_readwrite_predicates_db_conn_or_panic, update_predicate_status, PredicateStatus,
-    ScanningData,
+use crate::service::observers::{
+    open_readwrite_observers_db_conn_or_panic, update_observer_progress, ObserverReport,
 };
 use chainhook_sdk::bitcoincore_rpc::RpcApi;
 use chainhook_sdk::bitcoincore_rpc::{Auth, Client};
@@ -88,12 +87,13 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
         None => config.get_event_observer_config(),
     };
     let bitcoin_config = event_observer_config.get_bitcoin_config();
-    let number_of_blocks_to_scan = block_heights_to_scan.len() as u64;
     let mut number_of_blocks_scanned = 0;
-    let mut number_of_blocks_sent = 0u64;
+    let mut last_block_height = 0;
     let http_client = build_http_client();
 
     while let Some(current_block_height) = block_heights_to_scan.pop_front() {
+        last_block_height = current_block_height;
+
         let mut inscriptions_db_conn =
             open_readonly_ordhook_db_conn(&config.expected_cache_path(), ctx)?;
 
@@ -162,38 +162,23 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
         )
         .await
         {
-            Ok(actions) => {
-                if actions > 0 {
-                    number_of_blocks_sent += 1;
-                }
-                actions_triggered += actions
-            }
+            Ok(actions) => actions_triggered += actions,
             Err(_) => err_count += 1,
         }
 
         if err_count >= 3 {
             return Err(format!("Scan aborted (consecutive action errors >= 3)"));
         }
-
-        if let PredicatesApi::On(ref api_config) = config.http_api {
-            if number_of_blocks_scanned % 50 == 0 {
-                let status = PredicateStatus::Scanning(ScanningData {
-                    number_of_blocks_to_scan,
-                    number_of_blocks_scanned,
-                    number_of_blocks_sent,
-                    current_block_height,
-                });
-                let mut predicates_db_conn =
-                    open_readwrite_predicates_db_conn_or_panic(api_config, &ctx);
-                update_predicate_status(
-                    &predicate_spec.key(),
-                    status,
-                    &mut predicates_db_conn,
-                    &ctx,
-                )
-            }
+        {
+            let observers_db_conn =
+                open_readwrite_observers_db_conn_or_panic(&config.expected_cache_path(), &ctx);
+            update_observer_progress(
+                &predicate_spec.uuid,
+                last_block_height,
+                &observers_db_conn,
+                &ctx,
+            )
         }
-
         if block_heights_to_scan.is_empty() && floating_end_block {
             match bitcoin_rpc.get_blockchain_info() {
                 Ok(result) => {
@@ -211,17 +196,6 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
         ctx.expect_logger(),
         "{number_of_blocks_scanned} blocks scanned, {actions_triggered} actions triggered"
     );
-
-    if let PredicatesApi::On(ref api_config) = config.http_api {
-        let status = PredicateStatus::Scanning(ScanningData {
-            number_of_blocks_to_scan,
-            number_of_blocks_scanned,
-            number_of_blocks_sent,
-            current_block_height: 0,
-        });
-        let mut predicates_db_conn = open_readwrite_predicates_db_conn_or_panic(api_config, &ctx);
-        update_predicate_status(&predicate_spec.key(), status, &mut predicates_db_conn, &ctx)
-    }
 
     Ok(())
 }

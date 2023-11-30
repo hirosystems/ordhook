@@ -46,7 +46,6 @@ pub enum PredicatesApi {
 #[derive(Clone, Debug)]
 pub struct PredicatesApiConfig {
     pub http_port: u16,
-    pub database_uri: String,
     pub display_logs: bool,
 }
 
@@ -124,10 +123,6 @@ impl Config {
             BootstrapConfig::Build => false,
             BootstrapConfig::Download(_) => true,
         }
-    }
-
-    pub fn expected_api_database_uri(&self) -> &str {
-        &self.expected_api_config().database_uri
     }
 
     pub fn expected_api_config(&self) -> &PredicatesApiConfig {

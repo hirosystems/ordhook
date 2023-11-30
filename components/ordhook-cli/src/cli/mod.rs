@@ -3,10 +3,9 @@ use crate::config::generator::generate_config;
 use clap::{Parser, Subcommand};
 use hiro_system_kit;
 use ordhook::chainhook_sdk::bitcoincore_rpc::{Auth, Client, RpcApi};
-use ordhook::chainhook_sdk::chainhooks::types::HttpHook;
+use ordhook::chainhook_sdk::chainhooks::types::{BitcoinChainhookSpecification, HttpHook};
 use ordhook::chainhook_sdk::chainhooks::types::{
-    BitcoinChainhookFullSpecification, BitcoinChainhookNetworkSpecification, BitcoinPredicateType,
-    ChainhookFullSpecification, HookAction, OrdinalOperations,
+    BitcoinPredicateType, ChainhookFullSpecification, HookAction, OrdinalOperations,
 };
 use ordhook::chainhook_sdk::indexer::bitcoin::{
     build_http_client, download_and_parse_block_with_retry, retrieve_block_hash_with_retry,
@@ -34,7 +33,6 @@ use ordhook::download::download_ordinals_dataset_if_required;
 use ordhook::scan::bitcoin::scan_bitcoin_chainstate_via_rpc_using_predicate;
 use ordhook::service::{start_observer_forwarding, Service};
 use reqwest::Client as HttpClient;
-use std::collections::BTreeMap;
 use std::io::{BufReader, Read};
 use std::path::PathBuf;
 use std::process;
@@ -555,8 +553,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                     Some(&block_heights),
                     None,
                     cmd.auth_token,
-                )?
-                .into_selected_network_specification(&config.network.bitcoin_network)?;
+                )?;
                 scan_bitcoin_chainstate_via_rpc_using_predicate(
                     &predicate_spec,
                     &config,
@@ -734,7 +731,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                         Some(start_block),
                         cmd.auth_token.clone(),
                     )?;
-                    predicates.push(ChainhookFullSpecification::Bitcoin(predicate));
+                    predicates.push(predicate);
                 }
 
                 let mut service = Service::new(config, ctx.clone());
@@ -931,8 +928,7 @@ pub fn build_predicate_from_cli(
     block_heights: Option<&BlockHeights>,
     start_block: Option<u64>,
     auth_token: Option<String>,
-) -> Result<BitcoinChainhookFullSpecification, String> {
-    let mut networks = BTreeMap::new();
+) -> Result<BitcoinChainhookSpecification, String> {
     // Retrieve last block height known, and display it
     let (start_block, end_block, blocks) = match (start_block, block_heights) {
         (None, Some(BlockHeights::BlockRange(start, end))) => (Some(*start), Some(*end), None),
@@ -940,30 +936,27 @@ pub fn build_predicate_from_cli(
         (Some(start), None) => (Some(start), None, None),
         _ => unreachable!(),
     };
-    networks.insert(
-        config.network.bitcoin_network.clone(),
-        BitcoinChainhookNetworkSpecification {
-            start_block,
-            end_block,
-            blocks,
-            expire_after_occurrence: None,
-            include_proof: None,
-            include_inputs: None,
-            include_outputs: None,
-            include_witness: None,
-            predicate: BitcoinPredicateType::OrdinalsProtocol(OrdinalOperations::InscriptionFeed),
-            action: HookAction::HttpPost(HttpHook {
-                url: post_to.to_string(),
-                authorization_header: format!("Bearer {}", auth_token.unwrap_or("".to_string())),
-            }),
-        },
-    );
-    let predicate = BitcoinChainhookFullSpecification {
+    let predicate = BitcoinChainhookSpecification {
+        network: config.network.bitcoin_network.clone(),
         uuid: post_to.to_string(),
         owner_uuid: None,
         name: post_to.to_string(),
         version: 1,
-        networks,
+        start_block,
+        end_block,
+        blocks,
+        expire_after_occurrence: None,
+        include_proof: false,
+        include_inputs: false,
+        include_outputs: false,
+        include_witness: false,
+        expired_at: None,
+        enabled: true,
+        predicate: BitcoinPredicateType::OrdinalsProtocol(OrdinalOperations::InscriptionFeed),
+        action: HookAction::HttpPost(HttpHook {
+            url: post_to.to_string(),
+            authorization_header: format!("Bearer {}", auth_token.unwrap_or("".to_string())),
+        }),
     };
 
     Ok(predicate)
