@@ -177,7 +177,7 @@ pub async fn download_and_pipeline_blocks(
                             }
                         }
                         None => {
-                            stop_runloop = true;
+                            break;
                         }
                     }
                 }
