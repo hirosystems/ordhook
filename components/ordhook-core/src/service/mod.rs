@@ -71,8 +71,7 @@ impl Service {
         let mut event_observer_config = self.config.get_event_observer_config();
 
         // Catch-up with chain tip
-        let chain_tip_height = self.catch_up_with_chain_tip(false, true, &event_observer_config)
-            .await?;
+        let chain_tip_height = self.catch_up_with_chain_tip(false, true).await?;
         info!(
             self.ctx.expect_logger(),
             "Database up to date, service will start streaming blocks"
@@ -446,7 +445,6 @@ impl Service {
         &mut self,
         rebuild_from_scratch: bool,
         compact_and_check_rocksdb_integrity: bool,
-        event_observer_config: &EventObserverConfig,
     ) -> Result<u64, String> {
         {
             if compact_and_check_rocksdb_integrity {
