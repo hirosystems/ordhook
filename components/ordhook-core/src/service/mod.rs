@@ -122,19 +122,11 @@ impl Service {
         // If HTTP Predicates API is on, we start:
         // - Thread pool in charge of performing replays
         // - API server
-        if self.config.is_http_api_enabled() {
-            self.start_main_runloop_with_dynamic_predicates(
-                &observer_command_tx,
-                observer_event_rx,
-                predicate_activity_relayer,
-            )?;
-        } else {
-            self.start_main_runloop(
-                &observer_command_tx,
-                observer_event_rx,
-                predicate_activity_relayer,
-            )?;
-        }
+        self.start_main_runloop_with_dynamic_predicates(
+            &observer_command_tx,
+            observer_event_rx,
+            predicate_activity_relayer,
+        )?;
         Ok(())
     }
 
@@ -227,10 +219,6 @@ impl Service {
             crossbeam_channel::Sender<BitcoinChainhookOccurrencePayload>,
         >,
     ) -> Result<(), String> {
-        let PredicatesApi::On(ref api_config) = self.config.http_api else {
-            return Ok(());
-        };
-
         let (bitcoin_scan_op_tx, bitcoin_scan_op_rx) = crossbeam_channel::unbounded();
         let ctx = self.ctx.clone();
         let config = self.config.clone();
@@ -246,24 +234,26 @@ impl Service {
             })
             .expect("unable to spawn thread");
 
-        info!(
-            self.ctx.expect_logger(),
-            "Listening on port {} for chainhook predicate registrations", api_config.http_port
-        );
-        let ctx = self.ctx.clone();
-        let api_config = api_config.clone();
-        let moved_observer_command_tx = observer_command_tx.clone();
-        let db_dir_path = self.config.expected_cache_path();
-        // Test and initialize a database connection
-        let _ = hiro_system_kit::thread_named("HTTP Predicate API").spawn(move || {
-            let future = start_predicate_api_server(
-                api_config.http_port,
-                db_dir_path,
-                moved_observer_command_tx,
-                ctx,
+        if let PredicatesApi::On(ref api_config) = self.config.http_api {
+            info!(
+                self.ctx.expect_logger(),
+                "Listening on port {} for chainhook predicate registrations", api_config.http_port
             );
-            let _ = hiro_system_kit::nestable_block_on(future);
-        });
+            let ctx = self.ctx.clone();
+            let api_config = api_config.clone();
+            let moved_observer_command_tx = observer_command_tx.clone();
+            let db_dir_path = self.config.expected_cache_path();
+            // Test and initialize a database connection
+            let _ = hiro_system_kit::thread_named("HTTP Predicate API").spawn(move || {
+                let future = start_predicate_api_server(
+                    api_config.http_port,
+                    db_dir_path,
+                    moved_observer_command_tx,
+                    ctx,
+                );
+                let _ = hiro_system_kit::nestable_block_on(future);
+            });
+        }
 
         loop {
             let event = match observer_event_rx.recv() {

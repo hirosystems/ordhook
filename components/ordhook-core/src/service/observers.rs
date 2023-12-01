@@ -61,6 +61,7 @@ pub fn insert_entry_in_observers(
     observers_db_conn: &Connection,
     ctx: &Context,
 ) {
+    remove_entry_from_observers(&spec.uuid(), observers_db_conn, ctx);
     while let Err(e) = observers_db_conn.execute(
         "INSERT INTO observers (uuid, spec, streaming_enabled, last_block_height_update) VALUES (?1, ?2, ?3, ?4)",
         rusqlite::params![&spec.uuid(), json!(spec).to_string(), report.streaming_enabled, report.last_block_height_update],
@@ -238,7 +239,7 @@ pub fn create_and_consolidate_chainhook_config_with_predicates(
             BitcoinChainhookSpecification {
                 uuid: format!("ordhook-internal-trigger"),
                 owner_uuid: None,
-                name: format!("ordhook"),
+                name: format!("ordhook-internal-trigger"),
                 network: config.network.bitcoin_network.clone(),
                 version: 1,
                 blocks: None,
@@ -259,7 +260,7 @@ pub fn create_and_consolidate_chainhook_config_with_predicates(
         ));
     }
 
-    let observers_db_conn = open_readwrite_observers_db_conn(&config.expected_cache_path(), ctx)?;
+    let observers_db_conn = initialize_observers_db(&config.expected_cache_path(), ctx);
 
     let mut observers_to_catchup = vec![];
     let mut observers_to_clean_up = vec![];
@@ -340,13 +341,15 @@ pub fn create_and_consolidate_chainhook_config_with_predicates(
                 action: observer.action,
             },
         );
-        full_specs.push(BitcoinChainhookFullSpecification {
+        let full_spec = BitcoinChainhookFullSpecification {
             uuid: observer.uuid,
             owner_uuid: observer.owner_uuid,
             name: observer.name,
             version: observer.version,
             networks,
-        });
+        };
+        info!(ctx.expect_logger(), "Observer '{}' to be caught-up (last block sent: {}, tip: {})", full_spec.name, report.last_block_height_update, chain_tip_height);
+        full_specs.push(full_spec);
     }
 
     Ok((chainhook_config, full_specs))
