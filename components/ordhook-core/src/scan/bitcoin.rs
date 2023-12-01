@@ -7,7 +7,7 @@ use crate::core::protocol::inscription_sequencing::consolidate_block_with_pre_co
 use crate::db::{get_any_entry_in_ordinal_activities, open_readonly_ordhook_db_conn};
 use crate::download::download_ordinals_dataset_if_required;
 use crate::service::observers::{
-    open_readwrite_observers_db_conn_or_panic, update_observer_progress, ObserverReport,
+    open_readwrite_observers_db_conn_or_panic, update_observer_progress,
 };
 use chainhook_sdk::bitcoincore_rpc::RpcApi;
 use chainhook_sdk::bitcoincore_rpc::{Auth, Client};
@@ -77,7 +77,8 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
 
     info!(
         ctx.expect_logger(),
-        "Starting predicate evaluation on Bitcoin blocks",
+        "Starting predicate evaluation on {} Bitcoin blocks",
+        block_heights_to_scan.len()
     );
     let mut actions_triggered = 0;
     let mut err_count = 0;
@@ -88,12 +89,9 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
     };
     let bitcoin_config = event_observer_config.get_bitcoin_config();
     let mut number_of_blocks_scanned = 0;
-    let mut last_block_height = 0;
     let http_client = build_http_client();
 
     while let Some(current_block_height) = block_heights_to_scan.pop_front() {
-        last_block_height = current_block_height;
-
         let mut inscriptions_db_conn =
             open_readonly_ordhook_db_conn(&config.expected_cache_path(), ctx)?;
 
@@ -174,7 +172,7 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
                 open_readwrite_observers_db_conn_or_panic(&config.expected_cache_path(), &ctx);
             update_observer_progress(
                 &predicate_spec.uuid,
-                last_block_height,
+                current_block_height,
                 &observers_db_conn,
                 &ctx,
             )
