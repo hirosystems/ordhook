@@ -1,3 +1,16 @@
+## [1.2.0](https://github.com/hirosystems/ordhook/compare/v1.1.3...v1.2.0) (2023-12-06)
+
+
+### Features
+
+* revisit observers handling ([c6bd89e](https://github.com/hirosystems/ordhook/commit/c6bd89e63cf67b93af5641bd21d9b70e3d9dfb37))
+
+
+### Bug Fixes
+
+* build error / warning ([15b5d60](https://github.com/hirosystems/ordhook/commit/15b5d60c220fd5b703ba34430444c9195d672454))
+* stateful observers ([fa7cc42](https://github.com/hirosystems/ordhook/commit/fa7cc4214a9ef1a958b81a23286d360207aaad82))
+
 ## [1.1.3](https://github.com/hirosystems/ordhook/compare/v1.1.2...v1.1.3) (2023-11-29)
 
 
