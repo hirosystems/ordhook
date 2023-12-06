@@ -12,7 +12,6 @@ working_dir = "ordhook"
 #
 # [http_api]
 # http_port = 20456
-# database_uri = "redis://localhost:6379/"
 
 [network]
 mode = "{network}"
