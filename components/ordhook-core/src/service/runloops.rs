@@ -8,11 +8,10 @@ use chainhook_sdk::{
 use threadpool::ThreadPool;
 
 use crate::{
-    config::{Config, PredicatesApi},
+    config::Config,
     scan::bitcoin::scan_bitcoin_chainstate_via_rpc_using_predicate,
     service::{
-        predicates::open_readwrite_predicates_db_conn_or_panic, update_predicate_status,
-        PredicateStatus,
+        observers::open_readwrite_observers_db_conn_or_panic, update_observer_streaming_enabled,
     },
 };
 
@@ -28,6 +27,7 @@ pub fn start_bitcoin_scan_runloop(
         let moved_ctx = ctx.clone();
         let moved_config = config.clone();
         let observer_command_tx = observer_command_tx.clone();
+        let db_base_dir = config.expected_cache_path();
         bitcoin_scan_pool.execute(move || {
             let op = scan_bitcoin_chainstate_via_rpc_using_predicate(
                 &predicate_spec,
@@ -46,20 +46,15 @@ pub fn start_bitcoin_scan_runloop(
                         )
                     });
 
-                    // Update predicate status in redis
-                    if let PredicatesApi::On(ref api_config) = moved_config.http_api {
-                        let status = PredicateStatus::Interrupted(format!(
-                            "Unable to evaluate predicate on Bitcoin chainstate: {e}"
-                        ));
-                        let mut predicates_db_conn =
-                            open_readwrite_predicates_db_conn_or_panic(api_config, &moved_ctx);
-                        update_predicate_status(
-                            &predicate_spec.key(),
-                            status,
-                            &mut predicates_db_conn,
-                            &moved_ctx,
-                        );
-                    }
+                    // Update predicate
+                    let mut observers_db_conn =
+                        open_readwrite_observers_db_conn_or_panic(&db_base_dir, &moved_ctx);
+                    update_observer_streaming_enabled(
+                        &predicate_spec.uuid,
+                        false,
+                        &mut observers_db_conn,
+                        &moved_ctx,
+                    );
                     return;
                 }
             };
