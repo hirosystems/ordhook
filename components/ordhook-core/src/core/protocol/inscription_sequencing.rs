@@ -23,8 +23,8 @@ use crate::{
         find_blessed_inscription_with_ordinal_number,
         find_latest_cursed_inscription_number_at_block_height,
         find_latest_inscription_number_at_block_height, format_satpoint_to_watch,
-        update_inscriptions_with_block, update_sequence_metadata_with_block,
-        LazyBlockTransaction, TraversalResult,
+        update_inscriptions_with_block, update_sequence_metadata_with_block, LazyBlockTransaction,
+        TraversalResult,
     },
     ord::height::Height,
 };
