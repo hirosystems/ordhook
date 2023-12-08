@@ -131,7 +131,7 @@ jobs:
       - name: Checkout actions repo
         uses: actions/checkout@v4
         with:
-          ref: feat/subenvs
+          ref: main
           token: ${{ secrets.GH_TOKEN }}
           repository: ${{ secrets.DEVOPS_ACTIONS_REPO }}
 
@@ -176,7 +176,7 @@ jobs:
       - name: Checkout actions repo
         uses: actions/checkout@v4
         with:
-          ref: feat/subenvs
+          ref: main
           token: ${{ secrets.GH_TOKEN }}
           repository: ${{ secrets.DEVOPS_ACTIONS_REPO }}
 
@@ -222,7 +222,7 @@ jobs:
       - name: Checkout actions repo
         uses: actions/checkout@v4
         with:
-          ref: feat/subenvs
+          ref: main
           token: ${{ secrets.GH_TOKEN }}
           repository: ${{ secrets.DEVOPS_ACTIONS_REPO }}
 
