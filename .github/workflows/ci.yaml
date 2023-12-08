@@ -186,6 +186,7 @@ jobs:
           docker_image: ${{ env.DOCKER_IMAGE }}
           docker_image_digest: ${{ needs.build-publish.outputs.docker_image_digest }}
           file_pattern: manifests/bitcoin/${{ matrix.network }}/ordhook/${{ env.DEPLOY_ENV }}/*/kustomization.yaml
+          subenv: ${{ matrix.subenv }}
           gh_token: ${{ secrets.GH_TOKEN }}
 
   auto-approve-stg:
@@ -232,4 +233,5 @@ jobs:
           docker_image: ${{ env.DOCKER_IMAGE }}
           docker_image_digest: ${{ needs.build-publish.outputs.docker_image_digest }}
           file_pattern: manifests/bitcoin/${{ matrix.network }}/ordhook/${{ env.DEPLOY_ENV }}/*/kustomization.yaml
+          subenv: ${{ matrix.subenv }}
           gh_token: ${{ secrets.GH_TOKEN }}
