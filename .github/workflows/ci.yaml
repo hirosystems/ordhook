@@ -6,13 +6,16 @@ on:
       - develop
       - feat/ordhook-sdk-js
     paths-ignore:
-      - '**/CHANGELOG.md'
+      - "**/CHANGELOG.md"
   pull_request:
   workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }} @ ${{ github.event.pull_request.head.label || github.head_ref || github.ref }}
   cancel-in-progress: true
+
+env:
+  DOCKER_IMAGE: hirosystems/${{ github.event.repository.name }}
 
 jobs:
   test:
@@ -41,7 +44,7 @@ jobs:
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v3
         env:
-            CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   build-publish:
     runs-on: ubuntu-latest
@@ -84,7 +87,7 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: |
-            hirosystems/${{ github.event.repository.name }}
+            ${{ env.DOCKER_IMAGE }}
           tags: |
             type=ref,event=branch
             type=ref,event=pr
@@ -115,13 +118,14 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        k8s-env: [mainnet]
+        network: [mainnet]
+        subenv: [blue]
     needs: build-publish
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     env:
       DEPLOY_ENV: dev
     environment:
-      name: Development-${{ matrix.k8s-env }}
+      name: Development-${{ matrix.network }}-${{ matrix.subenv }}
       url: https://platform.dev.hiro.so/
     steps:
       - name: Checkout actions repo
@@ -131,11 +135,13 @@ jobs:
           token: ${{ secrets.GH_TOKEN }}
           repository: ${{ secrets.DEVOPS_ACTIONS_REPO }}
 
-      - name: Deploy Ordhook build to Dev ${{ matrix.k8s-env }}
+      - name: Deploy Ordhook build to Dev ${{ matrix.network }} ${{ matrix.subenv }}
         uses: ./actions/deploy
         with:
-          docker_tag: ${{ needs.build-publish.outputs.docker_image_digest }}
-          file_pattern: manifests/bitcoin/${{ matrix.k8s-env }}/ordhook/${{ env.DEPLOY_ENV }}/base/kustomization.yaml
+          docker_image: ${{ env.DOCKER_IMAGE }}
+          docker_image_digest: ${{ needs.build-publish.outputs.docker_image_digest }}
+          file_pattern: manifests/bitcoin/${{ matrix.network }}/ordhook/${{ env.DEPLOY_ENV }}/*/kustomization.yaml
+          subenv: ${{ matrix.subenv }}
           gh_token: ${{ secrets.GH_TOKEN }}
 
   auto-approve-dev:
@@ -146,16 +152,17 @@ jobs:
       - name: Approve pending deployments
         run: |
           sleep 5
-          ENV_IDS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/hirosystems/ordhook/actions/runs/${{ github.run_id }}/pending_deployments" | jq -r '[.[].environment.id // empty]')
+          ENV_ID=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/hirosystems/ordhook/actions/runs/${{ github.run_id }}/pending_deployments" | jq -r '.[0].environment.id // empty')
           if [[ "${ENV_IDS}" != "[]" ]]; then
-            curl -s -X POST -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/hirosystems/ordhook/actions/runs/${{ github.run_id }}/pending_deployments" -d "{\"environment_ids\":${ENV_IDS},\"state\":\"approved\",\"comment\":\"auto approve\"}"
+            curl -s -X POST -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/hirosystems/ordhook/actions/runs/${{ github.run_id }}/pending_deployments" -d "{\"environment_ids\":[${ENV_ID}],\"state\":\"approved\",\"comment\":\"auto approve\"}"
           fi
 
   deploy-staging:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        k8s-env: [mainnet]
+        network: [mainnet]
+        subenv: [blue]
     needs:
       - build-publish
       - deploy-dev
@@ -163,7 +170,7 @@ jobs:
     env:
       DEPLOY_ENV: stg
     environment:
-      name: Staging-${{ matrix.k8s-env }}
+      name: Staging-${{ matrix.network }}-${{ matrix.subenv }}
       url: https://platform.stg.hiro.so/
     steps:
       - name: Checkout actions repo
@@ -173,11 +180,13 @@ jobs:
           token: ${{ secrets.GH_TOKEN }}
           repository: ${{ secrets.DEVOPS_ACTIONS_REPO }}
 
-      - name: Deploy Chainhook build to Stg ${{ matrix.k8s-env }}
+      - name: Deploy Ordhook build to Stg ${{ matrix.network }} ${{ matrix.subenv }}
         uses: ./actions/deploy
         with:
-          docker_tag: ${{ needs.build-publish.outputs.docker_image_digest }}
-          file_pattern: manifests/bitcoin/${{ matrix.k8s-env }}/ordhook/${{ env.DEPLOY_ENV }}/base/kustomization.yaml
+          docker_image: ${{ env.DOCKER_IMAGE }}
+          docker_image_digest: ${{ needs.build-publish.outputs.docker_image_digest }}
+          file_pattern: manifests/bitcoin/${{ matrix.network }}/ordhook/${{ env.DEPLOY_ENV }}/*/kustomization.yaml
+          subenv: ${{ matrix.subenv }}
           gh_token: ${{ secrets.GH_TOKEN }}
 
   auto-approve-stg:
@@ -190,16 +199,17 @@ jobs:
       - name: Approve pending deployments
         run: |
           sleep 5
-          ENV_IDS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/hirosystems/ordhook/actions/runs/${{ github.run_id }}/pending_deployments" | jq -r '[.[].environment.id // empty]')
+          ENV_ID=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/hirosystems/ordhook/actions/runs/${{ github.run_id }}/pending_deployments" | jq -r '.[0].environment.id // empty')
           if [[ "${ENV_IDS}" != "[]" ]]; then
-            curl -s -X POST -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/hirosystems/ordhook/actions/runs/${{ github.run_id }}/pending_deployments" -d "{\"environment_ids\":${ENV_IDS},\"state\":\"approved\",\"comment\":\"auto approve\"}"
+            curl -s -X POST -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/hirosystems/ordhook/actions/runs/${{ github.run_id }}/pending_deployments" -d "{\"environment_ids\":[${ENV_ID}],\"state\":\"approved\",\"comment\":\"auto approve\"}"
           fi
 
   deploy-prod:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        k8s-env: [mainnet,testnet]
+        network: [mainnet]
+        subenv: [blue, green]
     needs:
       - build-publish
       - deploy-staging
@@ -207,7 +217,7 @@ jobs:
     env:
       DEPLOY_ENV: prd
     environment:
-      name: Production-${{ matrix.k8s-env }}
+      name: Production-${{ matrix.network }}-${{ matrix.subenv }}
       url: https://platform.hiro.so/
     steps:
       - name: Checkout actions repo
@@ -217,9 +227,11 @@ jobs:
           token: ${{ secrets.GH_TOKEN }}
           repository: ${{ secrets.DEVOPS_ACTIONS_REPO }}
 
-      - name: Deploy Ordhook build to Prd ${{ matrix.k8s-env }}
+      - name: Deploy Ordhook build to Prd ${{ matrix.network }} ${{ matrix.subenv }}
         uses: ./actions/deploy
         with:
-          docker_tag: ${{ needs.build-publish.outputs.docker_image_digest }}
-          file_pattern: manifests/bitcoin/${{ matrix.k8s-env }}/ordhook/${{ env.DEPLOY_ENV }}/base/kustomization.yaml
+          docker_image: ${{ env.DOCKER_IMAGE }}
+          docker_image_digest: ${{ needs.build-publish.outputs.docker_image_digest }}
+          file_pattern: manifests/bitcoin/${{ matrix.network }}/ordhook/${{ env.DEPLOY_ENV }}/*/kustomization.yaml
+          subenv: ${{ matrix.subenv }}
           gh_token: ${{ secrets.GH_TOKEN }}
