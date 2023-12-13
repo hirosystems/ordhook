@@ -23,14 +23,15 @@ pub fn compute_satoshi_number(
     traversals_cache: &Arc<
         DashMap<(u32, [u8; 8]), TransactionBytesCursor, BuildHasherDefault<FxHasher>>,
     >,
+    back_tracking: bool,
     ctx: &Context,
-) -> Result<TraversalResult, String> {
+) -> Result<(TraversalResult, Vec<(u32, [u8; 8])>), String> {
     let mut inscription_offset_intra_output = 0;
     let mut inscription_output_index: usize = 0;
     let mut ordinal_offset = 0;
     let mut ordinal_block_number = block_identifier.index as u32;
     let txid = transaction_identifier.get_8_hash_bytes();
-
+    let mut back_track = vec![];
     let blocks_db = open_ordhook_db_conn_rocks_db_loop(false, &blocks_db_dir, &ctx);
 
     let (sats_ranges, inscription_offset_cross_outputs) = match traversals_cache
@@ -57,6 +58,7 @@ pub fn compute_satoshi_number(
                             let inscription_offset_cross_outputs =
                                 tx.get_cumulated_sats_in_until_input_index(inscription_input_index);
                             traversals_cache.insert((ordinal_block_number, txid.clone()), tx);
+                            back_track.push((ordinal_block_number, txid.clone()));
                             break (sats_ranges, inscription_offset_cross_outputs);
                         }
                         None => return Err(format!("txid not in block #{ordinal_block_number}")),
@@ -132,19 +134,22 @@ pub fn compute_satoshi_number(
                         transaction_identifier.hash
                     )
                 });
-                return Ok(TraversalResult {
-                    inscription_number: 0,
-                    ordinal_number: 0,
-                    transfers: 0,
-                    inscription_input_index,
-                    transaction_identifier_inscription: transaction_identifier.clone(),
-                    transfer_data: TransferData {
-                        inscription_offset_intra_output,
-                        transaction_identifier_location: transaction_identifier.clone(),
-                        output_index: inscription_output_index,
-                        tx_index: 0,
+                return Ok((
+                    TraversalResult {
+                        inscription_number: 0,
+                        ordinal_number: 0,
+                        transfers: 0,
+                        inscription_input_index,
+                        transaction_identifier_inscription: transaction_identifier.clone(),
+                        transfer_data: TransferData {
+                            inscription_offset_intra_output,
+                            transaction_identifier_location: transaction_identifier.clone(),
+                            output_index: inscription_output_index,
+                            tx_index: 0,
+                        },
                     },
-                });
+                    back_track,
+                ));
             }
         }
 
@@ -163,12 +168,21 @@ pub fn compute_satoshi_number(
                 }
             }
         };
-        let lazy_block = BlockBytesCursor::new(pinned_block_bytes.as_ref());
-        let coinbase_txid = lazy_block.get_coinbase_txid();
+        let block_cursor = BlockBytesCursor::new(pinned_block_bytes.as_ref());
         let txid = tx_cursor.0;
+        let coinbase = block_cursor.iter_tx().next().expect("empty block");
 
         // evaluate exit condition: did we reach the **final** coinbase transaction
-        if coinbase_txid.eq(&txid) {
+        if coinbase.txid.eq(&txid) {
+            let mut intra_coinbase_output_offset = 0;
+            for (index, output_value) in coinbase.outputs.iter().enumerate() {
+                if index == tx_cursor.1 {
+                    break;
+                }
+                intra_coinbase_output_offset += output_value;
+            }
+            ordinal_offset += intra_coinbase_output_offset;
+
             let subsidy = Height(ordinal_block_number.into()).subsidy();
             if ordinal_offset < subsidy {
                 // Great!
@@ -178,7 +192,7 @@ pub fn compute_satoshi_number(
             // loop over the transaction fees to detect the right range
             let mut accumulated_fees = subsidy;
 
-            for tx in lazy_block.iter_tx() {
+            for tx in block_cursor.iter_tx() {
                 let mut total_in = 0;
                 for input in tx.inputs.iter() {
                     total_in += input.txin_value;
@@ -214,7 +228,7 @@ pub fn compute_satoshi_number(
             }
         } else {
             // isolate the target transaction
-            let lazy_tx = match lazy_block.find_and_serialize_transaction_with_txid(&txid) {
+            let lazy_tx = match block_cursor.find_and_serialize_transaction_with_txid(&txid) {
                 Some(entry) => entry,
                 None => {
                     ctx.try_log(|logger| {
@@ -243,6 +257,7 @@ pub fn compute_satoshi_number(
                 sats_in += input.txin_value;
 
                 if sats_out < sats_in {
+                    back_track.push((ordinal_block_number, tx_cursor.0.clone()));
                     traversals_cache.insert((ordinal_block_number, tx_cursor.0), lazy_tx.clone());
                     ordinal_offset = sats_out - (sats_in - input.txin_value);
                     ordinal_block_number = input.block_height;
@@ -259,19 +274,22 @@ pub fn compute_satoshi_number(
                         transaction_identifier.hash
                     )
                 });
-                return Ok(TraversalResult {
-                    inscription_number: 0,
-                    ordinal_number: 0,
-                    transfers: 0,
-                    inscription_input_index,
-                    transaction_identifier_inscription: transaction_identifier.clone(),
-                    transfer_data: TransferData {
-                        inscription_offset_intra_output,
-                        transaction_identifier_location: transaction_identifier.clone(),
-                        output_index: inscription_output_index,
-                        tx_index: 0,
+                return Ok((
+                    TraversalResult {
+                        inscription_number: 0,
+                        ordinal_number: 0,
+                        transfers: 0,
+                        inscription_input_index,
+                        transaction_identifier_inscription: transaction_identifier.clone(),
+                        transfer_data: TransferData {
+                            inscription_offset_intra_output,
+                            transaction_identifier_location: transaction_identifier.clone(),
+                            output_index: inscription_output_index,
+                            tx_index: 0,
+                        },
                     },
-                });
+                    back_track,
+                ));
             }
         }
     }
@@ -279,17 +297,20 @@ pub fn compute_satoshi_number(
     let height = Height(ordinal_block_number.into());
     let ordinal_number = height.starting_sat().0 + ordinal_offset + inscription_offset_intra_output;
 
-    Ok(TraversalResult {
-        inscription_number,
-        ordinal_number,
-        transfers: hops,
-        inscription_input_index,
-        transaction_identifier_inscription: transaction_identifier.clone(),
-        transfer_data: TransferData {
-            inscription_offset_intra_output,
-            transaction_identifier_location: transaction_identifier.clone(),
-            output_index: inscription_output_index,
-            tx_index: 0,
+    Ok((
+        TraversalResult {
+            inscription_number,
+            ordinal_number,
+            transfers: hops,
+            inscription_input_index,
+            transaction_identifier_inscription: transaction_identifier.clone(),
+            transfer_data: TransferData {
+                inscription_offset_intra_output,
+                transaction_identifier_location: transaction_identifier.clone(),
+                output_index: inscription_output_index,
+                tx_index: 0,
+            },
         },
-    })
+        back_track,
+    ))
 }
