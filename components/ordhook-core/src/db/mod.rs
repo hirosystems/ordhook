@@ -249,12 +249,12 @@ fn rocks_db_default_options() -> rocksdb::Options {
     // Setting max_open_files to -1 will get you the best possible performance.
     // Additional documentation:
     // https://betterprogramming.pub/navigating-the-minefield-of-rocksdb-configuration-options-246af1e1d3f9
-    opts.set_write_buffer_size(128 * 1024 * 1024);
-    opts.set_blob_file_size(64 * 1024 * 1024);
-    opts.set_target_file_size_base(16 * 1024 * 1024);
+    opts.set_write_buffer_size(256 * 1024 * 1024);
+    opts.set_blob_file_size(2 * 1024 * 1024 * 1024);
+    opts.set_target_file_size_base(256 * 1024 * 1024);
     opts.set_max_open_files(-1);
     opts.create_if_missing(true);
-    opts.optimize_for_point_lookup(2048 * 1024 * 1024);
+    opts.optimize_for_point_lookup(2 * 1024 * 1024 * 1024);
     opts.set_level_zero_stop_writes_trigger(64);
     opts.set_level_zero_slowdown_writes_trigger(20);
     opts.set_enable_blob_files(true);
