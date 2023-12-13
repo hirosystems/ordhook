@@ -170,7 +170,8 @@ pub fn compute_satoshi_number(
         };
         let block_cursor = BlockBytesCursor::new(pinned_block_bytes.as_ref());
         let txid = tx_cursor.0;
-        let coinbase = block_cursor.iter_tx().next().expect("empty block");
+        let mut block_cursor_tx_iter = block_cursor.iter_tx();
+        let coinbase = block_cursor_tx_iter.next().expect("empty block");
 
         // evaluate exit condition: did we reach the **final** coinbase transaction
         if coinbase.txid.eq(&txid) {
@@ -192,7 +193,7 @@ pub fn compute_satoshi_number(
             // loop over the transaction fees to detect the right range
             let mut accumulated_fees = subsidy;
 
-            for tx in block_cursor.iter_tx() {
+            for tx in block_cursor_tx_iter {
                 let mut total_in = 0;
                 for input in tx.inputs.iter() {
                     total_in += input.txin_value;
