@@ -35,6 +35,7 @@ progressing = '3'
 futures = "0.3.28"
 rocksdb = { version = "0.21.0", default-features = false, features = ["snappy"] }
 pprof = { version = "0.13.0", features = ["flamegraph"], optional = true }
+hyper = { version = "=0.14.27" }
 
 # [profile.release]
 # debug = true
