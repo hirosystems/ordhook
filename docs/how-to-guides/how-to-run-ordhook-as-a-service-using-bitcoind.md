@@ -87,7 +87,6 @@ working_dir = "ordhook"
 #
 # [http_api]
 # http_port = 20456
-# database_uri = "redis://localhost:6379/"
 
 [network]
 mode = "mainnet"
@@ -140,12 +139,11 @@ When the Ordhook service starts, it is initiated in the background to augment th
 
 ### Add `http-post` endpoints dynamically
 
-To enable dynamically posting endpoints to the server, you can spin up the Redis server by enabling the following lines of code in the `Ordhook.toml` file:
+Dynamic posting endpoints can be enabled by adding the following settings in the `Ordhook.toml` file:
 
 ```toml
 [http_api]
 http_port = 20456
-database_uri = "redis://localhost:6379/"
 ```
 
 ## Run ordhook service
