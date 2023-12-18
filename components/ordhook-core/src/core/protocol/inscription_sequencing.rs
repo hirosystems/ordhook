@@ -118,13 +118,14 @@ pub fn parallelize_inscription_data_computations(
                 while let Ok(Some((transaction_id, block_identifier, input_index, prioritary))) =
                     rx.recv()
                 {
-                    let traversal: Result<TraversalResult, String> = compute_satoshi_number(
+                    let traversal: Result<(TraversalResult, _), String> = compute_satoshi_number(
                         &moved_ordhook_db_path,
                         &block_identifier,
                         &transaction_id,
                         input_index,
                         0,
                         &local_cache,
+                        false,
                         &moved_ctx,
                     );
                     let _ = moved_traversal_tx.send((traversal, prioritary, thread_index));
@@ -138,7 +139,7 @@ pub fn parallelize_inscription_data_computations(
     let mut thread_index = 0;
     for key in l1_cache_hits.iter() {
         if let Some(entry) = cache_l1.remove(key) {
-            let _ = traversal_tx.send((Ok(entry), true, thread_index));
+            let _ = traversal_tx.send((Ok((entry, vec![])), true, thread_index));
             thread_index = (thread_index + 1) % thread_max;
         }
     }
@@ -190,7 +191,7 @@ pub fn parallelize_inscription_data_computations(
             traversals_received += 1;
         }
         match traversal_result {
-            Ok(traversal) => {
+            Ok((traversal, _)) => {
                 inner_ctx.try_log(|logger| {
                     info!(
                         logger,
@@ -265,7 +266,7 @@ pub fn parallelize_inscription_data_computations(
     for tx in tx_thread_pool.iter() {
         // Empty the queue
         if let Ok((traversal_result, _prioritary, thread_index)) = traversal_rx.try_recv() {
-            if let Ok(traversal) = traversal_result {
+            if let Ok((traversal, _)) = traversal_result {
                 inner_ctx.try_log(|logger| {
                     info!(
                         logger,

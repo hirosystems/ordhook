@@ -348,7 +348,13 @@ pub fn create_and_consolidate_chainhook_config_with_predicates(
             version: observer.version,
             networks,
         };
-        info!(ctx.expect_logger(), "Observer '{}' to be caught-up (last block sent: {}, tip: {})", full_spec.name, report.last_block_height_update, chain_tip_height);
+        info!(
+            ctx.expect_logger(),
+            "Observer '{}' to be caught-up (last block sent: {}, tip: {})",
+            full_spec.name,
+            report.last_block_height_update,
+            chain_tip_height
+        );
         full_specs.push(full_spec);
     }
 

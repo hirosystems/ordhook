@@ -30,6 +30,7 @@ use ordhook::db::{
     open_readwrite_ordhook_db_conn, BlockBytesCursor,
 };
 use ordhook::download::download_ordinals_dataset_if_required;
+use ordhook::hex;
 use ordhook::scan::bitcoin::scan_bitcoin_chainstate_via_rpc_using_predicate;
 use ordhook::service::{start_observer_forwarding, Service};
 use reqwest::Client as HttpClient;
@@ -668,15 +669,20 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
             .await?;
             let transaction_identifier = TransactionIdentifier::new(&cmd.transaction_id);
             let cache = new_traversals_lazy_cache(100);
-            let res = compute_satoshi_number(
+            let (res, mut back_trace) = compute_satoshi_number(
                 &config.get_ordhook_config().db_path,
                 &block.block_identifier,
                 &transaction_identifier,
                 0,
                 0,
                 &Arc::new(cache),
+                true,
                 ctx,
             )?;
+            back_trace.reverse();
+            for (block_height, tx) in back_trace.iter() {
+                println!("{}\t{}", block_height, hex::encode(tx));
+            }
             println!("{:?}", res);
         }
         Command::Service(subcmd) => match subcmd {
