@@ -578,7 +578,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                     let mut total_transfers_in_block = 0;
 
                     for (_, inscription) in inscriptions.iter() {
-                        println!("Inscription {} revealed at block #{} (inscription_number {}, ordinal_number {})", inscription.get_inscription_id(), block_height, inscription.inscription_number, inscription.ordinal_number);
+                        println!("Inscription {} revealed at block #{} (inscription_number {}, ordinal_number {})", inscription.get_inscription_id(), block_height, inscription.inscription_number.jubilee, inscription.ordinal_number);
                         if let Some(transfers) = locations.remove(&inscription.get_inscription_id())
                         {
                             for t in transfers.iter().skip(1) {
@@ -640,7 +640,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 "Inscription {} revealed at block #{} (inscription_number {}, ordinal_number {})",
                 inscription.get_inscription_id(),
                 block_height,
-                inscription.inscription_number,
+                inscription.inscription_number.jubilee,
                 inscription.ordinal_number
             );
             let transfers = find_all_inscription_transfers(
@@ -673,7 +673,6 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 &config.get_ordhook_config().db_path,
                 &block.block_identifier,
                 &transaction_identifier,
-                0,
                 0,
                 &Arc::new(cache),
                 true,

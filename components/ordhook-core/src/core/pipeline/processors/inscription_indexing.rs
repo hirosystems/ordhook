@@ -199,7 +199,7 @@ pub fn process_blocks(
 
         let inscriptions_revealed = get_inscriptions_revealed_in_block(&block)
             .iter()
-            .map(|d| d.inscription_number.to_string())
+            .map(|d| d.get_inscription_number().to_string())
             .collect::<Vec<String>>();
 
         let inscriptions_transferred = get_inscriptions_transferred_in_block(&block).len();

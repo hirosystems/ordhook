@@ -16,27 +16,27 @@ use {
     std::iter::Peekable,
 };
 
-pub(crate) const PROTOCOL_ID: [u8; 3] = *b"ord";
+pub const PROTOCOL_ID: [u8; 3] = *b"ord";
 
-pub(crate) const BODY_TAG: [u8; 0] = [];
-pub(crate) const CONTENT_TYPE_TAG: [u8; 1] = [1];
-pub(crate) const POINTER_TAG: [u8; 1] = [2];
-pub(crate) const PARENT_TAG: [u8; 1] = [3];
-pub(crate) const METADATA_TAG: [u8; 1] = [5];
-pub(crate) const METAPROTOCOL_TAG: [u8; 1] = [7];
-pub(crate) const CONTENT_ENCODING_TAG: [u8; 1] = [9];
+pub const BODY_TAG: [u8; 0] = [];
+pub const CONTENT_TYPE_TAG: [u8; 1] = [1];
+pub const POINTER_TAG: [u8; 1] = [2];
+pub const PARENT_TAG: [u8; 1] = [3];
+pub const METADATA_TAG: [u8; 1] = [5];
+pub const METAPROTOCOL_TAG: [u8; 1] = [7];
+pub const CONTENT_ENCODING_TAG: [u8; 1] = [9];
 
 type Result<T> = std::result::Result<T, script::Error>;
-type RawEnvelope = Envelope<Vec<Vec<u8>>>;
-pub(crate) type ParsedEnvelope = Envelope<Inscription>;
+pub type RawEnvelope = Envelope<Vec<Vec<u8>>>;
+pub type ParsedEnvelope = Envelope<Inscription>;
 
 #[derive(Debug, Default, PartialEq, Clone)]
-pub(crate) struct Envelope<T> {
-    pub(crate) input: u32,
-    pub(crate) offset: u32,
-    pub(crate) payload: T,
-    pub(crate) pushnum: bool,
-    pub(crate) stutter: bool,
+pub struct Envelope<T> {
+    pub input: u32,
+    pub offset: u32,
+    pub payload: T,
+    pub pushnum: bool,
+    pub stutter: bool,
 }
 
 fn remove_field(fields: &mut BTreeMap<&[u8], Vec<&[u8]>>, field: &[u8]) -> Option<Vec<u8>> {
@@ -128,7 +128,7 @@ impl From<RawEnvelope> for ParsedEnvelope {
 }
 
 impl ParsedEnvelope {
-    pub(crate) fn from_transaction(transaction: &Transaction) -> Vec<Self> {
+    pub fn from_transaction(transaction: &Transaction) -> Vec<Self> {
         RawEnvelope::from_transaction(transaction)
             .into_iter()
             .map(|envelope| envelope.into())
@@ -137,7 +137,7 @@ impl ParsedEnvelope {
 }
 
 impl RawEnvelope {
-    pub(crate) fn from_transaction(transaction: &Transaction) -> Vec<Self> {
+    pub fn from_transaction(transaction: &Transaction) -> Vec<Self> {
         let mut envelopes = Vec::new();
 
         for (i, input) in transaction.input.iter().enumerate() {
@@ -151,7 +151,7 @@ impl RawEnvelope {
         envelopes
     }
 
-    fn from_tapscript(tapscript: &Script, input: usize) -> Result<Vec<Self>> {
+    pub fn from_tapscript(tapscript: &Script, input: usize) -> Result<Vec<Self>> {
         let mut envelopes = Vec::new();
 
         let mut instructions = tapscript.instructions().peekable();

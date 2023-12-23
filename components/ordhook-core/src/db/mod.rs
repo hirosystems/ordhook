@@ -8,15 +8,15 @@ use std::{
 
 use rand::{thread_rng, Rng};
 
-use rocksdb::{DBCompactionStyle, DBPinnableSlice, DB};
+use rocksdb::{DBPinnableSlice, DB};
 use rusqlite::{Connection, OpenFlags, ToSql, Transaction};
 use std::io::Cursor;
 
 use chainhook_sdk::{
     indexer::bitcoin::BitcoinBlockFullBreakdown,
     types::{
-        BitcoinBlockData, BlockIdentifier, OrdinalInscriptionRevealData,
-        OrdinalInscriptionTransferData, TransactionIdentifier, OrdinalInscriptionNumber,
+        BitcoinBlockData, BlockIdentifier, OrdinalInscriptionNumber, OrdinalInscriptionRevealData,
+        OrdinalInscriptionTransferData, TransactionIdentifier,
     },
     utils::Context,
 };
@@ -569,8 +569,10 @@ pub fn update_sequence_metadata_with_block(
     )
     .unwrap_or(0);
     for inscription_data in get_inscriptions_revealed_in_block(&block).iter() {
-        nth_classic_pos_number = nth_classic_pos_number.max(inscription_data.inscription_number.classic);
-        nth_classic_neg_number = nth_classic_neg_number.min(inscription_data.inscription_number.classic);
+        nth_classic_pos_number =
+            nth_classic_pos_number.max(inscription_data.inscription_number.classic);
+        nth_classic_neg_number =
+            nth_classic_neg_number.min(inscription_data.inscription_number.classic);
     }
     while let Err(e) = inscriptions_db_conn_rw.execute(
         "INSERT INTO sequence_metadata (block_height, nth_classic_pos_number, nth_classic_neg_number) VALUES (?1, ?2, ?3)",
@@ -937,9 +939,7 @@ pub fn find_nth_classic_neg_number_at_block_height(
         let inscription_number: i64 = row.get(0).unwrap();
         inscription_number
     })
-    .or_else(|| {
-        compute_nth_classic_neg_number_at_block_height(block_height, db_conn, ctx)
-    })
+    .or_else(|| compute_nth_classic_neg_number_at_block_height(block_height, db_conn, ctx))
 }
 
 pub fn find_nth_jubilee_number_at_block_height(
@@ -953,9 +953,7 @@ pub fn find_nth_jubilee_number_at_block_height(
         let inscription_number: i64 = row.get(0).unwrap();
         inscription_number
     })
-    .or_else(|| {
-        compute_nth_jubilee_number_at_block_height(block_height, db_conn, ctx)
-    })
+    .or_else(|| compute_nth_jubilee_number_at_block_height(block_height, db_conn, ctx))
 }
 
 pub fn compute_nth_jubilee_number_at_block_height(

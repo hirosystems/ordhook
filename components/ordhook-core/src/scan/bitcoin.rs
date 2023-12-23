@@ -139,7 +139,7 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
 
         let inscriptions_revealed = get_inscriptions_revealed_in_block(&block)
             .iter()
-            .map(|d| d.inscription_number.to_string())
+            .map(|d| d.get_inscription_number().to_string())
             .collect::<Vec<String>>();
 
         let inscriptions_transferred = get_inscriptions_transferred_in_block(&block).len();

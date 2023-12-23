@@ -218,6 +218,8 @@ impl Inscription {
 
     #[cfg(test)]
     pub(crate) fn to_witness(&self) -> Witness {
+        use chainhook_sdk::bitcoin::Witness;
+
         let builder = script::Builder::new();
 
         let script = self.append_reveal_script(builder);

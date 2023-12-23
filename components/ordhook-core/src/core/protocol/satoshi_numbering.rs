@@ -1,4 +1,4 @@
-use chainhook_sdk::types::{BlockIdentifier, TransactionIdentifier};
+use chainhook_sdk::types::{BlockIdentifier, OrdinalInscriptionNumber, TransactionIdentifier};
 use chainhook_sdk::utils::Context;
 use dashmap::DashMap;
 use fxhash::FxHasher;
@@ -19,7 +19,6 @@ pub fn compute_satoshi_number(
     block_identifier: &BlockIdentifier,
     transaction_identifier: &TransactionIdentifier,
     inscription_input_index: usize,
-    inscription_number: i64,
     traversals_cache: &Arc<
         DashMap<(u32, [u8; 8]), TransactionBytesCursor, BuildHasherDefault<FxHasher>>,
     >,
@@ -136,7 +135,7 @@ pub fn compute_satoshi_number(
                 });
                 return Ok((
                     TraversalResult {
-                        inscription_number: 0,
+                        inscription_number: OrdinalInscriptionNumber::zero(),
                         ordinal_number: 0,
                         transfers: 0,
                         inscription_input_index,
@@ -277,7 +276,7 @@ pub fn compute_satoshi_number(
                 });
                 return Ok((
                     TraversalResult {
-                        inscription_number: 0,
+                        inscription_number: OrdinalInscriptionNumber::zero(),
                         ordinal_number: 0,
                         transfers: 0,
                         inscription_input_index,
@@ -300,7 +299,7 @@ pub fn compute_satoshi_number(
 
     Ok((
         TraversalResult {
-            inscription_number,
+            inscription_number: OrdinalInscriptionNumber::zero(),
             ordinal_number,
             transfers: hops,
             inscription_input_index,

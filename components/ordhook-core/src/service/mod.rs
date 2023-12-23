@@ -802,7 +802,7 @@ pub fn chainhook_sidecar_mutate_blocks(
 
             let inscriptions_revealed = get_inscriptions_revealed_in_block(&cache.block)
                 .iter()
-                .map(|d| d.inscription_number.to_string())
+                .map(|d| d.get_inscription_number().to_string())
                 .collect::<Vec<String>>();
 
             let inscriptions_transferred =
