@@ -59,6 +59,7 @@ pub fn initialize_ordhook_db(base_dir: &PathBuf, ctx: &Context) -> Connection {
     if let Err(e) = conn.execute(
         "CREATE TABLE IF NOT EXISTS inscriptions (
             inscription_id TEXT NOT NULL PRIMARY KEY,
+            input_index INTEGER NOT NULL,
             block_height INTEGER NOT NULL,
             ordinal_number INTEGER NOT NULL,
             jubilee_inscription_number INTEGER NOT NULL,
@@ -489,8 +490,8 @@ pub fn insert_entry_in_inscriptions(
     ctx: &Context,
 ) {
     while let Err(e) = inscriptions_db_conn_rw.execute(
-        "INSERT INTO inscriptions (inscription_id, ordinal_number, jubilee_inscription_number, classic_inscription_number, block_height) VALUES (?1, ?2, ?3, ?4)",
-        rusqlite::params![&inscription_data.inscription_id, &inscription_data.ordinal_number, &inscription_data.inscription_number.jubilee, &inscription_data.inscription_number.classic, &block_identifier.index],
+        "INSERT INTO inscriptions (inscription_id, ordinal_number, jubilee_inscription_number, classic_inscription_number, block_height, input_index) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        rusqlite::params![&inscription_data.inscription_id, &inscription_data.ordinal_number, &inscription_data.inscription_number.jubilee, &inscription_data.inscription_number.classic, &block_identifier.index, &inscription_data.inscription_input_index],
     ) {
         ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
         std::thread::sleep(std::time::Duration::from_secs(1));
@@ -1036,7 +1037,7 @@ pub fn find_inscription_with_id(
         return Err(format!("unable to retrieve location for {inscription_id}"));
     };
     let args: &[&dyn ToSql] = &[&inscription_id.to_sql().unwrap()];
-    let query = "SELECT classic_inscription_number, jubilee_inscription_number, ordinal_number, block_height FROM inscriptions WHERE inscription_id = ?";
+    let query = "SELECT classic_inscription_number, jubilee_inscription_number, ordinal_number, block_height, inscription_input_index FROM inscriptions WHERE inscription_id = ?";
     let entry = perform_query_one(query, args, db_conn, ctx, move |row| {
         let inscription_number = OrdinalInscriptionNumber {
             classic: row.get(0).unwrap(),
@@ -1044,7 +1045,8 @@ pub fn find_inscription_with_id(
         };
         let ordinal_number: u64 = row.get(2).unwrap();
         let block_height: u64 = row.get(3).unwrap();
-        let (transaction_identifier_inscription, inscription_input_index) =
+        let inscription_input_index: usize = row.get(4).unwrap();
+        let (transaction_identifier_inscription, _) =
             parse_inscription_id(inscription_id);
         (
             inscription_number,
@@ -1087,7 +1089,7 @@ pub fn find_all_inscriptions_in_block(
     let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
 
     let mut stmt = loop {
-        match inscriptions_db_tx.prepare("SELECT classic_inscription_number, jubilee_inscription_number, ordinal_number, inscription_id FROM inscriptions where block_height = ?")
+        match inscriptions_db_tx.prepare("SELECT classic_inscription_number, jubilee_inscription_number, ordinal_number, inscription_id, inscription_input_index FROM inscriptions where block_height = ?")
         {
             Ok(stmt) => break stmt,
             Err(e) => {
@@ -1120,7 +1122,8 @@ pub fn find_all_inscriptions_in_block(
                 };
                 let ordinal_number: u64 = row.get(2).unwrap();
                 let inscription_id: String = row.get(3).unwrap();
-                let (transaction_identifier_inscription, inscription_input_index) =
+                let inscription_input_index: usize = row.get(4).unwrap();
+                let (transaction_identifier_inscription, _) =
                     { parse_inscription_id(&inscription_id) };
                 let Some(transfer_data) = transfers_data
                     .get(&inscription_id)
@@ -1164,13 +1167,6 @@ pub fn find_all_inscriptions_in_block(
 pub struct WatchedSatpoint {
     pub inscription_id: String,
     pub offset: u64,
-}
-
-impl WatchedSatpoint {
-    pub fn get_genesis_satpoint(&self) -> String {
-        let (transaction_id, input) = parse_inscription_id(&self.inscription_id);
-        format!("{}:{}", transaction_id.hash, input)
-    }
 }
 
 pub fn find_watched_satpoint_for_inscription(
@@ -1364,6 +1360,17 @@ pub fn format_satpoint_to_watch(
         transaction_identifier.get_hash_bytes_str(),
         output_index,
         offset
+    )
+}
+
+pub fn format_inscription_id(
+    transaction_identifier: &TransactionIdentifier,
+    inscription_subindex: usize,
+) -> String {
+    format!(
+        "{}i{}",
+        transaction_identifier.get_hash_bytes_str(),
+        inscription_subindex,
     )
 }
 

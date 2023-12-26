@@ -24,7 +24,7 @@ use crate::{
         find_blessed_inscription_with_ordinal_number, find_nth_classic_neg_number_at_block_height,
         find_nth_classic_pos_number_at_block_height, find_nth_jubilee_number_at_block_height,
         format_satpoint_to_watch, update_inscriptions_with_block,
-        update_sequence_metadata_with_block, TransactionBytesCursor, TraversalResult,
+        update_sequence_metadata_with_block, TransactionBytesCursor, TraversalResult, parse_inscription_id, format_inscription_id,
     },
     ord::height::Height,
 };
@@ -637,7 +637,7 @@ fn augment_transaction_with_ordinals_inscriptions_data(
 ) -> bool {
     let any_event = tx.metadata.ordinal_operations.is_empty() == false;
     let mut ordinals_ops_indexes_to_discard = VecDeque::new();
-
+    let mut inscription_subindex = 0;
     for (op_index, op) in tx.metadata.ordinal_operations.iter_mut().enumerate() {
         let (mut is_cursed, inscription) = match op {
             OrdinalOperation::InscriptionRevealed(inscription) => {
@@ -647,6 +647,7 @@ fn augment_transaction_with_ordinals_inscriptions_data(
         };
 
         let transaction_identifier = tx.transaction_identifier.clone();
+        let inscription_id = format_inscription_id(&transaction_identifier, inscription_subindex);
         let traversal = match inscriptions_data
             .remove(&(transaction_identifier, inscription.inscription_input_index))
         {
@@ -690,8 +691,9 @@ fn augment_transaction_with_ordinals_inscriptions_data(
             }
         };
 
-        let outputs = &tx.metadata.outputs;
+        inscription.inscription_id = inscription_id;
         inscription.inscription_number = inscription_number;
+        let outputs = &tx.metadata.outputs;
         inscription.ordinal_offset = traversal.get_ordinal_coinbase_offset();
         inscription.ordinal_block_height = traversal.get_ordinal_coinbase_height();
         inscription.ordinal_number = traversal.ordinal_number;
@@ -760,6 +762,7 @@ fn augment_transaction_with_ordinals_inscriptions_data(
         } else {
             sequence_cursor.increment_pos_number(ctx);
         }
+        inscription_subindex += 1;
     }
     any_event
 }
