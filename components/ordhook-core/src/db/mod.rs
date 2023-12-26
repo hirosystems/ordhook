@@ -569,15 +569,22 @@ pub fn update_sequence_metadata_with_block(
         ctx,
     )
     .unwrap_or(0);
+    let mut nth_jubilee_number = find_nth_jubilee_number_at_block_height(
+        &block.block_identifier.index,
+        inscriptions_db_conn_rw,
+        ctx,
+    )
+    .unwrap_or(0);
     for inscription_data in get_inscriptions_revealed_in_block(&block).iter() {
         nth_classic_pos_number =
             nth_classic_pos_number.max(inscription_data.inscription_number.classic);
         nth_classic_neg_number =
             nth_classic_neg_number.min(inscription_data.inscription_number.classic);
+        nth_jubilee_number = nth_jubilee_number.max(inscription_data.inscription_number.jubilee);
     }
     while let Err(e) = inscriptions_db_conn_rw.execute(
-        "INSERT INTO sequence_metadata (block_height, nth_classic_pos_number, nth_classic_neg_number) VALUES (?1, ?2, ?3)",
-        rusqlite::params![&block.block_identifier.index, nth_classic_pos_number, nth_classic_neg_number],
+        "INSERT INTO sequence_metadata (block_height, nth_classic_pos_number, nth_classic_neg_number, nth_jubilee_number) VALUES (?1, ?2, ?3, ?4)",
+        rusqlite::params![&block.block_identifier.index, nth_classic_pos_number, nth_classic_neg_number, nth_jubilee_number],
     ) {
         ctx.try_log(|logger| warn!(logger, "unable to update sequence_metadata: {}", e.to_string()));
         std::thread::sleep(std::time::Duration::from_secs(1));
@@ -1046,8 +1053,7 @@ pub fn find_inscription_with_id(
         let ordinal_number: u64 = row.get(2).unwrap();
         let block_height: u64 = row.get(3).unwrap();
         let inscription_input_index: usize = row.get(4).unwrap();
-        let (transaction_identifier_inscription, _) =
-            parse_inscription_id(inscription_id);
+        let (transaction_identifier_inscription, _) = parse_inscription_id(inscription_id);
         (
             inscription_number,
             ordinal_number,
