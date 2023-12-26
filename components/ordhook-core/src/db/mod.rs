@@ -1044,7 +1044,7 @@ pub fn find_inscription_with_id(
         return Err(format!("unable to retrieve location for {inscription_id}"));
     };
     let args: &[&dyn ToSql] = &[&inscription_id.to_sql().unwrap()];
-    let query = "SELECT classic_inscription_number, jubilee_inscription_number, ordinal_number, block_height, inscription_input_index FROM inscriptions WHERE inscription_id = ?";
+    let query = "SELECT classic_inscription_number, jubilee_inscription_number, ordinal_number, block_height, input_index FROM inscriptions WHERE inscription_id = ?";
     let entry = perform_query_one(query, args, db_conn, ctx, move |row| {
         let inscription_number = OrdinalInscriptionNumber {
             classic: row.get(0).unwrap(),
@@ -1095,7 +1095,7 @@ pub fn find_all_inscriptions_in_block(
     let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
 
     let mut stmt = loop {
-        match inscriptions_db_tx.prepare("SELECT classic_inscription_number, jubilee_inscription_number, ordinal_number, inscription_id, inscription_input_index FROM inscriptions where block_height = ?")
+        match inscriptions_db_tx.prepare("SELECT classic_inscription_number, jubilee_inscription_number, ordinal_number, inscription_id, input_index FROM inscriptions where block_height = ?")
         {
             Ok(stmt) => break stmt,
             Err(e) => {
