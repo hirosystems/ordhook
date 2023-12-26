@@ -9,7 +9,7 @@ use {
             opcodes,
             script::{self, PushBytesBuf},
         },
-        ScriptBuf, Witness,
+        ScriptBuf,
     },
     std::str,
 };
@@ -217,14 +217,12 @@ impl Inscription {
     }
 
     #[cfg(test)]
-    pub(crate) fn to_witness(&self) -> Witness {
-        use chainhook_sdk::bitcoin::Witness;
-
+    pub(crate) fn to_witness(&self) -> chainhook_sdk::bitcoin::Witness {
         let builder = script::Builder::new();
 
         let script = self.append_reveal_script(builder);
 
-        let mut witness = Witness::new();
+        let mut witness = chainhook_sdk::bitcoin::Witness::new();
 
         witness.push(script);
         witness.push([]);
@@ -237,7 +235,7 @@ impl Inscription {
 mod tests {
     use chainhook_sdk::bitcoin::Witness;
 
-    use {super::*, std::io::Write};
+    use super::*;
 
     fn inscription(content_type: &str, body: impl AsRef<[u8]>) -> Inscription {
         Inscription::new(Some(content_type.into()), Some(body.as_ref().into()))

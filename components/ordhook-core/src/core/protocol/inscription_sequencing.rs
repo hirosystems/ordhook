@@ -23,9 +23,8 @@ use crate::{
     db::{
         find_blessed_inscription_with_ordinal_number, find_nth_classic_neg_number_at_block_height,
         find_nth_classic_pos_number_at_block_height, find_nth_jubilee_number_at_block_height,
-        format_inscription_id, format_satpoint_to_watch, parse_inscription_id,
-        update_inscriptions_with_block, update_sequence_metadata_with_block,
-        TransactionBytesCursor, TraversalResult,
+        format_inscription_id, format_satpoint_to_watch, update_inscriptions_with_block,
+        update_sequence_metadata_with_block, TransactionBytesCursor, TraversalResult,
     },
     ord::height::Height,
 };

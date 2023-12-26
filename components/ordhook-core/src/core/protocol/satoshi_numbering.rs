@@ -22,7 +22,7 @@ pub fn compute_satoshi_number(
     traversals_cache: &Arc<
         DashMap<(u32, [u8; 8]), TransactionBytesCursor, BuildHasherDefault<FxHasher>>,
     >,
-    back_tracking: bool,
+    _back_tracking: bool,
     ctx: &Context,
 ) -> Result<(TraversalResult, Vec<(u32, [u8; 8])>), String> {
     let mut inscription_offset_intra_output = 0;
