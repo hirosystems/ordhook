@@ -648,22 +648,21 @@ fn augment_transaction_with_ordinals_inscriptions_data(
 
         let transaction_identifier = tx.transaction_identifier.clone();
         let inscription_id = format_inscription_id(&transaction_identifier, inscription_subindex);
-        let traversal = match inscriptions_data
-            .remove(&(transaction_identifier, inscription.inscription_input_index))
-        {
-            Some(traversal) => traversal,
-            None => {
-                ctx.try_log(|logger| {
-                    error!(
-                        logger,
-                        "Unable to retrieve cached inscription data for inscription {}",
-                        tx.transaction_identifier.hash
-                    );
-                });
-                ordinals_ops_indexes_to_discard.push_front(op_index);
-                continue;
-            }
-        };
+        let traversal =
+            match inscriptions_data.remove(&(transaction_identifier, inscription_subindex)) {
+                Some(traversal) => traversal,
+                None => {
+                    ctx.try_log(|logger| {
+                        error!(
+                            logger,
+                            "Unable to retrieve cached inscription data for inscription {}",
+                            tx.transaction_identifier.hash
+                        );
+                    });
+                    ordinals_ops_indexes_to_discard.push_front(op_index);
+                    continue;
+                }
+            };
 
         // Do we need to curse the inscription?
         let mut inscription_number =
