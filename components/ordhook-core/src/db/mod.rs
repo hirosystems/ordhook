@@ -262,7 +262,7 @@ fn rocks_db_default_options() -> rocksdb::Options {
     // opts.set_write_buffer_size(64 * 1024 * 1024);
     // opts.set_blob_file_size(1 * 1024 * 1024 * 1024);
     // opts.set_target_file_size_base(64 * 1024 * 1024);
-    opts.set_max_open_files(-1);
+    opts.set_max_open_files(4096);
     opts.create_if_missing(true);
     // opts.optimize_for_point_lookup(1 * 1024 * 1024 * 1024);
     // opts.set_level_zero_stop_writes_trigger(64);
