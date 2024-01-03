@@ -82,7 +82,14 @@ pub fn initialize_ordhook_db(base_dir: &PathBuf, ctx: &Context) -> Connection {
             ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
         }
         if let Err(e) = conn.execute(
-            "CREATE INDEX IF NOT EXISTS index_inscriptions_on_inscription_number ON inscriptions(inscription_number);",
+            "CREATE INDEX IF NOT EXISTS index_inscriptions_on_jubilee_inscription_number ON inscriptions(jubilee_inscription_number);",
+            [],
+        ) {
+            ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+        }
+
+        if let Err(e) = conn.execute(
+            "CREATE INDEX IF NOT EXISTS index_inscriptions_on_classic_inscription_number ON inscriptions(classic_inscription_number);",
             [],
         ) {
             ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
