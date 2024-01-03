@@ -636,7 +636,6 @@ fn augment_transaction_with_ordinals_inscriptions_data(
     ctx: &Context,
 ) -> bool {
     let any_event = tx.metadata.ordinal_operations.is_empty() == false;
-    let mut ordinals_ops_indexes_to_discard = VecDeque::new();
     let mut inscription_subindex = 0;
     for (op_index, op) in tx.metadata.ordinal_operations.iter_mut().enumerate() {
         let (mut is_cursed, inscription) = match op {
@@ -653,15 +652,14 @@ fn augment_transaction_with_ordinals_inscriptions_data(
         {
             Some(traversal) => traversal,
             None => {
+                let err_msg = format!(
+                    "Unable to retrieve backward traversal result for inscription {}",
+                    tx.transaction_identifier.hash
+                );
                 ctx.try_log(|logger| {
-                    error!(
-                        logger,
-                        "Unable to retrieve cached inscription data for inscription {}",
-                        tx.transaction_identifier.hash
-                    );
+                    error!(logger, "{}", err_msg);
                 });
-                ordinals_ops_indexes_to_discard.push_front(op_index);
-                continue;
+                panic!("{}", err_msg);
             }
         };
 
