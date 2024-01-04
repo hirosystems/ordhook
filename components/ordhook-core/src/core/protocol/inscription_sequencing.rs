@@ -86,6 +86,7 @@ pub fn parallelize_inscription_data_computations(
         )
     });
 
+    cache_l1.clear();
     let (mut transactions_ids, l1_cache_hits) =
         get_transactions_to_process(block, cache_l1, inscriptions_db_tx, ctx);
 
