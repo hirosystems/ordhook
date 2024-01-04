@@ -162,7 +162,7 @@ pub fn compute_satoshi_number(
                 ) {
                     Some(block) => break block,
                     None => {
-                        return Err(format!("block #{ordinal_block_number} not in database"));
+                        return Err(format!("block #{ordinal_block_number} not in database (traversing {} / {} in progress)", transaction_identifier.hash, block_identifier.index));
                     }
                 }
             }
