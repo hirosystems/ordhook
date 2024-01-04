@@ -782,7 +782,7 @@ fn consolidate_transaction_with_pre_computed_inscription_data(
             OrdinalOperation::InscriptionTransferred(_) => continue,
         };
 
-        let Some(traversal) = inscriptions_data.remove(&(
+        let Some(traversal) = inscriptions_data.get(&(
             tx.transaction_identifier.clone(),
             inscription.inscription_input_index,
         )) else {
@@ -792,7 +792,7 @@ fn consolidate_transaction_with_pre_computed_inscription_data(
         inscription.ordinal_offset = traversal.get_ordinal_coinbase_offset();
         inscription.ordinal_block_height = traversal.get_ordinal_coinbase_height();
         inscription.ordinal_number = traversal.ordinal_number;
-        inscription.inscription_number = traversal.inscription_number;
+        inscription.inscription_number = traversal.inscription_number.clone();
         inscription.transfers_pre_inscription = traversal.transfers;
         inscription.inscription_fee = tx.metadata.fee;
         inscription.tx_index = tx_index;
@@ -856,16 +856,18 @@ pub fn consolidate_block_with_pre_computed_ordinals_data(
     let mut inscriptions_data = loop {
         let results =
             find_all_inscriptions_in_block(&block.block_identifier.index, inscriptions_db_tx, ctx);
-        if results.len() == expected_inscriptions_count {
-            break results;
+        // TODO: investigate, sporadically the set returned is empty, and requires a retry.
+        if results.is_empty() && expected_inscriptions_count > 0 {
+            ctx.try_log(|logger| {
+                warn!(
+                    logger,
+                    "Database retuning {} results instead of the expected {expected_inscriptions_count}",
+                    results.len()
+                );
+            });
+            continue;
         }
-        ctx.try_log(|logger| {
-            warn!(
-                logger,
-                "Database retuning {} results instead of the expected {expected_inscriptions_count}",
-                results.len()
-            );
-        });
+        break results;
     };
     for (tx_index, tx) in block.transactions.iter_mut().enumerate() {
         // Add inscriptions data
