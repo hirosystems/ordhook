@@ -340,7 +340,7 @@ fn get_transactions_to_process(
     let mut transactions_ids: Vec<(TransactionIdentifier, usize)> = vec![];
     let mut l1_cache_hits = vec![];
 
-    let mut known_transactions =
+    let known_transactions =
         find_all_inscriptions_in_block(&block.block_identifier.index, inscriptions_db_tx, ctx);
 
     for tx in block.transactions.iter().skip(1) {
@@ -361,7 +361,7 @@ fn get_transactions_to_process(
                 continue;
             }
 
-            if let Some(_) = known_transactions.remove(&key) {
+            if let Some(_) = known_transactions.get(&key) {
                 continue;
             }
 
