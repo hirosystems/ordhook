@@ -86,7 +86,6 @@ pub fn parallelize_inscription_data_computations(
         )
     });
 
-    cache_l1.clear();
     let (mut transactions_ids, l1_cache_hits) =
         get_transactions_to_process(block, cache_l1, inscriptions_db_tx, ctx);
 
@@ -128,18 +127,23 @@ pub fn parallelize_inscription_data_computations(
                         false,
                         &moved_ctx,
                     );
-                    let _ = moved_traversal_tx.send((traversal, prioritary, thread_index));
+                    moved_traversal_tx
+                        .send((traversal, prioritary, thread_index))
+                        .expect("unable to transmit traversal");
                 }
             })
             .expect("unable to spawn thread");
         thread_pool_handles.push(handle);
     }
 
-    // Consume L1 cache
+    // Consume L1 cache: if the traversal was performed in a previous round
+    // retrieve it and use it.
     let mut thread_index = 0;
     for key in l1_cache_hits.iter() {
-        if let Some(entry) = cache_l1.remove(key) {
-            let _ = traversal_tx.send((Ok((entry, vec![])), true, thread_index));
+        if let Some(entry) = cache_l1.get(key) {
+            traversal_tx
+                .send((Ok((entry.clone(), vec![])), true, thread_index))
+                .expect("unable to transmit traversal");
             thread_index = (thread_index + 1) % thread_max;
         }
     }
