@@ -659,7 +659,7 @@ fn augment_transaction_with_ordinals_inscriptions_data(
                 ctx.try_log(|logger| {
                     error!(logger, "{}", err_msg);
                 });
-                panic!("{}", err_msg);
+                std::process::exit(1);
             }
         };
 
