@@ -127,9 +127,7 @@ pub fn parallelize_inscription_data_computations(
                         false,
                         &moved_ctx,
                     );
-                    moved_traversal_tx
-                        .send((traversal, prioritary, thread_index))
-                        .expect("unable to transmit traversal");
+                    let _ = moved_traversal_tx.send((traversal, prioritary, thread_index));
                 }
             })
             .expect("unable to spawn thread");
@@ -141,9 +139,7 @@ pub fn parallelize_inscription_data_computations(
     let mut thread_index = 0;
     for key in l1_cache_hits.iter() {
         if let Some(entry) = cache_l1.get(key) {
-            traversal_tx
-                .send((Ok((entry.clone(), vec![])), true, thread_index))
-                .expect("unable to transmit traversal");
+            let _ = traversal_tx.send((Ok((entry.clone(), vec![])), true, thread_index));
             thread_index = (thread_index + 1) % thread_max;
         }
     }
