@@ -71,7 +71,7 @@ impl Service {
         let mut event_observer_config = self.config.get_event_observer_config();
 
         // Catch-up with chain tip
-        let chain_tip_height = self.catch_up_with_chain_tip(false, true).await?;
+        let chain_tip_height = self.catch_up_with_chain_tip(false, false).await?;
         info!(
             self.ctx.expect_logger(),
             "Database up to date, service will start streaming blocks"
