@@ -23,13 +23,14 @@ use ordhook::core::protocol::inscription_parsing::parse_inscriptions_and_standar
 use ordhook::core::protocol::satoshi_numbering::compute_satoshi_number;
 use ordhook::db::{
     delete_data_in_ordhook_db, find_all_inscription_transfers, find_all_inscriptions_in_block,
-    find_all_transfers_in_block, find_inscription_with_id, find_last_block_inserted,
-    find_latest_inscription_block_height, find_lazy_block_at_block_height,
+    find_all_transfers_in_block, find_block_bytes_at_block_height, find_inscription_with_id,
+    find_last_block_inserted, find_latest_inscription_block_height, find_missing_blocks,
     get_default_ordhook_db_file_path, initialize_ordhook_db, open_ordhook_db_conn_rocks_db_loop,
     open_readonly_ordhook_db_conn, open_readonly_ordhook_db_conn_rocks_db,
-    open_readwrite_ordhook_db_conn,
+    open_readwrite_ordhook_db_conn, BlockBytesCursor,
 };
 use ordhook::download::download_ordinals_dataset_if_required;
+use ordhook::hex;
 use ordhook::scan::bitcoin::scan_bitcoin_chainstate_via_rpc_using_predicate;
 use ordhook::service::{start_observer_forwarding, Service};
 use reqwest::Client as HttpClient;
@@ -577,7 +578,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                     let mut total_transfers_in_block = 0;
 
                     for (_, inscription) in inscriptions.iter() {
-                        println!("Inscription {} revealed at block #{} (inscription_number {}, ordinal_number {})", inscription.get_inscription_id(), block_height, inscription.inscription_number, inscription.ordinal_number);
+                        println!("Inscription {} revealed at block #{} (inscription_number {}, ordinal_number {})", inscription.get_inscription_id(), block_height, inscription.inscription_number.jubilee, inscription.ordinal_number);
                         if let Some(transfers) = locations.remove(&inscription.get_inscription_id())
                         {
                             for t in transfers.iter().skip(1) {
@@ -639,7 +640,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 "Inscription {} revealed at block #{} (inscription_number {}, ordinal_number {})",
                 inscription.get_inscription_id(),
                 block_height,
-                inscription.inscription_number,
+                inscription.inscription_number.jubilee,
                 inscription.ordinal_number
             );
             let transfers = find_all_inscription_transfers(
@@ -668,15 +669,19 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
             .await?;
             let transaction_identifier = TransactionIdentifier::new(&cmd.transaction_id);
             let cache = new_traversals_lazy_cache(100);
-            let res = compute_satoshi_number(
+            let (res, mut back_trace) = compute_satoshi_number(
                 &config.get_ordhook_config().db_path,
                 &block.block_identifier,
                 &transaction_identifier,
                 0,
-                0,
                 &Arc::new(cache),
+                true,
                 ctx,
             )?;
+            back_trace.reverse();
+            for (block_height, tx) in back_trace.iter() {
+                println!("{}\t{}", block_height, hex::encode(tx));
+            }
             println!("{:?}", res);
         }
         Command::Service(subcmd) => match subcmd {
@@ -793,9 +798,10 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                         ctx,
                     );
                     for i in cmd.get_blocks().into_iter() {
-                        let block =
-                            find_lazy_block_at_block_height(i as u32, 10, false, &blocks_db, ctx)
+                        let block_bytes =
+                            find_block_bytes_at_block_height(i as u32, 10, &blocks_db, ctx)
                                 .expect("unable to retrieve block {i}");
+                        let block = BlockBytesCursor::new(&block_bytes);
                         info!(ctx.expect_logger(), "--------------------");
                         info!(ctx.expect_logger(), "Block: {i}");
                         for tx in block.iter_tx() {
@@ -861,18 +867,9 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
             {
                 let blocks_db =
                     open_readonly_ordhook_db_conn_rocks_db(&config.expected_cache_path(), ctx)?;
-                let tip = find_last_block_inserted(&blocks_db) as u64;
+                let tip = find_last_block_inserted(&blocks_db);
                 println!("Tip: {}", tip);
-
-                let mut missing_blocks = vec![];
-                for i in cmd.start_block..=cmd.end_block {
-                    if find_lazy_block_at_block_height(i as u32, 0, false, &blocks_db, ctx)
-                        .is_none()
-                    {
-                        println!("Missing block #{i}");
-                        missing_blocks.push(i);
-                    }
-                }
+                let missing_blocks = find_missing_blocks(&blocks_db, 1, tip, ctx);
                 println!("{:?}", missing_blocks);
             }
         }

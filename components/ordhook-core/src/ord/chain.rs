@@ -65,10 +65,7 @@ impl Chain {
         bitcoin::blockdata::constants::genesis_block(self.network())
     }
 
-    pub fn address_from_script(
-        self,
-        script: &Script,
-    ) -> Result<Address, bitcoin::util::address::Error> {
+    pub fn address_from_script(self, script: &Script) -> Result<Address, bitcoin::address::Error> {
         Address::from_script(script, self.network())
     }
 

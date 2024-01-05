@@ -38,7 +38,7 @@ use crate::{
     },
 };
 
-use crate::db::{LazyBlockTransaction, TraversalResult};
+use crate::db::{TransactionBytesCursor, TraversalResult};
 
 use crate::{
     config::Config,
@@ -68,8 +68,6 @@ pub fn start_inscription_indexing_processor(
             let mut inscriptions_db_conn_rw =
                 open_readwrite_ordhook_db_conn(&config.expected_cache_path(), &ctx).unwrap();
             let ordhook_config = config.get_ordhook_config();
-            let blocks_db_rw =
-                open_ordhook_db_conn_rocks_db_loop(true, &config.expected_cache_path(), &ctx);
             let mut empty_cycles = 0;
 
             let inscriptions_db_conn =
@@ -105,11 +103,12 @@ pub fn start_inscription_indexing_processor(
                     },
                 };
 
-                // Early return
-                if blocks.is_empty() {
-                    store_compacted_blocks(compacted_blocks, true, &blocks_db_rw, &ctx);
-                    continue;
-                } else {
+                {
+                    let blocks_db_rw = open_ordhook_db_conn_rocks_db_loop(
+                        true,
+                        &config.expected_cache_path(),
+                        &ctx,
+                    );
                     store_compacted_blocks(
                         compacted_blocks,
                         true,
@@ -118,8 +117,12 @@ pub fn start_inscription_indexing_processor(
                     );
                 }
 
-                ctx.try_log(|logger| info!(logger, "Processing {} blocks", blocks.len()));
+                // Early return
+                if blocks.is_empty() {
+                    continue;
+                }
 
+                ctx.try_log(|logger| info!(logger, "Processing {} blocks", blocks.len()));
                 blocks = process_blocks(
                     &mut blocks,
                     &mut sequence_cursor,
@@ -131,7 +134,6 @@ pub fn start_inscription_indexing_processor(
                 );
 
                 garbage_collect_nth_block += blocks.len();
-
                 if garbage_collect_nth_block > garbage_collect_every_n_blocks {
                     ctx.try_log(|logger| info!(logger, "Performing garbage collecting"));
 
@@ -162,7 +164,7 @@ pub fn start_inscription_indexing_processor(
 pub fn process_blocks(
     next_blocks: &mut Vec<BitcoinBlockData>,
     sequence_cursor: &mut SequenceCursor,
-    cache_l2: &Arc<DashMap<(u32, [u8; 8]), LazyBlockTransaction, BuildHasherDefault<FxHasher>>>,
+    cache_l2: &Arc<DashMap<(u32, [u8; 8]), TransactionBytesCursor, BuildHasherDefault<FxHasher>>>,
     inscriptions_db_conn_rw: &mut Connection,
     ordhook_config: &OrdhookConfig,
     post_processor: &Option<Sender<BitcoinBlockData>>,
@@ -199,7 +201,7 @@ pub fn process_blocks(
 
         let inscriptions_revealed = get_inscriptions_revealed_in_block(&block)
             .iter()
-            .map(|d| d.inscription_number.to_string())
+            .map(|d| d.get_inscription_number().to_string())
             .collect::<Vec<String>>();
 
         let inscriptions_transferred = get_inscriptions_transferred_in_block(&block).len();
@@ -259,7 +261,7 @@ pub fn process_block(
     next_blocks: &Vec<BitcoinBlockData>,
     sequence_cursor: &mut SequenceCursor,
     cache_l1: &mut BTreeMap<(TransactionIdentifier, usize), TraversalResult>,
-    cache_l2: &Arc<DashMap<(u32, [u8; 8]), LazyBlockTransaction, BuildHasherDefault<FxHasher>>>,
+    cache_l2: &Arc<DashMap<(u32, [u8; 8]), TransactionBytesCursor, BuildHasherDefault<FxHasher>>>,
     inscriptions_db_tx: &Transaction,
     ordhook_config: &OrdhookConfig,
     ctx: &Context,

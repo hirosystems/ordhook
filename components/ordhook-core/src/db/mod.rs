@@ -8,14 +8,14 @@ use std::{
 
 use rand::{thread_rng, Rng};
 
-use rocksdb::DB;
+use rocksdb::{DBPinnableSlice, DB};
 use rusqlite::{Connection, OpenFlags, ToSql, Transaction};
 use std::io::Cursor;
 
 use chainhook_sdk::{
     indexer::bitcoin::BitcoinBlockFullBreakdown,
     types::{
-        BitcoinBlockData, BlockIdentifier, OrdinalInscriptionRevealData,
+        BitcoinBlockData, BlockIdentifier, OrdinalInscriptionNumber, OrdinalInscriptionRevealData,
         OrdinalInscriptionTransferData, TransactionIdentifier,
     },
     utils::Context,
@@ -240,11 +240,6 @@ fn get_default_ordhook_db_file_path_rocks_db(base_dir: &PathBuf) -> PathBuf {
 
 fn rocks_db_default_options() -> rocksdb::Options {
     let mut opts = rocksdb::Options::default();
-    opts.create_if_missing(true);
-    // opts.prepare_for_bulk_load();
-    // opts.set_compression_type(rocksdb::DBCompressionType::Lz4);
-    // opts.set_blob_compression_type(rocksdb::DBCompressionType::Lz4);
-    // opts.increase_parallelism(parallelism)
     // Per rocksdb's documentation:
     // If cache_index_and_filter_blocks is false (which is default),
     // the number of index/filter blocks is controlled by option max_open_files.
@@ -252,7 +247,8 @@ fn rocks_db_default_options() -> rocksdb::Options {
     // we recommend setting max_open_files to -1, which means infinity.
     // This option will preload all filter and index blocks and will not need to maintain LRU of files.
     // Setting max_open_files to -1 will get you the best possible performance.
-    opts.set_max_open_files(4096);
+    opts.set_max_open_files(2048);
+    opts.create_if_missing(true);
     opts
 }
 
@@ -287,8 +283,11 @@ pub fn open_ordhook_db_conn_rocks_db_loop(
                 retries += 1;
                 if retries > 10 {
                     ctx.try_log(|logger| {
-                        warn!(logger, "Unable to open db: {e}",);
+                        warn!(logger, "Unable to open db: {e}. Retrying in 10s",);
                     });
+                    sleep(Duration::from_secs(10));
+                } else {
+                    sleep(Duration::from_secs(2));
                 }
                 continue;
             }
@@ -319,7 +318,7 @@ fn open_readwrite_ordhook_db_conn_rocks_db(
 
 pub fn insert_entry_in_blocks(
     block_height: u32,
-    lazy_block: &LazyBlock,
+    block_bytes: &[u8],
     update_tip: bool,
     blocks_db_rw: &DB,
     ctx: &Context,
@@ -327,7 +326,7 @@ pub fn insert_entry_in_blocks(
     let block_height_bytes = block_height.to_be_bytes();
     let mut retries = 0;
     loop {
-        let res = blocks_db_rw.put(&block_height_bytes, &lazy_block.bytes);
+        let res = blocks_db_rw.put(&block_height_bytes, block_bytes);
         match res {
             Ok(_) => break,
             Err(e) => {
@@ -409,6 +408,21 @@ pub fn find_lazy_block_at_block_height(
             }
         }
     }
+}
+
+pub fn run_compaction(blocks_db_rw: &DB, lim: u32) {
+    let gen = 0u32.to_be_bytes();
+    let _ = blocks_db_rw.compact_range(Some(&gen), Some(&lim.to_be_bytes()));
+}
+
+pub fn find_missing_blocks(blocks_db: &DB, start: u32, end: u32, ctx: &Context) -> Vec<u32> {
+    let mut missing_blocks = vec![];
+    for i in start..=end {
+        if find_pinned_block_bytes_at_block_height(i as u32, 0, &blocks_db, ctx).is_none() {
+            missing_blocks.push(i);
+        }
+    }
+    missing_blocks
 }
 
 pub fn remove_entry_from_blocks(block_height: u32, blocks_db_rw: &DB, ctx: &Context) {
