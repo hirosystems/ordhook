@@ -495,10 +495,12 @@ impl<'a> SequenceCursor<'a> {
 
     pub fn increment_neg_cursor(&mut self, ctx: &Context) {
         self.neg_cursor = Some(self.pick_next_neg_number(ctx));
+        self.increment_jubilee_number(ctx);
     }
 
     pub fn increment_pos_number(&mut self, ctx: &Context) {
-        self.pos_cursor = Some(self.pick_next_pos_number(ctx))
+        self.pos_cursor = Some(self.pick_next_pos_number(ctx));
+        self.increment_jubilee_number(ctx);
     }
 
     pub fn increment_jubilee_number(&mut self, ctx: &Context) {
