@@ -1080,7 +1080,7 @@ pub fn find_all_inscriptions_in_block(
     block_height: &u64,
     inscriptions_db_tx: &Connection,
     ctx: &Context,
-) -> BTreeMap<(TransactionIdentifier, usize), TraversalResult> {
+) -> BTreeMap<String, TraversalResult> {
     let transfers_data = find_all_transfers_in_block(block_height, inscriptions_db_tx, ctx);
 
     let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
@@ -1142,10 +1142,7 @@ pub fn find_all_inscriptions_in_block(
                     transaction_identifier_inscription: transaction_identifier_inscription.clone(),
                     transfer_data: transfer_data.clone(),
                 };
-                results.insert(
-                    (transaction_identifier_inscription, inscription_input_index),
-                    traversal,
-                );
+                results.insert(inscription_id, traversal);
             }
             Ok(None) => break,
             Err(e) => {

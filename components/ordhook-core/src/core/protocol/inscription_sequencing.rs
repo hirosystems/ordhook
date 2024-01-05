@@ -357,7 +357,7 @@ fn get_transactions_to_process(
                 continue;
             }
 
-            if let Some(_) = known_transactions.get(&key) {
+            if let Some(_) = known_transactions.get(&inscription_data.inscription_id) {
                 continue;
             }
 
@@ -417,8 +417,8 @@ impl<'a> SequenceCursor<'a> {
         self.current_block_height = block_height;
 
         let classic = match cursed {
-            true => self.pick_next_neg_number(ctx),
-            false => self.pick_next_pos_number(ctx),
+            true => self.pick_next_neg_classic(ctx),
+            false => self.pick_next_pos_classic(ctx),
         };
         let jubilee_height = match network {
             Network::Bitcoin => 824544,
@@ -435,7 +435,7 @@ impl<'a> SequenceCursor<'a> {
         OrdinalInscriptionNumber { classic, jubilee }
     }
 
-    fn pick_next_pos_number(&mut self, ctx: &Context) -> i64 {
+    fn pick_next_pos_classic(&mut self, ctx: &Context) -> i64 {
         match self.pos_cursor {
             None => {
                 match find_nth_classic_pos_number_at_block_height(
@@ -455,7 +455,7 @@ impl<'a> SequenceCursor<'a> {
     }
 
     fn pick_next_jubilee_number(&mut self, ctx: &Context) -> i64 {
-        match self.pos_cursor {
+        match self.jubilee_cursor {
             None => {
                 match find_nth_jubilee_number_at_block_height(
                     &self.current_block_height,
@@ -473,7 +473,7 @@ impl<'a> SequenceCursor<'a> {
         }
     }
 
-    fn pick_next_neg_number(&mut self, ctx: &Context) -> i64 {
+    fn pick_next_neg_classic(&mut self, ctx: &Context) -> i64 {
         match self.neg_cursor {
             None => {
                 match find_nth_classic_neg_number_at_block_height(
@@ -492,12 +492,12 @@ impl<'a> SequenceCursor<'a> {
         }
     }
 
-    pub fn increment_neg_cursor(&mut self, ctx: &Context) {
-        self.neg_cursor = Some(self.pick_next_neg_number(ctx));
+    pub fn increment_neg_classic(&mut self, ctx: &Context) {
+        self.neg_cursor = Some(self.pick_next_neg_classic(ctx));
     }
 
-    pub fn increment_pos_number(&mut self, ctx: &Context) {
-        self.pos_cursor = Some(self.pick_next_pos_number(ctx))
+    pub fn increment_pos_classic(&mut self, ctx: &Context) {
+        self.pos_cursor = Some(self.pick_next_pos_classic(ctx));
     }
 
     pub fn increment_jubilee_number(&mut self, ctx: &Context) {
@@ -599,9 +599,9 @@ pub fn augment_block_with_ordinals_inscriptions_data(
         inscription_data.inscription_number = inscription_number;
 
         if is_curse {
-            sequence_cursor.increment_neg_cursor(ctx);
+            sequence_cursor.increment_neg_classic(ctx);
         } else {
-            sequence_cursor.increment_pos_number(ctx);
+            sequence_cursor.increment_pos_classic(ctx);
         };
 
         ctx.try_log(|logger| {
@@ -756,10 +756,11 @@ fn augment_transaction_with_ordinals_inscriptions_data(
             );
         });
 
+        sequence_cursor.increment_jubilee_number(ctx);
         if is_cursed {
-            sequence_cursor.increment_neg_cursor(ctx);
+            sequence_cursor.increment_neg_classic(ctx);
         } else {
-            sequence_cursor.increment_pos_number(ctx);
+            sequence_cursor.increment_pos_classic(ctx);
         }
         inscription_subindex += 1;
     }
@@ -773,22 +774,24 @@ fn consolidate_transaction_with_pre_computed_inscription_data(
     tx_index: usize,
     coinbase_txid: &TransactionIdentifier,
     network: &Network,
-    inscriptions_data: &mut BTreeMap<(TransactionIdentifier, usize), TraversalResult>,
+    inscriptions_data: &mut BTreeMap<String, TraversalResult>,
     _ctx: &Context,
 ) {
+    let mut subindex = 0;
     for operation in tx.metadata.ordinal_operations.iter_mut() {
         let inscription = match operation {
             OrdinalOperation::InscriptionRevealed(ref mut inscription) => inscription,
             OrdinalOperation::InscriptionTransferred(_) => continue,
         };
 
-        let Some(traversal) = inscriptions_data.get(&(
-            tx.transaction_identifier.clone(),
-            inscription.inscription_input_index,
-        )) else {
+        let inscription_id = format_inscription_id(&tx.transaction_identifier, subindex);
+        let Some(traversal) = inscriptions_data.get(&inscription_id) else {
+            // Should we remove the operation instead
             continue;
         };
+        subindex += 1;
 
+        inscription.inscription_id = inscription_id.clone();
         inscription.ordinal_offset = traversal.get_ordinal_coinbase_offset();
         inscription.ordinal_block_height = traversal.get_ordinal_coinbase_height();
         inscription.ordinal_number = traversal.ordinal_number;
@@ -857,7 +860,7 @@ pub fn consolidate_block_with_pre_computed_ordinals_data(
         let results =
             find_all_inscriptions_in_block(&block.block_identifier.index, inscriptions_db_tx, ctx);
         // TODO: investigate, sporadically the set returned is empty, and requires a retry.
-        if results.is_empty() && expected_inscriptions_count > 0 {
+        if results.len() != expected_inscriptions_count {
             ctx.try_log(|logger| {
                 warn!(
                     logger,
