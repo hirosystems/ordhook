@@ -17,8 +17,11 @@ use crate::core::{new_traversals_lazy_cache, should_sync_ordhook_db, should_sync
 use crate::db::{
     delete_data_in_ordhook_db, insert_entry_in_blocks, open_ordhook_db_conn_rocks_db_loop,
     open_readwrite_ordhook_db_conn, open_readwrite_ordhook_dbs, update_inscriptions_with_block,
-    update_locations_with_block, update_sequence_metadata_with_block, LazyBlock,
-    LazyBlockTransaction,
+    update_locations_with_block, BlockBytesCursor, TransactionBytesCursor,
+};
+use crate::db::{
+    find_last_block_inserted, find_missing_blocks, run_compaction,
+    update_sequence_metadata_with_block,
 };
 use crate::scan::bitcoin::process_block_with_predicates;
 use crate::service::http_api::start_predicate_api_server;
@@ -28,7 +31,6 @@ use crate::service::observers::{
     update_observer_streaming_enabled, ObserverReport,
 };
 use crate::service::runloops::start_bitcoin_scan_runloop;
-
 use chainhook_sdk::chainhooks::bitcoin::BitcoinChainhookOccurrencePayload;
 use chainhook_sdk::chainhooks::types::{
     BitcoinChainhookSpecification, ChainhookFullSpecification, ChainhookSpecification,
@@ -69,7 +71,7 @@ impl Service {
         let mut event_observer_config = self.config.get_event_observer_config();
 
         // Catch-up with chain tip
-        let chain_tip_height = self.catch_up_with_chain_tip(false).await?;
+        let chain_tip_height = self.catch_up_with_chain_tip(false, false).await?;
         info!(
             self.ctx.expect_logger(),
             "Database up to date, service will start streaming blocks"
@@ -442,23 +444,69 @@ impl Service {
     pub async fn catch_up_with_chain_tip(
         &mut self,
         rebuild_from_scratch: bool,
+        compact_and_check_rocksdb_integrity: bool,
     ) -> Result<u64, String> {
-        if rebuild_from_scratch {
-            let blocks_db = open_ordhook_db_conn_rocks_db_loop(
-                true,
-                &self.config.expected_cache_path(),
-                &self.ctx,
-            );
-            let inscriptions_db_conn_rw =
-                open_readwrite_ordhook_db_conn(&self.config.expected_cache_path(), &self.ctx)?;
+        {
+            if compact_and_check_rocksdb_integrity {
+                let (tip, missing_blocks) = {
+                    let blocks_db = open_ordhook_db_conn_rocks_db_loop(
+                        false,
+                        &self.config.expected_cache_path(),
+                        &self.ctx,
+                    );
+                    let tip = find_last_block_inserted(&blocks_db);
+                    info!(
+                        self.ctx.expect_logger(),
+                        "Checking database integrity up to block #{tip}",
+                    );
+                    let missing_blocks = find_missing_blocks(&blocks_db, 0, tip, &self.ctx);
+                    (tip, missing_blocks)
+                };
+                if !missing_blocks.is_empty() {
+                    info!(
+                        self.ctx.expect_logger(),
+                        "{} missing blocks detected, will attempt to repair data",
+                        missing_blocks.len()
+                    );
+                    let block_ingestion_processor =
+                        start_block_archiving_processor(&self.config, &self.ctx, false, None);
+                    download_and_pipeline_blocks(
+                        &self.config,
+                        missing_blocks.into_iter().map(|x| x as u64).collect(),
+                        tip.into(),
+                        Some(&block_ingestion_processor),
+                        10_000,
+                        &self.ctx,
+                    )
+                    .await?;
+                }
+                let blocks_db_rw = open_ordhook_db_conn_rocks_db_loop(
+                    false,
+                    &self.config.expected_cache_path(),
+                    &self.ctx,
+                );
+                info!(self.ctx.expect_logger(), "Running database compaction",);
+                run_compaction(&blocks_db_rw, tip);
+            }
 
-            delete_data_in_ordhook_db(
-                767430,
-                820000,
-                &blocks_db,
-                &inscriptions_db_conn_rw,
-                &self.ctx,
-            )?;
+            if rebuild_from_scratch {
+                let blocks_db_rw = open_ordhook_db_conn_rocks_db_loop(
+                    false,
+                    &self.config.expected_cache_path(),
+                    &self.ctx,
+                );
+
+                let inscriptions_db_conn_rw =
+                    open_readwrite_ordhook_db_conn(&self.config.expected_cache_path(), &self.ctx)?;
+
+                delete_data_in_ordhook_db(
+                    767430,
+                    820000,
+                    &blocks_db_rw,
+                    &inscriptions_db_conn_rw,
+                    &self.ctx,
+                )?;
+            }
         }
         self.update_state(None).await
     }
@@ -598,8 +646,8 @@ fn chainhook_sidecar_mutate_ordhook_db(command: HandleBlock, config: &Config, ct
             }
         }
         HandleBlock::ApplyBlock(block) => {
-            let compressed_block: LazyBlock = match LazyBlock::from_standardized_block(&block) {
-                Ok(block) => block,
+            let block_bytes = match BlockBytesCursor::from_standardized_block(&block) {
+                Ok(block_bytes) => block_bytes,
                 Err(e) => {
                     ctx.try_log(|logger| {
                         error!(
@@ -614,7 +662,7 @@ fn chainhook_sidecar_mutate_ordhook_db(command: HandleBlock, config: &Config, ct
             };
             insert_entry_in_blocks(
                 block.block_identifier.index as u32,
-                &compressed_block,
+                &block_bytes,
                 true,
                 &blocks_db_rw,
                 &ctx,
@@ -668,7 +716,7 @@ pub fn start_observer_forwarding(
 pub fn chainhook_sidecar_mutate_blocks(
     blocks_to_mutate: &mut Vec<BitcoinBlockDataCached>,
     blocks_ids_to_rollback: &Vec<BlockIdentifier>,
-    cache_l2: &Arc<DashMap<(u32, [u8; 8]), LazyBlockTransaction, BuildHasherDefault<FxHasher>>>,
+    cache_l2: &Arc<DashMap<(u32, [u8; 8]), TransactionBytesCursor, BuildHasherDefault<FxHasher>>>,
     config: &Config,
     ctx: &Context,
 ) {
@@ -705,8 +753,8 @@ pub fn chainhook_sidecar_mutate_blocks(
     let ordhook_config = config.get_ordhook_config();
 
     for cache in blocks_to_mutate.iter_mut() {
-        let compressed_block: LazyBlock = match LazyBlock::from_standardized_block(&cache.block) {
-            Ok(block) => block,
+        let block_bytes = match BlockBytesCursor::from_standardized_block(&cache.block) {
+            Ok(block_bytes) => block_bytes,
             Err(e) => {
                 ctx.try_log(|logger| {
                     error!(
@@ -722,7 +770,7 @@ pub fn chainhook_sidecar_mutate_blocks(
 
         insert_entry_in_blocks(
             cache.block.block_identifier.index as u32,
-            &compressed_block,
+            &block_bytes,
             true,
             &blocks_db_rw,
             &ctx,
@@ -754,7 +802,7 @@ pub fn chainhook_sidecar_mutate_blocks(
 
             let inscriptions_revealed = get_inscriptions_revealed_in_block(&cache.block)
                 .iter()
-                .map(|d| d.inscription_number.to_string())
+                .map(|d| d.get_inscription_number().to_string())
                 .collect::<Vec<String>>();
 
             let inscriptions_transferred =

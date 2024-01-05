@@ -22,6 +22,10 @@ RUN apt-get install nodejs -y
 
 RUN npm install -g @napi-rs/cli yarn
 
+COPY ./Cargo.toml /src/Cargo.toml
+
+COPY ./Cargo.lock /src/Cargo.lock
+
 COPY ./components/ordhook-core /src/components/ordhook-core
 
 COPY ./components/ordhook-sdk-js /src/components/ordhook-sdk-js
@@ -40,7 +44,7 @@ WORKDIR /src/components/ordhook-cli
 
 RUN cargo build --features release --release
 
-RUN cp target/release/ordhook /out
+RUN cp /src/target/release/ordhook /out
 
 FROM debian:bullseye-slim
 

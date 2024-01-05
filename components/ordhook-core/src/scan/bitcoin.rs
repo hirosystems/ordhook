@@ -139,7 +139,7 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
 
         let inscriptions_revealed = get_inscriptions_revealed_in_block(&block)
             .iter()
-            .map(|d| d.inscription_number.to_string())
+            .map(|d| d.get_inscription_number().to_string())
             .collect::<Vec<String>>();
 
         let inscriptions_transferred = get_inscriptions_transferred_in_block(&block).len();
@@ -234,7 +234,7 @@ pub async fn execute_predicates_action<'a>(
             Ok(action) => {
                 actions_triggered += 1;
                 match action {
-                    BitcoinChainhookOccurrence::Http(request) => {
+                    BitcoinChainhookOccurrence::Http(request, _data) => {
                         send_request(request, 60, 3, &ctx).await?
                     }
                     BitcoinChainhookOccurrence::File(path, bytes) => {
