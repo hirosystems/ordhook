@@ -856,7 +856,7 @@ pub fn consolidate_block_with_pre_computed_ordinals_data(
         let results =
             find_all_inscriptions_in_block(&block.block_identifier.index, inscriptions_db_tx, ctx);
         // TODO: investigate, sporadically the set returned is empty, and requires a retry.
-        if results.is_empty() && expected_inscriptions_count > 0 {
+        if results.len() != expected_inscriptions_count {
             ctx.try_log(|logger| {
                 warn!(
                     logger,
