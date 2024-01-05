@@ -1,3 +1,30 @@
+## [2.0.0](https://github.com/hirosystems/ordhook/compare/v1.2.0...v2.0.0) (2024-01-05)
+
+
+### ⚠ BREAKING CHANGES
+
+* implement Jubilee support
+* bump ordhook-core version
+
+* Merge pull request #240 from hirosystems/develop ([2ea6f34](https://github.com/hirosystems/ordhook/commit/2ea6f347b4a47cb82632245c6bb0faa6f8ff6651)), closes [#240](https://github.com/hirosystems/ordhook/issues/240)
+
+
+### Features
+
+* add --check-blocks-integrity flag ([d7d90e7](https://github.com/hirosystems/ordhook/commit/d7d90e71bfab59143bece3281ddd7373314c3cec))
+* inital changes to support subenv deployments ([887aeaf](https://github.com/hirosystems/ordhook/commit/887aeafbd8753920379a81f19664c37c48c5d506))
+* jubilee support, disk optimizations  ([#239](https://github.com/hirosystems/ordhook/issues/239)) ([424f5bb](https://github.com/hirosystems/ordhook/commit/424f5bb98cfbed85579dbfaaf2eeacbdcf288570)), closes [#186](https://github.com/hirosystems/ordhook/issues/186) [#170](https://github.com/hirosystems/ordhook/issues/170) [#171](https://github.com/hirosystems/ordhook/issues/171) [#285](https://github.com/hirosystems/ordhook/issues/285) [#310](https://github.com/hirosystems/ordhook/issues/310) [#168](https://github.com/hirosystems/ordhook/issues/168) [#173](https://github.com/hirosystems/ordhook/issues/173) [#175](https://github.com/hirosystems/ordhook/issues/175) [#178](https://github.com/hirosystems/ordhook/issues/178) [#182](https://github.com/hirosystems/ordhook/issues/182) [#183](https://github.com/hirosystems/ordhook/issues/183) [#173](https://github.com/hirosystems/ordhook/issues/173) [#171](https://github.com/hirosystems/ordhook/issues/171) [#178](https://github.com/hirosystems/ordhook/issues/178) [#170](https://github.com/hirosystems/ordhook/issues/170) [#171](https://github.com/hirosystems/ordhook/issues/171) [#285](https://github.com/hirosystems/ordhook/issues/285) [#310](https://github.com/hirosystems/ordhook/issues/310) [#168](https://github.com/hirosystems/ordhook/issues/168) [#173](https://github.com/hirosystems/ordhook/issues/173) [#175](https://github.com/hirosystems/ordhook/issues/175) [#178](https://github.com/hirosystems/ordhook/issues/178) [#214](https://github.com/hirosystems/ordhook/issues/214) [#170](https://github.com/hirosystems/ordhook/issues/170) [#171](https://github.com/hirosystems/ordhook/issues/171) [#285](https://github.com/hirosystems/ordhook/issues/285) [#310](https://github.com/hirosystems/ordhook/issues/310) [#168](https://github.com/hirosystems/ordhook/issues/168) [#173](https://github.com/hirosystems/ordhook/issues/173) [#175](https://github.com/hirosystems/ordhook/issues/175) [#178](https://github.com/hirosystems/ordhook/issues/178) [#175](https://github.com/hirosystems/ordhook/issues/175) [#214](https://github.com/hirosystems/ordhook/issues/214) [#200](https://github.com/hirosystems/ordhook/issues/200) [#211](https://github.com/hirosystems/ordhook/issues/211) [#208](https://github.com/hirosystems/ordhook/issues/208) [#187](https://github.com/hirosystems/ordhook/issues/187) [#204](https://github.com/hirosystems/ordhook/issues/204) [#187](https://github.com/hirosystems/ordhook/issues/187) [#205](https://github.com/hirosystems/ordhook/issues/205) [#170](https://github.com/hirosystems/ordhook/issues/170) [#171](https://github.com/hirosystems/ordhook/issues/171) [#285](https://github.com/hirosystems/ordhook/issues/285) [#310](https://github.com/hirosystems/ordhook/issues/310) [#168](https://github.com/hirosystems/ordhook/issues/168) [#173](https://github.com/hirosystems/ordhook/issues/173) [#175](https://github.com/hirosystems/ordhook/issues/175) [#178](https://github.com/hirosystems/ordhook/issues/178) [#182](https://github.com/hirosystems/ordhook/issues/182) [#183](https://github.com/hirosystems/ordhook/issues/183) [#184](https://github.com/hirosystems/ordhook/issues/184) [#185](https://github.com/hirosystems/ordhook/issues/185) [#186](https://github.com/hirosystems/ordhook/issues/186)
+
+
+### Bug Fixes
+
+* change arg ([786f6b8](https://github.com/hirosystems/ordhook/commit/786f6b89edc6647443fb6c1e96f395496612cff5))
+
+
+### Miscellaneous Chores
+
+* bump ordhook-core version ([9458956](https://github.com/hirosystems/ordhook/commit/94589567f7fa252379aa3f53733bca441268c68f))
+
 ## [1.2.0](https://github.com/hirosystems/ordhook/compare/v1.1.3...v1.2.0) (2023-12-06)
 
 
