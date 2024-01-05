@@ -709,7 +709,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
 
                 let ordhook_config = config.get_ordhook_config();
 
-                info!(ctx.expect_logger(), "Starting service...",);
+                info!(ctx.expect_logger(), "Starting service... 16:20",);
 
                 let start_block = match cmd.start_at_block {
                     Some(entry) => entry,

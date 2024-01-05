@@ -777,17 +777,21 @@ fn consolidate_transaction_with_pre_computed_inscription_data(
     inscriptions_data: &mut BTreeMap<String, TraversalResult>,
     _ctx: &Context,
 ) {
+    let mut subindex = 0;
     for operation in tx.metadata.ordinal_operations.iter_mut() {
         let inscription = match operation {
             OrdinalOperation::InscriptionRevealed(ref mut inscription) => inscription,
             OrdinalOperation::InscriptionTransferred(_) => continue,
         };
 
-        let Some(traversal) = inscriptions_data.get(&inscription.inscription_id) else {
+        let inscription_id = format_inscription_id(&tx.transaction_identifier, subindex);
+        let Some(traversal) = inscriptions_data.get(&inscription_id) else {
             // Should we remove the operation instead
             continue;
         };
+        subindex += 1;
 
+        inscription.inscription_id = inscription_id.clone();
         inscription.ordinal_offset = traversal.get_ordinal_coinbase_offset();
         inscription.ordinal_block_height = traversal.get_ordinal_coinbase_height();
         inscription.ordinal_number = traversal.ordinal_number;
