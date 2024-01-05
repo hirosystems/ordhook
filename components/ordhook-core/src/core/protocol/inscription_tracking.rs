@@ -1,5 +1,5 @@
 use chainhook_sdk::{
-    bitcoincore_rpc_json::bitcoin::{hashes::hex::FromHex, Address, Network, Script},
+    bitcoincore_rpc_json::bitcoin::{Address, Network, ScriptBuf},
     types::{
         BitcoinBlockData, BitcoinNetwork, BitcoinTransactionData, BlockIdentifier,
         OrdinalInscriptionTransferData, OrdinalInscriptionTransferDestination, OrdinalOperation,
@@ -117,7 +117,7 @@ pub fn augment_transaction_with_ordinals_transfers_data(
                         format_outpoint_to_watch(&tx.transaction_identifier, output_index);
                     let script_pub_key_hex =
                         tx.metadata.outputs[output_index].get_script_pubkey_hex();
-                    let updated_address = match Script::from_hex(&script_pub_key_hex) {
+                    let updated_address = match ScriptBuf::from_hex(&script_pub_key_hex) {
                         Ok(script) => match Address::from_script(&script, network.clone()) {
                             Ok(address) => OrdinalInscriptionTransferDestination::Transferred(
                                 address.to_string(),

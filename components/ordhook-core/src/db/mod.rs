@@ -8,14 +8,14 @@ use std::{
 
 use rand::{thread_rng, Rng};
 
-use rocksdb::DB;
+use rocksdb::{DBPinnableSlice, DB};
 use rusqlite::{Connection, OpenFlags, ToSql, Transaction};
 use std::io::Cursor;
 
 use chainhook_sdk::{
     indexer::bitcoin::BitcoinBlockFullBreakdown,
     types::{
-        BitcoinBlockData, BlockIdentifier, OrdinalInscriptionRevealData,
+        BitcoinBlockData, BlockIdentifier, OrdinalInscriptionNumber, OrdinalInscriptionRevealData,
         OrdinalInscriptionTransferData, TransactionIdentifier,
     },
     utils::Context,
@@ -59,9 +59,11 @@ pub fn initialize_ordhook_db(base_dir: &PathBuf, ctx: &Context) -> Connection {
     if let Err(e) = conn.execute(
         "CREATE TABLE IF NOT EXISTS inscriptions (
             inscription_id TEXT NOT NULL PRIMARY KEY,
+            input_index INTEGER NOT NULL,
             block_height INTEGER NOT NULL,
             ordinal_number INTEGER NOT NULL,
-            inscription_number INTEGER NOT NULL
+            jubilee_inscription_number INTEGER NOT NULL,
+            classic_inscription_number INTEGER NOT NULL
         )",
         [],
     ) {
@@ -80,7 +82,14 @@ pub fn initialize_ordhook_db(base_dir: &PathBuf, ctx: &Context) -> Connection {
             ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
         }
         if let Err(e) = conn.execute(
-            "CREATE INDEX IF NOT EXISTS index_inscriptions_on_inscription_number ON inscriptions(inscription_number);",
+            "CREATE INDEX IF NOT EXISTS index_inscriptions_on_jubilee_inscription_number ON inscriptions(jubilee_inscription_number);",
+            [],
+        ) {
+            ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+        }
+
+        if let Err(e) = conn.execute(
+            "CREATE INDEX IF NOT EXISTS index_inscriptions_on_classic_inscription_number ON inscriptions(classic_inscription_number);",
             [],
         ) {
             ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
@@ -134,8 +143,9 @@ pub fn initialize_ordhook_db(base_dir: &PathBuf, ctx: &Context) -> Connection {
     if let Err(e) = conn.execute(
         "CREATE TABLE IF NOT EXISTS sequence_metadata (
             block_height INTEGER NOT NULL,
-            latest_cursed_inscription_number INTEGER NOT NULL,
-            latest_inscription_number INTEGER NOT NULL
+            nth_classic_pos_number INTEGER NOT NULL,
+            nth_classic_neg_number INTEGER NOT NULL,
+            nth_jubilee_number INTEGER NOT NULL
         )",
         [],
     ) {
@@ -240,11 +250,6 @@ fn get_default_ordhook_db_file_path_rocks_db(base_dir: &PathBuf) -> PathBuf {
 
 fn rocks_db_default_options() -> rocksdb::Options {
     let mut opts = rocksdb::Options::default();
-    opts.create_if_missing(true);
-    // opts.prepare_for_bulk_load();
-    // opts.set_compression_type(rocksdb::DBCompressionType::Lz4);
-    // opts.set_blob_compression_type(rocksdb::DBCompressionType::Lz4);
-    // opts.increase_parallelism(parallelism)
     // Per rocksdb's documentation:
     // If cache_index_and_filter_blocks is false (which is default),
     // the number of index/filter blocks is controlled by option max_open_files.
@@ -252,7 +257,23 @@ fn rocks_db_default_options() -> rocksdb::Options {
     // we recommend setting max_open_files to -1, which means infinity.
     // This option will preload all filter and index blocks and will not need to maintain LRU of files.
     // Setting max_open_files to -1 will get you the best possible performance.
-    opts.set_max_open_files(4096);
+    // Additional documentation:
+    // https://betterprogramming.pub/navigating-the-minefield-of-rocksdb-configuration-options-246af1e1d3f9
+    // opts.set_write_buffer_size(64 * 1024 * 1024);
+    // opts.set_blob_file_size(1 * 1024 * 1024 * 1024);
+    // opts.set_target_file_size_base(64 * 1024 * 1024);
+    opts.set_max_open_files(2048);
+    opts.create_if_missing(true);
+    // opts.optimize_for_point_lookup(1 * 1024 * 1024 * 1024);
+    // opts.set_level_zero_stop_writes_trigger(64);
+    // opts.set_level_zero_slowdown_writes_trigger(20);
+    // opts.set_enable_blob_files(true);
+    // opts.set_enable_blob_gc(true);
+    // opts.set_use_fsync(false);
+    // opts.set_bytes_per_sync(8388608);
+    // opts.set_compaction_style(DBCompactionStyle::Universal);
+    // opts.set_compression_type(rocksdb::DBCompressionType::Lz4);
+    // opts.set_blob_compression_type(rocksdb::DBCompressionType::Lz4);
     opts
 }
 
@@ -287,8 +308,11 @@ pub fn open_ordhook_db_conn_rocks_db_loop(
                 retries += 1;
                 if retries > 10 {
                     ctx.try_log(|logger| {
-                        warn!(logger, "Unable to open db: {e}",);
+                        warn!(logger, "Unable to open db: {e}. Retrying in 10s",);
                     });
+                    sleep(Duration::from_secs(10));
+                } else {
+                    sleep(Duration::from_secs(2));
                 }
                 continue;
             }
@@ -319,7 +343,7 @@ fn open_readwrite_ordhook_db_conn_rocks_db(
 
 pub fn insert_entry_in_blocks(
     block_height: u32,
-    lazy_block: &LazyBlock,
+    block_bytes: &[u8],
     update_tip: bool,
     blocks_db_rw: &DB,
     ctx: &Context,
@@ -327,7 +351,7 @@ pub fn insert_entry_in_blocks(
     let block_height_bytes = block_height.to_be_bytes();
     let mut retries = 0;
     loop {
-        let res = blocks_db_rw.put(&block_height_bytes, &lazy_block.bytes);
+        let res = blocks_db_rw.put(&block_height_bytes, block_bytes);
         match res {
             Ok(_) => break,
             Err(e) => {
@@ -360,13 +384,12 @@ pub fn find_last_block_inserted(blocks_db: &DB) -> u32 {
     }
 }
 
-pub fn find_lazy_block_at_block_height(
+pub fn find_pinned_block_bytes_at_block_height<'a>(
     block_height: u32,
     retry: u8,
-    try_iterator: bool,
-    blocks_db: &DB,
+    blocks_db: &'a DB,
     ctx: &Context,
-) -> Option<LazyBlock> {
+) -> Option<DBPinnableSlice<'a>> {
     let mut attempt = 1;
     // let mut read_options = rocksdb::ReadOptions::default();
     // read_options.fill_cache(true);
@@ -375,24 +398,9 @@ pub fn find_lazy_block_at_block_height(
     let mut rng = thread_rng();
 
     loop {
-        match blocks_db.get(block_height.to_be_bytes()) {
-            Ok(Some(res)) => return Some(LazyBlock::new(res)),
+        match blocks_db.get_pinned(block_height.to_be_bytes()) {
+            Ok(Some(res)) => return Some(res),
             _ => {
-                if attempt == 1 && try_iterator {
-                    ctx.try_log(|logger| {
-                        warn!(
-                            logger,
-                            "Attempt to retrieve block #{} through iterator", block_height,
-                        )
-                    });
-                    let mut iter = blocks_db.iterator(rocksdb::IteratorMode::End);
-                    let block_height_bytes = block_height.to_be_bytes();
-                    while let Some(Ok((k, res))) = iter.next() {
-                        if (*k).eq(&block_height_bytes) {
-                            return Some(LazyBlock::new(res.to_vec()));
-                        }
-                    }
-                }
                 attempt += 1;
                 backoff = 2.0 * backoff + (backoff * rng.gen_range(0.0..1.0));
                 let duration = std::time::Duration::from_millis((backoff * 1_000.0) as u64);
@@ -409,6 +417,56 @@ pub fn find_lazy_block_at_block_height(
             }
         }
     }
+}
+
+pub fn find_block_bytes_at_block_height<'a>(
+    block_height: u32,
+    retry: u8,
+    blocks_db: &DB,
+    ctx: &Context,
+) -> Option<Vec<u8>> {
+    let mut attempt = 1;
+    // let mut read_options = rocksdb::ReadOptions::default();
+    // read_options.fill_cache(true);
+    // read_options.set_verify_checksums(false);
+    let mut backoff: f64 = 1.0;
+    let mut rng = thread_rng();
+
+    loop {
+        match blocks_db.get(block_height.to_be_bytes()) {
+            Ok(Some(res)) => return Some(res),
+            _ => {
+                attempt += 1;
+                backoff = 2.0 * backoff + (backoff * rng.gen_range(0.0..1.0));
+                let duration = std::time::Duration::from_millis((backoff * 1_000.0) as u64);
+                ctx.try_log(|logger| {
+                    warn!(
+                        logger,
+                        "Unable to find block #{}, will retry in {:?}", block_height, duration
+                    )
+                });
+                std::thread::sleep(duration);
+                if attempt > retry {
+                    return None;
+                }
+            }
+        }
+    }
+}
+
+pub fn run_compaction(blocks_db_rw: &DB, lim: u32) {
+    let gen = 0u32.to_be_bytes();
+    let _ = blocks_db_rw.compact_range(Some(&gen), Some(&lim.to_be_bytes()));
+}
+
+pub fn find_missing_blocks(blocks_db: &DB, start: u32, end: u32, ctx: &Context) -> Vec<u32> {
+    let mut missing_blocks = vec![];
+    for i in start..=end {
+        if find_pinned_block_bytes_at_block_height(i as u32, 0, &blocks_db, ctx).is_none() {
+            missing_blocks.push(i);
+        }
+    }
+    missing_blocks
 }
 
 pub fn remove_entry_from_blocks(block_height: u32, blocks_db_rw: &DB, ctx: &Context) {
@@ -439,8 +497,8 @@ pub fn insert_entry_in_inscriptions(
     ctx: &Context,
 ) {
     while let Err(e) = inscriptions_db_conn_rw.execute(
-        "INSERT INTO inscriptions (inscription_id, ordinal_number, inscription_number, block_height) VALUES (?1, ?2, ?3, ?4)",
-        rusqlite::params![&inscription_data.inscription_id, &inscription_data.ordinal_number, &inscription_data.inscription_number, &block_identifier.index],
+        "INSERT INTO inscriptions (inscription_id, ordinal_number, jubilee_inscription_number, classic_inscription_number, block_height, input_index) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        rusqlite::params![&inscription_data.inscription_id, &inscription_data.ordinal_number, &inscription_data.inscription_number.jubilee, &inscription_data.inscription_number.classic, &block_identifier.index, &inscription_data.inscription_input_index],
     ) {
         ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
         std::thread::sleep(std::time::Duration::from_secs(1));
@@ -506,25 +564,34 @@ pub fn update_sequence_metadata_with_block(
     inscriptions_db_conn_rw: &Connection,
     ctx: &Context,
 ) {
-    let mut latest_blessed = find_latest_inscription_number_at_block_height(
+    let mut nth_classic_pos_number = find_nth_classic_pos_number_at_block_height(
         &block.block_identifier.index,
         inscriptions_db_conn_rw,
         ctx,
     )
     .unwrap_or(0);
-    let mut latest_cursed = find_latest_cursed_inscription_number_at_block_height(
+    let mut nth_classic_neg_number = find_nth_classic_neg_number_at_block_height(
+        &block.block_identifier.index,
+        inscriptions_db_conn_rw,
+        ctx,
+    )
+    .unwrap_or(0);
+    let mut nth_jubilee_number = find_nth_jubilee_number_at_block_height(
         &block.block_identifier.index,
         inscriptions_db_conn_rw,
         ctx,
     )
     .unwrap_or(0);
     for inscription_data in get_inscriptions_revealed_in_block(&block).iter() {
-        latest_blessed = latest_blessed.max(inscription_data.inscription_number);
-        latest_cursed = latest_cursed.min(inscription_data.inscription_number);
+        nth_classic_pos_number =
+            nth_classic_pos_number.max(inscription_data.inscription_number.classic);
+        nth_classic_neg_number =
+            nth_classic_neg_number.min(inscription_data.inscription_number.classic);
+        nth_jubilee_number = nth_jubilee_number.max(inscription_data.inscription_number.jubilee);
     }
     while let Err(e) = inscriptions_db_conn_rw.execute(
-        "INSERT INTO sequence_metadata (block_height, latest_inscription_number, latest_cursed_inscription_number) VALUES (?1, ?2, ?3)",
-        rusqlite::params![&block.block_identifier.index, latest_blessed, latest_cursed],
+        "INSERT INTO sequence_metadata (block_height, nth_classic_pos_number, nth_classic_neg_number, nth_jubilee_number) VALUES (?1, ?2, ?3, ?4)",
+        rusqlite::params![&block.block_identifier.index, nth_classic_pos_number, nth_classic_neg_number, nth_jubilee_number],
     ) {
         ctx.try_log(|logger| warn!(logger, "unable to update sequence_metadata: {}", e.to_string()));
         std::thread::sleep(std::time::Duration::from_secs(1));
@@ -862,37 +929,49 @@ pub fn find_all_inscription_transfers(
     })
 }
 
-pub fn find_latest_inscription_number_at_block_height(
+pub fn find_nth_classic_pos_number_at_block_height(
     block_height: &u64,
     db_conn: &Connection,
     ctx: &Context,
 ) -> Option<i64> {
     let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
-    let query = "SELECT latest_inscription_number FROM sequence_metadata WHERE block_height < ? ORDER BY block_height DESC LIMIT 1";
+    let query = "SELECT nth_classic_pos_number FROM sequence_metadata WHERE block_height < ? ORDER BY block_height DESC LIMIT 1";
     perform_query_one(query, args, db_conn, ctx, |row| {
         let inscription_number: i64 = row.get(0).unwrap();
         inscription_number
     })
-    .or_else(|| compute_latest_inscription_number_at_block_height(block_height, db_conn, ctx))
+    .or_else(|| compute_nth_classic_pos_number_at_block_height(block_height, db_conn, ctx))
 }
 
-pub fn find_latest_cursed_inscription_number_at_block_height(
+pub fn find_nth_classic_neg_number_at_block_height(
     block_height: &u64,
     db_conn: &Connection,
     ctx: &Context,
 ) -> Option<i64> {
     let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
-    let query = "SELECT latest_cursed_inscription_number FROM sequence_metadata WHERE block_height < ? ORDER BY block_height DESC LIMIT 1";
+    let query = "SELECT nth_classic_neg_number FROM sequence_metadata WHERE block_height < ? ORDER BY block_height DESC LIMIT 1";
     perform_query_one(query, args, db_conn, ctx, |row| {
         let inscription_number: i64 = row.get(0).unwrap();
         inscription_number
     })
-    .or_else(|| {
-        compute_latest_cursed_inscription_number_at_block_height(block_height, db_conn, ctx)
-    })
+    .or_else(|| compute_nth_classic_neg_number_at_block_height(block_height, db_conn, ctx))
 }
 
-pub fn compute_latest_inscription_number_at_block_height(
+pub fn find_nth_jubilee_number_at_block_height(
+    block_height: &u64,
+    db_conn: &Connection,
+    ctx: &Context,
+) -> Option<i64> {
+    let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
+    let query = "SELECT nth_jubilee_number FROM sequence_metadata WHERE block_height < ? ORDER BY block_height DESC LIMIT 1";
+    perform_query_one(query, args, db_conn, ctx, |row| {
+        let inscription_number: i64 = row.get(0).unwrap();
+        inscription_number
+    })
+    .or_else(|| compute_nth_jubilee_number_at_block_height(block_height, db_conn, ctx))
+}
+
+pub fn compute_nth_jubilee_number_at_block_height(
     block_height: &u64,
     db_conn: &Connection,
     ctx: &Context,
@@ -904,14 +983,14 @@ pub fn compute_latest_inscription_number_at_block_height(
         )
     });
     let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
-    let query = "SELECT inscription_number FROM inscriptions WHERE block_height < ? ORDER BY inscription_number DESC LIMIT 1";
+    let query = "SELECT jubilee_inscription_number FROM inscriptions WHERE block_height < ? ORDER BY jubilee_inscription_number DESC LIMIT 1";
     perform_query_one(query, args, db_conn, ctx, |row| {
         let inscription_number: i64 = row.get(0).unwrap();
         inscription_number
     })
 }
 
-pub fn compute_latest_cursed_inscription_number_at_block_height(
+pub fn compute_nth_classic_pos_number_at_block_height(
     block_height: &u64,
     db_conn: &Connection,
     ctx: &Context,
@@ -919,11 +998,30 @@ pub fn compute_latest_cursed_inscription_number_at_block_height(
     ctx.try_log(|logger| {
         warn!(
             logger,
-            "Start computing latest_cursed_inscription_number at block height: {block_height}"
+            "Start computing latest_inscription_number at block height: {block_height}"
         )
     });
     let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
-    let query = "SELECT inscription_number FROM inscriptions WHERE block_height < ? ORDER BY inscription_number ASC LIMIT 1";
+    let query = "SELECT classic_inscription_number FROM inscriptions WHERE block_height < ? ORDER BY classic_inscription_number DESC LIMIT 1";
+    perform_query_one(query, args, db_conn, ctx, |row| {
+        let inscription_number: i64 = row.get(0).unwrap();
+        inscription_number
+    })
+}
+
+pub fn compute_nth_classic_neg_number_at_block_height(
+    block_height: &u64,
+    db_conn: &Connection,
+    ctx: &Context,
+) -> Option<i64> {
+    ctx.try_log(|logger| {
+        warn!(
+            logger,
+            "Start computing nth_classic_neg_number at block height: {block_height}"
+        )
+    });
+    let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
+    let query = "SELECT classic_inscription_number FROM inscriptions WHERE block_height < ? ORDER BY classic_inscription_number ASC LIMIT 1";
     perform_query_one(query, args, db_conn, ctx, |row| {
         let inscription_number: i64 = row.get(0).unwrap();
         inscription_number
@@ -936,7 +1034,7 @@ pub fn find_blessed_inscription_with_ordinal_number(
     ctx: &Context,
 ) -> Option<String> {
     let args: &[&dyn ToSql] = &[&ordinal_number.to_sql().unwrap()];
-    let query = "SELECT inscription_id FROM inscriptions WHERE ordinal_number = ? AND inscription_number >= 0";
+    let query = "SELECT inscription_id FROM inscriptions WHERE ordinal_number = ? AND classic_inscription_number >= 0";
     perform_query_one(query, args, db_conn, ctx, |row| {
         let inscription_id: String = row.get(0).unwrap();
         inscription_id
@@ -953,13 +1051,16 @@ pub fn find_inscription_with_id(
         return Err(format!("unable to retrieve location for {inscription_id}"));
     };
     let args: &[&dyn ToSql] = &[&inscription_id.to_sql().unwrap()];
-    let query = "SELECT inscription_number, ordinal_number, block_height FROM inscriptions WHERE inscription_id = ?";
+    let query = "SELECT classic_inscription_number, jubilee_inscription_number, ordinal_number, block_height, input_index FROM inscriptions WHERE inscription_id = ?";
     let entry = perform_query_one(query, args, db_conn, ctx, move |row| {
-        let inscription_number: i64 = row.get(0).unwrap();
-        let ordinal_number: u64 = row.get(1).unwrap();
-        let block_height: u64 = row.get(2).unwrap();
-        let (transaction_identifier_inscription, inscription_input_index) =
-            parse_inscription_id(inscription_id);
+        let inscription_number = OrdinalInscriptionNumber {
+            classic: row.get(0).unwrap(),
+            jubilee: row.get(1).unwrap(),
+        };
+        let ordinal_number: u64 = row.get(2).unwrap();
+        let block_height: u64 = row.get(3).unwrap();
+        let inscription_input_index: usize = row.get(4).unwrap();
+        let (transaction_identifier_inscription, _) = parse_inscription_id(inscription_id);
         (
             inscription_number,
             ordinal_number,
@@ -1001,7 +1102,7 @@ pub fn find_all_inscriptions_in_block(
     let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
 
     let mut stmt = loop {
-        match inscriptions_db_tx.prepare("SELECT inscription_number, ordinal_number, inscription_id FROM inscriptions where block_height = ? ORDER BY inscription_number ASC")
+        match inscriptions_db_tx.prepare("SELECT classic_inscription_number, jubilee_inscription_number, ordinal_number, inscription_id, input_index FROM inscriptions where block_height = ?")
         {
             Ok(stmt) => break stmt,
             Err(e) => {
@@ -1028,10 +1129,14 @@ pub fn find_all_inscriptions_in_block(
     loop {
         match rows.next() {
             Ok(Some(row)) => {
-                let inscription_number: i64 = row.get(0).unwrap();
-                let ordinal_number: u64 = row.get(1).unwrap();
-                let inscription_id: String = row.get(2).unwrap();
-                let (transaction_identifier_inscription, inscription_input_index) =
+                let inscription_number = OrdinalInscriptionNumber {
+                    classic: row.get(0).unwrap(),
+                    jubilee: row.get(1).unwrap(),
+                };
+                let ordinal_number: u64 = row.get(2).unwrap();
+                let inscription_id: String = row.get(3).unwrap();
+                let inscription_input_index: usize = row.get(4).unwrap();
+                let (transaction_identifier_inscription, _) =
                     { parse_inscription_id(&inscription_id) };
                 let Some(transfer_data) = transfers_data
                     .get(&inscription_id)
@@ -1075,13 +1180,6 @@ pub fn find_all_inscriptions_in_block(
 pub struct WatchedSatpoint {
     pub inscription_id: String,
     pub offset: u64,
-}
-
-impl WatchedSatpoint {
-    pub fn get_genesis_satpoint(&self) -> String {
-        let (transaction_id, input) = parse_inscription_id(&self.inscription_id);
-        format!("{}:{}", transaction_id.hash, input)
-    }
 }
 
 pub fn find_watched_satpoint_for_inscription(
@@ -1237,7 +1335,7 @@ pub fn delete_data_in_ordhook_db(
 
 #[derive(Clone, Debug)]
 pub struct TraversalResult {
-    pub inscription_number: i64,
+    pub inscription_number: OrdinalInscriptionNumber,
     pub inscription_input_index: usize,
     pub transaction_identifier_inscription: TransactionIdentifier,
     pub ordinal_number: u64,
@@ -1275,6 +1373,17 @@ pub fn format_satpoint_to_watch(
         transaction_identifier.get_hash_bytes_str(),
         output_index,
         offset
+    )
+}
+
+pub fn format_inscription_id(
+    transaction_identifier: &TransactionIdentifier,
+    inscription_subindex: usize,
+) -> String {
+    format!(
+        "{}i{}",
+        transaction_identifier.get_hash_bytes_str(),
+        inscription_subindex,
     )
 }
 
@@ -1324,21 +1433,21 @@ pub fn parse_outpoint_to_watch(outpoint_to_watch: &str) -> (TransactionIdentifie
 }
 
 #[derive(Debug)]
-pub struct LazyBlock {
-    pub bytes: Vec<u8>,
+pub struct BlockBytesCursor<'a> {
+    pub bytes: &'a [u8],
     pub tx_len: u16,
 }
 
 #[derive(Debug, Clone)]
-pub struct LazyBlockTransaction {
+pub struct TransactionBytesCursor {
     pub txid: [u8; 8],
-    pub inputs: Vec<LazyBlockTransactionInput>,
+    pub inputs: Vec<TransactionInputBytesCursor>,
     pub outputs: Vec<u64>,
 }
 
-impl LazyBlockTransaction {
+impl TransactionBytesCursor {
     pub fn get_average_bytes_size() -> usize {
-        TXID_LEN + 3 * LazyBlockTransactionInput::get_average_bytes_size() + 3 * SATS_LEN
+        TXID_LEN + 3 * TransactionInputBytesCursor::get_average_bytes_size() + 3 * SATS_LEN
     }
 
     pub fn get_sat_ranges(&self) -> Vec<(u64, u64)> {
@@ -1364,14 +1473,14 @@ impl LazyBlockTransaction {
 }
 
 #[derive(Debug, Clone)]
-pub struct LazyBlockTransactionInput {
+pub struct TransactionInputBytesCursor {
     pub txin: [u8; 8],
     pub block_height: u32,
     pub vout: u16,
     pub txin_value: u64,
 }
 
-impl LazyBlockTransactionInput {
+impl TransactionInputBytesCursor {
     pub fn get_average_bytes_size() -> usize {
         TXID_LEN + SATS_LEN + 4 + 2
     }
@@ -1382,14 +1491,18 @@ const SATS_LEN: usize = 8;
 const INPUT_SIZE: usize = TXID_LEN + 4 + 2 + SATS_LEN;
 const OUTPUT_SIZE: usize = 8;
 
-impl LazyBlock {
-    pub fn new(bytes: Vec<u8>) -> LazyBlock {
+impl<'a> BlockBytesCursor<'a> {
+    pub fn new(bytes: &[u8]) -> BlockBytesCursor {
         let tx_len = u16::from_be_bytes([bytes[0], bytes[1]]);
-        LazyBlock { bytes, tx_len }
+        BlockBytesCursor { bytes, tx_len }
     }
 
     pub fn get_coinbase_data_pos(&self) -> usize {
         (2 + self.tx_len * 2 * 2) as usize
+    }
+
+    pub fn get_coinbase_outputs_len(&self) -> usize {
+        u16::from_be_bytes([self.bytes[4], self.bytes[5]]) as usize
     }
 
     pub fn get_u64_at_pos(&self, pos: usize) -> u64 {
@@ -1410,13 +1523,8 @@ impl LazyBlock {
         &self.bytes[pos..pos + TXID_LEN]
     }
 
-    pub fn get_coinbase_sats(&self) -> u64 {
-        let pos = self.get_coinbase_data_pos() + TXID_LEN;
-        self.get_u64_at_pos(pos)
-    }
-
     pub fn get_transactions_data_pos(&self) -> usize {
-        self.get_coinbase_data_pos() + TXID_LEN + SATS_LEN
+        self.get_coinbase_data_pos()
     }
 
     pub fn get_transaction_format(&self, index: u16) -> (u16, u16, usize) {
@@ -1431,13 +1539,13 @@ impl LazyBlock {
         (inputs, outputs, size)
     }
 
-    pub fn get_lazy_transaction_at_pos(
+    pub fn get_transaction_bytes_cursor_at_pos(
         &self,
-        cursor: &mut Cursor<&Vec<u8>>,
+        cursor: &mut Cursor<&[u8]>,
         txid: [u8; 8],
         inputs_len: u16,
         outputs_len: u16,
-    ) -> LazyBlockTransaction {
+    ) -> TransactionBytesCursor {
         let mut inputs = Vec::with_capacity(inputs_len as usize);
         for _ in 0..inputs_len {
             let mut txin = [0u8; 8];
@@ -1450,7 +1558,7 @@ impl LazyBlock {
             cursor.read_exact(&mut vout).expect("data corrupted");
             let mut txin_value = [0u8; 8];
             cursor.read_exact(&mut txin_value).expect("data corrupted");
-            inputs.push(LazyBlockTransactionInput {
+            inputs.push(TransactionInputBytesCursor {
                 txin: txin,
                 block_height: u32::from_be_bytes(block_height),
                 vout: u16::from_be_bytes(vout),
@@ -1463,7 +1571,7 @@ impl LazyBlock {
             cursor.read_exact(&mut value).expect("data corrupted");
             outputs.push(u64::from_be_bytes(value))
         }
-        LazyBlockTransaction {
+        TransactionBytesCursor {
             txid,
             inputs,
             outputs,
@@ -1473,10 +1581,10 @@ impl LazyBlock {
     pub fn find_and_serialize_transaction_with_txid(
         &self,
         searched_txid: &[u8],
-    ) -> Option<LazyBlockTransaction> {
+    ) -> Option<TransactionBytesCursor> {
         // println!("{:?}", hex::encode(searched_txid));
         let mut entry = None;
-        let mut cursor = Cursor::new(&self.bytes);
+        let mut cursor = Cursor::new(self.bytes);
         let mut cumulated_offset = 0;
         let mut i = 0;
         while entry.is_none() {
@@ -1488,7 +1596,7 @@ impl LazyBlock {
             let _ = cursor.read_exact(&mut txid);
             // println!("-> {}", hex::encode(txid));
             if searched_txid.eq(&txid) {
-                entry = Some(self.get_lazy_transaction_at_pos(
+                entry = Some(self.get_transaction_bytes_cursor_at_pos(
                     &mut cursor,
                     txid,
                     inputs_len,
@@ -1505,19 +1613,19 @@ impl LazyBlock {
         entry
     }
 
-    pub fn iter_tx(&self) -> LazyBlockTransactionIterator {
-        LazyBlockTransactionIterator::new(&self)
+    pub fn iter_tx(&self) -> TransactionBytesCursorIterator {
+        TransactionBytesCursorIterator::new(&self)
     }
 
-    pub fn from_full_block(block: &BitcoinBlockFullBreakdown) -> std::io::Result<LazyBlock> {
+    pub fn from_full_block<'b>(block: &BitcoinBlockFullBreakdown) -> std::io::Result<Vec<u8>> {
         let mut buffer = vec![];
         // Number of transactions in the block (not including coinbase)
-        let tx_len = block.tx.len() as u16 - 1;
+        let tx_len = block.tx.len() as u16;
         buffer.write(&tx_len.to_be_bytes())?;
         // For each transaction:
         let u16_max = u16::MAX as usize;
-        for tx in block.tx.iter().skip(1) {
-            let inputs_len = if tx.vin.len() > u16_max {
+        for (i, tx) in block.tx.iter().enumerate() {
+            let mut inputs_len = if tx.vin.len() > u16_max {
                 0
             } else {
                 tx.vin.len() as u16
@@ -1527,27 +1635,16 @@ impl LazyBlock {
             } else {
                 tx.vout.len() as u16
             };
+            if i == 0 {
+                inputs_len = 0;
+            }
             // Number of inputs
             buffer.write(&inputs_len.to_be_bytes())?;
             // Number of outputs
             buffer.write(&outputs_len.to_be_bytes())?;
         }
-        // Coinbase transaction txid -  8 first bytes
-        let coinbase_txid = {
-            let txid = hex::decode(block.tx[0].txid.to_string()).unwrap();
-            [
-                txid[0], txid[1], txid[2], txid[3], txid[4], txid[5], txid[6], txid[7],
-            ]
-        };
-        buffer.write_all(&coinbase_txid)?;
-        // Coinbase transaction value
-        let mut coinbase_value = 0;
-        for coinbase_output in block.tx[0].vout.iter() {
-            coinbase_value += coinbase_output.value.to_sat();
-        }
-        buffer.write(&coinbase_value.to_be_bytes())?;
         // For each transaction:
-        for tx in block.tx.iter().skip(1) {
+        for tx in block.tx.iter() {
             // txid - 8 first bytes
             let txid = {
                 let txid = hex::decode(tx.txid.to_string()).unwrap();
@@ -1572,8 +1669,11 @@ impl LazyBlock {
             for i in 0..inputs_len {
                 let input = &tx.vin[i];
                 // txin - 8 first bytes
+                let Some(input_txid) = input.txid.as_ref() else {
+                    continue;
+                };
                 let txin = {
-                    let txid = hex::decode(input.txid.as_ref().unwrap().to_string()).unwrap();
+                    let txid = hex::decode(input_txid).unwrap();
                     [
                         txid[0], txid[1], txid[2], txid[3], txid[4], txid[5], txid[6], txid[7],
                     ]
@@ -1596,53 +1696,48 @@ impl LazyBlock {
                 buffer.write(&sats.to_be_bytes())?;
             }
         }
-        Ok(Self::new(buffer))
+        Ok(buffer)
     }
 
-    pub fn from_standardized_block(block: &BitcoinBlockData) -> std::io::Result<LazyBlock> {
+    pub fn from_standardized_block<'b>(block: &BitcoinBlockData) -> std::io::Result<Vec<u8>> {
         let mut buffer = vec![];
         // Number of transactions in the block (not including coinbase)
-        let tx_len = block.transactions.len() as u16 - 1;
+        let tx_len = block.transactions.len() as u16;
         buffer.write(&tx_len.to_be_bytes())?;
         // For each transaction:
-        for tx in block.transactions.iter().skip(1) {
-            let inputs_len = tx.metadata.inputs.len() as u16;
+        for (i, tx) in block.transactions.iter().enumerate() {
+            let inputs_len = if i > 0 {
+                tx.metadata.inputs.len() as u16
+            } else {
+                0
+            };
             let outputs_len = tx.metadata.outputs.len() as u16;
             // Number of inputs
             buffer.write(&inputs_len.to_be_bytes())?;
             // Number of outputs
             buffer.write(&outputs_len.to_be_bytes())?;
         }
-        // Coinbase transaction txid -  8 first bytes
-        let coinbase_txid = block.transactions[0]
-            .transaction_identifier
-            .get_8_hash_bytes();
-        buffer.write_all(&coinbase_txid)?;
-        // Coinbase transaction value
-        let mut coinbase_value = 0;
-        for coinbase_output in block.transactions[0].metadata.outputs.iter() {
-            coinbase_value += coinbase_output.value;
-        }
-        buffer.write_all(&coinbase_value.to_be_bytes())?;
         // For each transaction:
-        for tx in block.transactions.iter().skip(1) {
+        for (i, tx) in block.transactions.iter().enumerate() {
             // txid - 8 first bytes
             let txid = tx.transaction_identifier.get_8_hash_bytes();
             buffer.write_all(&txid)?;
-            // For each transaction input:
-            for input in tx.metadata.inputs.iter() {
-                // txin - 8 first bytes
-                let txin = input.previous_output.txid.get_8_hash_bytes();
-                buffer.write_all(&txin)?;
-                // txin's block height
-                let block_height = input.previous_output.block_height as u32;
-                buffer.write(&block_height.to_be_bytes())?;
-                // txin's vout index
-                let vout = input.previous_output.vout as u16;
-                buffer.write(&vout.to_be_bytes())?;
-                // txin's sats value
-                let sats = input.previous_output.value;
-                buffer.write(&sats.to_be_bytes())?;
+            // For each non coinbase transaction input:
+            if i > 0 {
+                for input in tx.metadata.inputs.iter() {
+                    // txin - 8 first bytes
+                    let txin = input.previous_output.txid.get_8_hash_bytes();
+                    buffer.write_all(&txin)?;
+                    // txin's block height
+                    let block_height = input.previous_output.block_height as u32;
+                    buffer.write(&block_height.to_be_bytes())?;
+                    // txin's vout index
+                    let vout = input.previous_output.vout as u16;
+                    buffer.write(&vout.to_be_bytes())?;
+                    // txin's sats value
+                    let sats = input.previous_output.value;
+                    buffer.write(&sats.to_be_bytes())?;
+                }
             }
             // For each transaction output:
             for output in tx.metadata.outputs.iter() {
@@ -1650,47 +1745,149 @@ impl LazyBlock {
                 buffer.write(&sats.to_be_bytes())?;
             }
         }
-        Ok(Self::new(buffer))
+        Ok(buffer)
     }
 }
 
-pub struct LazyBlockTransactionIterator<'a> {
-    lazy_block: &'a LazyBlock,
+pub struct TransactionBytesCursorIterator<'a> {
+    block_bytes_cursor: &'a BlockBytesCursor<'a>,
     tx_index: u16,
     cumulated_offset: usize,
 }
 
-impl<'a> LazyBlockTransactionIterator<'a> {
-    pub fn new(lazy_block: &'a LazyBlock) -> LazyBlockTransactionIterator<'a> {
-        LazyBlockTransactionIterator {
-            lazy_block,
+impl<'a> TransactionBytesCursorIterator<'a> {
+    pub fn new(block_bytes_cursor: &'a BlockBytesCursor) -> TransactionBytesCursorIterator<'a> {
+        TransactionBytesCursorIterator {
+            block_bytes_cursor,
             tx_index: 0,
             cumulated_offset: 0,
         }
     }
 }
 
-impl<'a> Iterator for LazyBlockTransactionIterator<'a> {
-    type Item = LazyBlockTransaction;
+impl<'a> Iterator for TransactionBytesCursorIterator<'a> {
+    type Item = TransactionBytesCursor;
 
-    fn next(&mut self) -> Option<LazyBlockTransaction> {
-        if self.tx_index >= self.lazy_block.tx_len {
+    fn next(&mut self) -> Option<TransactionBytesCursor> {
+        if self.tx_index >= self.block_bytes_cursor.tx_len {
             return None;
         }
-        let pos = self.lazy_block.get_transactions_data_pos() + self.cumulated_offset;
-        let (inputs_len, outputs_len, size) = self.lazy_block.get_transaction_format(self.tx_index);
+        let pos = self.block_bytes_cursor.get_transactions_data_pos() + self.cumulated_offset;
+        let (inputs_len, outputs_len, size) = self
+            .block_bytes_cursor
+            .get_transaction_format(self.tx_index);
         // println!("{inputs_len} / {outputs_len} / {size}");
-        let mut cursor = Cursor::new(&self.lazy_block.bytes);
+        let mut cursor = Cursor::new(self.block_bytes_cursor.bytes);
         cursor.set_position(pos as u64);
         let mut txid = [0u8; 8];
         let _ = cursor.read_exact(&mut txid);
         self.cumulated_offset += size;
         self.tx_index += 1;
-        Some(self.lazy_block.get_lazy_transaction_at_pos(
+        Some(self.block_bytes_cursor.get_transaction_bytes_cursor_at_pos(
             &mut cursor,
             txid,
             inputs_len,
             outputs_len,
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chainhook_sdk::{
+        indexer::bitcoin::{parse_downloaded_block, standardize_bitcoin_block},
+        types::BitcoinNetwork,
+    };
+
+    #[test]
+    fn test_block_cursor_roundtrip() {
+        let ctx = Context::empty();
+        let block = include_str!("./fixtures/blocks_json/279671.json");
+        let decoded_block =
+            parse_downloaded_block(block.as_bytes().to_vec()).expect("unable to decode block");
+        let standardized_block =
+            standardize_bitcoin_block(decoded_block.clone(), &BitcoinNetwork::Mainnet, &ctx)
+                .expect("unable to standardize block");
+
+        for (index, (tx_in, tx_out)) in decoded_block
+            .tx
+            .iter()
+            .zip(standardized_block.transactions.iter())
+            .enumerate()
+        {
+            // Test outputs
+            assert_eq!(tx_in.vout.len(), tx_out.metadata.outputs.len());
+            for (output, src) in tx_out.metadata.outputs.iter().zip(tx_in.vout.iter()) {
+                assert_eq!(output.value, src.value.to_sat());
+            }
+            // Test inputs (non-coinbase transactions only)
+            if index == 0 {
+                continue;
+            }
+            assert_eq!(tx_in.vin.len(), tx_out.metadata.inputs.len());
+            for (input, src) in tx_out.metadata.inputs.iter().zip(tx_in.vin.iter()) {
+                assert_eq!(
+                    input.previous_output.block_height,
+                    src.prevout.as_ref().unwrap().height
+                );
+                assert_eq!(
+                    input.previous_output.value,
+                    src.prevout.as_ref().unwrap().value.to_sat()
+                );
+                let txin = hex::decode(src.txid.as_ref().unwrap()).unwrap();
+                assert_eq!(input.previous_output.txid.get_hash_bytes(), txin);
+                assert_eq!(input.previous_output.vout, src.vout.unwrap());
+            }
+        }
+
+        let bytes = BlockBytesCursor::from_full_block(&decoded_block).expect("unable to serialize");
+        let bytes_via_standardized = BlockBytesCursor::from_standardized_block(&standardized_block)
+            .expect("unable to serialize");
+        assert_eq!(bytes, bytes_via_standardized);
+
+        let block_bytes_cursor = BlockBytesCursor::new(&bytes);
+        assert_eq!(decoded_block.tx.len(), block_bytes_cursor.tx_len as usize);
+
+        // Test helpers
+        let coinbase_txid = block_bytes_cursor.get_coinbase_txid();
+        assert_eq!(
+            coinbase_txid,
+            standardized_block.transactions[0]
+                .transaction_identifier
+                .get_8_hash_bytes()
+        );
+
+        // Test transactions
+        for (index, (tx_in, tx_out)) in decoded_block
+            .tx
+            .iter()
+            .zip(block_bytes_cursor.iter_tx())
+            .enumerate()
+        {
+            // Test outputs
+            assert_eq!(tx_in.vout.len(), tx_out.outputs.len());
+            for (sats, src) in tx_out.outputs.iter().zip(tx_in.vout.iter()) {
+                assert_eq!(*sats, src.value.to_sat());
+            }
+            // Test inputs (non-coinbase transactions only)
+            if index == 0 {
+                continue;
+            }
+            assert_eq!(tx_in.vin.len(), tx_out.inputs.len());
+            for (tx_bytes_cursor, src) in tx_out.inputs.iter().zip(tx_in.vin.iter()) {
+                assert_eq!(
+                    tx_bytes_cursor.block_height as u64,
+                    src.prevout.as_ref().unwrap().height
+                );
+                assert_eq!(
+                    tx_bytes_cursor.txin_value,
+                    src.prevout.as_ref().unwrap().value.to_sat()
+                );
+                let txin = hex::decode(src.txid.as_ref().unwrap()).unwrap();
+                assert_eq!(tx_bytes_cursor.txin, txin[0..tx_bytes_cursor.txin.len()]);
+                assert_eq!(tx_bytes_cursor.vout as u32, src.vout.unwrap());
+            }
+        }
     }
 }

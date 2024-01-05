@@ -9,7 +9,7 @@ use std::{
 use crate::{
     config::Config,
     core::pipeline::{PostProcessorCommand, PostProcessorController, PostProcessorEvent},
-    db::{insert_entry_in_blocks, open_ordhook_db_conn_rocks_db_loop, LazyBlock},
+    db::{insert_entry_in_blocks, open_ordhook_db_conn_rocks_db_loop},
 };
 
 pub fn start_block_archiving_processor(
@@ -72,7 +72,7 @@ pub fn start_block_archiving_processor(
 }
 
 pub fn store_compacted_blocks(
-    mut compacted_blocks: Vec<(u64, LazyBlock)>,
+    mut compacted_blocks: Vec<(u64, Vec<u8>)>,
     update_tip: bool,
     blocks_db_rw: &DB,
     ctx: &Context,
