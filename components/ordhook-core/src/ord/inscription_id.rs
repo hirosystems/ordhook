@@ -3,7 +3,7 @@ use std::{
     str::FromStr,
 };
 
-use chainhook_sdk::bitcoincore_rpc::bitcoin::Txid;
+use chainhook_sdk::bitcoin::Txid;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::deserialize_from_str::DeserializeFromStr;
@@ -43,7 +43,7 @@ pub enum ParseError {
     Character(char),
     Length(usize),
     Separator(char),
-    Txid(chainhook_sdk::bitcoincore_rpc::bitcoin::hashes::hex::Error),
+    Txid(chainhook_sdk::bitcoin::hashes::hex::HexToArrayError),
     Index(std::num::ParseIntError),
 }
 

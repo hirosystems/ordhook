@@ -1,6 +1,4 @@
-use chainhook_sdk::bitcoincore_rpc::bitcoin::blockdata::constants::COIN_VALUE;
-
-use super::{height::Height, sat::Sat, SUBSIDY_HALVING_INTERVAL};
+use super::{height::Height, sat::Sat, COIN_VALUE, SUBSIDY_HALVING_INTERVAL};
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug, PartialOrd)]
 pub(crate) struct Epoch(pub(crate) u64);

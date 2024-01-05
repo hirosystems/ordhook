@@ -14,7 +14,7 @@ use chainhook_sdk::{
 
 use crate::{
     config::{Config, LogConfig},
-    db::{find_lazy_block_at_block_height, open_ordhook_db_conn_rocks_db_loop},
+    db::{find_pinned_block_bytes_at_block_height, open_ordhook_db_conn_rocks_db_loop},
 };
 
 use crate::db::{
@@ -22,7 +22,7 @@ use crate::db::{
     open_readonly_ordhook_db_conn,
 };
 
-use crate::db::LazyBlockTransaction;
+use crate::db::TransactionBytesCursor;
 
 #[derive(Clone, Debug)]
 pub struct OrdhookConfig {
@@ -44,11 +44,11 @@ pub fn new_traversals_cache(
 
 pub fn new_traversals_lazy_cache(
     cache_size: usize,
-) -> DashMap<(u32, [u8; 8]), LazyBlockTransaction, BuildHasherDefault<FxHasher>> {
+) -> DashMap<(u32, [u8; 8]), TransactionBytesCursor, BuildHasherDefault<FxHasher>> {
     let hasher = FxBuildHasher::default();
     DashMap::with_capacity_and_hasher(
         ((cache_size.saturating_sub(500)) * 1000 * 1000)
-            .div(LazyBlockTransaction::get_average_bytes_size()),
+            .div(TransactionBytesCursor::get_average_bytes_size()),
         hasher,
     )
 }
@@ -139,7 +139,7 @@ pub fn should_sync_ordhook_db(
 
     match find_latest_inscription_block_height(&inscriptions_db_conn, ctx)? {
         Some(height) => {
-            if find_lazy_block_at_block_height(height as u32, 3, false, &blocks_db, &ctx).is_none()
+            if find_pinned_block_bytes_at_block_height(height as u32, 3, &blocks_db, &ctx).is_none()
             {
                 start_block = start_block.min(height);
             } else {

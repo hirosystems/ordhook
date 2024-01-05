@@ -1,6 +1,6 @@
 [package]
 name = "ordhook-cli"
-version = "1.0.2"
+version = "2.0.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -14,7 +14,11 @@ num_cpus = "1.16.0"
 serde = "1"
 serde_json = "1"
 serde_derive = "1"
-reqwest = { version = "0.11", default-features = false, features = ["stream", "json", "rustls-tls"] }
+reqwest = { version = "0.11", default-features = false, features = [
+    "stream",
+    "json",
+    "rustls-tls",
+] }
 hiro-system-kit = "0.3.1"
 clap = { version = "3.2.23", features = ["derive"], optional = true }
 clap_generate = { version = "3.0.3", optional = true }

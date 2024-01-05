@@ -90,7 +90,7 @@ impl AddAssign<u64> for Sat {
 
 #[cfg(test)]
 mod tests {
-    use chainhook_sdk::bitcoincore_rpc::bitcoin::blockdata::constants::COIN_VALUE;
+    use super::COIN_VALUE;
 
     use super::*;
 
