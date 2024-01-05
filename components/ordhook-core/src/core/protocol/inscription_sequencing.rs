@@ -23,8 +23,9 @@ use crate::{
     db::{
         find_blessed_inscription_with_ordinal_number, find_nth_classic_neg_number_at_block_height,
         find_nth_classic_pos_number_at_block_height, find_nth_jubilee_number_at_block_height,
-        format_inscription_id, format_satpoint_to_watch, update_inscriptions_with_block,
-        update_sequence_metadata_with_block, TransactionBytesCursor, TraversalResult,
+        format_inscription_id, format_satpoint_to_watch, parse_inscription_id,
+        update_inscriptions_with_block, update_sequence_metadata_with_block,
+        TransactionBytesCursor, TraversalResult,
     },
     ord::height::Height,
 };
@@ -357,7 +358,7 @@ fn get_transactions_to_process(
                 continue;
             }
 
-            if let Some(_) = known_transactions.get(&key) {
+            if let Some(_) = known_transactions.get(&inscription_data.inscription_id) {
                 continue;
             }
 
@@ -773,7 +774,7 @@ fn consolidate_transaction_with_pre_computed_inscription_data(
     tx_index: usize,
     coinbase_txid: &TransactionIdentifier,
     network: &Network,
-    inscriptions_data: &mut BTreeMap<(TransactionIdentifier, usize), TraversalResult>,
+    inscriptions_data: &mut BTreeMap<String, TraversalResult>,
     _ctx: &Context,
 ) {
     for operation in tx.metadata.ordinal_operations.iter_mut() {
@@ -782,10 +783,8 @@ fn consolidate_transaction_with_pre_computed_inscription_data(
             OrdinalOperation::InscriptionTransferred(_) => continue,
         };
 
-        let Some(traversal) = inscriptions_data.get(&(
-            tx.transaction_identifier.clone(),
-            inscription.inscription_input_index,
-        )) else {
+        let Some(traversal) = inscriptions_data.get(&inscription.inscription_id) else {
+            // Should we remove the operation instead
             continue;
         };
 
