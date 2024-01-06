@@ -755,6 +755,16 @@ fn augment_transaction_with_ordinals_inscriptions_data(
                 inscription.transfers_pre_inscription,
             );
         });
+        ctx.try_log(|logger| {
+            info!(
+                logger,
+                "Cursor {:?} state before: {:?} {:?} {:?}",
+                inscription.inscription_number,
+                sequence_cursor.neg_cursor,
+                sequence_cursor.pos_cursor,
+                sequence_cursor.jubilee_cursor,
+            );
+        });
 
         sequence_cursor.increment_jubilee_number(ctx);
         if is_cursed {
@@ -765,7 +775,8 @@ fn augment_transaction_with_ordinals_inscriptions_data(
         ctx.try_log(|logger| {
             info!(
                 logger,
-                "Cursor state: {:?} {:?} {:?}",
+                "Cursor {:?} state after: {:?} {:?} {:?}",
+                inscription.inscription_number,
                 sequence_cursor.neg_cursor,
                 sequence_cursor.pos_cursor,
                 sequence_cursor.jubilee_cursor,
