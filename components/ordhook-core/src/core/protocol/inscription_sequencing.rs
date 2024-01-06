@@ -23,9 +23,8 @@ use crate::{
     db::{
         find_blessed_inscription_with_ordinal_number, find_nth_classic_neg_number_at_block_height,
         find_nth_classic_pos_number_at_block_height, find_nth_jubilee_number_at_block_height,
-        format_inscription_id, format_satpoint_to_watch, parse_inscription_id,
-        update_inscriptions_with_block, update_sequence_metadata_with_block,
-        TransactionBytesCursor, TraversalResult,
+        format_inscription_id, format_satpoint_to_watch, update_inscriptions_with_block,
+        update_sequence_metadata_with_block, TransactionBytesCursor, TraversalResult,
     },
     ord::height::Height,
 };
@@ -418,8 +417,8 @@ impl<'a> SequenceCursor<'a> {
         self.current_block_height = block_height;
 
         let classic = match cursed {
-            true => self.pick_next_neg_number(ctx),
-            false => self.pick_next_pos_number(ctx),
+            true => self.pick_next_neg_classic(ctx),
+            false => self.pick_next_pos_classic(ctx),
         };
         let jubilee_height = match network {
             Network::Bitcoin => 824544,
@@ -436,7 +435,7 @@ impl<'a> SequenceCursor<'a> {
         OrdinalInscriptionNumber { classic, jubilee }
     }
 
-    fn pick_next_pos_number(&mut self, ctx: &Context) -> i64 {
+    fn pick_next_pos_classic(&mut self, ctx: &Context) -> i64 {
         match self.pos_cursor {
             None => {
                 match find_nth_classic_pos_number_at_block_height(
@@ -474,7 +473,7 @@ impl<'a> SequenceCursor<'a> {
         }
     }
 
-    fn pick_next_neg_number(&mut self, ctx: &Context) -> i64 {
+    fn pick_next_neg_classic(&mut self, ctx: &Context) -> i64 {
         match self.neg_cursor {
             None => {
                 match find_nth_classic_neg_number_at_block_height(
@@ -493,14 +492,12 @@ impl<'a> SequenceCursor<'a> {
         }
     }
 
-    pub fn increment_neg_cursor(&mut self, ctx: &Context) {
-        self.neg_cursor = Some(self.pick_next_neg_number(ctx));
-        self.increment_jubilee_number(ctx);
+    pub fn increment_neg_classic(&mut self, ctx: &Context) {
+        self.neg_cursor = Some(self.pick_next_neg_classic(ctx));
     }
 
-    pub fn increment_pos_number(&mut self, ctx: &Context) {
-        self.pos_cursor = Some(self.pick_next_pos_number(ctx));
-        self.increment_jubilee_number(ctx);
+    pub fn increment_pos_classic(&mut self, ctx: &Context) {
+        self.pos_cursor = Some(self.pick_next_pos_classic(ctx));
     }
 
     pub fn increment_jubilee_number(&mut self, ctx: &Context) {
@@ -602,9 +599,9 @@ pub fn augment_block_with_ordinals_inscriptions_data(
         inscription_data.inscription_number = inscription_number;
 
         if is_curse {
-            sequence_cursor.increment_neg_cursor(ctx);
+            sequence_cursor.increment_neg_classic(ctx);
         } else {
-            sequence_cursor.increment_pos_number(ctx);
+            sequence_cursor.increment_pos_classic(ctx);
         };
 
         ctx.try_log(|logger| {
@@ -759,11 +756,22 @@ fn augment_transaction_with_ordinals_inscriptions_data(
             );
         });
 
+        sequence_cursor.increment_jubilee_number(ctx);
         if is_cursed {
-            sequence_cursor.increment_neg_cursor(ctx);
+            sequence_cursor.increment_neg_classic(ctx);
         } else {
-            sequence_cursor.increment_pos_number(ctx);
+            sequence_cursor.increment_pos_classic(ctx);
         }
+        ctx.try_log(|logger| {
+            info!(
+                logger,
+                "Cursor state: {:?} {:?} {:?}",
+                sequence_cursor.neg_cursor,
+                sequence_cursor.pos_cursor,
+                sequence_cursor.jubilee_cursor,
+            );
+        });
+
         inscription_subindex += 1;
     }
     any_event
