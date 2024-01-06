@@ -456,7 +456,7 @@ impl<'a> SequenceCursor<'a> {
     }
 
     fn pick_next_jubilee_number(&mut self, ctx: &Context) -> i64 {
-        match self.pos_cursor {
+        match self.jubilee_cursor {
             None => {
                 match find_nth_jubilee_number_at_block_height(
                     &self.current_block_height,
