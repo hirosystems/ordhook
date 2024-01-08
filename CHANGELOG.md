@@ -1,3 +1,10 @@
+## [2.0.1](https://github.com/hirosystems/ordhook/compare/v2.0.0...v2.0.1) (2024-01-08)
+
+
+### Bug Fixes
+
+* replay + jubilee number increment ([d5bf88f](https://github.com/hirosystems/ordhook/commit/d5bf88f1deaf1e03acc5dade74fbd3d17c5ce813))
+
 ## [2.0.0](https://github.com/hirosystems/ordhook/compare/v1.2.0...v2.0.0) (2024-01-05)
 
 
