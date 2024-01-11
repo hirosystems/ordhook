@@ -248,7 +248,7 @@ fn get_default_ordhook_db_file_path_rocks_db(base_dir: &PathBuf) -> PathBuf {
     destination_path
 }
 
-fn rocks_db_default_options() -> rocksdb::Options {
+fn rocks_db_default_options(ulimit: usize, memory_available: usize) -> rocksdb::Options {
     let mut opts = rocksdb::Options::default();
     // Per rocksdb's documentation:
     // If cache_index_and_filter_blocks is false (which is default),
@@ -262,7 +262,7 @@ fn rocks_db_default_options() -> rocksdb::Options {
     // opts.set_write_buffer_size(64 * 1024 * 1024);
     // opts.set_blob_file_size(1 * 1024 * 1024 * 1024);
     // opts.set_target_file_size_base(64 * 1024 * 1024);
-    opts.set_max_open_files(2048);
+    opts.set_max_open_files(ulimit as i32);
     opts.create_if_missing(true);
     // opts.optimize_for_point_lookup(1 * 1024 * 1024 * 1024);
     // opts.set_level_zero_stop_writes_trigger(64);
@@ -279,10 +279,12 @@ fn rocks_db_default_options() -> rocksdb::Options {
 
 pub fn open_readonly_ordhook_db_conn_rocks_db(
     base_dir: &PathBuf,
+    ulimit: usize,
+    memory_available: usize,
     _ctx: &Context,
 ) -> Result<DB, String> {
     let path = get_default_ordhook_db_file_path_rocks_db(&base_dir);
-    let mut opts = rocks_db_default_options();
+    let mut opts = rocks_db_default_options(ulimit, memory_available);
     opts.set_disable_auto_compactions(true);
     opts.set_max_background_jobs(0);
     let db = DB::open_for_read_only(&opts, path, false)
@@ -293,14 +295,16 @@ pub fn open_readonly_ordhook_db_conn_rocks_db(
 pub fn open_ordhook_db_conn_rocks_db_loop(
     readwrite: bool,
     base_dir: &PathBuf,
+    ulimit: usize,
+    memory_available: usize,
     ctx: &Context,
 ) -> DB {
     let mut retries = 0;
     let blocks_db = loop {
         let res = if readwrite {
-            open_readwrite_ordhook_db_conn_rocks_db(&base_dir, &ctx)
+            open_readwrite_ordhook_db_conn_rocks_db(&base_dir, ulimit, memory_available, &ctx)
         } else {
-            open_readonly_ordhook_db_conn_rocks_db(&base_dir, &ctx)
+            open_readonly_ordhook_db_conn_rocks_db(&base_dir, ulimit, memory_available, &ctx)
         };
         match res {
             Ok(db) => break db,
@@ -323,19 +327,24 @@ pub fn open_ordhook_db_conn_rocks_db_loop(
 
 pub fn open_readwrite_ordhook_dbs(
     base_dir: &PathBuf,
+    ulimit: usize,
+    memory_available: usize,
     ctx: &Context,
 ) -> Result<(DB, Connection), String> {
-    let blocks_db = open_ordhook_db_conn_rocks_db_loop(true, &base_dir, &ctx);
+    let blocks_db =
+        open_ordhook_db_conn_rocks_db_loop(true, &base_dir, ulimit, memory_available, &ctx);
     let inscriptions_db = open_readwrite_ordhook_db_conn(&base_dir, &ctx)?;
     Ok((blocks_db, inscriptions_db))
 }
 
 fn open_readwrite_ordhook_db_conn_rocks_db(
     base_dir: &PathBuf,
+    ulimit: usize,
+    memory_available: usize,
     _ctx: &Context,
 ) -> Result<DB, String> {
     let path = get_default_ordhook_db_file_path_rocks_db(&base_dir);
-    let opts = rocks_db_default_options();
+    let opts = rocks_db_default_options(ulimit, memory_available);
     let db = DB::open(&opts, path)
         .map_err(|e| format!("unable to read-write hord.rocksdb: {}", e.to_string()))?;
     Ok(db)
@@ -396,7 +405,6 @@ pub fn find_pinned_block_bytes_at_block_height<'a>(
     // read_options.set_verify_checksums(false);
     let mut backoff: f64 = 1.0;
     let mut rng = thread_rng();
-
     loop {
         match blocks_db.get_pinned(block_height.to_be_bytes()) {
             Ok(Some(res)) => return Some(res),

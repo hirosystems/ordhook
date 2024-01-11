@@ -21,7 +21,7 @@ pub fn start_bitcoin_scan_runloop(
     observer_command_tx: Sender<ObserverCommand>,
     ctx: &Context,
 ) {
-    let bitcoin_scan_pool = ThreadPool::new(config.limits.max_number_of_concurrent_bitcoin_scans);
+    let bitcoin_scan_pool = ThreadPool::new(config.resources.expected_observers_count);
 
     while let Ok(predicate_spec) = bitcoin_scan_op_rx.recv() {
         let moved_ctx = ctx.clone();
