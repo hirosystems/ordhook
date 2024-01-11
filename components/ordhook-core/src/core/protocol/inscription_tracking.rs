@@ -103,8 +103,13 @@ pub fn augment_transaction_with_ordinals_transfers_data(
                 .map(|o| o.previous_output.value)
                 .collect::<_>();
             let outputs = tx.metadata.outputs.iter().map(|o| o.value).collect::<_>();
-            let post_transfer_data =
-                compute_next_satpoint_data(input_index, watched_satpoint.offset, &inputs, &outputs);
+            let post_transfer_data = compute_next_satpoint_data(
+                input_index,
+                watched_satpoint.offset,
+                &inputs,
+                &outputs,
+                0,
+            );
 
             let (
                 outpoint_post_transfer,
@@ -151,8 +156,8 @@ pub fn augment_transaction_with_ordinals_transfers_data(
                     ctx.try_log(|logger| {
                         info!(
                             logger,
-                            "Inscription {} moved from {} to {} (block: {})",
-                            watched_satpoint.inscription_id,
+                            "Inscribed satoshi {} moved from {} to {} (block: {})",
+                            watched_satpoint.ordinal_number,
                             satpoint_pre_transfer,
                             outpoint,
                             block_identifier.index,
@@ -173,8 +178,8 @@ pub fn augment_transaction_with_ordinals_transfers_data(
                     ctx.try_log(|logger| {
                         info!(
                             logger,
-                            "Inscription {} spent in fees ({}+{}+{})",
-                            watched_satpoint.inscription_id,
+                            "Inscribed satoshi {} spent in fees ({}+{}+{})",
+                            watched_satpoint.ordinal_number,
                             coinbase_subsidy,
                             cumulated_fees,
                             offset
@@ -193,7 +198,7 @@ pub fn augment_transaction_with_ordinals_transfers_data(
                 format!("{}:{}", outpoint_post_transfer, offset_post_transfer);
 
             let transfer_data = OrdinalInscriptionTransferData {
-                inscription_id: watched_satpoint.inscription_id.clone(),
+                ordinal_number: watched_satpoint.ordinal_number,
                 destination,
                 tx_index,
                 satpoint_pre_transfer,
