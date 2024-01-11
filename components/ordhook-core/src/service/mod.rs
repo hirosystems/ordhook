@@ -413,9 +413,7 @@ impl Service {
             bitcoin_blocks_mutator: Some((block_mutator_in_tx, block_mutator_out_rx)),
             bitcoin_chain_event_notifier: Some(chain_event_notifier_tx),
         };
-        let cache_l2 = Arc::new(new_traversals_lazy_cache(
-            self.config.limits.max_caching_memory_size_mb,
-        ));
+        let cache_l2 = Arc::new(new_traversals_lazy_cache(100_000));
         let ctx = self.ctx.clone();
         let config = self.config.clone();
 
@@ -455,6 +453,8 @@ impl Service {
                     let blocks_db = open_ordhook_db_conn_rocks_db_loop(
                         false,
                         &self.config.expected_cache_path(),
+                        self.config.resources.ulimit,
+                        self.config.resources.memory_available,
                         &self.ctx,
                     );
                     let tip = find_last_block_inserted(&blocks_db);
@@ -486,6 +486,8 @@ impl Service {
                 let blocks_db_rw = open_ordhook_db_conn_rocks_db_loop(
                     false,
                     &self.config.expected_cache_path(),
+                    self.config.resources.ulimit,
+                    self.config.resources.memory_available,
                     &self.ctx,
                 );
                 info!(self.ctx.expect_logger(), "Running database compaction",);
@@ -496,6 +498,8 @@ impl Service {
                 let blocks_db_rw = open_ordhook_db_conn_rocks_db_loop(
                     false,
                     &self.config.expected_cache_path(),
+                    self.config.resources.ulimit,
+                    self.config.resources.memory_available,
                     &self.ctx,
                 );
 
@@ -616,14 +620,18 @@ impl Service {
 }
 
 fn chainhook_sidecar_mutate_ordhook_db(command: HandleBlock, config: &Config, ctx: &Context) {
-    let (blocks_db_rw, inscriptions_db_conn_rw) =
-        match open_readwrite_ordhook_dbs(&config.expected_cache_path(), &ctx) {
-            Ok(dbs) => dbs,
-            Err(e) => {
-                ctx.try_log(|logger| error!(logger, "Unable to open readwtite connection: {e}",));
-                return;
-            }
-        };
+    let (blocks_db_rw, inscriptions_db_conn_rw) = match open_readwrite_ordhook_dbs(
+        &config.expected_cache_path(),
+        config.resources.ulimit,
+        config.resources.memory_available,
+        &ctx,
+    ) {
+        Ok(dbs) => dbs,
+        Err(e) => {
+            ctx.try_log(|logger| error!(logger, "Unable to open readwtite connection: {e}",));
+            return;
+        }
+    };
 
     match command {
         HandleBlock::UndoBlock(block) => {
@@ -725,14 +733,18 @@ pub fn chainhook_sidecar_mutate_blocks(
 ) {
     let mut updated_blocks_ids = vec![];
 
-    let (blocks_db_rw, mut inscriptions_db_conn_rw) =
-        match open_readwrite_ordhook_dbs(&config.expected_cache_path(), &ctx) {
-            Ok(dbs) => dbs,
-            Err(e) => {
-                ctx.try_log(|logger| error!(logger, "Unable to open readwtite connection: {e}",));
-                return;
-            }
-        };
+    let (blocks_db_rw, mut inscriptions_db_conn_rw) = match open_readwrite_ordhook_dbs(
+        &config.expected_cache_path(),
+        config.resources.ulimit,
+        config.resources.memory_available,
+        &ctx,
+    ) {
+        Ok(dbs) => dbs,
+        Err(e) => {
+            ctx.try_log(|logger| error!(logger, "Unable to open readwtite connection: {e}",));
+            return;
+        }
+    };
 
     let inscriptions_db_tx = inscriptions_db_conn_rw.transaction().unwrap();
 

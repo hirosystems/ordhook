@@ -26,16 +26,16 @@ bitcoind_zmq_url = "tcp://0.0.0.0:18543"
 # but stacks can also be used:
 # stacks_node_rpc_url = "http://0.0.0.0:20443"
 
-[limits]
-max_number_of_bitcoin_predicates = 100
-max_number_of_concurrent_bitcoin_scans = 100
-max_number_of_processing_threads = 16
-bitcoin_concurrent_http_requests_max = 16
-max_caching_memory_size_mb = 32000
+[resources]
+ulimit = 2048
+cpu_core_available = 16
+memory_available = 32
+bitcoind_rpc_threads = 8
+expected_observers_count = 1
 
 # Disable the following section if the state
 # must be built locally
-[bootstrap]
+[snapshot]
 download_url = "https://archive.hiro.so/mainnet/ordhook/mainnet-ordhook-sqlite-latest"
 
 [logs]

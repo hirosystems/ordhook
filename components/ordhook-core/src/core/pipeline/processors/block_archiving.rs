@@ -25,8 +25,13 @@ pub fn start_block_archiving_processor(
     let ctx = ctx.clone();
     let handle: JoinHandle<()> = hiro_system_kit::thread_named("Processor Runloop")
         .spawn(move || {
-            let blocks_db_rw =
-                open_ordhook_db_conn_rocks_db_loop(true, &config.expected_cache_path(), &ctx);
+            let blocks_db_rw = open_ordhook_db_conn_rocks_db_loop(
+                true,
+                &config.expected_cache_path(),
+                config.resources.ulimit,
+                config.resources.memory_available,
+                &ctx,
+            );
             let mut processed_blocks = 0;
 
             loop {

@@ -91,7 +91,7 @@ pub fn parallelize_inscription_data_computations(
 
     let has_transactions_to_process = !transactions_ids.is_empty() || !l1_cache_hits.is_empty();
 
-    let thread_max = ordhook_config.ingestion_thread_max;
+    let thread_pool_capacity = ordhook_config.resources.get_optimal_thread_pool_capacity();
 
     // Nothing to do? early return
     if !has_transactions_to_process {
@@ -104,13 +104,16 @@ pub fn parallelize_inscription_data_computations(
     let mut tx_thread_pool = vec![];
     let mut thread_pool_handles = vec![];
 
-    for thread_index in 0..thread_max {
+    for thread_index in 0..thread_pool_capacity {
         let (tx, rx) = channel();
         tx_thread_pool.push(tx);
 
         let moved_traversal_tx = traversal_tx.clone();
         let moved_ctx = inner_ctx.clone();
         let moved_ordhook_db_path = ordhook_config.db_path.clone();
+        let ulimit = ordhook_config.resources.ulimit;
+        let memory_available = ordhook_config.resources.memory_available;
+
         let local_cache = cache_l2.clone();
 
         let handle = hiro_system_kit::thread_named("Worker")
@@ -124,6 +127,8 @@ pub fn parallelize_inscription_data_computations(
                         &transaction_id,
                         input_index,
                         &local_cache,
+                        ulimit,
+                        memory_available,
                         false,
                         &moved_ctx,
                     );
@@ -135,12 +140,13 @@ pub fn parallelize_inscription_data_computations(
     }
 
     // Consume L1 cache: if the traversal was performed in a previous round
-    // retrieve it and use it.
-    let mut thread_index = 0;
+    // retrieve it and inject it to the "reduce" worker (by-passing the "map" thread pool)
+    let mut round_robin_thread_index = 0;
     for key in l1_cache_hits.iter() {
         if let Some(entry) = cache_l1.get(key) {
-            let _ = traversal_tx.send((Ok((entry.clone(), vec![])), true, thread_index));
-            thread_index = (thread_index + 1) % thread_max;
+            let _ =
+                traversal_tx.send((Ok((entry.clone(), vec![])), true, round_robin_thread_index));
+            round_robin_thread_index = (round_robin_thread_index + 1) % thread_pool_capacity;
         }
     }
 
@@ -176,11 +182,11 @@ pub fn parallelize_inscription_data_computations(
         ));
     }
 
-    // Feed each workers with 2 workitems each
-    for thread_index in 0..thread_max {
+    // Feed each worker from the thread pool with 2 workitems each
+    for thread_index in 0..thread_pool_capacity {
         let _ = tx_thread_pool[thread_index].send(priority_queue.pop_front());
     }
-    for thread_index in 0..thread_max {
+    for thread_index in 0..thread_pool_capacity {
         let _ = tx_thread_pool[thread_index].send(priority_queue.pop_front());
     }
 

@@ -107,6 +107,8 @@ pub fn start_inscription_indexing_processor(
                     let blocks_db_rw = open_ordhook_db_conn_rocks_db_loop(
                         true,
                         &config.expected_cache_path(),
+                        config.resources.ulimit,
+                        config.resources.memory_available,
                         &ctx,
                     );
                     store_compacted_blocks(

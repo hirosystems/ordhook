@@ -1,29 +1,24 @@
 use ordhook::chainhook_sdk::indexer::IndexerConfig;
+use ordhook::chainhook_sdk::observer::DEFAULT_INGESTION_PORT;
 use ordhook::chainhook_sdk::types::{
     BitcoinBlockSignaling, BitcoinNetwork, StacksNetwork, StacksNodeConfig,
 };
 use ordhook::config::{
-    BootstrapConfig, Config, LimitsConfig, LogConfig, PredicatesApi, PredicatesApiConfig,
-    StorageConfig,
+    Config, LogConfig, PredicatesApi, PredicatesApiConfig, ResourcesConfig, SnapshotConfig,
+    StorageConfig, DEFAULT_BITCOIND_RPC_THREADS_AVAILABLE, DEFAULT_CONTROL_PORT,
+    DEFAULT_MEMORY_AVAILABLE, DEFAULT_ULIMIT,
 };
 use std::fs::File;
 use std::io::{BufReader, Read};
-
-pub const DEFAULT_INGESTION_PORT: u16 = 20455;
-pub const DEFAULT_CONTROL_PORT: u16 = 20456;
-pub const STACKS_SCAN_THREAD_POOL_SIZE: usize = 10;
-pub const BITCOIN_SCAN_THREAD_POOL_SIZE: usize = 10;
-pub const STACKS_MAX_PREDICATE_REGISTRATION: usize = 50;
-pub const BITCOIN_MAX_PREDICATE_REGISTRATION: usize = 50;
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct ConfigFile {
     pub storage: StorageConfigFile,
     pub http_api: Option<PredicatesApiConfigFile>,
-    pub limits: LimitsConfigFile,
+    pub resources: ResourcesConfigFile,
     pub network: NetworkConfigFile,
     pub logs: Option<LogConfigFile>,
-    pub bootstrap: Option<BootstrapConfigFile>,
+    pub snapthot: Option<SnapshotConfigFile>,
 }
 
 impl ConfigFile {
@@ -54,12 +49,12 @@ impl ConfigFile {
             _ => return Err("network.mode not supported".to_string()),
         };
 
-        let bootstrap = match config_file.bootstrap {
+        let snapshot = match config_file.snapthot {
             Some(bootstrap) => match bootstrap.download_url {
-                Some(ref url) => BootstrapConfig::Download(url.to_string()),
-                None => BootstrapConfig::Build,
+                Some(ref url) => SnapshotConfig::Download(url.to_string()),
+                None => SnapshotConfig::Build,
             },
-            None => BootstrapConfig::Build,
+            None => SnapshotConfig::Build,
         };
 
         let config = Config {
@@ -76,36 +71,25 @@ impl ConfigFile {
                     }),
                 },
             },
-            bootstrap,
-            limits: LimitsConfig {
-                max_number_of_stacks_predicates: config_file
-                    .limits
-                    .max_number_of_stacks_predicates
-                    .unwrap_or(STACKS_MAX_PREDICATE_REGISTRATION),
-                max_number_of_bitcoin_predicates: config_file
-                    .limits
-                    .max_number_of_bitcoin_predicates
-                    .unwrap_or(BITCOIN_MAX_PREDICATE_REGISTRATION),
-                max_number_of_concurrent_stacks_scans: config_file
-                    .limits
-                    .max_number_of_concurrent_stacks_scans
-                    .unwrap_or(STACKS_SCAN_THREAD_POOL_SIZE),
-                max_number_of_concurrent_bitcoin_scans: config_file
-                    .limits
-                    .max_number_of_concurrent_bitcoin_scans
-                    .unwrap_or(BITCOIN_SCAN_THREAD_POOL_SIZE),
-                max_number_of_processing_threads: config_file
-                    .limits
-                    .max_number_of_processing_threads
-                    .unwrap_or(1.max(num_cpus::get().saturating_sub(1))),
-                bitcoin_concurrent_http_requests_max: config_file
-                    .limits
-                    .bitcoin_concurrent_http_requests_max
-                    .unwrap_or(1.max(num_cpus::get().saturating_sub(1))),
-                max_caching_memory_size_mb: config_file
-                    .limits
-                    .max_caching_memory_size_mb
-                    .unwrap_or(2048),
+            snapshot,
+            resources: ResourcesConfig {
+                ulimit: config_file.resources.ulimit.unwrap_or(DEFAULT_ULIMIT),
+                cpu_core_available: config_file
+                    .resources
+                    .cpu_core_available
+                    .unwrap_or(num_cpus::get()),
+                memory_available: config_file
+                    .resources
+                    .memory_available
+                    .unwrap_or(DEFAULT_MEMORY_AVAILABLE),
+                bitcoind_rpc_threads: config_file
+                    .resources
+                    .bitcoind_rpc_threads
+                    .unwrap_or(DEFAULT_BITCOIND_RPC_THREADS_AVAILABLE),
+                expected_observers_count: config_file
+                    .resources
+                    .expected_observers_count
+                    .unwrap_or(1),
             },
             network: IndexerConfig {
                 bitcoind_rpc_url: config_file.network.bitcoind_rpc_url.to_string(),
@@ -176,19 +160,17 @@ pub struct PredicatesApiConfigFile {
 }
 
 #[derive(Deserialize, Debug, Clone)]
-pub struct BootstrapConfigFile {
+pub struct SnapshotConfigFile {
     pub download_url: Option<String>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
-pub struct LimitsConfigFile {
-    pub max_number_of_bitcoin_predicates: Option<usize>,
-    pub max_number_of_concurrent_bitcoin_scans: Option<usize>,
-    pub max_number_of_stacks_predicates: Option<usize>,
-    pub max_number_of_concurrent_stacks_scans: Option<usize>,
-    pub max_number_of_processing_threads: Option<usize>,
-    pub max_caching_memory_size_mb: Option<usize>,
-    pub bitcoin_concurrent_http_requests_max: Option<usize>,
+pub struct ResourcesConfigFile {
+    pub ulimit: Option<usize>,
+    pub cpu_core_available: Option<usize>,
+    pub memory_available: Option<usize>,
+    pub bitcoind_rpc_threads: Option<usize>,
+    pub expected_observers_count: Option<usize>,
 }
 
 #[derive(Deserialize, Debug, Clone)]

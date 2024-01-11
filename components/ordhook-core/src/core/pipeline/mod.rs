@@ -73,11 +73,27 @@ pub async fn download_and_pipeline_blocks(
     let end_block = *blocks.last().expect("no blocks to pipeline");
     let mut block_heights = VecDeque::from(blocks);
 
-    for _ in 0..ordhook_config.ingestion_thread_queue_size {
+    // All the requests are being processed on the same thread.
+    // As soon as we are getting the bytes back from wire, the
+    // processing is moved to a thread pool, to defer the parsing, quite expensive.
+    // We are initially seeding the networking thread with N requests,
+    // with N being the number of threads in the pool handling the response.
+    // We need:
+    // - 1 thread for the thread handling networking
+    // - 1 thread for the thread handling disk serialization
+    let thread_pool_network_response_processing_capacity =
+        ordhook_config.resources.get_optimal_thread_pool_capacity();
+    // For each worker in that pool, we want to bound the size of the queue to avoid OOM
+    // Blocks size can range from 1 to 4Mb (when packed with witness data).
+    // Start blocking networking when each worker has a backlog of 8 blocks seems reasonable.
+    let worker_queue_size = 8;
+
+    for _ in 0..thread_pool_network_response_processing_capacity {
         if let Some(block_height) = block_heights.pop_front() {
             let config = moved_config.clone();
             let ctx = moved_ctx.clone();
             let http_client = moved_http_client.clone();
+            // We interleave the initial requests to avoid DDOSing bitcoind from the get go.
             sleep(Duration::from_millis(500));
             set.spawn(try_download_block_bytes_with_retry(
                 http_client,
@@ -95,8 +111,8 @@ pub async fn download_and_pipeline_blocks(
     let mut rx_thread_pool = vec![];
     let mut thread_pool_handles = vec![];
 
-    for _ in 0..ordhook_config.ingestion_thread_max {
-        let (tx, rx) = bounded::<Option<Vec<u8>>>(ordhook_config.ingestion_thread_queue_size);
+    for _ in 0..thread_pool_network_response_processing_capacity {
+        let (tx, rx) = bounded::<Option<Vec<u8>>>(worker_queue_size);
         tx_thread_pool.push(tx);
         rx_thread_pool.push(rx);
     }
@@ -244,11 +260,11 @@ pub async fn download_and_pipeline_blocks(
         })
         .expect("unable to spawn thread");
 
-    let mut thread_index = 0;
+    let mut round_robin_worker_thread_index = 0;
     while let Some(res) = set.join_next().await {
         let block = res.unwrap().unwrap();
 
-        let _ = tx_thread_pool[thread_index].send(Some(block));
+        let _ = tx_thread_pool[round_robin_worker_thread_index].send(Some(block));
         if let Some(block_height) = block_heights.pop_front() {
             let config = moved_config.clone();
             let ctx = ctx.clone();
@@ -260,7 +276,8 @@ pub async fn download_and_pipeline_blocks(
                 ctx,
             ));
         }
-        thread_index = (thread_index + 1) % ordhook_config.ingestion_thread_max;
+        round_robin_worker_thread_index = (round_robin_worker_thread_index + 1)
+            % thread_pool_network_response_processing_capacity;
     }
 
     ctx.try_log(|logger| {
