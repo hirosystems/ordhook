@@ -61,6 +61,7 @@ pub fn compute_next_satpoint_data(
     offset_intra_input: u64,
     inputs: &Vec<u64>,
     outputs: &Vec<u64>,
+    pointer_from_inscription: u64,
 ) -> SatPosition {
     let mut offset_cross_inputs = 0;
     for (index, input_value) in inputs.iter().enumerate() {
@@ -70,6 +71,7 @@ pub fn compute_next_satpoint_data(
         offset_cross_inputs += input_value;
     }
     offset_cross_inputs += offset_intra_input;
+    offset_cross_inputs += pointer_from_inscription;
 
     let mut offset_intra_outputs = 0;
     let mut output_index = 0;
@@ -194,35 +196,35 @@ pub fn should_sync_ordhook_db(
 #[test]
 fn test_identify_next_output_index_destination() {
     assert_eq!(
-        compute_next_satpoint_data(0, 10, &vec![20, 30, 45], &vec![20, 30, 45]),
+        compute_next_satpoint_data(0, 10, &vec![20, 30, 45], &vec![20, 30, 45], 0),
         SatPosition::Output((0, 10))
     );
     assert_eq!(
-        compute_next_satpoint_data(0, 20, &vec![20, 30, 45], &vec![20, 30, 45]),
+        compute_next_satpoint_data(0, 20, &vec![20, 30, 45], &vec![20, 30, 45], 0),
         SatPosition::Output((1, 0))
     );
     assert_eq!(
-        compute_next_satpoint_data(1, 5, &vec![20, 30, 45], &vec![20, 30, 45]),
+        compute_next_satpoint_data(1, 5, &vec![20, 30, 45], &vec![20, 30, 45], 0),
         SatPosition::Output((1, 5))
     );
     assert_eq!(
-        compute_next_satpoint_data(1, 6, &vec![20, 30, 45], &vec![20, 5, 45]),
+        compute_next_satpoint_data(1, 6, &vec![20, 30, 45], &vec![20, 5, 45], 0),
         SatPosition::Output((2, 1))
     );
     assert_eq!(
-        compute_next_satpoint_data(1, 10, &vec![10, 10, 10], &vec![30]),
+        compute_next_satpoint_data(1, 10, &vec![10, 10, 10], &vec![30], 0),
         SatPosition::Output((0, 20))
     );
     assert_eq!(
-        compute_next_satpoint_data(0, 30, &vec![10, 10, 10], &vec![30]),
+        compute_next_satpoint_data(0, 30, &vec![10, 10, 10], &vec![30], 0),
         SatPosition::Fee(0)
     );
     assert_eq!(
-        compute_next_satpoint_data(0, 0, &vec![10, 10, 10], &vec![30]),
+        compute_next_satpoint_data(0, 0, &vec![10, 10, 10], &vec![30], 0),
         SatPosition::Output((0, 0))
     );
     assert_eq!(
-        compute_next_satpoint_data(2, 45, &vec![20, 30, 45], &vec![20, 30, 45]),
+        compute_next_satpoint_data(2, 45, &vec![20, 30, 45], &vec![20, 30, 45], 0),
         SatPosition::Fee(0)
     );
     assert_eq!(
@@ -230,7 +232,8 @@ fn test_identify_next_output_index_destination() {
             2,
             0,
             &vec![1000, 600, 546, 63034],
-            &vec![1600, 10000, 15000]
+            &vec![1600, 10000, 15000],
+            0
         ),
         SatPosition::Output((1, 0))
     );
@@ -239,7 +242,8 @@ fn test_identify_next_output_index_destination() {
             3,
             0,
             &vec![6100, 148660, 103143, 7600],
-            &vec![81434, 173995]
+            &vec![81434, 173995],
+            0
         ),
         SatPosition::Fee(2474)
     );
