@@ -1,6 +1,6 @@
 [package]
 name = "ordhook"
-version = "0.6.0"
+version = "1.0.0"
 edition = "2021"
 
 [dependencies]
@@ -13,7 +13,11 @@ rand = "0.8.5"
 chainhook-sdk = { version = "=0.12.1", features = ["zeromq"] }
 # chainhook-sdk = { version = "=0.12.1", path = "../../../chainhook/components/chainhook-sdk", features = ["zeromq"] }
 hiro-system-kit = "0.3.1"
-reqwest = { version = "0.11", default-features = false, features = ["stream", "json", "rustls-tls"] }
+reqwest = { version = "0.11", default-features = false, features = [
+    "stream",
+    "json",
+    "rustls-tls",
+] }
 tokio = { version = "1.35.1", features = ["full"] }
 futures-util = "0.3.24"
 flate2 = "1.0.24"
@@ -33,10 +37,12 @@ anyhow = { version = "1.0.56", features = ["backtrace"] }
 schemars = { version = "0.8.10", git = "https://github.com/hirosystems/schemars.git", branch = "feat-chainhook-fixes" }
 progressing = '3'
 futures = "0.3.28"
-rocksdb = { version = "0.21.0", default-features = false, features = ["snappy"] }
+rocksdb = { version = "0.21.0", default-features = false, features = [
+    "snappy",
+] }
 pprof = { version = "0.13.0", features = ["flamegraph"], optional = true }
 hyper = { version = "=0.14.27" }
-lazy_static = { version = "1.4.0"}
+lazy_static = { version = "1.4.0" }
 
 # [profile.release]
 # debug = true

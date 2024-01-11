@@ -339,6 +339,9 @@ struct StartCommand {
     /// HTTP Auth token
     #[clap(long = "auth-token")]
     pub auth_token: Option<String>,
+    /// Check blocks integrity
+    #[clap(long = "check-blocks-integrity")]
+    pub block_integrity_check: bool,
 }
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
@@ -747,7 +750,9 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 }
 
                 let mut service = Service::new(config, ctx.clone());
-                return service.run(predicates, None).await;
+                return service
+                    .run(predicates, None, cmd.block_integrity_check)
+                    .await;
             }
         },
         Command::Config(subcmd) => match subcmd {
