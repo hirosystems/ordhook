@@ -67,11 +67,14 @@ impl Service {
         predicate_activity_relayer: Option<
             crossbeam_channel::Sender<BitcoinChainhookOccurrencePayload>,
         >,
+        check_blocks_integrity: bool,
     ) -> Result<(), String> {
         let mut event_observer_config = self.config.get_event_observer_config();
 
         // Catch-up with chain tip
-        let chain_tip_height = self.catch_up_with_chain_tip(false, false).await?;
+        let chain_tip_height = self
+            .catch_up_with_chain_tip(false, check_blocks_integrity)
+            .await?;
         info!(
             self.ctx.expect_logger(),
             "Database up to date, service will start streaming blocks"
