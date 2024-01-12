@@ -104,7 +104,7 @@ pub fn initialize_ordhook_db(base_dir: &PathBuf, ctx: &Context) -> Connection {
     }
     if let Err(e) = conn.execute(
         "CREATE TABLE IF NOT EXISTS locations (
-            ordinal_number TEXT NOT NULL,
+            ordinal_number INTEGER NOT NULL,
             block_height INTEGER NOT NULL,
             tx_index INTEGER NOT NULL,
             outpoint_to_watch TEXT NOT NULL,
