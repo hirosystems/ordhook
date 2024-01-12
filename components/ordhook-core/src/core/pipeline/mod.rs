@@ -86,9 +86,9 @@ pub async fn download_and_pipeline_blocks(
     // For each worker in that pool, we want to bound the size of the queue to avoid OOM
     // Blocks size can range from 1 to 4Mb (when packed with witness data).
     // Start blocking networking when each worker has a backlog of 8 blocks seems reasonable.
-    let worker_queue_size = 8;
+    let worker_queue_size = 2;
 
-    for _ in 0..thread_pool_network_response_processing_capacity {
+    for _ in 0..ordhook_config.resources.bitcoind_rpc_threads {
         if let Some(block_height) = block_heights.pop_front() {
             let config = moved_config.clone();
             let ctx = moved_ctx.clone();
@@ -262,9 +262,20 @@ pub async fn download_and_pipeline_blocks(
 
     let mut round_robin_worker_thread_index = 0;
     while let Some(res) = set.join_next().await {
-        let block = res.unwrap().unwrap();
+        let block = res
+            .expect("unable to retrieve block")
+            .expect("unable to deserialize block");
 
-        let _ = tx_thread_pool[round_robin_worker_thread_index].send(Some(block));
+        loop {
+            let res = tx_thread_pool[round_robin_worker_thread_index].send(Some(block.clone()));
+            round_robin_worker_thread_index = (round_robin_worker_thread_index + 1)
+                % thread_pool_network_response_processing_capacity;
+            if res.is_ok() {
+                break;
+            }
+            sleep(Duration::from_millis(500));
+        }
+
         if let Some(block_height) = block_heights.pop_front() {
             let config = moved_config.clone();
             let ctx = ctx.clone();
@@ -276,8 +287,6 @@ pub async fn download_and_pipeline_blocks(
                 ctx,
             ));
         }
-        round_robin_worker_thread_index = (round_robin_worker_thread_index + 1)
-            % thread_pool_network_response_processing_capacity;
     }
 
     ctx.try_log(|logger| {
