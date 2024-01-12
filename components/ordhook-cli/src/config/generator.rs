@@ -30,7 +30,8 @@ bitcoind_zmq_url = "tcp://0.0.0.0:18543"
 ulimit = 2048
 cpu_core_available = 16
 memory_available = 32
-bitcoind_rpc_threads = 8
+bitcoind_rpc_threads = 4
+bitcoind_rpc_timeout = 15
 expected_observers_count = 1
 
 # Disable the following section if the state

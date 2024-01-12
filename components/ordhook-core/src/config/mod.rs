@@ -13,7 +13,8 @@ pub const DEFAULT_INGESTION_PORT: u16 = 20455;
 pub const DEFAULT_CONTROL_PORT: u16 = 20456;
 pub const DEFAULT_ULIMIT: usize = 2048;
 pub const DEFAULT_MEMORY_AVAILABLE: usize = 8;
-pub const DEFAULT_BITCOIND_RPC_THREADS_AVAILABLE: usize = 4;
+pub const DEFAULT_BITCOIND_RPC_THREADS: usize = 4;
+pub const DEFAULT_BITCOIND_RPC_TIMEOUT: u32 = 15;
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -70,6 +71,7 @@ pub struct ResourcesConfig {
     pub cpu_core_available: usize,
     pub memory_available: usize,
     pub bitcoind_rpc_threads: usize,
+    pub bitcoind_rpc_timeout: u32,
     pub expected_observers_count: usize,
 }
 
@@ -167,7 +169,8 @@ impl Config {
                 cpu_core_available: num_cpus::get(),
                 memory_available: DEFAULT_MEMORY_AVAILABLE,
                 ulimit: DEFAULT_ULIMIT,
-                bitcoind_rpc_threads: DEFAULT_BITCOIND_RPC_THREADS_AVAILABLE,
+                bitcoind_rpc_threads: DEFAULT_BITCOIND_RPC_THREADS,
+                bitcoind_rpc_timeout: DEFAULT_BITCOIND_RPC_TIMEOUT,
                 expected_observers_count: 1,
             },
             network: IndexerConfig {
@@ -198,7 +201,8 @@ impl Config {
                 cpu_core_available: num_cpus::get(),
                 memory_available: DEFAULT_MEMORY_AVAILABLE,
                 ulimit: DEFAULT_ULIMIT,
-                bitcoind_rpc_threads: DEFAULT_BITCOIND_RPC_THREADS_AVAILABLE,
+                bitcoind_rpc_threads: DEFAULT_BITCOIND_RPC_THREADS,
+                bitcoind_rpc_timeout: DEFAULT_BITCOIND_RPC_TIMEOUT,
                 expected_observers_count: 1,
             },
             network: IndexerConfig {
@@ -229,7 +233,8 @@ impl Config {
                 cpu_core_available: num_cpus::get(),
                 memory_available: DEFAULT_MEMORY_AVAILABLE,
                 ulimit: DEFAULT_ULIMIT,
-                bitcoind_rpc_threads: DEFAULT_BITCOIND_RPC_THREADS_AVAILABLE,
+                bitcoind_rpc_threads: DEFAULT_BITCOIND_RPC_THREADS,
+                bitcoind_rpc_timeout: DEFAULT_BITCOIND_RPC_TIMEOUT,
                 expected_observers_count: 1,
             },
             network: IndexerConfig {
