@@ -264,7 +264,7 @@ fn rocks_db_default_options(ulimit: usize, memory_available: usize) -> rocksdb::
     // opts.set_target_file_size_base(64 * 1024 * 1024);
     opts.set_max_open_files(ulimit as i32);
     opts.create_if_missing(true);
-    opts.set_allow_mmap_reads(true);
+    // opts.set_allow_mmap_reads(true);
 
     // set_arena_block_size
 
