@@ -2,7 +2,7 @@ FROM rust:bullseye as build
 
 WORKDIR /src
 
-RUN apt-get update && apt-get install -y ca-certificates pkg-config libssl-dev libclang-11-dev curl gnupg libunwind-dev
+RUN apt-get update && apt-get install -y ca-certificates pkg-config libssl-dev libclang-11-dev curl gnupg libunwind8
 
 RUN rustup update 1.72.0 && rustup default 1.72.0
 
