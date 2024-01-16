@@ -5,11 +5,8 @@ extern crate serde_derive;
 extern crate hiro_system_kit;
 
 #[cfg(not(target_env = "msvc"))]
-use tikv_jemallocator::Jemalloc;
-
-#[cfg(not(target_env = "msvc"))]
 #[global_allocator]
-static GLOBAL: Jemalloc = Jemalloc;
+static GLOBAL: tcmalloc2::TcMalloc = tcmalloc2::TcMalloc;
 
 pub mod cli;
 pub mod config;
