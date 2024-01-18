@@ -18,7 +18,7 @@ pub struct ConfigFile {
     pub resources: ResourcesConfigFile,
     pub network: NetworkConfigFile,
     pub logs: Option<LogConfigFile>,
-    pub snapthot: Option<SnapshotConfigFile>,
+    pub snapshot: Option<SnapshotConfigFile>,
 }
 
 impl ConfigFile {
@@ -49,7 +49,7 @@ impl ConfigFile {
             _ => return Err("network.mode not supported".to_string()),
         };
 
-        let snapshot = match config_file.snapthot {
+        let snapshot = match config_file.snapshot {
             Some(bootstrap) => match bootstrap.download_url {
                 Some(ref url) => SnapshotConfig::Download(url.to_string()),
                 None => SnapshotConfig::Build,
