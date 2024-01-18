@@ -1,8 +1,8 @@
-FROM rust:bullseye
+FROM rust:bullseye as build
 
 WORKDIR /src
 
-RUN apt-get update && apt-get install -y ca-certificates pkg-config libssl-dev libclang-11-dev curl gnupg libunwind-dev libunwind8
+RUN apt-get update && apt-get install -y ca-certificates pkg-config libssl-dev libclang-11-dev libunwind-dev libunwind8 curl gnupg
 
 RUN rustup update 1.72.0 && rustup default 1.72.0
 
@@ -44,24 +44,18 @@ WORKDIR /src/components/ordhook-cli
 
 RUN cargo build --features release --release
 
-RUN cp /src/target/release/ordhook /bin
+RUN cp /src/target/release/ordhook /out
 
-RUN rm -rf  /src/target/
+FROM debian:bullseye-slim
+
+WORKDIR /ordhook-sdk-js
+
+RUN apt-get update && apt-get install -y ca-certificates libssl-dev libclang-11-dev libunwind-dev libunwind8 sqlite3
+
+# COPY --from=build /out/*.node /ordhook-sdk-js/
+
+COPY --from=build /out/ordhook /bin/ordhook
 
 WORKDIR /workspace
 
 ENTRYPOINT ["ordhook"]
-
-# FROM debian:bullseye-slim
-
-# WORKDIR /ordhook-sdk-js
-
-# RUN apt-get update && apt-get install -y ca-certificates libssl-dev sqlite3 libunwind-dev libunwind8
-
-# # COPY --from=build /out/*.node /ordhook-sdk-js/
-
-# COPY --from=build /bin/ordhook /bin/ordhook
-
-# WORKDIR /workspace
-
-# ENTRYPOINT ["ordhook"]
