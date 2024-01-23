@@ -1091,11 +1091,6 @@ pub fn find_inscription_with_id(
         ));
     };
 
-    let Some(transfer_data) =
-        find_initial_inscription_transfer_data(&ordinal_number, db_conn, ctx)?
-    else {
-        return Err(format!("unable to retrieve location for {inscription_id}"));
-    };
     Ok(Some((
         TraversalResult {
             inscription_number,
@@ -1103,7 +1098,6 @@ pub fn find_inscription_with_id(
             inscription_input_index,
             transaction_identifier_inscription,
             transfers: 0,
-            transfer_data,
         },
         block_height,
     )))
@@ -1114,8 +1108,6 @@ pub fn find_all_inscriptions_in_block(
     inscriptions_db_tx: &Connection,
     ctx: &Context,
 ) -> BTreeMap<String, TraversalResult> {
-    let transfers_data = find_all_transfers_in_block(block_height, inscriptions_db_tx, ctx);
-
     let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
 
     let mut stmt = loop {
@@ -1155,26 +1147,12 @@ pub fn find_all_inscriptions_in_block(
                 let inscription_input_index: usize = row.get(4).unwrap();
                 let (transaction_identifier_inscription, _) =
                     { parse_inscription_id(&inscription_id) };
-                let Some(transfer_data) = transfers_data
-                    .get(&ordinal_number)
-                    .and_then(|entries| entries.first())
-                else {
-                    ctx.try_log(|logger| {
-                        error!(
-                            logger,
-                            "unable to retrieve inscription genesis transfer data: {}",
-                            inscription_id,
-                        )
-                    });
-                    continue;
-                };
                 let traversal = TraversalResult {
                     inscription_number,
                     ordinal_number,
                     inscription_input_index,
                     transfers: 0,
                     transaction_identifier_inscription: transaction_identifier_inscription.clone(),
-                    transfer_data: transfer_data.clone(),
                 };
                 results.insert(inscription_id, traversal);
             }
@@ -1333,7 +1311,6 @@ pub struct TraversalResult {
     pub transaction_identifier_inscription: TransactionIdentifier,
     pub ordinal_number: u64,
     pub transfers: u32,
-    pub transfer_data: TransferData,
 }
 
 impl TraversalResult {
