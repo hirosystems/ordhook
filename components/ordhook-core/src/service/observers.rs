@@ -35,7 +35,13 @@ pub fn update_observer_progress(
         "UPDATE observers SET last_block_height_update = ? WHERE uuid = ?",
         rusqlite::params![last_block_height_update, uuid],
     ) {
-        ctx.try_log(|logger| warn!(logger, "unable to query observers.sqlite: {}", e.to_string()));
+        ctx.try_log(|logger| {
+            warn!(
+                logger,
+                "unable to query observers.sqlite: {}",
+                e.to_string()
+            )
+        });
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
 }
@@ -50,7 +56,13 @@ pub fn update_observer_streaming_enabled(
         "UPDATE observers SET streaming_enabled = ? WHERE uuid = ?",
         rusqlite::params![streaming_enabled, uuid],
     ) {
-        ctx.try_log(|logger| warn!(logger, "unable to query observers.sqlite: {}", e.to_string()));
+        ctx.try_log(|logger| {
+            warn!(
+                logger,
+                "unable to query observers.sqlite: {}",
+                e.to_string()
+            )
+        });
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
 }
@@ -177,7 +189,13 @@ pub fn remove_entry_from_observers(uuid: &str, db_conn: &Connection, ctx: &Conte
         "DELETE FROM observers WHERE uuid = ?1",
         rusqlite::params![&uuid],
     ) {
-        ctx.try_log(|logger| warn!(logger, "unable to query observers.sqlite: {}", e.to_string()));
+        ctx.try_log(|logger| {
+            warn!(
+                logger,
+                "unable to query observers.sqlite: {}",
+                e.to_string()
+            )
+        });
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
 }

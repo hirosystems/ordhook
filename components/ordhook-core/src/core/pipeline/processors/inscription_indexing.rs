@@ -262,7 +262,7 @@ pub fn process_block(
     block: &mut BitcoinBlockData,
     next_blocks: &Vec<BitcoinBlockData>,
     sequence_cursor: &mut SequenceCursor,
-    cache_l1: &mut BTreeMap<(TransactionIdentifier, usize), TraversalResult>,
+    cache_l1: &mut BTreeMap<(TransactionIdentifier, usize, u64), TraversalResult>,
     cache_l2: &Arc<DashMap<(u32, [u8; 8]), TransactionBytesCursor, BuildHasherDefault<FxHasher>>>,
     inscriptions_db_tx: &Transaction,
     ordhook_config: &OrdhookConfig,

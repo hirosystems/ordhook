@@ -164,6 +164,8 @@ struct ScanTransactionCommand {
     pub block_height: u64,
     /// Inscription Id
     pub transaction_id: String,
+    /// Input index
+    pub input_index: usize,
     /// Target Regtest network
     #[clap(
         long = "regtest",
@@ -675,10 +677,11 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
             .await?;
             let transaction_identifier = TransactionIdentifier::new(&cmd.transaction_id);
             let cache = new_traversals_lazy_cache(100);
-            let (res, mut back_trace) = compute_satoshi_number(
+            let (res, _, mut back_trace) = compute_satoshi_number(
                 &config.get_ordhook_config().db_path,
                 &block.block_identifier,
                 &transaction_identifier,
+                cmd.input_index,
                 0,
                 &Arc::new(cache),
                 config.resources.ulimit,
@@ -687,8 +690,8 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 ctx,
             )?;
             back_trace.reverse();
-            for (block_height, tx) in back_trace.iter() {
-                println!("{}\t{}", block_height, hex::encode(tx));
+            for (block_height, tx, index) in back_trace.iter() {
+                println!("{}\t{}:{}", block_height, hex::encode(tx), index);
             }
             println!("{:?}", res);
         }
