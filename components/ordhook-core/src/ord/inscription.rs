@@ -1,3 +1,5 @@
+use std::io::Cursor;
+
 use chainhook_sdk::bitcoin::{hashes::Hash, Txid};
 
 use super::{inscription_id::InscriptionId, media::Media};
@@ -26,6 +28,7 @@ pub struct Inscription {
     pub parent: Option<Vec<u8>>,
     pub pointer: Option<Vec<u8>>,
     pub unrecognized_even_field: bool,
+    pub delegate: Option<Vec<u8>>,
 }
 
 impl Inscription {
@@ -157,6 +160,49 @@ impl Inscription {
 
     pub(crate) fn metaprotocol(&self) -> Option<&str> {
         str::from_utf8(self.metaprotocol.as_ref()?).ok()
+    }
+
+    fn inscription_id_field(field: &Option<Vec<u8>>) -> Option<InscriptionId> {
+        let value = field.as_ref()?;
+
+        if value.len() < Txid::LEN {
+            return None;
+        }
+
+        if value.len() > Txid::LEN + 4 {
+            return None;
+        }
+
+        let (txid, index) = value.split_at(Txid::LEN);
+
+        if let Some(last) = index.last() {
+            // Accept fixed length encoding with 4 bytes (with potential trailing zeroes)
+            // or variable length (no trailing zeroes)
+            if index.len() != 4 && *last == 0 {
+                return None;
+            }
+        }
+
+        let txid = Txid::from_slice(txid).unwrap();
+
+        let index = [
+            index.first().copied().unwrap_or(0),
+            index.get(1).copied().unwrap_or(0),
+            index.get(2).copied().unwrap_or(0),
+            index.get(3).copied().unwrap_or(0),
+        ];
+
+        let index = u32::from_le_bytes(index);
+
+        Some(InscriptionId { txid, index })
+    }
+
+    pub(crate) fn delegate(&self) -> Option<InscriptionId> {
+        Self::inscription_id_field(&self.delegate)
+    }
+
+    pub(crate) fn metadata(&self) -> Option<ciborium::Value> {
+        ciborium::from_reader(Cursor::new(self.metadata.as_ref()?)).ok()
     }
 
     pub(crate) fn parent(&self) -> Option<InscriptionId> {

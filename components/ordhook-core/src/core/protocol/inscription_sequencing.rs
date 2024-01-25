@@ -5,7 +5,7 @@ use std::{
 };
 
 use chainhook_sdk::{
-    bitcoincore_rpc_json::bitcoin::{Address, Network, ScriptBuf},
+    bitcoincore_rpc_json::bitcoin::Network,
     types::{
         BitcoinBlockData, BitcoinNetwork, BitcoinTransactionData, BlockIdentifier,
         OrdinalInscriptionCurseType, OrdinalInscriptionNumber,
@@ -930,7 +930,6 @@ pub fn consolidate_block_with_pre_computed_ordinals_data(
             let _ = augment_transaction_with_ordinals_transfers_data(
                 tx,
                 tx_index,
-                &block.block_identifier,
                 &network,
                 &coinbase_txid,
                 coinbase_subsidy,
