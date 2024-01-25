@@ -13,7 +13,7 @@ use chainhook_sdk::{
 };
 
 use crate::{
-    config::{Config, LogConfig},
+    config::{Config, LogConfig, ResourcesConfig},
     db::{find_pinned_block_bytes_at_block_height, open_ordhook_db_conn_rocks_db_loop},
 };
 
@@ -26,10 +26,7 @@ use crate::db::TransactionBytesCursor;
 
 #[derive(Clone, Debug)]
 pub struct OrdhookConfig {
-    pub network_thread_max: usize,
-    pub ingestion_thread_max: usize,
-    pub ingestion_thread_queue_size: usize,
-    pub cache_size: usize,
+    pub resources: ResourcesConfig,
     pub db_path: PathBuf,
     pub first_inscription_height: u64,
     pub logs: LogConfig,
@@ -64,6 +61,7 @@ pub fn compute_next_satpoint_data(
     offset_intra_input: u64,
     inputs: &Vec<u64>,
     outputs: &Vec<u64>,
+    pointer_from_inscription: u64,
 ) -> SatPosition {
     let mut offset_cross_inputs = 0;
     for (index, input_value) in inputs.iter().enumerate() {
@@ -73,6 +71,7 @@ pub fn compute_next_satpoint_data(
         offset_cross_inputs += input_value;
     }
     offset_cross_inputs += offset_intra_input;
+    offset_cross_inputs += pointer_from_inscription;
 
     let mut offset_intra_outputs = 0;
     let mut output_index = 0;
@@ -95,7 +94,13 @@ pub fn compute_next_satpoint_data(
 }
 
 pub fn should_sync_rocks_db(config: &Config, ctx: &Context) -> Result<Option<(u64, u64)>, String> {
-    let blocks_db = open_ordhook_db_conn_rocks_db_loop(true, &config.expected_cache_path(), &ctx);
+    let blocks_db = open_ordhook_db_conn_rocks_db_loop(
+        true,
+        &config.expected_cache_path(),
+        config.resources.ulimit,
+        config.resources.memory_available,
+        &ctx,
+    );
     let inscriptions_db_conn = open_readonly_ordhook_db_conn(&config.expected_cache_path(), &ctx)?;
     let last_compressed_block = find_last_block_inserted(&blocks_db) as u64;
     let last_indexed_block = match find_latest_inscription_block_height(&inscriptions_db_conn, ctx)?
@@ -128,7 +133,13 @@ pub fn should_sync_ordhook_db(
         }
     };
 
-    let blocks_db = open_ordhook_db_conn_rocks_db_loop(true, &config.expected_cache_path(), &ctx);
+    let blocks_db = open_ordhook_db_conn_rocks_db_loop(
+        true,
+        &config.expected_cache_path(),
+        config.resources.ulimit,
+        config.resources.memory_available,
+        &ctx,
+    );
     let mut start_block = find_last_block_inserted(&blocks_db) as u64;
 
     if start_block == 0 {
@@ -185,35 +196,35 @@ pub fn should_sync_ordhook_db(
 #[test]
 fn test_identify_next_output_index_destination() {
     assert_eq!(
-        compute_next_satpoint_data(0, 10, &vec![20, 30, 45], &vec![20, 30, 45]),
+        compute_next_satpoint_data(0, 10, &vec![20, 30, 45], &vec![20, 30, 45], 0),
         SatPosition::Output((0, 10))
     );
     assert_eq!(
-        compute_next_satpoint_data(0, 20, &vec![20, 30, 45], &vec![20, 30, 45]),
+        compute_next_satpoint_data(0, 20, &vec![20, 30, 45], &vec![20, 30, 45], 0),
         SatPosition::Output((1, 0))
     );
     assert_eq!(
-        compute_next_satpoint_data(1, 5, &vec![20, 30, 45], &vec![20, 30, 45]),
+        compute_next_satpoint_data(1, 5, &vec![20, 30, 45], &vec![20, 30, 45], 0),
         SatPosition::Output((1, 5))
     );
     assert_eq!(
-        compute_next_satpoint_data(1, 6, &vec![20, 30, 45], &vec![20, 5, 45]),
+        compute_next_satpoint_data(1, 6, &vec![20, 30, 45], &vec![20, 5, 45], 0),
         SatPosition::Output((2, 1))
     );
     assert_eq!(
-        compute_next_satpoint_data(1, 10, &vec![10, 10, 10], &vec![30]),
+        compute_next_satpoint_data(1, 10, &vec![10, 10, 10], &vec![30], 0),
         SatPosition::Output((0, 20))
     );
     assert_eq!(
-        compute_next_satpoint_data(0, 30, &vec![10, 10, 10], &vec![30]),
+        compute_next_satpoint_data(0, 30, &vec![10, 10, 10], &vec![30], 0),
         SatPosition::Fee(0)
     );
     assert_eq!(
-        compute_next_satpoint_data(0, 0, &vec![10, 10, 10], &vec![30]),
+        compute_next_satpoint_data(0, 0, &vec![10, 10, 10], &vec![30], 0),
         SatPosition::Output((0, 0))
     );
     assert_eq!(
-        compute_next_satpoint_data(2, 45, &vec![20, 30, 45], &vec![20, 30, 45]),
+        compute_next_satpoint_data(2, 45, &vec![20, 30, 45], &vec![20, 30, 45], 0),
         SatPosition::Fee(0)
     );
     assert_eq!(
@@ -221,7 +232,8 @@ fn test_identify_next_output_index_destination() {
             2,
             0,
             &vec![1000, 600, 546, 63034],
-            &vec![1600, 10000, 15000]
+            &vec![1600, 10000, 15000],
+            0
         ),
         SatPosition::Output((1, 0))
     );
@@ -230,7 +242,8 @@ fn test_identify_next_output_index_destination() {
             3,
             0,
             &vec![6100, 148660, 103143, 7600],
-            &vec![81434, 173995]
+            &vec![81434, 173995],
+            0
         ),
         SatPosition::Fee(2474)
     );

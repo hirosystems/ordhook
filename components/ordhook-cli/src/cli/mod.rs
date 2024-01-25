@@ -32,6 +32,7 @@ use ordhook::db::{
 use ordhook::download::download_ordinals_dataset_if_required;
 use ordhook::hex;
 use ordhook::scan::bitcoin::scan_bitcoin_chainstate_via_rpc_using_predicate;
+use ordhook::service::observers::initialize_observers_db;
 use ordhook::service::{start_observer_forwarding, Service};
 use reqwest::Client as HttpClient;
 use std::io::{BufReader, Read};
@@ -163,6 +164,8 @@ struct ScanTransactionCommand {
     pub block_height: u64,
     /// Inscription Id
     pub transaction_id: String,
+    /// Input index
+    pub input_index: usize,
     /// Target Regtest network
     #[clap(
         long = "regtest",
@@ -558,6 +561,9 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                     None,
                     cmd.auth_token,
                 )?;
+
+                let _ = initialize_observers_db(&config.expected_cache_path(), ctx);
+
                 scan_bitcoin_chainstate_via_rpc_using_predicate(
                     &predicate_spec,
                     &config,
@@ -575,15 +581,14 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 while let Some(block_height) = block_range.pop_front() {
                     let inscriptions =
                         find_all_inscriptions_in_block(&block_height, &inscriptions_db_conn, ctx);
-                    let mut locations =
+                    let locations =
                         find_all_transfers_in_block(&block_height, &inscriptions_db_conn, ctx);
 
                     let mut total_transfers_in_block = 0;
 
                     for (_, inscription) in inscriptions.iter() {
                         println!("Inscription {} revealed at block #{} (inscription_number {}, ordinal_number {})", inscription.get_inscription_id(), block_height, inscription.inscription_number.jubilee, inscription.ordinal_number);
-                        if let Some(transfers) = locations.remove(&inscription.get_inscription_id())
-                        {
+                        if let Some(transfers) = locations.get(&inscription.ordinal_number) {
                             for t in transfers.iter().skip(1) {
                                 total_transfers_in_block += 1;
                                 println!(
@@ -672,18 +677,21 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
             .await?;
             let transaction_identifier = TransactionIdentifier::new(&cmd.transaction_id);
             let cache = new_traversals_lazy_cache(100);
-            let (res, mut back_trace) = compute_satoshi_number(
+            let (res, _, mut back_trace) = compute_satoshi_number(
                 &config.get_ordhook_config().db_path,
                 &block.block_identifier,
                 &transaction_identifier,
+                cmd.input_index,
                 0,
                 &Arc::new(cache),
+                config.resources.ulimit,
+                config.resources.memory_available,
                 true,
                 ctx,
             )?;
             back_trace.reverse();
-            for (block_height, tx) in back_trace.iter() {
-                println!("{}\t{}", block_height, hex::encode(tx));
+            for (block_height, tx, index) in back_trace.iter() {
+                println!("{}\t{}:{}", block_height, hex::encode(tx), index);
             }
             println!("{:?}", res);
         }
@@ -707,7 +715,13 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 let last_known_block =
                     find_latest_inscription_block_height(&inscriptions_db_conn, ctx)?;
                 if last_known_block.is_none() {
-                    open_ordhook_db_conn_rocks_db_loop(true, &config.expected_cache_path(), ctx);
+                    open_ordhook_db_conn_rocks_db_loop(
+                        true,
+                        &config.expected_cache_path(),
+                        config.resources.ulimit,
+                        config.resources.memory_available,
+                        ctx,
+                    );
                 }
 
                 let ordhook_config = config.get_ordhook_config();
@@ -766,7 +780,13 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
         Command::Db(OrdhookDbCommand::New(cmd)) => {
             let config = ConfigFile::default(false, false, false, &cmd.config_path)?;
             initialize_ordhook_db(&config.expected_cache_path(), ctx);
-            open_ordhook_db_conn_rocks_db_loop(true, &config.expected_cache_path(), ctx);
+            open_ordhook_db_conn_rocks_db_loop(
+                true,
+                &config.expected_cache_path(),
+                config.resources.ulimit,
+                config.resources.memory_available,
+                ctx,
+            );
         }
         Command::Db(OrdhookDbCommand::Sync(cmd)) => {
             let config = ConfigFile::default(false, false, false, &cmd.config_path)?;
@@ -779,10 +799,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 let config = ConfigFile::default(false, false, false, &cmd.config_path)?;
                 let mut ordhook_config = config.get_ordhook_config();
                 if let Some(network_threads) = cmd.network_threads {
-                    ordhook_config.network_thread_max = network_threads;
-                }
-                if let Some(network_threads) = cmd.network_threads {
-                    ordhook_config.network_thread_max = network_threads;
+                    ordhook_config.resources.bitcoind_rpc_threads = network_threads;
                 }
                 let blocks = cmd.get_blocks();
                 let block_ingestion_processor =
@@ -800,6 +817,8 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                     let blocks_db = open_ordhook_db_conn_rocks_db_loop(
                         false,
                         &config.get_ordhook_config().db_path,
+                        config.resources.ulimit,
+                        config.resources.memory_available,
                         ctx,
                     );
                     for i in cmd.get_blocks().into_iter() {
@@ -819,7 +838,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 let config = ConfigFile::default(false, false, false, &cmd.config_path)?;
                 let mut ordhook_config = config.get_ordhook_config();
                 if let Some(network_threads) = cmd.network_threads {
-                    ordhook_config.network_thread_max = network_threads;
+                    ordhook_config.resources.bitcoind_rpc_threads = network_threads;
                 }
                 let block_post_processor = match cmd.repair_observers {
                     Some(true) => {
@@ -870,8 +889,12 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
         Command::Db(OrdhookDbCommand::Check(cmd)) => {
             let config = ConfigFile::default(false, false, false, &cmd.config_path)?;
             {
-                let blocks_db =
-                    open_readonly_ordhook_db_conn_rocks_db(&config.expected_cache_path(), ctx)?;
+                let blocks_db = open_readonly_ordhook_db_conn_rocks_db(
+                    &config.expected_cache_path(),
+                    config.resources.ulimit,
+                    config.resources.memory_available,
+                    ctx,
+                )?;
                 let tip = find_last_block_inserted(&blocks_db);
                 println!("Tip: {}", tip);
                 let missing_blocks = find_missing_blocks(&blocks_db, 1, tip, ctx);
@@ -880,8 +903,13 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
         }
         Command::Db(OrdhookDbCommand::Drop(cmd)) => {
             let config = ConfigFile::default(false, false, false, &cmd.config_path)?;
-            let blocks_db =
-                open_ordhook_db_conn_rocks_db_loop(true, &config.expected_cache_path(), ctx);
+            let blocks_db = open_ordhook_db_conn_rocks_db_loop(
+                true,
+                &config.expected_cache_path(),
+                config.resources.ulimit,
+                config.resources.memory_available,
+                ctx,
+            );
             let inscriptions_db_conn_rw =
                 open_readwrite_ordhook_db_conn(&config.expected_cache_path(), ctx)?;
 

@@ -104,7 +104,7 @@ pub fn initialize_ordhook_db(base_dir: &PathBuf, ctx: &Context) -> Connection {
     }
     if let Err(e) = conn.execute(
         "CREATE TABLE IF NOT EXISTS locations (
-            inscription_id TEXT NOT NULL,
+            ordinal_number INTEGER NOT NULL,
             block_height INTEGER NOT NULL,
             tx_index INTEGER NOT NULL,
             outpoint_to_watch TEXT NOT NULL,
@@ -133,7 +133,7 @@ pub fn initialize_ordhook_db(base_dir: &PathBuf, ctx: &Context) -> Connection {
             ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
         }
         if let Err(e) = conn.execute(
-            "CREATE INDEX IF NOT EXISTS locations_indexed_on_inscription_id ON locations(inscription_id);",
+            "CREATE INDEX IF NOT EXISTS locations_indexed_on_ordinal_number ON locations(ordinal_number);",
             [],
         ) {
             ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
@@ -248,7 +248,7 @@ fn get_default_ordhook_db_file_path_rocks_db(base_dir: &PathBuf) -> PathBuf {
     destination_path
 }
 
-fn rocks_db_default_options() -> rocksdb::Options {
+fn rocks_db_default_options(ulimit: usize, memory_available: usize) -> rocksdb::Options {
     let mut opts = rocksdb::Options::default();
     // Per rocksdb's documentation:
     // If cache_index_and_filter_blocks is false (which is default),
@@ -262,8 +262,12 @@ fn rocks_db_default_options() -> rocksdb::Options {
     // opts.set_write_buffer_size(64 * 1024 * 1024);
     // opts.set_blob_file_size(1 * 1024 * 1024 * 1024);
     // opts.set_target_file_size_base(64 * 1024 * 1024);
-    opts.set_max_open_files(2048);
+    opts.set_max_open_files(ulimit as i32);
     opts.create_if_missing(true);
+    // opts.set_allow_mmap_reads(true);
+
+    // set_arena_block_size
+
     // opts.optimize_for_point_lookup(1 * 1024 * 1024 * 1024);
     // opts.set_level_zero_stop_writes_trigger(64);
     // opts.set_level_zero_slowdown_writes_trigger(20);
@@ -279,10 +283,12 @@ fn rocks_db_default_options() -> rocksdb::Options {
 
 pub fn open_readonly_ordhook_db_conn_rocks_db(
     base_dir: &PathBuf,
+    ulimit: usize,
+    memory_available: usize,
     _ctx: &Context,
 ) -> Result<DB, String> {
     let path = get_default_ordhook_db_file_path_rocks_db(&base_dir);
-    let mut opts = rocks_db_default_options();
+    let mut opts = rocks_db_default_options(ulimit, memory_available);
     opts.set_disable_auto_compactions(true);
     opts.set_max_background_jobs(0);
     let db = DB::open_for_read_only(&opts, path, false)
@@ -293,14 +299,16 @@ pub fn open_readonly_ordhook_db_conn_rocks_db(
 pub fn open_ordhook_db_conn_rocks_db_loop(
     readwrite: bool,
     base_dir: &PathBuf,
+    ulimit: usize,
+    memory_available: usize,
     ctx: &Context,
 ) -> DB {
     let mut retries = 0;
     let blocks_db = loop {
         let res = if readwrite {
-            open_readwrite_ordhook_db_conn_rocks_db(&base_dir, &ctx)
+            open_readwrite_ordhook_db_conn_rocks_db(&base_dir, ulimit, memory_available, &ctx)
         } else {
-            open_readonly_ordhook_db_conn_rocks_db(&base_dir, &ctx)
+            open_readonly_ordhook_db_conn_rocks_db(&base_dir, ulimit, memory_available, &ctx)
         };
         match res {
             Ok(db) => break db,
@@ -323,19 +331,24 @@ pub fn open_ordhook_db_conn_rocks_db_loop(
 
 pub fn open_readwrite_ordhook_dbs(
     base_dir: &PathBuf,
+    ulimit: usize,
+    memory_available: usize,
     ctx: &Context,
 ) -> Result<(DB, Connection), String> {
-    let blocks_db = open_ordhook_db_conn_rocks_db_loop(true, &base_dir, &ctx);
+    let blocks_db =
+        open_ordhook_db_conn_rocks_db_loop(true, &base_dir, ulimit, memory_available, &ctx);
     let inscriptions_db = open_readwrite_ordhook_db_conn(&base_dir, &ctx)?;
     Ok((blocks_db, inscriptions_db))
 }
 
 fn open_readwrite_ordhook_db_conn_rocks_db(
     base_dir: &PathBuf,
+    ulimit: usize,
+    memory_available: usize,
     _ctx: &Context,
 ) -> Result<DB, String> {
     let path = get_default_ordhook_db_file_path_rocks_db(&base_dir);
-    let opts = rocks_db_default_options();
+    let opts = rocks_db_default_options(ulimit, memory_available);
     let db = DB::open(&opts, path)
         .map_err(|e| format!("unable to read-write hord.rocksdb: {}", e.to_string()))?;
     Ok(db)
@@ -396,7 +409,6 @@ pub fn find_pinned_block_bytes_at_block_height<'a>(
     // read_options.set_verify_checksums(false);
     let mut backoff: f64 = 1.0;
     let mut rng = thread_rng();
-
     loop {
         match blocks_db.get_pinned(block_height.to_be_bytes()) {
             Ok(Some(res)) => return Some(res),
@@ -515,8 +527,8 @@ pub fn insert_inscription_in_locations(
         parse_satpoint_to_watch(&inscription_data.satpoint_post_inscription);
     let outpoint_to_watch = format_outpoint_to_watch(&tx, output_index);
     while let Err(e) = inscriptions_db_conn_rw.execute(
-        "INSERT INTO locations (inscription_id, outpoint_to_watch, offset, block_height, tx_index) VALUES (?1, ?2, ?3, ?4, ?5)",
-        rusqlite::params![&inscription_data.inscription_id, &outpoint_to_watch, offset, &block_identifier.index, &inscription_data.tx_index],
+        "INSERT INTO locations (ordinal_number, outpoint_to_watch, offset, block_height, tx_index) VALUES (?1, ?2, ?3, ?4, ?5)",
+        rusqlite::params![&inscription_data.ordinal_number, &outpoint_to_watch, offset, &block_identifier.index, &inscription_data.tx_index],
     ) {
         ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
         std::thread::sleep(std::time::Duration::from_secs(1));
@@ -622,8 +634,8 @@ pub fn insert_transfer_in_locations_tx(
     let (tx, output_index, offset) = parse_satpoint_to_watch(&transfer_data.satpoint_post_transfer);
     let outpoint_to_watch = format_outpoint_to_watch(&tx, output_index);
     while let Err(e) = inscriptions_db_conn_rw.execute(
-        "INSERT INTO locations (inscription_id, outpoint_to_watch, offset, block_height, tx_index) VALUES (?1, ?2, ?3, ?4, ?5)",
-        rusqlite::params![&transfer_data.inscription_id, &outpoint_to_watch, offset, &block_identifier.index, &transfer_data.tx_index],
+        "INSERT INTO locations (ordinal_number, outpoint_to_watch, offset, block_height, tx_index) VALUES (?1, ?2, ?3, ?4, ?5)",
+        rusqlite::params![&transfer_data.ordinal_number, &outpoint_to_watch, offset, &block_identifier.index, &transfer_data.tx_index],
     ) {
         ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
         std::thread::sleep(std::time::Duration::from_secs(1));
@@ -639,8 +651,8 @@ pub fn insert_transfer_in_locations(
     let (tx, output_index, offset) = parse_satpoint_to_watch(&transfer_data.satpoint_post_transfer);
     let outpoint_to_watch = format_outpoint_to_watch(&tx, output_index);
     while let Err(e) = inscriptions_db_conn_rw.execute(
-        "INSERT INTO locations (inscription_id, outpoint_to_watch, offset, block_height, tx_index) VALUES (?1, ?2, ?3, ?4, ?5)",
-        rusqlite::params![&transfer_data.inscription_id, &outpoint_to_watch, offset, &block_identifier.index, &transfer_data.tx_index],
+        "INSERT INTO locations (ordinal_number, outpoint_to_watch, offset, block_height, tx_index) VALUES (?1, ?2, ?3, ?4, ?5)",
+        rusqlite::params![&transfer_data.ordinal_number, &outpoint_to_watch, offset, &block_identifier.index, &transfer_data.tx_index],
     ) {
         ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
         std::thread::sleep(std::time::Duration::from_secs(1));
@@ -777,12 +789,12 @@ pub fn find_latest_inscription_block_height(
 }
 
 pub fn find_initial_inscription_transfer_data(
-    inscription_id: &str,
+    ordinal_number: &u64,
     db_conn: &Connection,
     ctx: &Context,
 ) -> Result<Option<TransferData>, String> {
-    let args: &[&dyn ToSql] = &[&inscription_id.to_sql().unwrap()];
-    let query = "SELECT outpoint_to_watch, offset, tx_index FROM locations WHERE inscription_id = ? ORDER BY block_height ASC, tx_index ASC LIMIT 1";
+    let args: &[&dyn ToSql] = &[&ordinal_number.to_sql().unwrap()];
+    let query = "SELECT outpoint_to_watch, offset, tx_index FROM locations WHERE ordinal_number = ? ORDER BY block_height ASC, tx_index ASC LIMIT 1";
     let entry = perform_query_one(query, args, db_conn, ctx, |row| {
         let outpoint_to_watch: String = row.get(0).unwrap();
         let (transaction_identifier_location, output_index) =
@@ -800,12 +812,12 @@ pub fn find_initial_inscription_transfer_data(
 }
 
 pub fn find_latest_inscription_transfer_data(
-    inscription_id: &str,
+    ordinal_number: &u64,
     db_conn: &Connection,
     ctx: &Context,
 ) -> Result<Option<TransferData>, String> {
-    let args: &[&dyn ToSql] = &[&inscription_id.to_sql().unwrap()];
-    let query = "SELECT outpoint_to_watch, offset, tx_index FROM locations WHERE inscription_id = ? ORDER BY block_height DESC, tx_index DESC LIMIT 1";
+    let args: &[&dyn ToSql] = &[&ordinal_number.to_sql().unwrap()];
+    let query = "SELECT outpoint_to_watch, offset, tx_index FROM locations WHERE ordinal_number = ? ORDER BY block_height DESC, tx_index DESC LIMIT 1";
     let entry = perform_query_one(query, args, db_conn, ctx, |row| {
         let outpoint_to_watch: String = row.get(0).unwrap();
         let (transaction_identifier_location, output_index) =
@@ -844,11 +856,11 @@ pub fn find_all_transfers_in_block(
     block_height: &u64,
     db_conn: &Connection,
     ctx: &Context,
-) -> BTreeMap<String, Vec<TransferData>> {
+) -> BTreeMap<u64, Vec<TransferData>> {
     let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
 
     let mut stmt = loop {
-        match db_conn.prepare("SELECT inscription_id, offset, outpoint_to_watch, tx_index FROM locations WHERE block_height = ? ORDER BY tx_index ASC")
+        match db_conn.prepare("SELECT ordinal_number, offset, outpoint_to_watch, tx_index FROM locations WHERE block_height = ? ORDER BY tx_index ASC")
         {
             Ok(stmt) => break stmt,
             Err(e) => {
@@ -860,7 +872,7 @@ pub fn find_all_transfers_in_block(
         }
     };
 
-    let mut results: BTreeMap<String, Vec<TransferData>> = BTreeMap::new();
+    let mut results: BTreeMap<u64, Vec<TransferData>> = BTreeMap::new();
     let mut rows = loop {
         match stmt.query(args) {
             Ok(rows) => break rows,
@@ -875,7 +887,7 @@ pub fn find_all_transfers_in_block(
     loop {
         match rows.next() {
             Ok(Some(row)) => {
-                let inscription_id: String = row.get(0).unwrap();
+                let ordinal_number: u64 = row.get(0).unwrap();
                 let inscription_offset_intra_output: u64 = row.get(1).unwrap();
                 let outpoint_to_watch: String = row.get(2).unwrap();
                 let tx_index: u64 = row.get(3).unwrap();
@@ -888,7 +900,7 @@ pub fn find_all_transfers_in_block(
                     tx_index,
                 };
                 results
-                    .entry(inscription_id)
+                    .entry(ordinal_number)
                     .and_modify(|v| v.push(transfer.clone()))
                     .or_insert(vec![transfer]);
             }
@@ -1046,10 +1058,6 @@ pub fn find_inscription_with_id(
     db_conn: &Connection,
     ctx: &Context,
 ) -> Result<Option<(TraversalResult, u64)>, String> {
-    let Some(transfer_data) = find_initial_inscription_transfer_data(inscription_id, db_conn, ctx)?
-    else {
-        return Err(format!("unable to retrieve location for {inscription_id}"));
-    };
     let args: &[&dyn ToSql] = &[&inscription_id.to_sql().unwrap()];
     let query = "SELECT classic_inscription_number, jubilee_inscription_number, ordinal_number, block_height, input_index FROM inscriptions WHERE inscription_id = ?";
     let entry = perform_query_one(query, args, db_conn, ctx, move |row| {
@@ -1069,27 +1077,30 @@ pub fn find_inscription_with_id(
             block_height,
         )
     });
-    Ok(entry.map(
-        |(
+
+    let Some((
+        inscription_number,
+        ordinal_number,
+        inscription_input_index,
+        transaction_identifier_inscription,
+        block_height,
+    )) = entry
+    else {
+        return Err(format!(
+            "unable to retrieve inscription for {inscription_id}"
+        ));
+    };
+
+    Ok(Some((
+        TraversalResult {
             inscription_number,
             ordinal_number,
             inscription_input_index,
             transaction_identifier_inscription,
-            block_height,
-        )| {
-            (
-                TraversalResult {
-                    inscription_number,
-                    ordinal_number,
-                    inscription_input_index,
-                    transaction_identifier_inscription,
-                    transfers: 0,
-                    transfer_data,
-                },
-                block_height,
-            )
+            transfers: 0,
         },
-    ))
+        block_height,
+    )))
 }
 
 pub fn find_all_inscriptions_in_block(
@@ -1097,8 +1108,6 @@ pub fn find_all_inscriptions_in_block(
     inscriptions_db_tx: &Connection,
     ctx: &Context,
 ) -> BTreeMap<String, TraversalResult> {
-    let transfers_data = find_all_transfers_in_block(block_height, inscriptions_db_tx, ctx);
-
     let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
 
     let mut stmt = loop {
@@ -1138,26 +1147,12 @@ pub fn find_all_inscriptions_in_block(
                 let inscription_input_index: usize = row.get(4).unwrap();
                 let (transaction_identifier_inscription, _) =
                     { parse_inscription_id(&inscription_id) };
-                let Some(transfer_data) = transfers_data
-                    .get(&inscription_id)
-                    .and_then(|entries| entries.first())
-                else {
-                    ctx.try_log(|logger| {
-                        error!(
-                            logger,
-                            "unable to retrieve inscription genesis transfer data: {}",
-                            inscription_id,
-                        )
-                    });
-                    continue;
-                };
                 let traversal = TraversalResult {
                     inscription_number,
                     ordinal_number,
                     inscription_input_index,
                     transfers: 0,
                     transaction_identifier_inscription: transaction_identifier_inscription.clone(),
-                    transfer_data: transfer_data.clone(),
                 };
                 results.insert(inscription_id, traversal);
             }
@@ -1175,29 +1170,8 @@ pub fn find_all_inscriptions_in_block(
 
 #[derive(Clone, Debug)]
 pub struct WatchedSatpoint {
-    pub inscription_id: String,
+    pub ordinal_number: u64,
     pub offset: u64,
-}
-
-pub fn find_watched_satpoint_for_inscription(
-    inscription_id: &str,
-    db_conn: &Connection,
-    ctx: &Context,
-) -> Option<(u64, WatchedSatpoint)> {
-    let args: &[&dyn ToSql] = &[&inscription_id.to_sql().unwrap()];
-    let query = "SELECT inscription_id, offset, block_height FROM locations WHERE inscription_id = ? ORDER BY offset ASC";
-    perform_query_one(query, args, db_conn, ctx, |row| {
-        let inscription_id: String = row.get(0).unwrap();
-        let offset: u64 = row.get(1).unwrap();
-        let block_height: u64 = row.get(2).unwrap();
-        (
-            block_height,
-            WatchedSatpoint {
-                inscription_id,
-                offset,
-            },
-        )
-    })
 }
 
 pub fn find_inscriptions_at_wached_outpoint(
@@ -1206,12 +1180,12 @@ pub fn find_inscriptions_at_wached_outpoint(
     ctx: &Context,
 ) -> Vec<WatchedSatpoint> {
     let args: &[&dyn ToSql] = &[&outpoint.to_sql().unwrap()];
-    let query = "SELECT inscription_id, offset FROM locations WHERE outpoint_to_watch = ? ORDER BY offset ASC";
+    let query = "SELECT ordinal_number, offset FROM locations WHERE outpoint_to_watch = ? ORDER BY offset ASC";
     perform_query_set(query, args, db_conn, ctx, |row| {
-        let inscription_id: String = row.get(0).unwrap();
+        let ordinal_number: u64 = row.get(0).unwrap();
         let offset: u64 = row.get(1).unwrap();
         WatchedSatpoint {
-            inscription_id,
+            ordinal_number,
             offset,
         }
     })
@@ -1337,7 +1311,6 @@ pub struct TraversalResult {
     pub transaction_identifier_inscription: TransactionIdentifier,
     pub ordinal_number: u64,
     pub transfers: u32,
-    pub transfer_data: TransferData,
 }
 
 impl TraversalResult {

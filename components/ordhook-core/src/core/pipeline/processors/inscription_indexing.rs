@@ -107,6 +107,8 @@ pub fn start_inscription_indexing_processor(
                     let blocks_db_rw = open_ordhook_db_conn_rocks_db_loop(
                         true,
                         &config.expected_cache_path(),
+                        config.resources.ulimit,
+                        config.resources.memory_available,
                         &ctx,
                     );
                     store_compacted_blocks(
@@ -260,7 +262,7 @@ pub fn process_block(
     block: &mut BitcoinBlockData,
     next_blocks: &Vec<BitcoinBlockData>,
     sequence_cursor: &mut SequenceCursor,
-    cache_l1: &mut BTreeMap<(TransactionIdentifier, usize), TraversalResult>,
+    cache_l1: &mut BTreeMap<(TransactionIdentifier, usize, u64), TraversalResult>,
     cache_l2: &Arc<DashMap<(u32, [u8; 8]), TransactionBytesCursor, BuildHasherDefault<FxHasher>>>,
     inscriptions_db_tx: &Transaction,
     ordhook_config: &OrdhookConfig,

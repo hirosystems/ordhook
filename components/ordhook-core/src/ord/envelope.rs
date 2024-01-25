@@ -25,6 +25,7 @@ pub const PARENT_TAG: [u8; 1] = [3];
 pub const METADATA_TAG: [u8; 1] = [5];
 pub const METAPROTOCOL_TAG: [u8; 1] = [7];
 pub const CONTENT_ENCODING_TAG: [u8; 1] = [9];
+pub const DELEGATE_TAG: [u8; 1] = [11];
 
 type Result<T> = std::result::Result<T, script::Error>;
 pub type RawEnvelope = Envelope<Vec<Vec<u8>>>;
@@ -91,6 +92,7 @@ impl From<RawEnvelope> for ParsedEnvelope {
 
         let content_encoding = remove_field(&mut fields, &CONTENT_ENCODING_TAG);
         let content_type = remove_field(&mut fields, &CONTENT_TYPE_TAG);
+        let delegate = remove_field(&mut fields, &DELEGATE_TAG);
         let metadata = remove_and_concatenate_field(&mut fields, &METADATA_TAG);
         let metaprotocol = remove_field(&mut fields, &METAPROTOCOL_TAG);
         let parent = remove_field(&mut fields, &PARENT_TAG);
@@ -109,13 +111,14 @@ impl From<RawEnvelope> for ParsedEnvelope {
                         .cloned()
                         .collect()
                 }),
+                metaprotocol,
+                parent,
+                delegate,
                 content_encoding,
                 content_type,
                 duplicate_field,
                 incomplete_field,
                 metadata,
-                metaprotocol,
-                parent,
                 pointer,
                 unrecognized_even_field,
             },
@@ -476,25 +479,6 @@ mod tests {
     }
 
     #[test]
-    fn with_unknown_tag() {
-        assert_eq!(
-            parse(&[envelope(&[
-                b"ord",
-                &[1],
-                b"text/plain;charset=utf-8",
-                &[11],
-                b"bar",
-                &[],
-                b"ord",
-            ])]),
-            vec![ParsedEnvelope {
-                payload: inscription("text/plain;charset=utf-8", "ord"),
-                ..Default::default()
-            }]
-        );
-    }
-
-    #[test]
     fn no_body() {
         assert_eq!(
             parse(&[envelope(&[b"ord", &[1], b"text/plain;charset=utf-8"])]),
@@ -802,17 +786,6 @@ mod tests {
 
         assert_eq!(
             parse(&[witness]),
-            vec![ParsedEnvelope {
-                payload: Inscription::default(),
-                ..Default::default()
-            }],
-        );
-    }
-
-    #[test]
-    fn unknown_odd_fields_are_ignored() {
-        assert_eq!(
-            parse(&[envelope(&[b"ord", &[11], &[0]])]),
             vec![ParsedEnvelope {
                 payload: Inscription::default(),
                 ..Default::default()
