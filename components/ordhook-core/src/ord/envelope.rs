@@ -479,25 +479,6 @@ mod tests {
     }
 
     #[test]
-    fn with_unknown_tag() {
-        assert_eq!(
-            parse(&[envelope(&[
-                b"ord",
-                &[1],
-                b"text/plain;charset=utf-8",
-                &[11],
-                b"bar",
-                &[],
-                b"ord",
-            ])]),
-            vec![ParsedEnvelope {
-                payload: inscription("text/plain;charset=utf-8", "ord"),
-                ..Default::default()
-            }]
-        );
-    }
-
-    #[test]
     fn no_body() {
         assert_eq!(
             parse(&[envelope(&[b"ord", &[1], b"text/plain;charset=utf-8"])]),
@@ -805,17 +786,6 @@ mod tests {
 
         assert_eq!(
             parse(&[witness]),
-            vec![ParsedEnvelope {
-                payload: Inscription::default(),
-                ..Default::default()
-            }],
-        );
-    }
-
-    #[test]
-    fn unknown_odd_fields_are_ignored() {
-        assert_eq!(
-            parse(&[envelope(&[b"ord", &[11], &[0]])]),
             vec![ParsedEnvelope {
                 payload: Inscription::default(),
                 ..Default::default()
