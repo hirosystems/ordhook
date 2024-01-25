@@ -39,7 +39,13 @@ pub fn compute_satoshi_number(
     {
         Some(entry) => {
             let tx = entry.value();
-            ((tx.inputs[inscription_input_index].txin.clone(), tx.inputs[inscription_input_index].vout.into()), tx.inputs[inscription_input_index].block_height)
+            (
+                (
+                    tx.inputs[inscription_input_index].txin.clone(),
+                    tx.inputs[inscription_input_index].vout.into(),
+                ),
+                tx.inputs[inscription_input_index].block_height,
+            )
         }
         None => loop {
             match find_pinned_block_bytes_at_block_height(ordinal_block_number, 3, &blocks_db, &ctx)
@@ -51,7 +57,13 @@ pub fn compute_satoshi_number(
                     let cursor = BlockBytesCursor::new(&block_bytes.as_ref());
                     match cursor.find_and_serialize_transaction_with_txid(&txid) {
                         Some(tx) => {
-                            break ((tx.inputs[inscription_input_index].txin.clone(), tx.inputs[inscription_input_index].vout.into()), tx.inputs[inscription_input_index].block_height);
+                            break (
+                                (
+                                    tx.inputs[inscription_input_index].txin.clone(),
+                                    tx.inputs[inscription_input_index].vout.into(),
+                                ),
+                                tx.inputs[inscription_input_index].block_height,
+                            );
                         }
                         None => return Err(format!("txid not in block #{ordinal_block_number}")),
                     }
@@ -199,7 +211,8 @@ pub fn compute_satoshi_number(
             }
         } else {
             // isolate the target transaction
-            let tx_bytes_cursor = match block_cursor.find_and_serialize_transaction_with_txid(&txid) {
+            let tx_bytes_cursor = match block_cursor.find_and_serialize_transaction_with_txid(&txid)
+            {
                 Some(entry) => entry,
                 None => {
                     ctx.try_log(|logger| {
@@ -229,7 +242,8 @@ pub fn compute_satoshi_number(
 
                 if sats_out < sats_in {
                     back_track.push((ordinal_block_number, tx_cursor.0.clone(), tx_cursor.1));
-                    traversals_cache.insert((ordinal_block_number, tx_cursor.0), tx_bytes_cursor.clone());
+                    traversals_cache
+                        .insert((ordinal_block_number, tx_cursor.0), tx_bytes_cursor.clone());
                     ordinal_offset = sats_out - (sats_in - input.txin_value);
                     ordinal_block_number = input.block_height;
                     tx_cursor = (input.txin.clone(), input.vout as usize);

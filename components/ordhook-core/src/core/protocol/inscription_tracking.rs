@@ -1,9 +1,8 @@
 use chainhook_sdk::{
     bitcoincore_rpc_json::bitcoin::{Address, Network, ScriptBuf},
     types::{
-        BitcoinBlockData, BitcoinNetwork, BitcoinTransactionData, BlockIdentifier,
-        OrdinalInscriptionTransferData, OrdinalInscriptionTransferDestination, OrdinalOperation,
-        TransactionIdentifier,
+        BitcoinBlockData, BitcoinNetwork, BitcoinTransactionData, OrdinalInscriptionTransferData,
+        OrdinalInscriptionTransferDestination, OrdinalOperation, TransactionIdentifier,
     },
     utils::Context,
 };
@@ -40,7 +39,6 @@ pub fn augment_block_with_ordinals_transfer_data(
         let transfers = augment_transaction_with_ordinals_transfers_data(
             tx,
             tx_index,
-            &block.block_identifier,
             &network,
             &coinbase_txid,
             coinbase_subsidy,
@@ -150,7 +148,6 @@ pub fn compute_satpoint_post_transfer(
 pub fn augment_transaction_with_ordinals_transfers_data(
     tx: &mut BitcoinTransactionData,
     tx_index: usize,
-    block_identifier: &BlockIdentifier,
     network: &Network,
     coinbase_txid: &TransactionIdentifier,
     coinbase_subsidy: u64,
