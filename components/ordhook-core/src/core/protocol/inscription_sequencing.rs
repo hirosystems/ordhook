@@ -757,23 +757,26 @@ fn augment_transaction_with_ordinals_inscriptions_data(
 
         // Compute satpoint_post_inscription
         inscription.satpoint_post_inscription = satpoint_post_transfer;
+        inscription_subindex += 1;
 
         match destination {
-            OrdinalInscriptionTransferDestination::SpentInFees => {}
+            OrdinalInscriptionTransferDestination::SpentInFees => {
+                // Inscriptions are assigned inscription numbers starting at zero, first by the
+                // order reveal transactions appear in blocks, and the order that reveal envelopes
+                // appear in those transactions.                
+                // Due to a historical bug in `ord` which cannot be fixed without changing a great
+                // many inscription numbers, inscriptions which are revealed and then immediately
+                // spent to fees are numbered as if they appear last in the block in which they
+                // are revealed.
+                sats_overflows.push_back((tx_index, op_index));
+                continue;
+            }
             OrdinalInscriptionTransferDestination::Burnt(_) => {}
             OrdinalInscriptionTransferDestination::Transferred(address) => {
                 inscription.inscription_output_value = output_value.unwrap_or(0);
                 inscription.inscriber_address = Some(address);
             }
         };
-
-        if traversal.ordinal_number == 0 {
-            // If the satoshi inscribed correspond to a sat overflow, we will store the inscription
-            // and assign an inscription number after the other inscriptions, to mimick the
-            // bug in ord.
-            sats_overflows.push_back((tx_index, op_index));
-            continue;
-        }
 
         // The reinscriptions_data needs to be augmented as we go, to handle transaction chaining.
         if !is_cursed {
@@ -798,7 +801,6 @@ fn augment_transaction_with_ordinals_inscriptions_data(
         } else {
             sequence_cursor.increment_pos_classic(ctx);
         }
-        inscription_subindex += 1;
     }
     tx.metadata
         .ordinal_operations
