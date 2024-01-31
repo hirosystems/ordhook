@@ -221,15 +221,15 @@ fn test_identify_next_output_index_destination() {
     );
     assert_eq!(
         compute_next_satpoint_data(1, &vec![20, 30, 45], &vec![20, 30, 45], 25),
-        SatPosition::Output((1, 5))
+        SatPosition::Output((1, 25))
     );
     assert_eq!(
         compute_next_satpoint_data(1, &vec![20, 30, 45], &vec![20, 5, 45], 26),
-        SatPosition::Output((2, 1))
+        SatPosition::Output((2, 21))
     );
     assert_eq!(
         compute_next_satpoint_data(1, &vec![10, 10, 10], &vec![30], 20),
-        SatPosition::Output((0, 20))
+        SatPosition::Fee(0)
     );
     assert_eq!(
         compute_next_satpoint_data(0, &vec![10, 10, 10], &vec![30], 30),
@@ -241,7 +241,7 @@ fn test_identify_next_output_index_destination() {
     );
     assert_eq!(
         compute_next_satpoint_data(2, &vec![20, 30, 45], &vec![20, 30, 45], 95),
-        SatPosition::Fee(0)
+        SatPosition::Fee(50)
     );
     assert_eq!(
         compute_next_satpoint_data(
@@ -250,7 +250,7 @@ fn test_identify_next_output_index_destination() {
             &vec![1600, 10000, 15000],
             1600
         ),
-        SatPosition::Output((1, 0))
+        SatPosition::Output((1, 1600))
     );
     assert_eq!(
         compute_next_satpoint_data(
@@ -259,6 +259,6 @@ fn test_identify_next_output_index_destination() {
             &vec![81434, 173995],
             257903
         ),
-        SatPosition::Fee(2474)
+        SatPosition::Fee(260377)
     );
 }

@@ -67,7 +67,7 @@ pub fn augment_block_with_ordinals_transfer_data(
 pub fn compute_satpoint_post_transfer(
     tx: &BitcoinTransactionData,
     input_index: usize,
-    inscription_pointer: u64,
+    relative_pointer_value: u64,
     network: &Network,
     coinbase_txid: &TransactionIdentifier,
     coinbase_subsidy: u64,
@@ -82,7 +82,7 @@ pub fn compute_satpoint_post_transfer(
         .collect::<_>();
     let outputs = tx.metadata.outputs.iter().map(|o| o.value).collect::<_>();
     let post_transfer_data =
-        compute_next_satpoint_data(input_index, &inputs, &outputs, inscription_pointer);
+        compute_next_satpoint_data(input_index, &inputs, &outputs, relative_pointer_value);
 
     let (outpoint_post_transfer, offset_post_transfer, destination, post_transfer_output_value) =
         match post_transfer_data {
