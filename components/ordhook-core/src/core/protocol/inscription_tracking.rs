@@ -82,7 +82,7 @@ pub fn compute_satpoint_post_transfer(
         .collect::<_>();
     let outputs = tx.metadata.outputs.iter().map(|o| o.value).collect::<_>();
     let post_transfer_data =
-        compute_next_satpoint_data(input_index, 0, &inputs, &outputs, inscription_pointer);
+        compute_next_satpoint_data(input_index, &inputs, &outputs, inscription_pointer);
 
     let (outpoint_post_transfer, offset_post_transfer, destination, post_transfer_output_value) =
         match post_transfer_data {
