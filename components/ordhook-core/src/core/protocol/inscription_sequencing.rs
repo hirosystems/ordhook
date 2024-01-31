@@ -19,7 +19,7 @@ use fxhash::FxHasher;
 use rusqlite::{Connection, Transaction};
 
 use crate::{
-    core::OrdhookConfig,
+    core::{resolve_absolute_pointer, OrdhookConfig},
     db::{
         find_blessed_inscription_with_ordinal_number, find_nth_classic_neg_number_at_block_height,
         find_nth_classic_pos_number_at_block_height, find_nth_jubilee_number_at_block_height,
@@ -366,6 +366,8 @@ fn get_transactions_to_process(
         find_all_inscriptions_in_block(&block.block_identifier.index, inscriptions_db_tx, ctx);
 
     for tx in block.transactions.iter().skip(1) {
+        let inputs = tx.metadata.inputs.iter().map(|i| i.previous_output.value).collect::<Vec<u64>>();
+
         // Have a new inscription been revealed, if so, are looking at a re-inscription
         for ordinal_event in tx.metadata.ordinal_operations.iter() {
             let inscription_data = match ordinal_event {
@@ -374,10 +376,20 @@ fn get_transactions_to_process(
                     continue;
                 }
             };
+
+            let (input_index, relative_offset) = match inscription_data.inscription_pointer {
+                Some(pointer) => {
+                    resolve_absolute_pointer(&inputs, pointer)
+                }
+                None => {
+                    (inscription_data.inscription_input_index, 0)
+                }
+            };
+
             let key = (
                 tx.transaction_identifier.clone(),
-                inscription_data.inscription_input_index,
-                inscription_data.inscription_pointer,
+                input_index,
+                relative_offset,
             );
             if cache_l1.contains_key(&key) {
                 l1_cache_hits.push(key);
@@ -391,8 +403,8 @@ fn get_transactions_to_process(
             // Enqueue for traversals
             transactions_ids.push((
                 tx.transaction_identifier.clone(),
-                inscription_data.inscription_input_index,
-                inscription_data.inscription_pointer,
+                input_index,
+                relative_offset,
             ));
         }
     }
@@ -673,6 +685,8 @@ fn augment_transaction_with_ordinals_inscriptions_data(
     reinscriptions_data: &mut HashMap<u64, String>,
     ctx: &Context,
 ) -> bool {
+    let inputs = tx.metadata.inputs.iter().map(|i| i.previous_output.value).collect::<Vec<u64>>();
+
     let any_event = tx.metadata.ordinal_operations.is_empty() == false;
     let mut mutated_operations = vec![];
     mutated_operations.append(&mut tx.metadata.ordinal_operations);
@@ -685,12 +699,21 @@ fn augment_transaction_with_ordinals_inscriptions_data(
             OrdinalOperation::InscriptionTransferred(_) => continue,
         };
 
+        let (input_index, relative_offset) = match inscription.inscription_pointer {
+            Some(pointer) => {
+                resolve_absolute_pointer(&inputs, pointer)
+            }
+            None => {
+                (inscription.inscription_input_index, 0)
+            }
+        };
+
         let transaction_identifier = tx.transaction_identifier.clone();
         let inscription_id = format_inscription_id(&transaction_identifier, inscription_subindex);
         let traversal = match inscriptions_data.get(&(
             transaction_identifier,
-            inscription.inscription_input_index,
-            inscription.inscription_pointer,
+            input_index,
+            relative_offset,
         )) {
             Some(traversal) => traversal,
             None => {
@@ -746,8 +769,8 @@ fn augment_transaction_with_ordinals_inscriptions_data(
 
         let (destination, satpoint_post_transfer, output_value) = compute_satpoint_post_transfer(
             &&*tx,
-            traversal.inscription_input_index,
-            inscription.inscription_pointer,
+            input_index,
+            relative_offset,
             network,
             coinbase_txid,
             coinbase_subsidy,
@@ -825,6 +848,8 @@ fn consolidate_transaction_with_pre_computed_inscription_data(
     let mut mutated_operations = vec![];
     mutated_operations.append(&mut tx.metadata.ordinal_operations);
 
+    let inputs = tx.metadata.inputs.iter().map(|i| i.previous_output.value).collect::<Vec<u64>>();
+
     for operation in mutated_operations.iter_mut() {
         let inscription = match operation {
             OrdinalOperation::InscriptionRevealed(ref mut inscription) => inscription,
@@ -847,11 +872,19 @@ fn consolidate_transaction_with_pre_computed_inscription_data(
         inscription.inscription_fee = tx.metadata.fee;
         inscription.tx_index = tx_index;
 
+        let (input_index, relative_offset) = match inscription.inscription_pointer {
+            Some(pointer) => {
+                resolve_absolute_pointer(&inputs, pointer)
+            }
+            None => {
+                (traversal.inscription_input_index, 0)
+            }
+        };
         // Compute satpoint_post_inscription
         let (destination, satpoint_post_transfer, output_value) = compute_satpoint_post_transfer(
             tx,
-            traversal.inscription_input_index,
-            inscription.inscription_pointer,
+            input_index,
+            relative_offset,
             network,
             coinbase_txid,
             coinbase_subsidy,

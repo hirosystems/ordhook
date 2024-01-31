@@ -83,7 +83,7 @@ pub fn parse_inscriptions_from_witness(
             inscription_input_index: input_index,
             tx_index: 0,
             inscription_output_value: 0,
-            inscription_pointer: envelope.payload.pointer().unwrap_or(0),
+            inscription_pointer: envelope.payload.pointer(),
             inscription_fee: 0,
             inscription_number: OrdinalInscriptionNumber::zero(),
             inscriber_address: None,
