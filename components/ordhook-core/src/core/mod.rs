@@ -242,6 +242,7 @@ fn test_identify_next_output_index_destination() {
     assert_eq!(
         compute_next_satpoint_data(2, &vec![20, 30, 45], &vec![20, 30, 45], 95),
         SatPosition::Fee(50)
+
     );
     assert_eq!(
         compute_next_satpoint_data(
