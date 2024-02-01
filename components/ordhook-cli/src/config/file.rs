@@ -18,7 +18,7 @@ pub struct ConfigFile {
     pub resources: ResourcesConfigFile,
     pub network: NetworkConfigFile,
     pub logs: Option<LogConfigFile>,
-    pub snapthot: Option<SnapshotConfigFile>,
+    pub snapshot: Option<SnapshotConfigFile>,
 }
 
 impl ConfigFile {
