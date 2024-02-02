@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap, VecDeque},
+    collections::{BTreeMap, HashMap, HashSet, VecDeque},
     hash::BuildHasherDefault,
     sync::Arc,
 };
@@ -29,8 +29,6 @@ use crate::{
     ord::height::Height,
 };
 
-use rand::seq::SliceRandom;
-use rand::thread_rng;
 use std::sync::mpsc::channel;
 
 use crate::db::find_all_inscriptions_in_block;
@@ -88,7 +86,7 @@ pub fn parallelize_inscription_data_computations(
         )
     });
 
-    let (mut transactions_ids, l1_cache_hits) =
+    let (transactions_ids, l1_cache_hits) =
         get_transactions_to_process(block, cache_l1, inscriptions_db_tx, ctx);
 
     let has_transactions_to_process = !transactions_ids.is_empty() || !l1_cache_hits.is_empty();
@@ -180,8 +178,6 @@ pub fn parallelize_inscription_data_computations(
         )
     });
 
-    let mut rng = thread_rng();
-    transactions_ids.shuffle(&mut rng);
     let mut priority_queue = VecDeque::new();
     let mut warmup_queue = VecDeque::new();
 
@@ -250,7 +246,7 @@ pub fn parallelize_inscription_data_computations(
                 let _ = tx_thread_pool[thread_index].send(Some(w));
             } else {
                 if let Some(next_block) = next_block_iter.next() {
-                    let (mut transactions_ids, _) =
+                    let (transactions_ids, _) =
                         get_transactions_to_process(next_block, cache_l1, inscriptions_db_tx, ctx);
 
                     inner_ctx.try_log(|logger| {
@@ -262,7 +258,6 @@ pub fn parallelize_inscription_data_computations(
                         )
                     });
 
-                    transactions_ids.shuffle(&mut rng);
                     for (transaction_id, input_index, inscription_pointer) in
                         transactions_ids.into_iter()
                     {
@@ -356,17 +351,22 @@ fn get_transactions_to_process(
     inscriptions_db_tx: &Transaction,
     ctx: &Context,
 ) -> (
-    Vec<(TransactionIdentifier, usize, u64)>,
+    HashSet<(TransactionIdentifier, usize, u64)>,
     Vec<(TransactionIdentifier, usize, u64)>,
 ) {
-    let mut transactions_ids: Vec<(TransactionIdentifier, usize, u64)> = vec![];
+    let mut transactions_ids = HashSet::new();
     let mut l1_cache_hits = vec![];
 
     let known_transactions =
         find_all_inscriptions_in_block(&block.block_identifier.index, inscriptions_db_tx, ctx);
 
     for tx in block.transactions.iter().skip(1) {
-        let inputs = tx.metadata.inputs.iter().map(|i| i.previous_output.value).collect::<Vec<u64>>();
+        let inputs = tx
+            .metadata
+            .inputs
+            .iter()
+            .map(|i| i.previous_output.value)
+            .collect::<Vec<u64>>();
 
         // Have a new inscription been revealed, if so, are looking at a re-inscription
         for ordinal_event in tx.metadata.ordinal_operations.iter() {
@@ -378,12 +378,8 @@ fn get_transactions_to_process(
             };
 
             let (input_index, relative_offset) = match inscription_data.inscription_pointer {
-                Some(pointer) => {
-                    resolve_absolute_pointer(&inputs, pointer)
-                }
-                None => {
-                    (inscription_data.inscription_input_index, 0)
-                }
+                Some(pointer) => resolve_absolute_pointer(&inputs, pointer),
+                None => (inscription_data.inscription_input_index, 0),
             };
 
             let key = (
@@ -400,12 +396,12 @@ fn get_transactions_to_process(
                 continue;
             }
 
+            if transactions_ids.contains(&key) {
+                continue;
+            }
+
             // Enqueue for traversals
-            transactions_ids.push((
-                tx.transaction_identifier.clone(),
-                input_index,
-                relative_offset,
-            ));
+            transactions_ids.insert(key);
         }
     }
     (transactions_ids, l1_cache_hits)
@@ -686,7 +682,12 @@ fn augment_transaction_with_ordinals_inscriptions_data(
     reinscriptions_data: &mut HashMap<u64, String>,
     ctx: &Context,
 ) -> bool {
-    let inputs = tx.metadata.inputs.iter().map(|i| i.previous_output.value).collect::<Vec<u64>>();
+    let inputs = tx
+        .metadata
+        .inputs
+        .iter()
+        .map(|i| i.previous_output.value)
+        .collect::<Vec<u64>>();
 
     let any_event = tx.metadata.ordinal_operations.is_empty() == false;
     let mut mutated_operations = vec![];
@@ -701,33 +702,26 @@ fn augment_transaction_with_ordinals_inscriptions_data(
         };
 
         let (input_index, relative_offset) = match inscription.inscription_pointer {
-            Some(pointer) => {
-                resolve_absolute_pointer(&inputs, pointer)
-            }
-            None => {
-                (inscription.inscription_input_index, 0)
-            }
+            Some(pointer) => resolve_absolute_pointer(&inputs, pointer),
+            None => (inscription.inscription_input_index, 0),
         };
 
         let transaction_identifier = tx.transaction_identifier.clone();
         let inscription_id = format_inscription_id(&transaction_identifier, inscription_subindex);
-        let traversal = match inscriptions_data.get(&(
-            transaction_identifier,
-            input_index,
-            relative_offset,
-        )) {
-            Some(traversal) => traversal,
-            None => {
-                let err_msg = format!(
-                    "Unable to retrieve backward traversal result for inscription {}",
-                    tx.transaction_identifier.hash
-                );
-                ctx.try_log(|logger| {
-                    error!(logger, "{}", err_msg);
-                });
-                std::process::exit(1);
-            }
-        };
+        let traversal =
+            match inscriptions_data.get(&(transaction_identifier, input_index, relative_offset)) {
+                Some(traversal) => traversal,
+                None => {
+                    let err_msg = format!(
+                        "Unable to retrieve backward traversal result for inscription {}",
+                        tx.transaction_identifier.hash
+                    );
+                    ctx.try_log(|logger| {
+                        error!(logger, "{}", err_msg);
+                    });
+                    std::process::exit(1);
+                }
+            };
 
         // Do we need to curse the inscription?
         let mut inscription_number =
@@ -787,7 +781,7 @@ fn augment_transaction_with_ordinals_inscriptions_data(
             OrdinalInscriptionTransferDestination::SpentInFees => {
                 // Inscriptions are assigned inscription numbers starting at zero, first by the
                 // order reveal transactions appear in blocks, and the order that reveal envelopes
-                // appear in those transactions.                
+                // appear in those transactions.
                 // Due to a historical bug in `ord` which cannot be fixed without changing a great
                 // many inscription numbers, inscriptions which are revealed and then immediately
                 // spent to fees are numbered as if they appear last in the block in which they
@@ -849,7 +843,12 @@ fn consolidate_transaction_with_pre_computed_inscription_data(
     let mut mutated_operations = vec![];
     mutated_operations.append(&mut tx.metadata.ordinal_operations);
 
-    let inputs = tx.metadata.inputs.iter().map(|i| i.previous_output.value).collect::<Vec<u64>>();
+    let inputs = tx
+        .metadata
+        .inputs
+        .iter()
+        .map(|i| i.previous_output.value)
+        .collect::<Vec<u64>>();
 
     for operation in mutated_operations.iter_mut() {
         let inscription = match operation {
@@ -874,12 +873,8 @@ fn consolidate_transaction_with_pre_computed_inscription_data(
         inscription.tx_index = tx_index;
 
         let (input_index, relative_offset) = match inscription.inscription_pointer {
-            Some(pointer) => {
-                resolve_absolute_pointer(&inputs, pointer)
-            }
-            None => {
-                (traversal.inscription_input_index, 0)
-            }
+            Some(pointer) => resolve_absolute_pointer(&inputs, pointer),
+            None => (traversal.inscription_input_index, 0),
         };
         // Compute satpoint_post_inscription
         let (destination, satpoint_post_transfer, output_value) = compute_satpoint_post_transfer(

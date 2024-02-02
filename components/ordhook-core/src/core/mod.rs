@@ -56,10 +56,7 @@ pub enum SatPosition {
     Fee(u64),
 }
 
-pub fn resolve_absolute_pointer(
-    inputs: &Vec<u64>,
-    absolute_pointer_value: u64,
-) -> (usize, u64) {
+pub fn resolve_absolute_pointer(inputs: &Vec<u64>, absolute_pointer_value: u64) -> (usize, u64) {
     let mut selected_index = 0;
     let mut cumulated_input_value = 0;
     for (index, input_value) in inputs.iter().enumerate() {
@@ -85,7 +82,7 @@ pub fn compute_next_satpoint_data(
             break;
         }
         absolute_offset_in_inputs += input_value;
-    }    
+    }
     absolute_offset_in_inputs += relative_pointer_value;
 
     let mut absolute_offset_of_first_satoshi_in_selected_output = 0;
@@ -105,7 +102,8 @@ pub fn compute_next_satpoint_data(
         // Satoshi spent in fees
         return SatPosition::Fee(absolute_offset_in_inputs - floating_bound);
     }
-    let relative_offset_in_selected_output = absolute_offset_in_inputs - absolute_offset_of_first_satoshi_in_selected_output;
+    let relative_offset_in_selected_output =
+        absolute_offset_in_inputs - absolute_offset_of_first_satoshi_in_selected_output;
     SatPosition::Output((selected_output_index, relative_offset_in_selected_output))
 }
 
