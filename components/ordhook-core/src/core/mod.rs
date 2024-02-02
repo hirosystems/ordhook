@@ -59,6 +59,12 @@ pub enum SatPosition {
 pub fn resolve_absolute_pointer(inputs: &Vec<u64>, absolute_pointer_value: u64) -> (usize, u64) {
     let mut selected_index = 0;
     let mut cumulated_input_value = 0;
+    // Check for overflow
+    let total: u64 = inputs.iter().sum();
+    if absolute_pointer_value > total {
+        return (0, 0)
+    }
+    // Identify the input + satoshi offset being inscribed
     for (index, input_value) in inputs.iter().enumerate() {
         if (cumulated_input_value + input_value) > absolute_pointer_value {
             selected_index = index;
