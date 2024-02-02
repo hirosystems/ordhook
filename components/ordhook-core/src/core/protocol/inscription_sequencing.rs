@@ -644,6 +644,7 @@ pub fn augment_block_with_ordinals_inscriptions_data(
             sequence_cursor.pick_next(is_curse, block.block_identifier.index, &network, &ctx);
         inscription_data.inscription_number = inscription_number;
 
+        sequence_cursor.increment_jubilee_number(ctx);
         if is_curse {
             sequence_cursor.increment_neg_classic(ctx);
         } else {
