@@ -10,7 +10,7 @@ use chainhook_sdk::{
 use crate::{
     core::{compute_next_satpoint_data, SatPosition},
     db::{
-        find_inscriptions_at_wached_outpoint, format_outpoint_to_watch,
+        find_inscribed_ordinals_at_wached_outpoint, format_outpoint_to_watch,
         insert_transfer_in_locations_tx,
     },
     ord::height::Height,
@@ -164,7 +164,7 @@ pub fn augment_transaction_with_ordinals_transfers_data(
         );
 
         let entries =
-            find_inscriptions_at_wached_outpoint(&outpoint_pre_transfer, &inscriptions_db_tx, ctx);
+            find_inscribed_ordinals_at_wached_outpoint(&outpoint_pre_transfer, &inscriptions_db_tx, ctx);
         // For each satpoint inscribed retrieved, we need to compute the next
         // outpoint to watch
         for watched_satpoint in entries.into_iter() {

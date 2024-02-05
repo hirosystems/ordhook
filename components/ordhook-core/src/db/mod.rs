@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     io::{Read, Write},
     path::PathBuf,
     thread::sleep,
@@ -1168,27 +1168,32 @@ pub fn find_all_inscriptions_in_block(
     return results;
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Ord, PartialOrd, PartialEq, Eq)]
 pub struct WatchedSatpoint {
     pub ordinal_number: u64,
     pub offset: u64,
 }
 
-pub fn find_inscriptions_at_wached_outpoint(
+pub fn find_inscribed_ordinals_at_wached_outpoint(
     outpoint: &str,
     db_conn: &Connection,
     ctx: &Context,
-) -> Vec<WatchedSatpoint> {
+) -> BTreeSet<WatchedSatpoint> {
     let args: &[&dyn ToSql] = &[&outpoint.to_sql().unwrap()];
     let query = "SELECT ordinal_number, offset FROM locations WHERE outpoint_to_watch = ? ORDER BY offset ASC";
-    perform_query_set(query, args, db_conn, ctx, |row| {
+    let sat_points = perform_query_set(query, args, db_conn, ctx, |row| {
         let ordinal_number: u64 = row.get(0).unwrap();
         let offset: u64 = row.get(1).unwrap();
         WatchedSatpoint {
             ordinal_number,
             offset,
         }
-    })
+    });
+    let mut res = BTreeSet::new();
+    for sat_point in sat_points.into_iter() {
+        res.insert(sat_point);
+    }
+    res
 }
 
 pub fn delete_inscriptions_in_block_range(
