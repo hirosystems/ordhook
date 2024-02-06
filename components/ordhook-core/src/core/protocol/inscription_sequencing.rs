@@ -35,7 +35,7 @@ use crate::db::find_all_inscriptions_in_block;
 
 use super::{
     inscription_parsing::get_inscriptions_revealed_in_block,
-    inscription_tracking::{
+    satoshi_tracking::{
         augment_transaction_with_ordinals_transfers_data, compute_satpoint_post_transfer,
     },
     satoshi_numbering::compute_satoshi_number,
@@ -313,12 +313,9 @@ pub fn parallelize_inscription_data_computations(
 
     let ctx_moved = inner_ctx.clone();
     let _ = hiro_system_kit::thread_named("Garbage collection").spawn(move || {
-        ctx_moved.try_log(|logger| info!(logger, "Cleanup: threadpool deallocation started",));
-
         for handle in thread_pool_handles.into_iter() {
             let _ = handle.join();
         }
-        ctx_moved.try_log(|logger| info!(logger, "Cleanup: threadpool deallocation ended",));
     });
 
     inner_ctx.try_log(|logger| {

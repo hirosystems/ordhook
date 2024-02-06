@@ -28,7 +28,7 @@ use crate::{
                 augment_block_with_ordinals_inscriptions_data_and_write_to_db_tx,
                 parallelize_inscription_data_computations, SequenceCursor,
             },
-            inscription_tracking::augment_block_with_ordinals_transfer_data,
+            satoshi_tracking::augment_block_with_ordinals_transfer_data,
         },
         OrdhookConfig,
     },
