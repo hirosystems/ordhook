@@ -913,6 +913,13 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
             let inscriptions_db_conn_rw =
                 open_readwrite_ordhook_db_conn(&config.expected_cache_path(), ctx)?;
 
+            println!("{} blocks will be deleted. Confirm? [Y/n]", cmd.end_block - cmd.start_block + 1);
+            let mut buffer = String::new();
+            std::io::stdin().read_line(&mut buffer).unwrap();
+            if buffer.starts_with('n') {
+                return Err("Deletion aborted".to_string());
+            }
+
             delete_data_in_ordhook_db(
                 cmd.start_block,
                 cmd.end_block,
