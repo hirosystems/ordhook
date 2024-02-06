@@ -12,7 +12,7 @@ use crate::{
         pipeline::{PostProcessorCommand, PostProcessorController, PostProcessorEvent},
         protocol::{
             inscription_sequencing::consolidate_block_with_pre_computed_ordinals_data,
-            inscription_tracking::augment_block_with_ordinals_transfer_data,
+            satoshi_tracking::augment_block_with_ordinals_transfer_data,
         },
     },
     db::{

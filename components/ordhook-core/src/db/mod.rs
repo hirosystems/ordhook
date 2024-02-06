@@ -63,7 +63,10 @@ pub fn initialize_ordhook_db(base_dir: &PathBuf, ctx: &Context) -> Connection {
             block_height INTEGER NOT NULL,
             ordinal_number INTEGER NOT NULL,
             jubilee_inscription_number INTEGER NOT NULL,
-            classic_inscription_number INTEGER NOT NULL
+            classic_inscription_number INTEGER NOT NULL,
+            CONSTRAINT inscription_id_uniqueness UNIQUE (inscription_id),
+            CONSTRAINT jubilee_inscription_number_uniqueness UNIQUE (inscription_id),
+            CONSTRAINT classic_inscription_number_uniqueness UNIQUE (inscription_id)
         )",
         [],
     ) {
@@ -108,7 +111,8 @@ pub fn initialize_ordhook_db(base_dir: &PathBuf, ctx: &Context) -> Connection {
             block_height INTEGER NOT NULL,
             tx_index INTEGER NOT NULL,
             outpoint_to_watch TEXT NOT NULL,
-            offset INTEGER NOT NULL
+            offset INTEGER NOT NULL,
+            CONSTRAINT ordinal_number_outpoint_to_watch_offset_uniqueness UNIQUE (ordinal_number, outpoint_to_watch, offset)
         )",
         [],
     ) {
@@ -1178,22 +1182,17 @@ pub fn find_inscribed_ordinals_at_wached_outpoint(
     outpoint: &str,
     db_conn: &Connection,
     ctx: &Context,
-) -> BTreeSet<WatchedSatpoint> {
+) -> Vec<WatchedSatpoint> {
     let args: &[&dyn ToSql] = &[&outpoint.to_sql().unwrap()];
     let query = "SELECT ordinal_number, offset FROM locations WHERE outpoint_to_watch = ? ORDER BY offset ASC";
-    let sat_points = perform_query_set(query, args, db_conn, ctx, |row| {
+    perform_query_set(query, args, db_conn, ctx, |row| {
         let ordinal_number: u64 = row.get(0).unwrap();
         let offset: u64 = row.get(1).unwrap();
         WatchedSatpoint {
             ordinal_number,
             offset,
         }
-    });
-    let mut res = BTreeSet::new();
-    for sat_point in sat_points.into_iter() {
-        res.insert(sat_point);
-    }
-    res
+    })
 }
 
 pub fn delete_inscriptions_in_block_range(

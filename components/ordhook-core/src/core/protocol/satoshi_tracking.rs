@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use chainhook_sdk::{
     bitcoincore_rpc_json::bitcoin::{Address, Network, ScriptBuf},
     types::{
@@ -74,6 +76,7 @@ pub fn compute_satpoint_post_transfer(
     cumulated_fees: &mut u64,
     ctx: &Context,
 ) -> (OrdinalInscriptionTransferDestination, String, Option<u64>) {
+
     let inputs: Vec<u64> = tx
         .metadata
         .inputs
@@ -157,6 +160,16 @@ pub fn augment_transaction_with_ordinals_transfers_data(
 ) -> Vec<OrdinalInscriptionTransferData> {
     let mut transfers = vec![];
 
+    // The transfers are inserted in storage after the inscriptions.
+    // We have a unicity constraing, and can only have 1 ordinals per satpoint.
+    let mut updated_sats = HashSet::new();
+    for op in tx.metadata.ordinal_operations.iter() {
+        if let OrdinalOperation::InscriptionRevealed(data) = op {
+            updated_sats.insert(data.ordinal_number);
+        }
+    }
+
+
     for (input_index, input) in tx.metadata.inputs.iter().enumerate() {
         let outpoint_pre_transfer = format_outpoint_to_watch(
             &input.previous_output.txid,
@@ -168,6 +181,9 @@ pub fn augment_transaction_with_ordinals_transfers_data(
         // For each satpoint inscribed retrieved, we need to compute the next
         // outpoint to watch
         for watched_satpoint in entries.into_iter() {
+            if updated_sats.contains(&watched_satpoint.ordinal_number) {
+                continue;
+            }
             let satpoint_pre_transfer =
                 format!("{}:{}", outpoint_pre_transfer, watched_satpoint.offset);
 
