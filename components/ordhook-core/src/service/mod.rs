@@ -23,6 +23,7 @@ use crate::db::{
     find_last_block_inserted, find_missing_blocks, run_compaction,
     update_sequence_metadata_with_block,
 };
+use crate::ord::chain;
 use crate::scan::bitcoin::process_block_with_predicates;
 use crate::service::http_api::start_predicate_api_server;
 use crate::service::observers::{
@@ -33,7 +34,7 @@ use crate::service::observers::{
 use crate::service::runloops::start_bitcoin_scan_runloop;
 use chainhook_sdk::chainhooks::bitcoin::BitcoinChainhookOccurrencePayload;
 use chainhook_sdk::chainhooks::types::{
-    BitcoinChainhookSpecification, ChainhookFullSpecification, ChainhookSpecification,
+    BitcoinChainhookSpecification, ChainhookConfig, ChainhookFullSpecification, ChainhookSpecification
 };
 use chainhook_sdk::observer::{
     start_event_observer, BitcoinBlockDataCached, DataHandlerEvent, EventObserverConfig,
@@ -63,17 +64,33 @@ impl Service {
 
     pub async fn run(
         &mut self,
-        predicates: Vec<BitcoinChainhookSpecification>,
+        observer_specs: Vec<BitcoinChainhookSpecification>,
         predicate_activity_relayer: Option<
             crossbeam_channel::Sender<BitcoinChainhookOccurrencePayload>,
         >,
         check_blocks_integrity: bool,
+        stream_indexing_to_observers: bool,
     ) -> Result<(), String> {
         let mut event_observer_config = self.config.get_event_observer_config();
 
+        let block_post_processor = if stream_indexing_to_observers && !observer_specs.is_empty() {
+            let mut chainhook_config: ChainhookConfig = ChainhookConfig::new();
+            let specs = observer_specs.clone();
+            for mut observer_spec in specs.into_iter() {
+                observer_spec.enabled = true;
+                let spec = ChainhookSpecification::Bitcoin(observer_spec);
+                chainhook_config.register_specification(spec)?;
+            }
+            event_observer_config.chainhook_config = Some(chainhook_config);
+            let block_tx = start_observer_forwarding(&event_observer_config, &self.ctx);
+            Some(block_tx)
+        } else {
+            None
+        };
+
         // Catch-up with chain tip
         let chain_tip_height = self
-            .catch_up_with_chain_tip(false, check_blocks_integrity)
+            .catch_up_with_chain_tip(false, check_blocks_integrity, block_post_processor)
             .await?;
         info!(
             self.ctx.expect_logger(),
@@ -98,7 +115,7 @@ impl Service {
         // 2) catch-up outdated observers by dispatching replays
         let (chainhook_config, outdated_observers) =
             create_and_consolidate_chainhook_config_with_predicates(
-                predicates,
+                observer_specs,
                 chain_tip_height,
                 predicate_activity_relayer.is_some(),
                 &self.config,
@@ -446,6 +463,7 @@ impl Service {
         &mut self,
         rebuild_from_scratch: bool,
         compact_and_check_rocksdb_integrity: bool,
+        block_post_processor: Option<crossbeam_channel::Sender<BitcoinBlockData>>,
     ) -> Result<u64, String> {
         {
             if compact_and_check_rocksdb_integrity {
@@ -515,7 +533,7 @@ impl Service {
                 )?;
             }
         }
-        self.update_state(None).await
+        self.update_state(block_post_processor).await
     }
 
     pub async fn update_state(

@@ -345,6 +345,9 @@ struct StartCommand {
     /// Check blocks integrity
     #[clap(long = "check-blocks-integrity")]
     pub block_integrity_check: bool,
+    /// Stream indexing to observers
+    #[clap(long = "stream-indexing")]
+    pub stream_indexing_to_observers: bool,    
 }
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
@@ -758,7 +761,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
 
                 let mut service = Service::new(config, ctx.clone());
                 return service
-                    .run(predicates, None, cmd.block_integrity_check)
+                    .run(predicates, None, cmd.block_integrity_check, cmd.stream_indexing_to_observers)
                     .await;
             }
         },
