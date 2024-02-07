@@ -761,6 +761,7 @@ fn augment_transaction_with_ordinals_inscriptions_data(
 
         let (destination, satpoint_post_transfer, output_value) = compute_satpoint_post_transfer(
             &&*tx,
+            tx_index,
             input_index,
             relative_offset,
             network,
@@ -876,6 +877,7 @@ fn consolidate_transaction_with_pre_computed_inscription_data(
         // Compute satpoint_post_inscription
         let (destination, satpoint_post_transfer, output_value) = compute_satpoint_post_transfer(
             tx,
+            tx_index,
             input_index,
             relative_offset,
             network,

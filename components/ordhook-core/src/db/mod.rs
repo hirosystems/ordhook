@@ -82,27 +82,27 @@ pub fn initialize_ordhook_db(base_dir: &PathBuf, ctx: &Context) -> Connection {
             "CREATE INDEX IF NOT EXISTS index_inscriptions_on_ordinal_number ON inscriptions(ordinal_number);",
             [],
         ) {
-            ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+            ctx.try_log(|logger| warn!(logger, "unable to create hord.sqlite: {}", e.to_string()));
         }
         if let Err(e) = conn.execute(
             "CREATE INDEX IF NOT EXISTS index_inscriptions_on_jubilee_inscription_number ON inscriptions(jubilee_inscription_number);",
             [],
         ) {
-            ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+            ctx.try_log(|logger| warn!(logger, "unable to create hord.sqlite: {}", e.to_string()));
         }
 
         if let Err(e) = conn.execute(
             "CREATE INDEX IF NOT EXISTS index_inscriptions_on_classic_inscription_number ON inscriptions(classic_inscription_number);",
             [],
         ) {
-            ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+            ctx.try_log(|logger| warn!(logger, "unable to create hord.sqlite: {}", e.to_string()));
         }
 
         if let Err(e) = conn.execute(
             "CREATE INDEX IF NOT EXISTS index_inscriptions_on_block_height ON inscriptions(block_height);",
             [],
         ) {
-            ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+            ctx.try_log(|logger| warn!(logger, "unable to create hord.sqlite: {}", e.to_string()));
         }
     }
     if let Err(e) = conn.execute(
@@ -112,7 +112,7 @@ pub fn initialize_ordhook_db(base_dir: &PathBuf, ctx: &Context) -> Connection {
             tx_index INTEGER NOT NULL,
             outpoint_to_watch TEXT NOT NULL,
             offset INTEGER NOT NULL,
-            CONSTRAINT ordinal_number_outpoint_to_watch_offset_uniqueness UNIQUE (ordinal_number, outpoint_to_watch, offset)
+            CONSTRAINT ordinal_number_outpoint_to_watch_offset_uniqueness UNIQUE (ordinal_number, outpoint_to_watch)
         )",
         [],
     ) {
@@ -128,19 +128,19 @@ pub fn initialize_ordhook_db(base_dir: &PathBuf, ctx: &Context) -> Connection {
             "CREATE INDEX IF NOT EXISTS locations_indexed_on_block_height ON locations(block_height);",
             [],
         ) {
-            ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+            ctx.try_log(|logger| warn!(logger, "unable to create hord.sqlite: {}", e.to_string()));
         }
         if let Err(e) = conn.execute(
             "CREATE INDEX IF NOT EXISTS locations_indexed_on_outpoint_to_watch ON locations(outpoint_to_watch);",
             [],
         ) {
-            ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+            ctx.try_log(|logger| warn!(logger, "unable to create hord.sqlite: {}", e.to_string()));
         }
         if let Err(e) = conn.execute(
             "CREATE INDEX IF NOT EXISTS locations_indexed_on_ordinal_number ON locations(ordinal_number);",
             [],
         ) {
-            ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+            ctx.try_log(|logger| warn!(logger, "unable to create hord.sqlite: {}", e.to_string()));
         }
     }
 
@@ -165,7 +165,7 @@ pub fn initialize_ordhook_db(base_dir: &PathBuf, ctx: &Context) -> Connection {
             "CREATE INDEX IF NOT EXISTS sequence_metadata_indexed_on_block_height ON sequence_metadata(block_height);",
             [],
         ) {
-            ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+            ctx.try_log(|logger| warn!(logger, "unable to create hord.sqlite: {}", e.to_string()));
         }
     }
 
@@ -516,7 +516,7 @@ pub fn insert_entry_in_inscriptions(
         "INSERT INTO inscriptions (inscription_id, ordinal_number, jubilee_inscription_number, classic_inscription_number, block_height, input_index) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         rusqlite::params![&inscription_data.inscription_id, &inscription_data.ordinal_number, &inscription_data.inscription_number.jubilee, &inscription_data.inscription_number.classic, &block_identifier.index, &inscription_data.inscription_input_index],
     ) {
-        ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+        ctx.try_log(|logger| warn!(logger, "unable to insert inscription in hord.sqlite: {} - {:?}", e.to_string(), inscription_data));
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
 }
@@ -534,7 +534,7 @@ pub fn insert_inscription_in_locations(
         "INSERT INTO locations (ordinal_number, outpoint_to_watch, offset, block_height, tx_index) VALUES (?1, ?2, ?3, ?4, ?5)",
         rusqlite::params![&inscription_data.ordinal_number, &outpoint_to_watch, offset, &block_identifier.index, &inscription_data.tx_index],
     ) {
-        ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+        ctx.try_log(|logger| warn!(logger, "unable to insert inscription in location in hord.sqlite: {} ({:?})", e.to_string(), inscription_data));
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
 }
@@ -658,7 +658,7 @@ pub fn insert_transfer_in_locations(
         "INSERT INTO locations (ordinal_number, outpoint_to_watch, offset, block_height, tx_index) VALUES (?1, ?2, ?3, ?4, ?5)",
         rusqlite::params![&transfer_data.ordinal_number, &outpoint_to_watch, offset, &block_identifier.index, &transfer_data.tx_index],
     ) {
-        ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+        ctx.try_log(|logger| warn!(logger, "unable to insert location in hord.sqlite: {} ({:?})", e.to_string(), transfer_data));
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
 }
