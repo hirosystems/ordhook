@@ -537,8 +537,8 @@ pub fn insert_inscription_in_locations(
     ) {
         retry += 1;
         ctx.try_log(|logger| warn!(logger, "unable to insert inscription in location in hord.sqlite: {} ({:?})", e.to_string(), inscription_data));
-        std::thread::sleep(std::time::Duration::from_secs(5));
-        if retry > 3 {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        if retry > 2 {
             ctx.try_log(|logger| error!(logger, "unable to insert inscription in location in hord.sqlite: {}", e.to_string()));
             return
         }
@@ -650,8 +650,8 @@ pub fn insert_transfer_in_locations_tx(
     ) {
         retry += 1;
         ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
-        std::thread::sleep(std::time::Duration::from_secs(5));
-        if retry > 3 {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        if retry > 2 {
             ctx.try_log(|logger| error!(logger, "unable to insert inscription in location in hord.sqlite: {}", e.to_string()));
             return
         }
@@ -673,8 +673,8 @@ pub fn insert_transfer_in_locations(
     ) {
         retry += 1;
         ctx.try_log(|logger| warn!(logger, "unable to insert location in hord.sqlite: {} ({:?})", e.to_string(), transfer_data));
-        std::thread::sleep(std::time::Duration::from_secs(5));
-        if retry > 3 {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        if retry > 2 {
             ctx.try_log(|logger| error!(logger, "unable to insert inscription in location in hord.sqlite: {}", e.to_string()));
             return
         }
