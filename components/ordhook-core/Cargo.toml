@@ -10,7 +10,7 @@ serde_json = "1"
 serde_derive = "1"
 hex = "0.4.3"
 rand = "0.8.5"
-chainhook-sdk = { version = "=0.12.4", features = ["zeromq"] }
+chainhook-sdk = { version = "=0.12.5", features = ["zeromq"] }
 # chainhook-sdk = { version = "=0.12.1", path = "../../../chainhook/components/chainhook-sdk", features = ["zeromq"] }
 hiro-system-kit = "0.3.1"
 reqwest = { version = "0.11", default-features = false, features = [
