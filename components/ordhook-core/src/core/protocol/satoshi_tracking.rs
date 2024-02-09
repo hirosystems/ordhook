@@ -13,7 +13,7 @@ use crate::{
     core::{compute_next_satpoint_data, SatPosition},
     db::{
         find_inscribed_ordinals_at_wached_outpoint, format_outpoint_to_watch,
-        insert_transfer_in_locations_tx,
+        insert_ordinal_transfer_in_locations_tx, parse_satpoint_to_watch, OrdinalLocation,
     },
     ord::height::Height,
 };
@@ -53,10 +53,19 @@ pub fn augment_block_with_ordinals_transfer_data(
         if update_db_tx {
             // Store transfers between each iteration
             for transfer_data in transfers.into_iter() {
-                insert_transfer_in_locations_tx(
-                    &transfer_data,
-                    &block.block_identifier,
-                    &inscriptions_db_tx,
+                let (tx, output_index, offset) =
+                    parse_satpoint_to_watch(&transfer_data.satpoint_post_transfer);
+                let outpoint_to_watch = format_outpoint_to_watch(&tx, output_index);
+                let data = OrdinalLocation {
+                    offset,
+                    block_height: block.block_identifier.index,
+                    tx_index: transfer_data.tx_index,
+                };
+                insert_ordinal_transfer_in_locations_tx(
+                    transfer_data.ordinal_number,
+                    &outpoint_to_watch,
+                    data,
+                    inscriptions_db_tx,
                     &ctx,
                 );
             }

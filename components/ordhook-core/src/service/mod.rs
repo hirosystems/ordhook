@@ -16,14 +16,13 @@ use crate::core::protocol::inscription_sequencing::SequenceCursor;
 use crate::core::{new_traversals_lazy_cache, should_sync_ordhook_db, should_sync_rocks_db};
 use crate::db::{
     delete_data_in_ordhook_db, insert_entry_in_blocks, open_ordhook_db_conn_rocks_db_loop,
-    open_readwrite_ordhook_db_conn, open_readwrite_ordhook_dbs, update_inscriptions_with_block,
-    update_locations_with_block, BlockBytesCursor, TransactionBytesCursor,
+    open_readwrite_ordhook_db_conn, open_readwrite_ordhook_dbs, update_ordinals_db_with_block,
+    BlockBytesCursor, TransactionBytesCursor,
 };
 use crate::db::{
     find_last_block_inserted, find_missing_blocks, run_compaction,
     update_sequence_metadata_with_block,
 };
-use crate::ord::chain;
 use crate::scan::bitcoin::process_block_with_predicates;
 use crate::service::http_api::start_predicate_api_server;
 use crate::service::observers::{
@@ -34,7 +33,8 @@ use crate::service::observers::{
 use crate::service::runloops::start_bitcoin_scan_runloop;
 use chainhook_sdk::chainhooks::bitcoin::BitcoinChainhookOccurrencePayload;
 use chainhook_sdk::chainhooks::types::{
-    BitcoinChainhookSpecification, ChainhookConfig, ChainhookFullSpecification, ChainhookSpecification
+    BitcoinChainhookSpecification, ChainhookConfig, ChainhookFullSpecification,
+    ChainhookSpecification,
 };
 use chainhook_sdk::observer::{
     start_event_observer, BitcoinBlockDataCached, DataHandlerEvent, EventObserverConfig,
@@ -698,9 +698,7 @@ fn chainhook_sidecar_mutate_ordhook_db(command: HandleBlock, config: &Config, ct
             );
             let _ = blocks_db_rw.flush();
 
-            update_inscriptions_with_block(&block, &inscriptions_db_conn_rw, &ctx);
-
-            update_locations_with_block(&block, &inscriptions_db_conn_rw, &ctx);
+            update_ordinals_db_with_block(&block, &inscriptions_db_conn_rw, ctx);
 
             update_sequence_metadata_with_block(&block, &inscriptions_db_conn_rw, &ctx);
         }
@@ -811,8 +809,7 @@ pub fn chainhook_sidecar_mutate_blocks(
         let _ = blocks_db_rw.flush();
 
         if cache.processed_by_sidecar {
-            update_inscriptions_with_block(&cache.block, &inscriptions_db_tx, &ctx);
-            update_locations_with_block(&cache.block, &inscriptions_db_tx, &ctx);
+            update_ordinals_db_with_block(&cache.block, &inscriptions_db_tx, &ctx);
             update_sequence_metadata_with_block(&cache.block, &inscriptions_db_tx, &ctx);
         } else {
             updated_blocks_ids.push(format!("{}", cache.block.block_identifier.index));

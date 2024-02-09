@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
     io::{Read, Write},
     path::PathBuf,
     thread::sleep,
@@ -521,25 +521,14 @@ pub fn insert_entry_in_inscriptions(
     }
 }
 
-pub fn insert_inscription_in_locations(
-    inscription_data: &OrdinalInscriptionRevealData,
-    block_identifier: &BlockIdentifier,
-    inscriptions_db_conn_rw: &Connection,
-    ctx: &Context,
-) {
-    let (tx, output_index, offset) =
-        parse_satpoint_to_watch(&inscription_data.satpoint_post_inscription);
-    let outpoint_to_watch = format_outpoint_to_watch(&tx, output_index);
-    while let Err(e) = inscriptions_db_conn_rw.execute(
-        "INSERT INTO locations (ordinal_number, outpoint_to_watch, offset, block_height, tx_index) VALUES (?1, ?2, ?3, ?4, ?5)",
-        rusqlite::params![&inscription_data.ordinal_number, &outpoint_to_watch, offset, &block_identifier.index, &inscription_data.tx_index],
-    ) {
-        ctx.try_log(|logger| warn!(logger, "unable to insert inscription in location in hord.sqlite: {} ({:?})", e.to_string(), inscription_data));
-        std::thread::sleep(std::time::Duration::from_secs(1));
-    }
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OrdinalLocation {
+    pub offset: u64,
+    pub block_height: u64,
+    pub tx_index: usize,
 }
 
-pub fn update_inscriptions_with_block(
+pub fn insert_entries_from_block_in_inscriptions(
     block: &BitcoinBlockData,
     inscriptions_db_conn_rw: &Connection,
     ctx: &Context,
@@ -551,24 +540,75 @@ pub fn update_inscriptions_with_block(
             inscriptions_db_conn_rw,
             &ctx,
         );
-        insert_inscription_in_locations(
-            &inscription_data,
-            &block.block_identifier,
-            &inscriptions_db_conn_rw,
-            ctx,
-        );
     }
 }
 
-pub fn update_locations_with_block(
+pub fn update_ordinals_db_with_block(
     block: &BitcoinBlockData,
     inscriptions_db_conn_rw: &Connection,
     ctx: &Context,
 ) {
-    for transfer_data in get_inscriptions_transferred_in_block(&block).iter() {
-        insert_transfer_in_locations(
-            &transfer_data,
+    let mut locations_to_insert = HashMap::new();
+
+    for inscription_data in get_inscriptions_revealed_in_block(&block).iter() {
+        insert_entry_in_inscriptions(
+            inscription_data,
             &block.block_identifier,
+            inscriptions_db_conn_rw,
+            &ctx,
+        );
+        let (tx, output_index, offset) =
+            parse_satpoint_to_watch(&inscription_data.satpoint_post_inscription);
+        let outpoint_to_watch = format_outpoint_to_watch(&tx, output_index);
+        let insertion_res = locations_to_insert.insert(
+            (inscription_data.ordinal_number, outpoint_to_watch),
+            OrdinalLocation {
+                offset,
+                block_height: block.block_identifier.index,
+                tx_index: inscription_data.tx_index,
+            },
+        );
+        if let Some(prev_location) = insertion_res {
+            ctx.try_log(|logger| {
+                warn!(
+                    logger,
+                    "Ignoring location insertion from inscriptions: {}, {:?}",
+                    inscription_data.ordinal_number,
+                    prev_location
+                )
+            });
+        }
+    }
+
+    for transfer_data in get_inscriptions_transferred_in_block(&block).iter() {
+        let (tx, output_index, offset) =
+            parse_satpoint_to_watch(&transfer_data.satpoint_post_transfer);
+        let outpoint_to_watch = format_outpoint_to_watch(&tx, output_index);
+        let insertion_res = locations_to_insert.insert(
+            (transfer_data.ordinal_number, outpoint_to_watch),
+            OrdinalLocation {
+                offset,
+                block_height: block.block_identifier.index,
+                tx_index: transfer_data.tx_index,
+            },
+        );
+        if let Some(prev_location) = insertion_res {
+            ctx.try_log(|logger| {
+                warn!(
+                    logger,
+                    "Ignoring location insertion from transfers: {}, {:?}",
+                    transfer_data.ordinal_number,
+                    prev_location
+                )
+            });
+        }
+    }
+
+    for ((ordinal_number, outpoint_to_watch), location_data) in locations_to_insert {
+        insert_ordinal_transfer_in_locations_tx(
+            ordinal_number,
+            &outpoint_to_watch,
+            location_data,
             &inscriptions_db_conn_rw,
             ctx,
         );
@@ -614,52 +654,25 @@ pub fn update_sequence_metadata_with_block(
     }
 }
 
-pub fn insert_new_inscriptions_from_block_in_locations(
-    block: &BitcoinBlockData,
+pub fn insert_ordinal_transfer_in_locations_tx(
+    ordinal_number: u64,
+    outpoint_to_watch: &str,
+    data: OrdinalLocation,
     inscriptions_db_conn_rw: &Connection,
     ctx: &Context,
 ) {
-    for inscription_data in get_inscriptions_revealed_in_block(&block).iter() {
-        insert_inscription_in_locations(
-            inscription_data,
-            &block.block_identifier,
-            inscriptions_db_conn_rw,
-            &ctx,
-        );
-    }
-}
-
-pub fn insert_transfer_in_locations_tx(
-    transfer_data: &OrdinalInscriptionTransferData,
-    block_identifier: &BlockIdentifier,
-    inscriptions_db_conn_rw: &Transaction,
-    ctx: &Context,
-) {
-    let (tx, output_index, offset) = parse_satpoint_to_watch(&transfer_data.satpoint_post_transfer);
-    let outpoint_to_watch = format_outpoint_to_watch(&tx, output_index);
+    let mut retry = 0;
     while let Err(e) = inscriptions_db_conn_rw.execute(
         "INSERT INTO locations (ordinal_number, outpoint_to_watch, offset, block_height, tx_index) VALUES (?1, ?2, ?3, ?4, ?5)",
-        rusqlite::params![&transfer_data.ordinal_number, &outpoint_to_watch, offset, &block_identifier.index, &transfer_data.tx_index],
+        rusqlite::params![&ordinal_number, &outpoint_to_watch, data.offset, data.block_height, &data.tx_index],
     ) {
+        retry += 1;
         ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
         std::thread::sleep(std::time::Duration::from_secs(1));
-    }
-}
-
-pub fn insert_transfer_in_locations(
-    transfer_data: &OrdinalInscriptionTransferData,
-    block_identifier: &BlockIdentifier,
-    inscriptions_db_conn_rw: &Connection,
-    ctx: &Context,
-) {
-    let (tx, output_index, offset) = parse_satpoint_to_watch(&transfer_data.satpoint_post_transfer);
-    let outpoint_to_watch = format_outpoint_to_watch(&tx, output_index);
-    while let Err(e) = inscriptions_db_conn_rw.execute(
-        "INSERT INTO locations (ordinal_number, outpoint_to_watch, offset, block_height, tx_index) VALUES (?1, ?2, ?3, ?4, ?5)",
-        rusqlite::params![&transfer_data.ordinal_number, &outpoint_to_watch, offset, &block_identifier.index, &transfer_data.tx_index],
-    ) {
-        ctx.try_log(|logger| warn!(logger, "unable to insert location in hord.sqlite: {} ({:?})", e.to_string(), transfer_data));
-        std::thread::sleep(std::time::Duration::from_secs(1));
+        if retry > 2 {
+            ctx.try_log(|logger| error!(logger, "unable to insert inscription in location in hord.sqlite: {}", e.to_string()));
+            return
+        }
     }
 }
 
@@ -1253,26 +1266,6 @@ pub fn remove_entries_from_locations_at_block_height(
     while let Err(e) = inscriptions_db_rw_conn.execute(
         "DELETE FROM locations WHERE block_height = ?1",
         rusqlite::params![&block_height],
-    ) {
-        ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
-        std::thread::sleep(std::time::Duration::from_secs(1));
-    }
-}
-
-pub fn insert_entry_in_locations(
-    inscription_id: &str,
-    block_height: u64,
-    transfer_data: &TransferData,
-    inscriptions_db_rw_conn: &Transaction,
-    ctx: &Context,
-) {
-    let outpoint_to_watch = format_outpoint_to_watch(
-        &transfer_data.transaction_identifier_location,
-        transfer_data.output_index,
-    );
-    while let Err(e) = inscriptions_db_rw_conn.execute(
-        "INSERT INTO locations (inscription_id, outpoint_to_watch, offset, block_height, tx_index) VALUES (?1, ?2, ?3, ?4, ?5)",
-        rusqlite::params![&inscription_id, &outpoint_to_watch, &transfer_data.inscription_offset_intra_output, &block_height, &transfer_data.tx_index],
     ) {
         ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
         std::thread::sleep(std::time::Duration::from_secs(1));
