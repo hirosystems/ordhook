@@ -109,6 +109,8 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           file: ./dockerfiles/components/ordhook.dockerfile
+          build-args: |
+            GIT_COMMIT=${{ env.GITHUB_SHA_SHORT }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           # Only push if (there's a new release on main branch, or if building a non-main branch) and (Only run on non-PR events or only PRs that aren't from forks)

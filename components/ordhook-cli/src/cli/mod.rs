@@ -728,8 +728,11 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 }
 
                 let ordhook_config = config.get_ordhook_config();
-                let version = env!("GIT_HASH");
-                info!(ctx.expect_logger(), "Starting service (git_hash = {})...", version);
+                let version = env!("GIT_COMMIT");
+                info!(
+                    ctx.expect_logger(),
+                    "Starting service (git_commit = {})...", version
+                );
 
                 let start_block = match cmd.start_at_block {
                     Some(entry) => entry,
