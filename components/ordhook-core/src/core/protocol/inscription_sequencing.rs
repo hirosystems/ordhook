@@ -23,7 +23,7 @@ use crate::{
     db::{
         find_blessed_inscription_with_ordinal_number, find_nth_classic_neg_number_at_block_height,
         find_nth_classic_pos_number_at_block_height, find_nth_jubilee_number_at_block_height,
-        format_inscription_id, update_inscriptions_with_block, update_sequence_metadata_with_block,
+        format_inscription_id, update_ordinals_db_with_block, update_sequence_metadata_with_block,
         TransactionBytesCursor, TraversalResult,
     },
     ord::height::Height,
@@ -35,10 +35,10 @@ use crate::db::find_all_inscriptions_in_block;
 
 use super::{
     inscription_parsing::get_inscriptions_revealed_in_block,
+    satoshi_numbering::compute_satoshi_number,
     satoshi_tracking::{
         augment_transaction_with_ordinals_transfers_data, compute_satpoint_post_transfer,
     },
-    satoshi_numbering::compute_satoshi_number,
 };
 
 /// Parallelize the computation of ordinals numbers for inscriptions present in a block.
@@ -574,7 +574,7 @@ pub fn augment_block_with_ordinals_inscriptions_data_and_write_to_db_tx(
     );
 
     // Store inscriptions
-    update_inscriptions_with_block(block, inscriptions_db_tx, ctx);
+    update_ordinals_db_with_block(block, inscriptions_db_tx, ctx);
     update_sequence_metadata_with_block(block, inscriptions_db_tx, ctx);
     any_events
 }

@@ -22,6 +22,8 @@ RUN apt-get install nodejs -y
 
 RUN npm install -g @napi-rs/cli yarn
 
+COPY ./.git /src/.git
+
 COPY ./Cargo.toml /src/Cargo.toml
 
 COPY ./Cargo.lock /src/Cargo.lock
