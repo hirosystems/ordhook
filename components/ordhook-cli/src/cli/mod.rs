@@ -347,7 +347,7 @@ struct StartCommand {
     pub block_integrity_check: bool,
     /// Stream indexing to observers
     #[clap(long = "stream-indexing")]
-    pub stream_indexing_to_observers: bool,    
+    pub stream_indexing_to_observers: bool,
 }
 
 #[derive(Subcommand, PartialEq, Clone, Debug)]
@@ -764,7 +764,12 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
 
                 let mut service = Service::new(config, ctx.clone());
                 return service
-                    .run(predicates, None, cmd.block_integrity_check, cmd.stream_indexing_to_observers)
+                    .run(
+                        predicates,
+                        None,
+                        cmd.block_integrity_check,
+                        cmd.stream_indexing_to_observers,
+                    )
                     .await;
             }
         },
@@ -919,7 +924,10 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
             let inscriptions_db_conn_rw =
                 open_readwrite_ordhook_db_conn(&config.expected_cache_path(), ctx)?;
 
-            println!("{} blocks will be deleted. Confirm? [Y/n]", cmd.end_block - cmd.start_block + 1);
+            println!(
+                "{} blocks will be deleted. Confirm? [Y/n]",
+                cmd.end_block - cmd.start_block + 1
+            );
             let mut buffer = String::new();
             std::io::stdin().read_line(&mut buffer).unwrap();
             if buffer.starts_with('n') {

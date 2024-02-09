@@ -86,7 +86,6 @@ pub fn compute_satpoint_post_transfer(
     cumulated_fees: &mut u64,
     ctx: &Context,
 ) -> (OrdinalInscriptionTransferDestination, String, Option<u64>) {
-
     let inputs: Vec<u64> = tx
         .metadata
         .inputs
@@ -94,8 +93,14 @@ pub fn compute_satpoint_post_transfer(
         .map(|o| o.previous_output.value)
         .collect::<_>();
     let outputs = tx.metadata.outputs.iter().map(|o| o.value).collect::<_>();
-    let post_transfer_data =
-        compute_next_satpoint_data(tx_index, input_index, &inputs, &outputs, relative_pointer_value, Some(ctx));
+    let post_transfer_data = compute_next_satpoint_data(
+        tx_index,
+        input_index,
+        &inputs,
+        &outputs,
+        relative_pointer_value,
+        Some(ctx),
+    );
 
     let (outpoint_post_transfer, offset_post_transfer, destination, post_transfer_output_value) =
         match post_transfer_data {
@@ -179,15 +184,17 @@ pub fn augment_transaction_with_ordinals_transfers_data(
         }
     }
 
-
     for (input_index, input) in tx.metadata.inputs.iter().enumerate() {
         let outpoint_pre_transfer = format_outpoint_to_watch(
             &input.previous_output.txid,
             input.previous_output.vout as usize,
         );
 
-        let entries =
-            find_inscribed_ordinals_at_wached_outpoint(&outpoint_pre_transfer, &inscriptions_db_tx, ctx);
+        let entries = find_inscribed_ordinals_at_wached_outpoint(
+            &outpoint_pre_transfer,
+            &inscriptions_db_tx,
+            ctx,
+        );
         // For each satpoint inscribed retrieved, we need to compute the next
         // outpoint to watch
         for watched_satpoint in entries.into_iter() {
