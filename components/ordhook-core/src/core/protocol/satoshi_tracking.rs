@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use chainhook_sdk::{
     bitcoincore_rpc_json::bitcoin::{Address, Network, ScriptBuf},
     types::{
@@ -10,8 +12,8 @@ use chainhook_sdk::{
 use crate::{
     core::{compute_next_satpoint_data, SatPosition},
     db::{
-        find_inscriptions_at_wached_outpoint, format_outpoint_to_watch,
-        insert_transfer_in_locations_tx,
+        find_inscribed_ordinals_at_wached_outpoint, format_outpoint_to_watch,
+        insert_ordinal_transfer_in_locations_tx, parse_satpoint_to_watch, OrdinalLocation,
     },
     ord::height::Height,
 };
@@ -51,10 +53,19 @@ pub fn augment_block_with_ordinals_transfer_data(
         if update_db_tx {
             // Store transfers between each iteration
             for transfer_data in transfers.into_iter() {
-                insert_transfer_in_locations_tx(
-                    &transfer_data,
-                    &block.block_identifier,
-                    &inscriptions_db_tx,
+                let (tx, output_index, offset) =
+                    parse_satpoint_to_watch(&transfer_data.satpoint_post_transfer);
+                let outpoint_to_watch = format_outpoint_to_watch(&tx, output_index);
+                let data = OrdinalLocation {
+                    offset,
+                    block_height: block.block_identifier.index,
+                    tx_index: transfer_data.tx_index,
+                };
+                insert_ordinal_transfer_in_locations_tx(
+                    transfer_data.ordinal_number,
+                    &outpoint_to_watch,
+                    data,
+                    inscriptions_db_tx,
                     &ctx,
                 );
             }
@@ -66,8 +77,9 @@ pub fn augment_block_with_ordinals_transfer_data(
 
 pub fn compute_satpoint_post_transfer(
     tx: &BitcoinTransactionData,
+    tx_index: usize,
     input_index: usize,
-    inscription_pointer: u64,
+    relative_pointer_value: u64,
     network: &Network,
     coinbase_txid: &TransactionIdentifier,
     coinbase_subsidy: u64,
@@ -81,8 +93,14 @@ pub fn compute_satpoint_post_transfer(
         .map(|o| o.previous_output.value)
         .collect::<_>();
     let outputs = tx.metadata.outputs.iter().map(|o| o.value).collect::<_>();
-    let post_transfer_data =
-        compute_next_satpoint_data(input_index, 0, &inputs, &outputs, inscription_pointer);
+    let post_transfer_data = compute_next_satpoint_data(
+        tx_index,
+        input_index,
+        &inputs,
+        &outputs,
+        relative_pointer_value,
+        Some(ctx),
+    );
 
     let (outpoint_post_transfer, offset_post_transfer, destination, post_transfer_output_value) =
         match post_transfer_data {
@@ -157,25 +175,41 @@ pub fn augment_transaction_with_ordinals_transfers_data(
 ) -> Vec<OrdinalInscriptionTransferData> {
     let mut transfers = vec![];
 
+    // The transfers are inserted in storage after the inscriptions.
+    // We have a unicity constraing, and can only have 1 ordinals per satpoint.
+    let mut updated_sats = HashSet::new();
+    for op in tx.metadata.ordinal_operations.iter() {
+        if let OrdinalOperation::InscriptionRevealed(data) = op {
+            updated_sats.insert(data.ordinal_number);
+        }
+    }
+
     for (input_index, input) in tx.metadata.inputs.iter().enumerate() {
         let outpoint_pre_transfer = format_outpoint_to_watch(
             &input.previous_output.txid,
             input.previous_output.vout as usize,
         );
 
-        let entries =
-            find_inscriptions_at_wached_outpoint(&outpoint_pre_transfer, &inscriptions_db_tx, ctx);
+        let entries = find_inscribed_ordinals_at_wached_outpoint(
+            &outpoint_pre_transfer,
+            &inscriptions_db_tx,
+            ctx,
+        );
         // For each satpoint inscribed retrieved, we need to compute the next
         // outpoint to watch
         for watched_satpoint in entries.into_iter() {
+            if updated_sats.contains(&watched_satpoint.ordinal_number) {
+                continue;
+            }
             let satpoint_pre_transfer =
                 format!("{}:{}", outpoint_pre_transfer, watched_satpoint.offset);
 
             let (destination, satpoint_post_transfer, post_transfer_output_value) =
                 compute_satpoint_post_transfer(
                     &&*tx,
+                    tx_index,
                     input_index,
-                    0,
+                    watched_satpoint.offset,
                     network,
                     coinbase_txid,
                     coinbase_subsidy,

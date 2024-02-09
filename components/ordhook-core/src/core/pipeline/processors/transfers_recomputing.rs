@@ -12,11 +12,11 @@ use crate::{
         pipeline::{PostProcessorCommand, PostProcessorController, PostProcessorEvent},
         protocol::{
             inscription_sequencing::consolidate_block_with_pre_computed_ordinals_data,
-            inscription_tracking::augment_block_with_ordinals_transfer_data,
+            satoshi_tracking::augment_block_with_ordinals_transfer_data,
         },
     },
     db::{
-        insert_new_inscriptions_from_block_in_locations, open_readwrite_ordhook_db_conn,
+        insert_entries_from_block_in_inscriptions, open_readwrite_ordhook_db_conn,
         remove_entries_from_locations_at_block_height,
     },
 };
@@ -83,11 +83,7 @@ pub fn start_transfers_recomputing_processor(
                         &ctx,
                     );
 
-                    insert_new_inscriptions_from_block_in_locations(
-                        block,
-                        &inscriptions_db_tx,
-                        &ctx,
-                    );
+                    insert_entries_from_block_in_inscriptions(block, &inscriptions_db_tx, &ctx);
 
                     augment_block_with_ordinals_transfer_data(
                         block,

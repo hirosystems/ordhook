@@ -178,16 +178,25 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
             )
         }
         if block_heights_to_scan.is_empty() && floating_end_block {
-            match bitcoin_rpc.get_blockchain_info() {
-                Ok(result) => {
-                    for entry in (current_block_height + 1)..=result.blocks {
-                        block_heights_to_scan.push_back(entry);
+            let new_tip = match bitcoin_rpc.get_blockchain_info() {
+                Ok(result) => match predicate_spec.end_block {
+                    Some(end_block) => {
+                        if end_block > result.blocks {
+                            result.blocks
+                        } else {
+                            end_block
+                        }
                     }
-                }
+                    None => result.blocks,
+                },
                 Err(_e) => {
                     continue;
                 }
             };
+
+            for entry in (current_block_height + 1)..new_tip {
+                block_heights_to_scan.push_back(entry);
+            }
         }
     }
     info!(

@@ -21,6 +21,11 @@ pub fn parse_inscriptions_from_witness(
     witness_bytes: Vec<Vec<u8>>,
     txid: &str,
 ) -> Option<Vec<OrdinalInscriptionRevealData>> {
+    // Efficient debugging: Isolate one specific transaction
+    // if !txid.eq("aa2ab56587c7d6609c95157e6dff37c5c3fa6531702f41229a289a5613887077") {
+    //     return None
+    // }
+
     let witness = Witness::from_slice(&witness_bytes);
     let tapscript = witness.tapscript()?;
     let envelopes: Vec<Envelope<Inscription>> = RawEnvelope::from_tapscript(tapscript, input_index)
@@ -83,7 +88,7 @@ pub fn parse_inscriptions_from_witness(
             inscription_input_index: input_index,
             tx_index: 0,
             inscription_output_value: 0,
-            inscription_pointer: envelope.payload.pointer().unwrap_or(0),
+            inscription_pointer: envelope.payload.pointer(),
             inscription_fee: 0,
             inscription_number: OrdinalInscriptionNumber::zero(),
             inscriber_address: None,
