@@ -1,5 +1,7 @@
 FROM rust:bullseye as build
 
+ARG GIT_COMMIT='0000000'
+
 WORKDIR /src
 
 RUN apt-get update && apt-get install -y ca-certificates pkg-config libssl-dev libclang-11-dev libunwind-dev libunwind8 curl gnupg
@@ -21,8 +23,6 @@ RUN apt-get update
 RUN apt-get install nodejs -y
 
 RUN npm install -g @napi-rs/cli yarn
-
-COPY ./.git /src/.git
 
 COPY ./Cargo.toml /src/Cargo.toml
 
