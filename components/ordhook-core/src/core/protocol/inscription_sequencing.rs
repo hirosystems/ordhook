@@ -453,14 +453,8 @@ impl<'a> SequenceCursor<'a> {
             true => self.pick_next_neg_classic(ctx),
             false => self.pick_next_pos_classic(ctx),
         };
-        let jubilee_height = match network {
-            Network::Bitcoin => 824544,
-            Network::Regtest => 110,
-            Network::Signet => 175392,
-            Network::Testnet => 2544192,
-            _ => unreachable!(),
-        };
-        let jubilee = if block_height >= jubilee_height {
+
+        let jubilee = if block_height >= get_jubilee_block_height(&network) {
             self.pick_next_jubilee_number(ctx)
         } else {
             classic
@@ -538,6 +532,25 @@ impl<'a> SequenceCursor<'a> {
     }
 }
 
+pub fn get_jubilee_block_height(network: &Network) -> u64 {
+    match network {
+        Network::Bitcoin => 824544,
+        Network::Regtest => 110,
+        Network::Signet => 175392,
+        Network::Testnet => 2544192,
+        _ => unreachable!(),
+    }
+}
+
+pub fn get_bitcoin_network(network: &BitcoinNetwork) -> Network {
+    match network {
+        BitcoinNetwork::Mainnet => Network::Bitcoin,
+        BitcoinNetwork::Regtest => Network::Regtest,
+        BitcoinNetwork::Testnet => Network::Testnet,
+        BitcoinNetwork::Signet => Network::Signet,
+    }
+}
+
 /// Given a `BitcoinBlockData` that have been augmented with the functions `parse_inscriptions_in_raw_tx`, `parse_inscriptions_in_standardized_tx`
 /// or `parse_inscriptions_and_standardize_block`, mutate the ordinals drafted informations with actual, consensus data.
 ///
@@ -598,12 +611,7 @@ pub fn augment_block_with_ordinals_inscriptions_data(
     let mut sats_overflows = VecDeque::new();
     let mut any_event = false;
 
-    let network = match block.metadata.network {
-        BitcoinNetwork::Mainnet => Network::Bitcoin,
-        BitcoinNetwork::Regtest => Network::Regtest,
-        BitcoinNetwork::Testnet => Network::Testnet,
-        BitcoinNetwork::Signet => Network::Signet,
-    };
+    let network = get_bitcoin_network(&block.metadata.network);
     let coinbase_subsidy = Height(block.block_identifier.index).subsidy();
     let coinbase_txid = &block.transactions[0].transaction_identifier.clone();
     let mut cumulated_fees = 0u64;
@@ -915,13 +923,7 @@ pub fn consolidate_block_with_pre_computed_ordinals_data(
     include_transfers: bool,
     ctx: &Context,
 ) {
-    let network = match block.metadata.network {
-        BitcoinNetwork::Mainnet => Network::Bitcoin,
-        BitcoinNetwork::Regtest => Network::Regtest,
-        BitcoinNetwork::Testnet => Network::Testnet,
-        BitcoinNetwork::Signet => Network::Signet,
-    };
-
+    let network = get_bitcoin_network(&block.metadata.network);
     let coinbase_subsidy = Height(block.block_identifier.index).subsidy();
     let coinbase_txid = &block.transactions[0].transaction_identifier.clone();
     let mut cumulated_fees = 0;

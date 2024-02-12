@@ -19,6 +19,8 @@ use crate::{
 };
 use rusqlite::Transaction;
 
+use super::inscription_sequencing::get_bitcoin_network;
+
 pub fn augment_block_with_ordinals_transfer_data(
     block: &mut BitcoinBlockData,
     inscriptions_db_tx: &Transaction,
@@ -27,13 +29,7 @@ pub fn augment_block_with_ordinals_transfer_data(
 ) -> bool {
     let mut any_event = false;
 
-    let network = match block.metadata.network {
-        BitcoinNetwork::Mainnet => Network::Bitcoin,
-        BitcoinNetwork::Regtest => Network::Regtest,
-        BitcoinNetwork::Testnet => Network::Testnet,
-        BitcoinNetwork::Signet => Network::Signet,
-    };
-
+    let network = get_bitcoin_network(&block.metadata.network);
     let coinbase_subsidy = Height(block.block_identifier.index).subsidy();
     let coinbase_txid = &block.transactions[0].transaction_identifier.clone();
     let mut cumulated_fees = 0;

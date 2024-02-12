@@ -26,6 +26,7 @@ use crate::{
             },
             inscription_sequencing::{
                 augment_block_with_ordinals_inscriptions_data_and_write_to_db_tx,
+                get_bitcoin_network, get_jubilee_block_height,
                 parallelize_inscription_data_computations, SequenceCursor,
             },
             satoshi_tracking::augment_block_with_ordinals_transfer_data,
@@ -189,6 +190,13 @@ pub fn process_blocks(
             &inscriptions_db_tx,
             ctx,
         );
+
+        // Invalidate and recompute cursor when crossing the jubilee height
+        let jubilee_height =
+            get_jubilee_block_height(&get_bitcoin_network(&block.metadata.network));
+        if block.block_identifier.index == jubilee_height {
+            sequence_cursor.reset();
+        }
 
         let _ = process_block(
             &mut block,
