@@ -1,8 +1,12 @@
 FROM rust:bullseye as build
 
+ARG GIT_COMMIT='0000000'
+
+ENV GIT_COMMIT=${GIT_COMMIT}
+
 WORKDIR /src
 
-RUN apt-get update && apt-get install -y ca-certificates pkg-config libssl-dev libclang-11-dev curl gnupg
+RUN apt-get update && apt-get install -y ca-certificates pkg-config libssl-dev libclang-11-dev libunwind-dev libunwind8 curl gnupg
 
 RUN rustup update 1.72.0 && rustup default 1.72.0
 
@@ -50,7 +54,7 @@ FROM debian:bullseye-slim
 
 WORKDIR /ordhook-sdk-js
 
-RUN apt-get update && apt-get install -y ca-certificates libssl-dev
+RUN apt-get update && apt-get install -y ca-certificates libssl-dev libclang-11-dev libunwind-dev libunwind8 sqlite3
 
 # COPY --from=build /out/*.node /ordhook-sdk-js/
 

@@ -11,18 +11,18 @@ const DEFAULT_MAINNET_ORDINALS_SQLITE_ARCHIVE: &str =
 
 pub const DEFAULT_INGESTION_PORT: u16 = 20455;
 pub const DEFAULT_CONTROL_PORT: u16 = 20456;
-pub const STACKS_SCAN_THREAD_POOL_SIZE: usize = 10;
-pub const BITCOIN_SCAN_THREAD_POOL_SIZE: usize = 10;
-pub const STACKS_MAX_PREDICATE_REGISTRATION: usize = 50;
-pub const BITCOIN_MAX_PREDICATE_REGISTRATION: usize = 50;
+pub const DEFAULT_ULIMIT: usize = 2048;
+pub const DEFAULT_MEMORY_AVAILABLE: usize = 8;
+pub const DEFAULT_BITCOIND_RPC_THREADS: usize = 4;
+pub const DEFAULT_BITCOIND_RPC_TIMEOUT: u32 = 15;
 
 #[derive(Clone, Debug)]
 pub struct Config {
     pub storage: StorageConfig,
     pub http_api: PredicatesApi,
-    pub limits: LimitsConfig,
+    pub resources: ResourcesConfig,
     pub network: IndexerConfig,
-    pub bootstrap: BootstrapConfig,
+    pub snapshot: SnapshotConfig,
     pub logs: LogConfig,
 }
 
@@ -50,7 +50,7 @@ pub struct PredicatesApiConfig {
 }
 
 #[derive(Clone, Debug)]
-pub enum BootstrapConfig {
+pub enum SnapshotConfig {
     Build,
     Download(String),
 }
@@ -65,15 +65,23 @@ pub struct UrlConfig {
     pub file_url: String,
 }
 
-#[derive(Clone, Debug)]
-pub struct LimitsConfig {
-    pub max_number_of_bitcoin_predicates: usize,
-    pub max_number_of_concurrent_bitcoin_scans: usize,
-    pub max_number_of_stacks_predicates: usize,
-    pub max_number_of_concurrent_stacks_scans: usize,
-    pub max_number_of_processing_threads: usize,
-    pub bitcoin_concurrent_http_requests_max: usize,
-    pub max_caching_memory_size_mb: usize,
+#[derive(Deserialize, Debug, Clone)]
+pub struct ResourcesConfig {
+    pub ulimit: usize,
+    pub cpu_core_available: usize,
+    pub memory_available: usize,
+    pub bitcoind_rpc_threads: usize,
+    pub bitcoind_rpc_timeout: u32,
+    pub expected_observers_count: usize,
+}
+
+impl ResourcesConfig {
+    pub fn get_optimal_thread_pool_capacity(&self) -> usize {
+        // Generally speaking when dealing a pool, we need one thread for
+        // feeding the thread pool and eventually another thread for
+        // handling the "reduce" step.
+        self.cpu_core_available.saturating_sub(2).max(1)
+    }
 }
 
 impl Config {
@@ -86,10 +94,7 @@ impl Config {
 
     pub fn get_ordhook_config(&self) -> OrdhookConfig {
         OrdhookConfig {
-            network_thread_max: self.limits.bitcoin_concurrent_http_requests_max,
-            ingestion_thread_max: self.limits.max_number_of_processing_threads,
-            ingestion_thread_queue_size: 4,
-            cache_size: self.limits.max_caching_memory_size_mb,
+            resources: self.resources.clone(),
             db_path: self.expected_cache_path(),
             first_inscription_height: match self.network.bitcoin_network {
                 BitcoinNetwork::Mainnet => 767430,
@@ -119,9 +124,9 @@ impl Config {
     }
 
     pub fn should_bootstrap_through_download(&self) -> bool {
-        match &self.bootstrap {
-            BootstrapConfig::Build => false,
-            BootstrapConfig::Download(_) => true,
+        match &self.snapshot {
+            SnapshotConfig::Build => false,
+            SnapshotConfig::Download(_) => true,
         }
     }
 
@@ -139,9 +144,9 @@ impl Config {
     }
 
     fn expected_remote_ordinals_sqlite_base_url(&self) -> &str {
-        match &self.bootstrap {
-            BootstrapConfig::Build => unreachable!(),
-            BootstrapConfig::Download(url) => &url,
+        match &self.snapshot {
+            SnapshotConfig::Build => unreachable!(),
+            SnapshotConfig::Download(url) => &url,
         }
     }
 
@@ -159,15 +164,14 @@ impl Config {
                 working_dir: default_cache_path(),
             },
             http_api: PredicatesApi::Off,
-            bootstrap: BootstrapConfig::Build,
-            limits: LimitsConfig {
-                max_number_of_bitcoin_predicates: BITCOIN_MAX_PREDICATE_REGISTRATION,
-                max_number_of_concurrent_bitcoin_scans: BITCOIN_SCAN_THREAD_POOL_SIZE,
-                max_number_of_stacks_predicates: STACKS_MAX_PREDICATE_REGISTRATION,
-                max_number_of_concurrent_stacks_scans: STACKS_SCAN_THREAD_POOL_SIZE,
-                max_number_of_processing_threads: 1.max(num_cpus::get().saturating_sub(1)),
-                bitcoin_concurrent_http_requests_max: 1.max(num_cpus::get().saturating_sub(1)),
-                max_caching_memory_size_mb: 2048,
+            snapshot: SnapshotConfig::Build,
+            resources: ResourcesConfig {
+                cpu_core_available: num_cpus::get(),
+                memory_available: DEFAULT_MEMORY_AVAILABLE,
+                ulimit: DEFAULT_ULIMIT,
+                bitcoind_rpc_threads: DEFAULT_BITCOIND_RPC_THREADS,
+                bitcoind_rpc_timeout: DEFAULT_BITCOIND_RPC_TIMEOUT,
+                expected_observers_count: 1,
             },
             network: IndexerConfig {
                 bitcoind_rpc_url: "http://0.0.0.0:18443".into(),
@@ -192,15 +196,14 @@ impl Config {
                 working_dir: default_cache_path(),
             },
             http_api: PredicatesApi::Off,
-            bootstrap: BootstrapConfig::Build,
-            limits: LimitsConfig {
-                max_number_of_bitcoin_predicates: BITCOIN_MAX_PREDICATE_REGISTRATION,
-                max_number_of_concurrent_bitcoin_scans: BITCOIN_SCAN_THREAD_POOL_SIZE,
-                max_number_of_stacks_predicates: STACKS_MAX_PREDICATE_REGISTRATION,
-                max_number_of_concurrent_stacks_scans: STACKS_SCAN_THREAD_POOL_SIZE,
-                max_number_of_processing_threads: 1.max(num_cpus::get().saturating_sub(1)),
-                bitcoin_concurrent_http_requests_max: 1.max(num_cpus::get().saturating_sub(1)),
-                max_caching_memory_size_mb: 2048,
+            snapshot: SnapshotConfig::Build,
+            resources: ResourcesConfig {
+                cpu_core_available: num_cpus::get(),
+                memory_available: DEFAULT_MEMORY_AVAILABLE,
+                ulimit: DEFAULT_ULIMIT,
+                bitcoind_rpc_threads: DEFAULT_BITCOIND_RPC_THREADS,
+                bitcoind_rpc_timeout: DEFAULT_BITCOIND_RPC_TIMEOUT,
+                expected_observers_count: 1,
             },
             network: IndexerConfig {
                 bitcoind_rpc_url: "http://0.0.0.0:18332".into(),
@@ -225,17 +228,14 @@ impl Config {
                 working_dir: default_cache_path(),
             },
             http_api: PredicatesApi::Off,
-            bootstrap: BootstrapConfig::Download(
-                DEFAULT_MAINNET_ORDINALS_SQLITE_ARCHIVE.to_string(),
-            ),
-            limits: LimitsConfig {
-                max_number_of_bitcoin_predicates: BITCOIN_MAX_PREDICATE_REGISTRATION,
-                max_number_of_concurrent_bitcoin_scans: BITCOIN_SCAN_THREAD_POOL_SIZE,
-                max_number_of_stacks_predicates: STACKS_MAX_PREDICATE_REGISTRATION,
-                max_number_of_concurrent_stacks_scans: STACKS_SCAN_THREAD_POOL_SIZE,
-                max_number_of_processing_threads: 1.max(num_cpus::get().saturating_sub(1)),
-                bitcoin_concurrent_http_requests_max: 1.max(num_cpus::get().saturating_sub(1)),
-                max_caching_memory_size_mb: 2048,
+            snapshot: SnapshotConfig::Download(DEFAULT_MAINNET_ORDINALS_SQLITE_ARCHIVE.to_string()),
+            resources: ResourcesConfig {
+                cpu_core_available: num_cpus::get(),
+                memory_available: DEFAULT_MEMORY_AVAILABLE,
+                ulimit: DEFAULT_ULIMIT,
+                bitcoind_rpc_threads: DEFAULT_BITCOIND_RPC_THREADS,
+                bitcoind_rpc_timeout: DEFAULT_BITCOIND_RPC_TIMEOUT,
+                expected_observers_count: 1,
             },
             network: IndexerConfig {
                 bitcoind_rpc_url: "http://0.0.0.0:8332".into(),

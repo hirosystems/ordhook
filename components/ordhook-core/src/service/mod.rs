@@ -16,8 +16,8 @@ use crate::core::protocol::inscription_sequencing::SequenceCursor;
 use crate::core::{new_traversals_lazy_cache, should_sync_ordhook_db, should_sync_rocks_db};
 use crate::db::{
     delete_data_in_ordhook_db, insert_entry_in_blocks, open_ordhook_db_conn_rocks_db_loop,
-    open_readwrite_ordhook_db_conn, open_readwrite_ordhook_dbs, update_inscriptions_with_block,
-    update_locations_with_block, BlockBytesCursor, TransactionBytesCursor,
+    open_readwrite_ordhook_db_conn, open_readwrite_ordhook_dbs, update_ordinals_db_with_block,
+    BlockBytesCursor, TransactionBytesCursor,
 };
 use crate::db::{
     find_last_block_inserted, find_missing_blocks, run_compaction,
@@ -33,7 +33,8 @@ use crate::service::observers::{
 use crate::service::runloops::start_bitcoin_scan_runloop;
 use chainhook_sdk::chainhooks::bitcoin::BitcoinChainhookOccurrencePayload;
 use chainhook_sdk::chainhooks::types::{
-    BitcoinChainhookSpecification, ChainhookFullSpecification, ChainhookSpecification,
+    BitcoinChainhookSpecification, ChainhookConfig, ChainhookFullSpecification,
+    ChainhookSpecification,
 };
 use chainhook_sdk::observer::{
     start_event_observer, BitcoinBlockDataCached, DataHandlerEvent, EventObserverConfig,
@@ -63,17 +64,33 @@ impl Service {
 
     pub async fn run(
         &mut self,
-        predicates: Vec<BitcoinChainhookSpecification>,
+        observer_specs: Vec<BitcoinChainhookSpecification>,
         predicate_activity_relayer: Option<
             crossbeam_channel::Sender<BitcoinChainhookOccurrencePayload>,
         >,
         check_blocks_integrity: bool,
+        stream_indexing_to_observers: bool,
     ) -> Result<(), String> {
         let mut event_observer_config = self.config.get_event_observer_config();
 
+        let block_post_processor = if stream_indexing_to_observers && !observer_specs.is_empty() {
+            let mut chainhook_config: ChainhookConfig = ChainhookConfig::new();
+            let specs = observer_specs.clone();
+            for mut observer_spec in specs.into_iter() {
+                observer_spec.enabled = true;
+                let spec = ChainhookSpecification::Bitcoin(observer_spec);
+                chainhook_config.register_specification(spec)?;
+            }
+            event_observer_config.chainhook_config = Some(chainhook_config);
+            let block_tx = start_observer_forwarding(&event_observer_config, &self.ctx);
+            Some(block_tx)
+        } else {
+            None
+        };
+
         // Catch-up with chain tip
         let chain_tip_height = self
-            .catch_up_with_chain_tip(false, check_blocks_integrity)
+            .catch_up_with_chain_tip(false, check_blocks_integrity, block_post_processor)
             .await?;
         info!(
             self.ctx.expect_logger(),
@@ -98,7 +115,7 @@ impl Service {
         // 2) catch-up outdated observers by dispatching replays
         let (chainhook_config, outdated_observers) =
             create_and_consolidate_chainhook_config_with_predicates(
-                predicates,
+                observer_specs,
                 chain_tip_height,
                 predicate_activity_relayer.is_some(),
                 &self.config,
@@ -413,9 +430,7 @@ impl Service {
             bitcoin_blocks_mutator: Some((block_mutator_in_tx, block_mutator_out_rx)),
             bitcoin_chain_event_notifier: Some(chain_event_notifier_tx),
         };
-        let cache_l2 = Arc::new(new_traversals_lazy_cache(
-            self.config.limits.max_caching_memory_size_mb,
-        ));
+        let cache_l2 = Arc::new(new_traversals_lazy_cache(100_000));
         let ctx = self.ctx.clone();
         let config = self.config.clone();
 
@@ -448,6 +463,7 @@ impl Service {
         &mut self,
         rebuild_from_scratch: bool,
         compact_and_check_rocksdb_integrity: bool,
+        block_post_processor: Option<crossbeam_channel::Sender<BitcoinBlockData>>,
     ) -> Result<u64, String> {
         {
             if compact_and_check_rocksdb_integrity {
@@ -455,6 +471,8 @@ impl Service {
                     let blocks_db = open_ordhook_db_conn_rocks_db_loop(
                         false,
                         &self.config.expected_cache_path(),
+                        self.config.resources.ulimit,
+                        self.config.resources.memory_available,
                         &self.ctx,
                     );
                     let tip = find_last_block_inserted(&blocks_db);
@@ -486,6 +504,8 @@ impl Service {
                 let blocks_db_rw = open_ordhook_db_conn_rocks_db_loop(
                     false,
                     &self.config.expected_cache_path(),
+                    self.config.resources.ulimit,
+                    self.config.resources.memory_available,
                     &self.ctx,
                 );
                 info!(self.ctx.expect_logger(), "Running database compaction",);
@@ -496,6 +516,8 @@ impl Service {
                 let blocks_db_rw = open_ordhook_db_conn_rocks_db_loop(
                     false,
                     &self.config.expected_cache_path(),
+                    self.config.resources.ulimit,
+                    self.config.resources.memory_available,
                     &self.ctx,
                 );
 
@@ -511,7 +533,7 @@ impl Service {
                 )?;
             }
         }
-        self.update_state(None).await
+        self.update_state(block_post_processor).await
     }
 
     pub async fn update_state(
@@ -616,14 +638,18 @@ impl Service {
 }
 
 fn chainhook_sidecar_mutate_ordhook_db(command: HandleBlock, config: &Config, ctx: &Context) {
-    let (blocks_db_rw, inscriptions_db_conn_rw) =
-        match open_readwrite_ordhook_dbs(&config.expected_cache_path(), &ctx) {
-            Ok(dbs) => dbs,
-            Err(e) => {
-                ctx.try_log(|logger| error!(logger, "Unable to open readwtite connection: {e}",));
-                return;
-            }
-        };
+    let (blocks_db_rw, inscriptions_db_conn_rw) = match open_readwrite_ordhook_dbs(
+        &config.expected_cache_path(),
+        config.resources.ulimit,
+        config.resources.memory_available,
+        &ctx,
+    ) {
+        Ok(dbs) => dbs,
+        Err(e) => {
+            ctx.try_log(|logger| error!(logger, "Unable to open readwtite connection: {e}",));
+            return;
+        }
+    };
 
     match command {
         HandleBlock::UndoBlock(block) => {
@@ -672,9 +698,7 @@ fn chainhook_sidecar_mutate_ordhook_db(command: HandleBlock, config: &Config, ct
             );
             let _ = blocks_db_rw.flush();
 
-            update_inscriptions_with_block(&block, &inscriptions_db_conn_rw, &ctx);
-
-            update_locations_with_block(&block, &inscriptions_db_conn_rw, &ctx);
+            update_ordinals_db_with_block(&block, &inscriptions_db_conn_rw, ctx);
 
             update_sequence_metadata_with_block(&block, &inscriptions_db_conn_rw, &ctx);
         }
@@ -725,14 +749,18 @@ pub fn chainhook_sidecar_mutate_blocks(
 ) {
     let mut updated_blocks_ids = vec![];
 
-    let (blocks_db_rw, mut inscriptions_db_conn_rw) =
-        match open_readwrite_ordhook_dbs(&config.expected_cache_path(), &ctx) {
-            Ok(dbs) => dbs,
-            Err(e) => {
-                ctx.try_log(|logger| error!(logger, "Unable to open readwtite connection: {e}",));
-                return;
-            }
-        };
+    let (blocks_db_rw, mut inscriptions_db_conn_rw) = match open_readwrite_ordhook_dbs(
+        &config.expected_cache_path(),
+        config.resources.ulimit,
+        config.resources.memory_available,
+        &ctx,
+    ) {
+        Ok(dbs) => dbs,
+        Err(e) => {
+            ctx.try_log(|logger| error!(logger, "Unable to open readwtite connection: {e}",));
+            return;
+        }
+    };
 
     let inscriptions_db_tx = inscriptions_db_conn_rw.transaction().unwrap();
 
@@ -781,8 +809,7 @@ pub fn chainhook_sidecar_mutate_blocks(
         let _ = blocks_db_rw.flush();
 
         if cache.processed_by_sidecar {
-            update_inscriptions_with_block(&cache.block, &inscriptions_db_tx, &ctx);
-            update_locations_with_block(&cache.block, &inscriptions_db_tx, &ctx);
+            update_ordinals_db_with_block(&cache.block, &inscriptions_db_tx, &ctx);
             update_sequence_metadata_with_block(&cache.block, &inscriptions_db_tx, &ctx);
         } else {
             updated_blocks_ids.push(format!("{}", cache.block.block_identifier.index));

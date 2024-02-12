@@ -7,6 +7,7 @@ use chainhook_sdk::types::{
     OrdinalOperation,
 };
 use chainhook_sdk::utils::Context;
+use serde_json::json;
 use std::collections::BTreeMap;
 use std::str::FromStr;
 
@@ -20,6 +21,11 @@ pub fn parse_inscriptions_from_witness(
     witness_bytes: Vec<Vec<u8>>,
     txid: &str,
 ) -> Option<Vec<OrdinalInscriptionRevealData>> {
+    // Efficient debugging: Isolate one specific transaction
+    // if !txid.eq("aa2ab56587c7d6609c95157e6dff37c5c3fa6531702f41229a289a5613887077") {
+    //     return None
+    // }
+
     let witness = Witness::from_slice(&witness_bytes);
     let tapscript = witness.tapscript()?;
     let envelopes: Vec<Envelope<Inscription>> = RawEnvelope::from_tapscript(tapscript, input_index)
@@ -59,6 +65,17 @@ pub fn parse_inscriptions_from_witness(
         let mut content_bytes = "0x".to_string();
         content_bytes.push_str(&hex::encode(&inscription_content_bytes));
 
+        let parent = envelope.payload.parent().and_then(|i| Some(i.to_string()));
+        let delegate = envelope
+            .payload
+            .delegate()
+            .and_then(|i| Some(i.to_string()));
+        let metaprotocol = envelope
+            .payload
+            .metaprotocol()
+            .and_then(|p| Some(p.to_string()));
+        let metadata = envelope.payload.metadata().and_then(|m| Some(json!(m)));
+
         let reveal_data = OrdinalInscriptionRevealData {
             content_type: envelope
                 .payload
@@ -71,9 +88,14 @@ pub fn parse_inscriptions_from_witness(
             inscription_input_index: input_index,
             tx_index: 0,
             inscription_output_value: 0,
+            inscription_pointer: envelope.payload.pointer(),
             inscription_fee: 0,
             inscription_number: OrdinalInscriptionNumber::zero(),
             inscriber_address: None,
+            parent,
+            delegate,
+            metaprotocol,
+            metadata,
             ordinal_number: 0,
             ordinal_block_height: 0,
             ordinal_offset: 0,

@@ -26,9 +26,10 @@ use crate::{
             },
             inscription_sequencing::{
                 augment_block_with_ordinals_inscriptions_data_and_write_to_db_tx,
+                get_bitcoin_network, get_jubilee_block_height,
                 parallelize_inscription_data_computations, SequenceCursor,
             },
-            inscription_tracking::augment_block_with_ordinals_transfer_data,
+            satoshi_tracking::augment_block_with_ordinals_transfer_data,
         },
         OrdhookConfig,
     },
@@ -107,6 +108,8 @@ pub fn start_inscription_indexing_processor(
                     let blocks_db_rw = open_ordhook_db_conn_rocks_db_loop(
                         true,
                         &config.expected_cache_path(),
+                        config.resources.ulimit,
+                        config.resources.memory_available,
                         &ctx,
                     );
                     store_compacted_blocks(
@@ -188,6 +191,13 @@ pub fn process_blocks(
             ctx,
         );
 
+        // Invalidate and recompute cursor when crossing the jubilee height
+        let jubilee_height =
+            get_jubilee_block_height(&get_bitcoin_network(&block.metadata.network));
+        if block.block_identifier.index == jubilee_height {
+            sequence_cursor.reset();
+        }
+
         let _ = process_block(
             &mut block,
             &next_blocks,
@@ -260,7 +270,7 @@ pub fn process_block(
     block: &mut BitcoinBlockData,
     next_blocks: &Vec<BitcoinBlockData>,
     sequence_cursor: &mut SequenceCursor,
-    cache_l1: &mut BTreeMap<(TransactionIdentifier, usize), TraversalResult>,
+    cache_l1: &mut BTreeMap<(TransactionIdentifier, usize, u64), TraversalResult>,
     cache_l2: &Arc<DashMap<(u32, [u8; 8]), TransactionBytesCursor, BuildHasherDefault<FxHasher>>>,
     inscriptions_db_tx: &Transaction,
     ordhook_config: &OrdhookConfig,
