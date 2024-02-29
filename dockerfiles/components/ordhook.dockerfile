@@ -38,6 +38,8 @@ COPY ./components/ordhook-cli /src/components/ordhook-cli
 
 WORKDIR /src/components/ordhook-sdk-js
 
+# TODO
+
 # RUN yarn install
 
 # RUN yarn build
