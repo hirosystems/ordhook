@@ -22,7 +22,7 @@ use ordhook::core::pipeline::processors::start_inscription_indexing_processor;
 use ordhook::core::protocol::inscription_parsing::parse_inscriptions_and_standardize_block;
 use ordhook::core::protocol::satoshi_numbering::compute_satoshi_number;
 use ordhook::db::{
-    delete_data_in_ordhook_db, find_all_inscription_transfers, find_all_inscriptions_in_block,
+    delete_data_in_ordhook_db, find_all_inscriptions_in_block,
     find_all_transfers_in_block, find_block_bytes_at_block_height, find_inscription_with_id,
     find_last_block_inserted, find_latest_inscription_block_height, find_missing_blocks,
     get_default_ordhook_db_file_path, initialize_ordhook_db, open_ordhook_db_conn_rocks_db_loop,
@@ -654,18 +654,6 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 inscription.inscription_number.jubilee,
                 inscription.ordinal_number
             );
-            let transfers = find_all_inscription_transfers(
-                &inscription.get_inscription_id(),
-                &inscriptions_db_conn,
-                ctx,
-            );
-            for (transfer, block_height) in transfers.iter().skip(1) {
-                println!(
-                    "\t→ Transferred in transaction {} (block #{block_height})",
-                    transfer.transaction_identifier_location.hash
-                );
-            }
-            println!("Number of transfers: {}", transfers.len() - 1);
         }
         Command::Scan(ScanCommand::Transaction(cmd)) => {
             let config: Config =

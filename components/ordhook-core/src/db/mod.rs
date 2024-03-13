@@ -933,31 +933,6 @@ pub fn find_all_transfers_in_block(
     return results;
 }
 
-pub fn find_all_inscription_transfers(
-    inscription_id: &str,
-    db_conn: &Connection,
-    ctx: &Context,
-) -> Vec<(TransferData, u64)> {
-    let args: &[&dyn ToSql] = &[&inscription_id.to_sql().unwrap()];
-    let query = "SELECT offset, outpoint_to_watch, tx_index, block_height FROM locations WHERE inscription_id = ? ORDER BY block_height ASC, tx_index ASC";
-    perform_query_set(query, args, db_conn, ctx, |row| {
-        let inscription_offset_intra_output: u64 = row.get(0).unwrap();
-        let outpoint_to_watch: String = row.get(1).unwrap();
-        let tx_index: u64 = row.get(2).unwrap();
-        let block_height: u64 = row.get(3).unwrap();
-
-        let (transaction_identifier_location, output_index) =
-            parse_outpoint_to_watch(&outpoint_to_watch);
-        let transfer = TransferData {
-            inscription_offset_intra_output,
-            transaction_identifier_location,
-            output_index,
-            tx_index,
-        };
-        (transfer, block_height)
-    })
-}
-
 pub fn find_nth_classic_pos_number_at_block_height(
     block_height: &u64,
     db_conn: &Connection,
