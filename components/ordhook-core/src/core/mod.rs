@@ -1,5 +1,6 @@
 pub mod pipeline;
 pub mod protocol;
+pub mod meta_protocols;
 
 use dashmap::DashMap;
 use fxhash::{FxBuildHasher, FxHasher};
