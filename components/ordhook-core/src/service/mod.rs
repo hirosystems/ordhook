@@ -135,6 +135,7 @@ impl Service {
             observer_command_rx,
             Some(observer_event_tx),
             Some(observer_sidecar),
+            None,
             inner_ctx,
         );
 
@@ -188,6 +189,7 @@ impl Service {
             observer_command_rx,
             Some(observer_event_tx),
             Some(observer_sidecar),
+            None,
             inner_ctx,
         );
 
@@ -560,7 +562,9 @@ impl Service {
 
             let ordhook_config = self.config.get_ordhook_config();
             let first_inscription_height = ordhook_config.first_inscription_height;
-            let blocks = BlockHeights::BlockRange(start_block, end_block).get_sorted_entries();
+            let blocks = BlockHeights::BlockRange(start_block, end_block)
+                .get_sorted_entries()
+                .map_err(|_e| format!("Block start / end block spec invalid"))?;
             download_and_pipeline_blocks(
                 &self.config,
                 blocks.into(),
@@ -595,7 +599,9 @@ impl Service {
 
             let ordhook_config = self.config.get_ordhook_config();
             let first_inscription_height = ordhook_config.first_inscription_height;
-            let blocks = BlockHeights::BlockRange(start_block, end_block).get_sorted_entries();
+            let blocks = BlockHeights::BlockRange(start_block, end_block)
+                .get_sorted_entries()
+                .map_err(|_e| format!("Block start / end block spec invalid"))?;
             download_and_pipeline_blocks(
                 &self.config,
                 blocks.into(),

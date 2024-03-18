@@ -22,12 +22,11 @@ use ordhook::core::pipeline::processors::start_inscription_indexing_processor;
 use ordhook::core::protocol::inscription_parsing::parse_inscriptions_and_standardize_block;
 use ordhook::core::protocol::satoshi_numbering::compute_satoshi_number;
 use ordhook::db::{
-    delete_data_in_ordhook_db, find_all_inscriptions_in_block,
-    find_all_transfers_in_block, find_block_bytes_at_block_height, find_inscription_with_id,
-    find_last_block_inserted, find_latest_inscription_block_height, find_missing_blocks,
-    get_default_ordhook_db_file_path, initialize_ordhook_db, open_ordhook_db_conn_rocks_db_loop,
-    open_readonly_ordhook_db_conn, open_readonly_ordhook_db_conn_rocks_db,
-    open_readwrite_ordhook_db_conn, BlockBytesCursor,
+    delete_data_in_ordhook_db, find_all_inscriptions_in_block, find_all_transfers_in_block,
+    find_block_bytes_at_block_height, find_inscription_with_id, find_last_block_inserted,
+    find_latest_inscription_block_height, find_missing_blocks, get_default_ordhook_db_file_path,
+    initialize_ordhook_db, open_ordhook_db_conn_rocks_db_loop, open_readonly_ordhook_db_conn,
+    open_readonly_ordhook_db_conn_rocks_db, open_readwrite_ordhook_db_conn, BlockBytesCursor,
 };
 use ordhook::download::download_ordinals_dataset_if_required;
 use ordhook::hex;
@@ -258,7 +257,7 @@ impl RepairStorageCommand {
             }
             _ => unreachable!(),
         };
-        blocks.into()
+        blocks.unwrap().into()
     }
 }
 
@@ -540,7 +539,10 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
             // If post-to:
             // - Replay that requires connection to bitcoind
             let block_heights = parse_blocks_heights_spec(&cmd.blocks_interval, &cmd.blocks);
-            let mut block_range = block_heights.get_sorted_entries();
+            let mut block_range = block_heights
+                .get_sorted_entries()
+                .map_err(|_e| format!("Block start / end block spec invalid"))?;
+
             if let Some(ref post_to) = cmd.post_to {
                 info!(ctx.expect_logger(), "A fully synchronized bitcoind node is required for retrieving inscriptions content.");
                 info!(

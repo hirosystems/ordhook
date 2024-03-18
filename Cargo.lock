@@ -477,9 +477,9 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
 name = "chainhook-sdk"
-version = "0.12.5"
+version = "0.12.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a9f1d697633a4b8394f185f41634faaf555ba04f2881ac19e1db4b1bd0130155"
+checksum = "563a9e356b75743fe27c32896bbfd4ae1a1a895f48266bc4e94c60ca1b23c8ed"
 dependencies = [
  "base58 0.2.0",
  "base64 0.21.5",
@@ -495,6 +495,7 @@ dependencies = [
  "hyper",
  "lazy_static",
  "miniscript",
+ "prometheus",
  "rand 0.8.5",
  "regex",
  "reqwest",
@@ -512,9 +513,9 @@ dependencies = [
 
 [[package]]
 name = "chainhook-types"
-version = "1.3.3"
+version = "1.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "44b67edc1e9b87382a973d203eada222554a774d9fae55e7d40fb2accb372716"
+checksum = "0da8ba680171cf5e90ac3a7265a3df9d2b9000b77b1bb5259d23a6289dc63b20"
 dependencies = [
  "hex",
  "schemars 0.8.16",
@@ -2589,6 +2590,27 @@ checksum = "97b7db19a74ba7c34de36558abed080568491d2b8999a34de914b1793b0b4b1b"
 dependencies = [
  "log",
 ]
+
+[[package]]
+name = "prometheus"
+version = "0.13.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "449811d15fbdf5ceb5c1144416066429cf82316e2ec8ce0c1f6f8a02e7bbcf8c"
+dependencies = [
+ "cfg-if",
+ "fnv",
+ "lazy_static",
+ "memchr",
+ "parking_lot",
+ "protobuf",
+ "thiserror",
+]
+
+[[package]]
+name = "protobuf"
+version = "2.28.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "106dd99e98437432fed6519dedecfade6a06a73bb7b2a1e019fdd2bee5778d94"
 
 [[package]]
 name = "psm"
