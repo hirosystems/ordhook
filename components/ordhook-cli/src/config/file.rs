@@ -9,7 +9,7 @@ use ordhook::config::{
     DEFAULT_CONTROL_PORT, DEFAULT_MEMORY_AVAILABLE, DEFAULT_ULIMIT,
 };
 use std::fs::File;
-use std::io::{BufReader, Read};
+use std::io::Read;
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct ConfigFile {
@@ -23,20 +23,15 @@ pub struct ConfigFile {
 
 impl ConfigFile {
     pub fn from_file_path(file_path: &str) -> Result<Config, String> {
-        let file = File::open(file_path)
+        let mut file = File::open(file_path)
             .map_err(|e| format!("unable to read file {}\n{:?}", file_path, e))?;
-        let mut file_reader = BufReader::new(file);
-        let mut file_buffer = vec![];
-        file_reader
-            .read_to_end(&mut file_buffer)
-            .map_err(|e| format!("unable to read file {}\n{:?}", file_path, e))?;
+        let mut file_content = String::new();
+        file.read_to_string(&mut file_content)
+            .map_err(|e| format!("unable to read file content {}", e.to_string()))?;
 
-        let config_file: ConfigFile = match toml::from_slice(&file_buffer) {
-            Ok(s) => s,
-            Err(e) => {
-                return Err(format!("Config file malformatted {}", e));
-            }
-        };
+        let config_file: ConfigFile = toml::from_str(&file_content) 
+            .map_err(|e| format!("Config file malformatted {}", e.to_string()))?;
+
         ConfigFile::from_config_file(config_file)
     }
 
