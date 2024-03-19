@@ -8,9 +8,10 @@ use chainhook_sdk::types::{
 };
 use chainhook_sdk::utils::Context;
 use serde_json::json;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::str::FromStr;
 
+use crate::core::meta_protocols::brc20::parser::{parse_brc20_operation, ParsedBrc20Operation};
 use crate::ord::envelope::{Envelope, ParsedEnvelope, RawEnvelope};
 use crate::ord::inscription::Inscription;
 use crate::ord::inscription_id::InscriptionId;
@@ -20,7 +21,7 @@ pub fn parse_inscriptions_from_witness(
     input_index: usize,
     witness_bytes: Vec<Vec<u8>>,
     txid: &str,
-) -> Option<Vec<OrdinalInscriptionRevealData>> {
+) -> Option<Vec<(OrdinalInscriptionRevealData, Inscription)>> {
     // Efficient debugging: Isolate one specific transaction
     // if !txid.eq("aa2ab56587c7d6609c95157e6dff37c5c3fa6531702f41229a289a5613887077") {
     //     return None
@@ -103,14 +104,15 @@ pub fn parse_inscriptions_from_witness(
             satpoint_post_inscription: format!(""),
             curse_type,
         };
-        inscriptions.push(reveal_data);
+        inscriptions.push((reveal_data, envelope.payload));
     }
     Some(inscriptions)
 }
 
 pub fn parse_inscriptions_from_standardized_tx(
     tx: &BitcoinTransactionData,
-    _ctx: &Context,
+    brc20_operation_map: &mut HashMap<String, ParsedBrc20Operation>,
+    ctx: &Context,
 ) -> Vec<OrdinalOperation> {
     let mut operations = vec![];
     for (input_index, input) in tx.metadata.inputs.iter().enumerate() {
@@ -125,8 +127,23 @@ pub fn parse_inscriptions_from_standardized_tx(
             witness_bytes,
             tx.transaction_identifier.get_hash_bytes_str(),
         ) {
-            for inscription in inscriptions.into_iter() {
-                operations.push(OrdinalOperation::InscriptionRevealed(inscription));
+            for (reveal, inscription) in inscriptions.into_iter() {
+                match parse_brc20_operation(&inscription) {
+                    Ok(Some(op)) => {
+                        brc20_operation_map.insert(reveal.inscription_id.clone(), op);
+                    },
+                    Ok(None) => {},
+                    Err(e) => {
+                        ctx.try_log(|logger| {
+                            warn!(
+                                logger,
+                                "Error parsing BRC-20 operation: {}",
+                                e
+                            )
+                        });
+                    }
+                };
+                operations.push(OrdinalOperation::InscriptionRevealed(reveal));
             }
         }
     }
@@ -148,8 +165,8 @@ pub fn parse_inscriptions_in_raw_tx(
             if let Some(inscriptions) =
                 parse_inscriptions_from_witness(input_index, witness_bytes, &tx.txid)
             {
-                for inscription in inscriptions.into_iter() {
-                    operations.push(OrdinalOperation::InscriptionRevealed(inscription));
+                for (reveal, inscription) in inscriptions.into_iter() {
+                    operations.push(OrdinalOperation::InscriptionRevealed(reveal));
                 }
             }
         }
@@ -197,9 +214,13 @@ pub fn parse_inscriptions_and_standardize_block(
     Ok(block)
 }
 
-pub fn parse_inscriptions_in_standardized_block(block: &mut BitcoinBlockData, ctx: &Context) {
+pub fn parse_inscriptions_in_standardized_block(
+    block: &mut BitcoinBlockData,
+    brc20_operation_map: &mut HashMap<String, ParsedBrc20Operation>,
+    ctx: &Context
+) {
     for tx in block.transactions.iter_mut() {
-        tx.metadata.ordinal_operations = parse_inscriptions_from_standardized_tx(tx, ctx);
+        tx.metadata.ordinal_operations = parse_inscriptions_from_standardized_tx(tx, brc20_operation_map, ctx);
     }
 }
 

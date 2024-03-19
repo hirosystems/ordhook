@@ -3,6 +3,8 @@ pub mod observers;
 mod runloops;
 
 use crate::config::{Config, PredicatesApi};
+use crate::core::meta_protocols::brc20::db::open_readwrite_brc20_db_conn;
+use crate::core::meta_protocols::brc20::verifier::verify_brc20_operation;
 use crate::core::pipeline::download_and_pipeline_blocks;
 use crate::core::pipeline::processors::block_archiving::start_block_archiving_processor;
 use crate::core::pipeline::processors::inscription_indexing::process_block;
@@ -47,7 +49,7 @@ use crossbeam_channel::{select, Sender};
 use dashmap::DashMap;
 use fxhash::FxHasher;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::hash::BuildHasherDefault;
 use std::sync::mpsc::channel;
 use std::sync::Arc;
@@ -757,12 +759,22 @@ pub fn chainhook_sidecar_mutate_blocks(
     ) {
         Ok(dbs) => dbs,
         Err(e) => {
-            ctx.try_log(|logger| error!(logger, "Unable to open readwtite connection: {e}",));
+            ctx.try_log(|logger| error!(logger, "Unable to open readwrite connection: {e}",));
             return;
         }
     };
 
     let inscriptions_db_tx = inscriptions_db_conn_rw.transaction().unwrap();
+
+    let mut brc20_db_conn_rw =
+        match open_readwrite_brc20_db_conn(&config.expected_cache_path(), &ctx) {
+            Ok(dbs) => dbs,
+            Err(e) => {
+                ctx.try_log(|logger| error!(logger, "Unable to open readwrite connection: {e}",));
+                return;
+            }
+        };
+    let brc20_db_tx = brc20_db_conn_rw.transaction().unwrap();
 
     for block_id_to_rollback in blocks_ids_to_rollback.iter() {
         if let Err(e) = delete_data_in_ordhook_db(
@@ -814,7 +826,12 @@ pub fn chainhook_sidecar_mutate_blocks(
         } else {
             updated_blocks_ids.push(format!("{}", cache.block.block_identifier.index));
 
-            parse_inscriptions_in_standardized_block(&mut cache.block, &ctx);
+            let mut brc20_operation_map = HashMap::new();
+            parse_inscriptions_in_standardized_block(
+                &mut cache.block,
+                &mut brc20_operation_map,
+                &ctx,
+            );
 
             let mut cache_l1 = BTreeMap::new();
             let mut sequence_cursor = SequenceCursor::new(&inscriptions_db_tx);
@@ -830,7 +847,8 @@ pub fn chainhook_sidecar_mutate_blocks(
                 &ctx,
             );
 
-            let inscriptions_revealed = get_inscriptions_revealed_in_block(&cache.block)
+            let inscriptions_revealed = get_inscriptions_revealed_in_block(&cache.block);
+            let inscription_numbers = inscriptions_revealed
                 .iter()
                 .map(|d| d.get_inscription_number().to_string())
                 .collect::<Vec<String>>();
@@ -838,13 +856,31 @@ pub fn chainhook_sidecar_mutate_blocks(
             let inscriptions_transferred =
                 get_inscriptions_transferred_in_block(&cache.block).len();
 
+            for reveal in inscriptions_revealed.clone() {
+                if let Some(parsed_brc20_operation) =
+                    brc20_operation_map.get(&reveal.inscription_id)
+                {
+                    match verify_brc20_operation(parsed_brc20_operation, reveal, &brc20_db_tx, ctx) {
+                        Ok(op) => {
+                            // write
+                        }
+                        Err(e) => {
+                            ctx.try_log(|logger| {
+                                warn!(logger, "Error validating BRC-20 operation #{}", e)
+                            });
+                        }
+                    }
+                }
+            }
+            // TODO: process brc20 transfers in tx_index order besides inscription reveals
+
             ctx.try_log(|logger| {
                 info!(
                     logger,
                     "Block #{} processed, mutated and revealed {} inscriptions [{}] and {inscriptions_transferred} transfers",
                     cache.block.block_identifier.index,
-                    inscriptions_revealed.len(),
-                    inscriptions_revealed.join(", ")
+                    inscription_numbers.len(),
+                    inscription_numbers.join(", ")
                 )
             });
             cache.processed_by_sidecar = true;
