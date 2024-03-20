@@ -158,29 +158,30 @@ pub fn parse_brc20_operation(
                 let op_str = json.op.as_str();
                 match op_str {
                     "mint" | "transfer" => {
-                        if let Some(parsed_amt) = parse_float_numeric_value(&json.amt, 18) {
-                            if parsed_amt == 0.0 {
-                                return Ok(None);
+                        let Some(parsed_amt) = parse_float_numeric_value(&json.amt, 18) else {
+                            return Ok(None);
+                        };
+                        if parsed_amt == 0.0 {
+                            return Ok(None);
+                        }
+                        match op_str {
+                            "mint" => {
+                                return Ok(Some(ParsedBrc20Operation::Mint(
+                                    ParsedBrc20BalanceData {
+                                        tick: json.tick.to_lowercase(),
+                                        amt: json.amt.clone(),
+                                    },
+                                )));
                             }
-                            match op_str {
-                                "mint" => {
-                                    return Ok(Some(ParsedBrc20Operation::Mint(
-                                        ParsedBrc20BalanceData {
-                                            tick: json.tick.to_lowercase(),
-                                            amt: json.amt.clone(),
-                                        },
-                                    )));
-                                }
-                                "transfer" => {
-                                    return Ok(Some(ParsedBrc20Operation::Transfer(
-                                        ParsedBrc20BalanceData {
-                                            tick: json.tick.to_lowercase(),
-                                            amt: json.amt,
-                                        },
-                                    )));
-                                }
-                                _ => return Ok(None),
+                            "transfer" => {
+                                return Ok(Some(ParsedBrc20Operation::Transfer(
+                                    ParsedBrc20BalanceData {
+                                        tick: json.tick.to_lowercase(),
+                                        amt: json.amt.clone(),
+                                    },
+                                )));
                             }
+                            _ => return Ok(None),
                         }
                     }
                     _ => return Ok(None),
@@ -189,7 +190,6 @@ pub fn parse_brc20_operation(
             Err(_) => return Ok(None),
         },
     };
-    return Ok(None);
 }
 
 #[cfg(test)]
@@ -324,6 +324,14 @@ mod test {
         => Ok(None); "with invalid JSON"
     )]
     #[test_case(
+        InscriptionBuilder::new().body(r#"{"p":"brc20", "op": "deploy", "tick": "pepe", "max": "21000000", "lim": "1000", "dec": "6",}"#).build()
+        => Ok(None); "with deploy JSON5"
+    )]
+    #[test_case(
+        InscriptionBuilder::new().body(r#"{"P":"brc20", "OP": "deploy", "TICK": "pepe", "MAX": "21000000", "LIM": "1000", "DEC": "6"}"#).build()
+        => Ok(None); "with deploy uppercase fields"
+    )]
+    #[test_case(
         InscriptionBuilder::new().body(r#"{"p":"brc20", "op": "deploy", "tick": "pepe", "max": "21000000", "lim": "1000", "dec": "6"}"#).build()
         => Ok(None); "with deploy incorrect p field"
     )]
@@ -448,6 +456,14 @@ mod test {
         }))); "with mint extra fields"
     )]
     #[test_case(
+        InscriptionBuilder::new().body(r#"{"p":"brc-20", "op": "mint", "tick": "a  b", "amt": "1000",}"#).build()
+        => Ok(None); "with mint JSON5"
+    )]
+    #[test_case(
+        InscriptionBuilder::new().body(r#"{"P":"brc-20", "OP": "mint", "TICK": "a  b", "AMT": "1000"}"#).build()
+        => Ok(None); "with mint uppercase fields"
+    )]
+    #[test_case(
         InscriptionBuilder::new().body(r#"{"p":"brc20", "op": "mint", "tick": "pepe", "amt": "1000"}"#).build()
         => Ok(None); "with mint incorrect p field"
     )]
@@ -517,6 +533,14 @@ mod test {
             tick: "a  b".to_string(),
             amt: "1000".to_string()
         }))); "with transfer extra fields"
+    )]
+    #[test_case(
+        InscriptionBuilder::new().body(r#"{"p":"brc-20", "op": "transfer", "tick": "pepe", "amt": "1000",}"#).build()
+        => Ok(None); "with transfer JSON5"
+    )]
+    #[test_case(
+        InscriptionBuilder::new().body(r#"{"P":"brc-20", "OP": "transfer", "TICK": "a  b", "AMT": "1000"}"#).build()
+        => Ok(None); "with transfer uppercase fields"
     )]
     #[test_case(
         InscriptionBuilder::new().body(r#"{"p":"brc20", "op": "transfer", "tick": "pepe", "amt": "1000"}"#).build()
