@@ -103,7 +103,7 @@ pub fn open_readwrite_observers_db_conn(
     ctx: &Context,
 ) -> Result<Connection, String> {
     let db_path = get_default_observers_db_file_path(&base_dir);
-    let conn = create_or_open_readwrite_db(&db_path, ctx);
+    let conn = create_or_open_readwrite_db(Some(&db_path), ctx);
     Ok(conn)
 }
 
@@ -120,7 +120,7 @@ pub fn open_readwrite_observers_db_conn_or_panic(base_dir: &PathBuf, ctx: &Conte
 
 pub fn initialize_observers_db(base_dir: &PathBuf, ctx: &Context) -> Connection {
     let db_path = get_default_observers_db_file_path(&base_dir);
-    let conn = create_or_open_readwrite_db(&db_path, ctx);
+    let conn = create_or_open_readwrite_db(Some(&db_path), ctx);
     // TODO: introduce initial output
     if let Err(e) = conn.execute(
         "CREATE TABLE IF NOT EXISTS observers (

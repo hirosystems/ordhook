@@ -48,13 +48,13 @@ pub fn open_readwrite_ordhook_db_conn(
     ctx: &Context,
 ) -> Result<Connection, String> {
     let db_path = get_default_ordhook_db_file_path(&base_dir);
-    let conn = create_or_open_readwrite_db(&db_path, ctx);
+    let conn = create_or_open_readwrite_db(Some(&db_path), ctx);
     Ok(conn)
 }
 
 pub fn initialize_ordhook_db(base_dir: &PathBuf, ctx: &Context) -> Connection {
     let db_path = get_default_ordhook_db_file_path(&base_dir);
-    let conn = create_or_open_readwrite_db(&db_path, ctx);
+    let conn = create_or_open_readwrite_db(Some(&db_path), ctx);
     // TODO: introduce initial output
     if let Err(e) = conn.execute(
         "CREATE TABLE IF NOT EXISTS inscriptions (
@@ -172,29 +172,37 @@ pub fn initialize_ordhook_db(base_dir: &PathBuf, ctx: &Context) -> Connection {
     conn
 }
 
-pub fn create_or_open_readwrite_db(db_path: &PathBuf, ctx: &Context) -> Connection {
-    let open_flags = match std::fs::metadata(&db_path) {
-        Err(e) => {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                // need to create
-                if let Some(dirp) = PathBuf::from(&db_path).parent() {
-                    std::fs::create_dir_all(dirp).unwrap_or_else(|e| {
-                        ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
-                    });
+pub fn create_or_open_readwrite_db(db_path: Option<&PathBuf>, ctx: &Context) -> Connection {
+    let open_flags = if let Some(db_path) = db_path {
+        match std::fs::metadata(&db_path) {
+            Err(e) => {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    // need to create
+                    if let Some(dirp) = PathBuf::from(&db_path).parent() {
+                        std::fs::create_dir_all(dirp).unwrap_or_else(|e| {
+                            ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
+                        });
+                    }
+                    OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE
+                } else {
+                    panic!("FATAL: could not stat {}", db_path.display());
                 }
-                OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE
-            } else {
-                panic!("FATAL: could not stat {}", db_path.display());
+            }
+            Ok(_md) => {
+                // can just open
+                OpenFlags::SQLITE_OPEN_READ_WRITE
             }
         }
-        Ok(_md) => {
-            // can just open
-            OpenFlags::SQLITE_OPEN_READ_WRITE
-        }
+    } else {
+        OpenFlags::SQLITE_OPEN_READ_WRITE
     };
 
+    let path = match db_path {
+        Some(path) => path.to_str().unwrap(),
+        None => ":memory:"
+    };
     let conn = loop {
-        match Connection::open_with_flags(&db_path, open_flags) {
+        match Connection::open_with_flags(&path, open_flags) {
             Ok(conn) => break conn,
             Err(e) => {
                 ctx.try_log(|logger| error!(logger, "{}", e.to_string()));

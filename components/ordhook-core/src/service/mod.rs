@@ -3,8 +3,12 @@ pub mod observers;
 mod runloops;
 
 use crate::config::{Config, PredicatesApi};
-use crate::core::meta_protocols::brc20::db::open_readwrite_brc20_db_conn;
-use crate::core::meta_protocols::brc20::verifier::verify_brc20_operation;
+use crate::core::meta_protocols::brc20::db::{
+    insert_token, insert_token_mint, insert_token_transfer, open_readwrite_brc20_db_conn
+};
+use crate::core::meta_protocols::brc20::parser::ParsedBrc20Operation;
+use crate::core::meta_protocols::brc20::verifier::{verify_brc20_operation, verify_brc20_transfer};
+use crate::core::meta_protocols::brc20::Brc20Operation;
 use crate::core::pipeline::download_and_pipeline_blocks;
 use crate::core::pipeline::processors::block_archiving::start_block_archiving_processor;
 use crate::core::pipeline::processors::inscription_indexing::process_block;
@@ -42,12 +46,13 @@ use chainhook_sdk::observer::{
     start_event_observer, BitcoinBlockDataCached, DataHandlerEvent, EventObserverConfig,
     HandleBlock, ObserverCommand, ObserverEvent, ObserverSidecar,
 };
-use chainhook_sdk::types::{BitcoinBlockData, BlockIdentifier};
+use chainhook_sdk::types::{BitcoinBlockData, BlockIdentifier, OrdinalOperation};
 use chainhook_sdk::utils::{BlockHeights, Context};
 use crossbeam_channel::unbounded;
 use crossbeam_channel::{select, Sender};
 use dashmap::DashMap;
 use fxhash::FxHasher;
+use rusqlite::Transaction;
 
 use std::collections::{BTreeMap, HashMap};
 use std::hash::BuildHasherDefault;
@@ -846,33 +851,15 @@ pub fn chainhook_sidecar_mutate_blocks(
                 &ordhook_config,
                 &ctx,
             );
+            write_brc20_block_operations(&cache.block, &brc20_operation_map, &brc20_db_tx, &ctx);
 
-            let inscriptions_revealed = get_inscriptions_revealed_in_block(&cache.block);
-            let inscription_numbers = inscriptions_revealed
+            let inscription_numbers = get_inscriptions_revealed_in_block(&cache.block)
                 .iter()
                 .map(|d| d.get_inscription_number().to_string())
                 .collect::<Vec<String>>();
 
             let inscriptions_transferred =
                 get_inscriptions_transferred_in_block(&cache.block).len();
-
-            for reveal in inscriptions_revealed.clone() {
-                if let Some(parsed_brc20_operation) =
-                    brc20_operation_map.get(&reveal.inscription_id)
-                {
-                    match verify_brc20_operation(parsed_brc20_operation, reveal, &brc20_db_tx, ctx) {
-                        Ok(op) => {
-                            // write
-                        }
-                        Err(e) => {
-                            ctx.try_log(|logger| {
-                                warn!(logger, "Error validating BRC-20 operation #{}", e)
-                            });
-                        }
-                    }
-                }
-            }
-            // TODO: process brc20 transfers in tx_index order besides inscription reveals
 
             ctx.try_log(|logger| {
                 info!(
@@ -887,4 +874,67 @@ pub fn chainhook_sidecar_mutate_blocks(
         }
     }
     let _ = inscriptions_db_tx.rollback();
+}
+
+fn write_brc20_block_operations(
+    block: &BitcoinBlockData,
+    brc20_operation_map: &HashMap<String, ParsedBrc20Operation>,
+    db_tx: &Transaction,
+    ctx: &Context,
+) {
+    for tx in block.transactions.iter() {
+        for op in tx.metadata.ordinal_operations.iter() {
+            match op {
+                OrdinalOperation::InscriptionRevealed(reveal) => {
+                    if let Some(parsed_brc20_operation) =
+                        brc20_operation_map.get(&reveal.inscription_id)
+                    {
+                        match verify_brc20_operation(parsed_brc20_operation, reveal, &db_tx, &ctx) {
+                            Ok(op) => match op {
+                                Brc20Operation::TokenDeploy(token) => insert_token(
+                                    &token,
+                                    reveal,
+                                    &block.block_identifier,
+                                    &db_tx,
+                                    &ctx,
+                                ),
+                                Brc20Operation::TokenMint(balance) => insert_token_mint(
+                                    &balance,
+                                    reveal,
+                                    &block.block_identifier,
+                                    &db_tx,
+                                    &ctx,
+                                ),
+                                Brc20Operation::TokenTransfer(balance) => insert_token_transfer(
+                                    &balance,
+                                    reveal,
+                                    &block.block_identifier,
+                                    &db_tx,
+                                    &ctx,
+                                ),
+                                Brc20Operation::TokenTransferSend(_) => {
+                                    // TODO: Error, should never happen
+                                }
+                            },
+                            Err(e) => {
+                                ctx.try_log(|logger| {
+                                    warn!(logger, "Error validating BRC-20 operation #{}", e)
+                                });
+                            }
+                        }
+                    }
+                }
+                OrdinalOperation::InscriptionTransferred(transfer) => {
+                    match verify_brc20_transfer(transfer, &db_tx, &ctx) {
+                        Ok(op) => {}
+                        Err(e) => {
+                            ctx.try_log(|logger| {
+                                warn!(logger, "Error validating BRC-20 transfer #{}", e)
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
