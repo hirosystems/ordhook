@@ -30,6 +30,7 @@ pub fn initialize_brc20_db(base_dir: Option<&PathBuf>, ctx: &Context) -> Connect
             max REAL NOT NULL,
             lim REAL NOT NULL,
             dec INTEGER NOT NULL,
+            address TEXT NOT NULL,
             UNIQUE (inscription_id),
             UNIQUE (inscription_number),
             UNIQUE (tick)
@@ -116,14 +117,15 @@ pub fn get_token(
     tick: &str,
     db_tx: &Transaction,
     ctx: &Context,
-) -> Option<ParsedBrc20TokenDeployData> {
+) -> Option<Brc20TokenDeployData> {
     let args: &[&dyn ToSql] = &[&tick.to_sql().unwrap()];
-    let query = "SELECT tick, max, lim, dec FROM tokens WHERE tick = ?";
-    perform_query_one(query, args, &db_tx, ctx, |row| ParsedBrc20TokenDeployData {
+    let query = "SELECT tick, max, lim, dec, address FROM tokens WHERE tick = ?";
+    perform_query_one(query, args, &db_tx, ctx, |row| Brc20TokenDeployData {
         tick: row.get(0).unwrap(),
         max: row.get(1).unwrap(),
         lim: row.get(2).unwrap(),
         dec: row.get(3).unwrap(),
+        address: row.get(4).unwrap(),
     })
 }
 
@@ -186,8 +188,8 @@ pub fn insert_token(
 ) {
     while let Err(e) = db_tx.execute(
         "INSERT INTO tokens
-        (inscription_id, inscription_number, block_height, tick, max, lim, dec)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+        (inscription_id, inscription_number, block_height, tick, max, lim, dec, address)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
         ON CONFLICT(tick) DO NOTHING",
         rusqlite::params![
             &reveal.inscription_id,
@@ -196,13 +198,37 @@ pub fn insert_token(
             &data.tick,
             &data.max,
             &data.lim,
-            &data.dec
+            &data.dec,
+            &reveal.inscriber_address
         ],
     ) {
         ctx.try_log(|logger| {
             warn!(
                 logger,
-                "unable to insert inscription in brc20.sqlite: {} - {:?}",
+                "unable to insert deploy in brc20.sqlite: {} - {:?}",
+                e.to_string(),
+                data
+            )
+        });
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    }
+    while let Err(e) = db_tx.execute(
+        "INSERT INTO ledger
+        (inscription_id, inscription_number, ordinal_number, block_height, tick, address, avail_balance, trans_balance, operation)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0.0, 0.0, 'deploy')",
+        rusqlite::params![
+            &reveal.inscription_id,
+            &reveal.inscription_number.jubilee,
+            &reveal.ordinal_number,
+            &block_identifier.index,
+            &data.tick,
+            &data.address
+        ],
+    ) {
+        ctx.try_log(|logger| {
+            warn!(
+                logger,
+                "unable to insert deploy in brc20.sqlite: {} - {:?}",
                 e.to_string(),
                 data
             )
