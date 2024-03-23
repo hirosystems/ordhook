@@ -4,7 +4,8 @@ mod runloops;
 
 use crate::config::{Config, PredicatesApi};
 use crate::core::meta_protocols::brc20::db::{
-    insert_token, insert_token_mint, insert_token_transfer, open_readwrite_brc20_db_conn
+    insert_token, insert_token_mint, insert_token_transfer, insert_token_transfer_send,
+    open_readwrite_brc20_db_conn,
 };
 use crate::core::meta_protocols::brc20::parser::ParsedBrc20Operation;
 use crate::core::meta_protocols::brc20::verifier::{verify_brc20_operation, verify_brc20_transfer};
@@ -926,7 +927,13 @@ fn write_brc20_block_operations(
                 }
                 OrdinalOperation::InscriptionTransferred(transfer) => {
                     match verify_brc20_transfer(transfer, &db_tx, &ctx) {
-                        Ok(op) => {}
+                        Ok(data) => insert_token_transfer_send(
+                            &data,
+                            &transfer,
+                            &block.block_identifier,
+                            &db_tx,
+                            &ctx,
+                        ),
                         Err(e) => {
                             ctx.try_log(|logger| {
                                 warn!(logger, "Error validating BRC-20 transfer #{}", e)

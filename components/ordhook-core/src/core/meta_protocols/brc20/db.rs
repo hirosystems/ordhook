@@ -2,13 +2,13 @@ use std::path::PathBuf;
 
 use crate::db::{create_or_open_readwrite_db, perform_query_exists, perform_query_one};
 use chainhook_sdk::{
-    types::{BlockIdentifier, OrdinalInscriptionRevealData},
+    types::{BlockIdentifier, OrdinalInscriptionRevealData, OrdinalInscriptionTransferData},
     utils::Context,
 };
 use rusqlite::{Connection, ToSql, Transaction};
 
 use super::{
-    parser::{ParsedBrc20BalanceData, ParsedBrc20TokenDeployData},
+    parser::ParsedBrc20TokenDeployData,
     Brc20BalanceData, Brc20TokenDeployData, Brc20TransferData,
 };
 
@@ -56,9 +56,7 @@ pub fn initialize_brc20_db(base_dir: Option<&PathBuf>, ctx: &Context) -> Connect
             address TEXT NOT NULL,
             avail_balance REAL NOT NULL,
             trans_balance REAL NOT NULL,
-            operation TEXT NOT NULL,
-            UNIQUE (inscription_id),
-            UNIQUE (inscription_number)
+            operation TEXT NOT NULL
         )",
         [],
     ) {
@@ -78,6 +76,18 @@ pub fn initialize_brc20_db(base_dir: Option<&PathBuf>, ctx: &Context) -> Connect
         }
         if let Err(e) = conn.execute(
             "CREATE INDEX IF NOT EXISTS index_ledger_on_block_height ON ledger(block_height);",
+            [],
+        ) {
+            ctx.try_log(|logger| warn!(logger, "unable to create brc20.sqlite: {}", e.to_string()));
+        }
+        if let Err(e) = conn.execute(
+            "CREATE INDEX IF NOT EXISTS index_ledger_on_inscription_id ON ledger(inscription_id);",
+            [],
+        ) {
+            ctx.try_log(|logger| warn!(logger, "unable to create brc20.sqlite: {}", e.to_string()));
+        }
+        if let Err(e) = conn.execute(
+            "CREATE INDEX IF NOT EXISTS index_ledger_on_inscription_number ON ledger(inscription_number);",
             [],
         ) {
             ctx.try_log(|logger| warn!(logger, "unable to create brc20.sqlite: {}", e.to_string()));
@@ -146,7 +156,7 @@ pub fn get_unsent_token_transfer_with_sender(
     ordinal_number: u64,
     db_tx: &Transaction,
     ctx: &Context,
-) -> Option<(ParsedBrc20BalanceData, String)> {
+) -> Option<Brc20BalanceData> {
     let args: &[&dyn ToSql] = &[
         &ordinal_number.to_sql().unwrap(),
         &ordinal_number.to_sql().unwrap(),
@@ -160,14 +170,10 @@ pub fn get_unsent_token_transfer_with_sender(
             )
         LIMIT 1
     ";
-    perform_query_one(query, args, &db_tx, ctx, |row| {
-        (
-            ParsedBrc20BalanceData {
-                tick: row.get(0).unwrap(),
-                amt: row.get(1).unwrap(),
-            },
-            row.get(2).unwrap(),
-        )
+    perform_query_one(query, args, &db_tx, ctx, |row| Brc20BalanceData {
+        tick: row.get(0).unwrap(),
+        amt: row.get(1).unwrap(),
+        address: row.get(2).unwrap(),
     })
 }
 
@@ -274,19 +280,41 @@ pub fn insert_token_transfer(
 
 pub fn insert_token_transfer_send(
     data: &Brc20TransferData,
-    reveal: &OrdinalInscriptionRevealData,
+    transfer: &OrdinalInscriptionTransferData,
     block_identifier: &BlockIdentifier,
     db_tx: &Transaction,
     ctx: &Context,
 ) {
+    // Get the `inscription_id` and `inscription_number` first from the original transfer BRC-20 op
+    // because we don't have it in the `transfer` arg.
+    let args: &[&dyn ToSql] = &[&transfer.ordinal_number.to_sql().unwrap()];
+    let query = "
+        SELECT inscription_id, inscription_number
+        FROM ledger
+        WHERE ordinal_number = ? AND operation = 'transfer'
+        LIMIT 1
+    ";
+    let Some((inscription_id, inscription_number)) =
+        perform_query_one(query, args, &db_tx, ctx, |row| {
+            (row.get::<usize, String>(0).unwrap(), row.get::<usize, u64>(1).unwrap())
+        })
+    else {
+        ctx.try_log(|logger| {
+            warn!(
+                logger,
+                "unable to find transfer on brc20.sqlite: {:?}", data
+            )
+        });
+        return;
+    };
     while let Err(e) = db_tx.execute(
         "INSERT INTO ledger
         (inscription_id, inscription_number, ordinal_number, block_height, tick, address, avail_balance, trans_balance, operation)
         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0.0, ?7, 'transfer_send')",
         rusqlite::params![
-            &reveal.inscription_id,
-            &reveal.inscription_number.jubilee,
-            &reveal.ordinal_number,
+            &inscription_id,
+            &inscription_number,
+            &transfer.ordinal_number,
             &block_identifier.index,
             &data.tick,
             &data.sender_address,
@@ -309,9 +337,9 @@ pub fn insert_token_transfer_send(
         (inscription_id, inscription_number, ordinal_number, block_height, tick, address, avail_balance, trans_balance, operation)
         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0.0, 'transfer_send')",
         rusqlite::params![
-            &reveal.inscription_id,
-            &reveal.inscription_number.jubilee,
-            &reveal.ordinal_number,
+            &inscription_id,
+            &inscription_number,
+            &transfer.ordinal_number,
             &block_identifier.index,
             &data.tick,
             &data.receiver_address,
