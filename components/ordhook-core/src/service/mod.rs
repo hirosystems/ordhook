@@ -919,7 +919,7 @@ fn write_brc20_block_operations(
                                     &ctx,
                                 ),
                                 Brc20Operation::TokenTransferSend(_) => {
-                                    // TODO: Error, should never happen
+                                    unreachable!("BRC-20 token transfer send should never be generated on reveal")
                                 }
                             },
                             Err(e) => {

@@ -74,6 +74,7 @@ pub fn start_transfers_recomputing_processor(
                         block,
                         &inscriptions_db_tx,
                         false,
+                        None,
                         &ctx,
                     );
 

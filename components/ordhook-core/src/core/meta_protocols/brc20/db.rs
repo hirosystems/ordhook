@@ -1,13 +1,45 @@
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf};
 
-use crate::db::{create_or_open_readwrite_db, perform_query_exists, perform_query_one};
+use crate::db::{
+    create_or_open_readwrite_db, format_inscription_id, perform_query_exists, perform_query_one,
+    perform_query_set,
+};
 use chainhook_sdk::{
-    types::{BlockIdentifier, Brc20BalanceData, Brc20TokenDeployData, Brc20TransferData, OrdinalInscriptionRevealData, OrdinalInscriptionTransferData},
+    types::{
+        BitcoinTransactionData, BlockIdentifier, Brc20BalanceData, Brc20Operation,
+        Brc20TokenDeployData, Brc20TransferData, OrdinalInscriptionRevealData,
+        OrdinalInscriptionTransferData,
+    },
     utils::Context,
 };
 use rusqlite::{Connection, ToSql, Transaction};
 
 use super::parser::ParsedBrc20TokenDeployData;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Brc20DbTokenRow {
+    pub inscription_id: String,
+    pub inscription_number: u64,
+    pub block_height: u64,
+    pub tick: String,
+    pub max: f64,
+    pub lim: f64,
+    pub dec: u64,
+    pub address: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Brc20DbLedgerRow {
+    pub inscription_id: String,
+    pub inscription_number: u64,
+    pub ordinal_number: u64,
+    pub block_height: u64,
+    pub tick: String,
+    pub address: String,
+    pub avail_balance: f64,
+    pub trans_balance: f64,
+    pub operation: String,
+}
 
 pub fn get_default_brc20_db_file_path(base_dir: &PathBuf) -> PathBuf {
     let mut destination_path = base_dir.clone();
@@ -73,7 +105,7 @@ pub fn initialize_brc20_db(base_dir: Option<&PathBuf>, ctx: &Context) -> Connect
             ctx.try_log(|logger| warn!(logger, "unable to create brc20.sqlite: {}", e.to_string()));
         }
         if let Err(e) = conn.execute(
-            "CREATE INDEX IF NOT EXISTS index_ledger_on_block_height ON ledger(block_height);",
+            "CREATE INDEX IF NOT EXISTS index_ledger_on_block_height_operation ON ledger(block_height, operation);",
             [],
         ) {
             ctx.try_log(|logger| warn!(logger, "unable to create brc20.sqlite: {}", e.to_string()));
@@ -110,20 +142,22 @@ pub fn token_exists(data: &ParsedBrc20TokenDeployData, db_tx: &Transaction, ctx:
     perform_query_exists(query, args, &db_tx, ctx)
 }
 
-pub fn get_token(
-    tick: &str,
-    db_tx: &Transaction,
-    ctx: &Context,
-) -> Option<Brc20TokenDeployData> {
+pub fn get_token(tick: &str, db_tx: &Transaction, ctx: &Context) -> Option<Brc20DbTokenRow> {
     let args: &[&dyn ToSql] = &[&tick.to_sql().unwrap()];
-    let query = "SELECT tick, max, lim, dec, address, inscription_id FROM tokens WHERE tick = ?";
-    perform_query_one(query, args, &db_tx, ctx, |row| Brc20TokenDeployData {
+    let query = "
+        SELECT tick, max, lim, dec, address, inscription_id, inscription_number, block_height
+        FROM tokens
+        WHERE tick = ?
+    ";
+    perform_query_one(query, args, &db_tx, ctx, |row| Brc20DbTokenRow {
         tick: row.get(0).unwrap(),
         max: row.get(1).unwrap(),
         lim: row.get(2).unwrap(),
         dec: row.get(3).unwrap(),
         address: row.get(4).unwrap(),
         inscription_id: row.get(5).unwrap(),
+        inscription_number: row.get(6).unwrap(),
+        block_height: row.get(7).unwrap(),
     })
 }
 
@@ -176,6 +210,21 @@ pub fn get_unsent_token_transfer_with_sender(
         address: row.get(2).unwrap(),
         inscription_id: row.get(3).unwrap(),
     })
+}
+
+pub fn get_transfer_send_receiver_address(
+    ordinal_number: u64,
+    db_tx: &Transaction,
+    ctx: &Context,
+) -> Option<String> {
+    let args: &[&dyn ToSql] = &[&ordinal_number.to_sql().unwrap()];
+    let query = "
+        SELECT address
+        FROM ledger
+        WHERE ordinal_number = ? AND operation = 'transfer_receive'
+        LIMIT 1
+    ";
+    perform_query_one(query, args, &db_tx, ctx, |row| row.get(0).unwrap())
 }
 
 pub fn insert_token(
@@ -321,7 +370,10 @@ pub fn insert_token_transfer_send(
     ";
     let Some((inscription_id, inscription_number)) =
         perform_query_one(query, args, &db_tx, ctx, |row| {
-            (row.get::<usize, String>(0).unwrap(), row.get::<usize, u64>(1).unwrap())
+            (
+                row.get::<usize, String>(0).unwrap(),
+                row.get::<usize, u64>(1).unwrap(),
+            )
         })
     else {
         ctx.try_log(|logger| {
@@ -381,5 +433,101 @@ pub fn insert_token_transfer_send(
             )
         });
         std::thread::sleep(std::time::Duration::from_secs(1));
+    }
+}
+
+pub fn get_brc20_operations_on_block(
+    block_identifier: &BlockIdentifier,
+    db_tx: &Transaction,
+    ctx: &Context,
+) -> HashMap<String, Brc20DbLedgerRow> {
+    let args: &[&dyn ToSql] = &[&block_identifier.index.to_sql().unwrap()];
+    let query = "
+        SELECT
+            inscription_id, inscription_number, ordinal_number, block_height, tick, address, avail_balance, trans_balance, operation
+        FROM ledger AS l
+        WHERE block_height = ? AND operation <> 'transfer_receive'
+    ";
+    let mut map = HashMap::new();
+    let rows = perform_query_set(query, args, &db_tx, &ctx, |row| Brc20DbLedgerRow {
+        inscription_id: row.get(0).unwrap(),
+        inscription_number: row.get(1).unwrap(),
+        ordinal_number: row.get(2).unwrap(),
+        block_height: row.get(3).unwrap(),
+        tick: row.get(4).unwrap(),
+        address: row.get(5).unwrap(),
+        avail_balance: row.get(6).unwrap(),
+        trans_balance: row.get(7).unwrap(),
+        operation: row.get(8).unwrap(),
+    });
+    for row in rows.iter() {
+        map.insert(row.inscription_id.clone(), row.clone());
+    }
+    map
+}
+
+pub fn augment_transaction_with_brc20_operation_data(
+    tx: &mut BitcoinTransactionData,
+    token_map: &mut HashMap<String, Brc20DbTokenRow>,
+    block_ledger_map: &mut HashMap<String, Brc20DbLedgerRow>,
+    db_tx: &Transaction,
+    ctx: &Context,
+) {
+    let inscription_id = format_inscription_id(&tx.transaction_identifier, 0);
+    let Some(ledger_entry) = block_ledger_map.remove(inscription_id.as_str()) else {
+        return;
+    };
+    if token_map.get(&ledger_entry.tick) == None {
+        let Some(row) = get_token(&ledger_entry.tick, &db_tx, &ctx) else {
+            unreachable!("BRC-20 token not found when processing operation");
+        };
+        token_map.insert(ledger_entry.tick.clone(), row);
+    }
+    let Some(token) = token_map.get(&ledger_entry.tick) else {
+        unreachable!();
+    };
+    match ledger_entry.operation.as_str() {
+        "deploy" => {
+            tx.metadata.brc20_operations =
+                vec![Brc20Operation::TokenDeploy(Brc20TokenDeployData {
+                    tick: token.tick.clone(),
+                    max: token.max,
+                    lim: token.lim,
+                    dec: token.dec,
+                    address: token.address.clone(),
+                    inscription_id: token.inscription_id.clone(),
+                })];
+        }
+        "mint" => {
+            tx.metadata.brc20_operations = vec![Brc20Operation::TokenMint(Brc20BalanceData {
+                tick: ledger_entry.tick.clone(),
+                amt: ledger_entry.avail_balance,
+                address: ledger_entry.address.clone(),
+                inscription_id: ledger_entry.inscription_id.clone(),
+            })];
+        }
+        "transfer" => {
+            tx.metadata.brc20_operations = vec![Brc20Operation::TokenTransfer(Brc20BalanceData {
+                tick: ledger_entry.tick.clone(),
+                amt: ledger_entry.avail_balance,
+                address: ledger_entry.address.clone(),
+                inscription_id: ledger_entry.inscription_id.clone(),
+            })];
+        }
+        "transfer_send" => {
+            let Some(receiver_address) =
+                get_transfer_send_receiver_address(ledger_entry.ordinal_number, &db_tx, &ctx)
+            else {
+                unreachable!("Unable to fetch receiver address for transfer_send operation");
+            };
+            tx.metadata.brc20_operations =
+                vec![Brc20Operation::TokenTransferSend(Brc20TransferData {
+                    tick: ledger_entry.tick.clone(),
+                    amt: ledger_entry.trans_balance * -1.0,
+                    sender_address: ledger_entry.address.clone(),
+                    receiver_address,
+                })];
+        }
+        _ => {}
     }
 }

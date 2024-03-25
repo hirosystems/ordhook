@@ -921,6 +921,7 @@ pub fn consolidate_block_with_pre_computed_ordinals_data(
     block: &mut BitcoinBlockData,
     inscriptions_db_tx: &Transaction,
     include_transfers: bool,
+    brc20_db_tx: Option<&Transaction>,
     ctx: &Context,
 ) {
     let network = get_bitcoin_network(&block.metadata.network);
@@ -944,6 +945,7 @@ pub fn consolidate_block_with_pre_computed_ordinals_data(
         }
         break results;
     };
+    
     for (tx_index, tx) in block.transactions.iter_mut().enumerate() {
         // Add inscriptions data
         consolidate_transaction_with_pre_computed_inscription_data(
@@ -969,6 +971,9 @@ pub fn consolidate_block_with_pre_computed_ordinals_data(
                 inscriptions_db_tx,
                 ctx,
             );
+        }
+        if let Some(brc20_db_tx) = brc20_db_tx {
+            //
         }
     }
 }
