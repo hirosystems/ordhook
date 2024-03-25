@@ -119,6 +119,7 @@ impl Config {
             cache_path: self.storage.working_dir.clone(),
             bitcoin_network: self.network.bitcoin_network.clone(),
             stacks_network: self.network.stacks_network.clone(),
+            prometheus_monitoring_port: None,
             data_handler_tx: None,
         }
     }
