@@ -2,15 +2,12 @@ use std::path::PathBuf;
 
 use crate::db::{create_or_open_readwrite_db, perform_query_exists, perform_query_one};
 use chainhook_sdk::{
-    types::{BlockIdentifier, OrdinalInscriptionRevealData, OrdinalInscriptionTransferData},
+    types::{BlockIdentifier, Brc20BalanceData, Brc20TokenDeployData, Brc20TransferData, OrdinalInscriptionRevealData, OrdinalInscriptionTransferData},
     utils::Context,
 };
 use rusqlite::{Connection, ToSql, Transaction};
 
-use super::{
-    parser::ParsedBrc20TokenDeployData,
-    Brc20BalanceData, Brc20TokenDeployData, Brc20TransferData,
-};
+use super::parser::ParsedBrc20TokenDeployData;
 
 pub fn get_default_brc20_db_file_path(base_dir: &PathBuf) -> PathBuf {
     let mut destination_path = base_dir.clone();
@@ -57,7 +54,7 @@ pub fn initialize_brc20_db(base_dir: Option<&PathBuf>, ctx: &Context) -> Connect
             address TEXT NOT NULL,
             avail_balance REAL NOT NULL,
             trans_balance REAL NOT NULL,
-            operation TEXT NOT NULL
+            operation TEXT NOT NULL CHECK(operation IN ('deploy', 'mint', 'transfer', 'transfer_send', 'transfer_receive'))
         )",
         [],
     ) {
@@ -119,13 +116,14 @@ pub fn get_token(
     ctx: &Context,
 ) -> Option<Brc20TokenDeployData> {
     let args: &[&dyn ToSql] = &[&tick.to_sql().unwrap()];
-    let query = "SELECT tick, max, lim, dec, address FROM tokens WHERE tick = ?";
+    let query = "SELECT tick, max, lim, dec, address, inscription_id FROM tokens WHERE tick = ?";
     perform_query_one(query, args, &db_tx, ctx, |row| Brc20TokenDeployData {
         tick: row.get(0).unwrap(),
         max: row.get(1).unwrap(),
         lim: row.get(2).unwrap(),
         dec: row.get(3).unwrap(),
         address: row.get(4).unwrap(),
+        inscription_id: row.get(5).unwrap(),
     })
 }
 
@@ -164,7 +162,7 @@ pub fn get_unsent_token_transfer_with_sender(
         &ordinal_number.to_sql().unwrap(),
     ];
     let query = "
-        SELECT tick, trans_balance, address
+        SELECT tick, trans_balance, address, inscription_id
         FROM ledger
         WHERE ordinal_number = ? AND operation = 'transfer'
             AND NOT EXISTS (
@@ -176,6 +174,7 @@ pub fn get_unsent_token_transfer_with_sender(
         tick: row.get(0).unwrap(),
         amt: row.get(1).unwrap(),
         address: row.get(2).unwrap(),
+        inscription_id: row.get(3).unwrap(),
     })
 }
 
@@ -312,7 +311,7 @@ pub fn insert_token_transfer_send(
     ctx: &Context,
 ) {
     // Get the `inscription_id` and `inscription_number` first from the original transfer BRC-20 op
-    // because we don't have it in the `transfer` arg.
+    // because those are not included in the `OrdinalInscriptionTransferData` arg.
     let args: &[&dyn ToSql] = &[&transfer.ordinal_number.to_sql().unwrap()];
     let query = "
         SELECT inscription_id, inscription_number
@@ -333,6 +332,8 @@ pub fn insert_token_transfer_send(
         });
         return;
     };
+    // Write balance change for sender and receiver, using `transfer_send` and `transfer_receive`
+    // respectively.
     while let Err(e) = db_tx.execute(
         "INSERT INTO ledger
         (inscription_id, inscription_number, ordinal_number, block_height, tick, address, avail_balance, trans_balance, operation)
@@ -357,11 +358,10 @@ pub fn insert_token_transfer_send(
         });
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
-    // TODO: Should we store this as `transfer_receive` ?
     while let Err(e) = db_tx.execute(
         "INSERT INTO ledger
         (inscription_id, inscription_number, ordinal_number, block_height, tick, address, avail_balance, trans_balance, operation)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0.0, 'transfer_send')",
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0.0, 'transfer_receive')",
         rusqlite::params![
             &inscription_id,
             &inscription_number,

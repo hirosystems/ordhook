@@ -1,18 +1,15 @@
 use chainhook_sdk::types::{
-    OrdinalInscriptionRevealData, OrdinalInscriptionTransferData,
-    OrdinalInscriptionTransferDestination,
+    Brc20BalanceData, Brc20Operation, Brc20TokenDeployData, Brc20TransferData, OrdinalInscriptionRevealData, OrdinalInscriptionTransferData, OrdinalInscriptionTransferDestination
 };
 use chainhook_sdk::utils::Context;
 use rusqlite::Transaction;
 
 use super::db::get_unsent_token_transfer_with_sender;
-use super::Brc20TransferData;
 use super::{
     db::{
         get_token, get_token_available_balance_for_address, get_token_minted_supply, token_exists,
     },
     parser::{amt_has_valid_decimals, ParsedBrc20Operation},
-    Brc20BalanceData, Brc20Operation, Brc20TokenDeployData,
 };
 
 pub fn verify_brc20_operation(
@@ -41,6 +38,7 @@ pub fn verify_brc20_operation(
                 lim: data.lim,
                 dec: data.dec,
                 address: inscriber_address,
+                inscription_id: reveal.inscription_id.clone(),
             }));
         }
         ParsedBrc20Operation::Mint(data) => {
@@ -74,6 +72,7 @@ pub fn verify_brc20_operation(
                 tick: token.tick,
                 amt: real_mint_amt,
                 address: inscriber_address,
+                inscription_id: reveal.inscription_id.clone(),
             }));
         }
         ParsedBrc20Operation::Transfer(data) => {
@@ -102,6 +101,7 @@ pub fn verify_brc20_operation(
                 tick: token.tick,
                 amt: data.float_amt(),
                 address: inscriber_address,
+                inscription_id: reveal.inscription_id.clone(),
             }));
         }
     };
@@ -152,8 +152,7 @@ pub fn verify_brc20_transfer(
 mod test {
     use chainhook_sdk::{
         types::{
-            BlockIdentifier, OrdinalInscriptionNumber, OrdinalInscriptionRevealData,
-            OrdinalInscriptionTransferData, OrdinalInscriptionTransferDestination,
+            BlockIdentifier, Brc20BalanceData, Brc20Operation, Brc20TokenDeployData, Brc20TransferData, OrdinalInscriptionNumber, OrdinalInscriptionRevealData, OrdinalInscriptionTransferData, OrdinalInscriptionTransferDestination
         },
         utils::Context,
     };
@@ -165,7 +164,6 @@ mod test {
             insert_token_transfer_send,
         },
         parser::{ParsedBrc20BalanceData, ParsedBrc20Operation, ParsedBrc20TokenDeployData},
-        Brc20BalanceData, Brc20Operation, Brc20TokenDeployData, Brc20TransferData,
     };
 
     use super::{verify_brc20_operation, verify_brc20_transfer};
@@ -334,6 +332,7 @@ mod test {
                 lim: 1000.0,
                 dec: 18,
                 address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
+                inscription_id: "9bb2314d666ae0b1db8161cb373fcc1381681f71445c4e0335aa80ea9c37fcddi0".to_string()
             })
         ); "with deploy"
     )]
@@ -384,7 +383,8 @@ mod test {
         => Ok(Brc20Operation::TokenMint(Brc20BalanceData {
             tick: "pepe".to_string(),
             amt: 1000.0,
-            address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string()
+            address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
+            inscription_id: "9bb2314d666ae0b1db8161cb373fcc1381681f71445c4e0335aa80ea9c37fcddi0".to_string(),
         })); "with mint"
     )]
     #[test_case(
@@ -437,6 +437,8 @@ mod test {
                 lim: 1000.0,
                 dec: 18,
                 address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
+                inscription_id: "9bb2314d666ae0b1db8161cb373fcc1381681f71445c4e0335aa80ea9c37fcddi0".to_string()
+
             },
             &Brc20RevealBuilder::new().inscription_number(0).build(),
             &BlockIdentifier {
@@ -477,6 +479,7 @@ mod test {
                 lim: 1000.0,
                 dec: 18,
                 address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
+                inscription_id: "9bb2314d666ae0b1db8161cb373fcc1381681f71445c4e0335aa80ea9c37fcddi0".to_string(),
             },
             &Brc20RevealBuilder::new().inscription_number(0).build(),
             &block,
@@ -488,6 +491,7 @@ mod test {
                 tick: "pepe".to_string(),
                 amt: 21000000.0, // For testing
                 address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
+                inscription_id: "9bb2314d666ae0b1db8161cb373fcc1381681f71445c4e0335aa80ea9c37fcddi0".to_string(),
             },
             &Brc20RevealBuilder::new().inscription_number(1).build(),
             &block,
@@ -506,7 +510,8 @@ mod test {
         => Ok(Brc20Operation::TokenMint(Brc20BalanceData {
             tick: "pepe".to_string(),
             amt: 500.0,
-            address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string()
+            address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
+            inscription_id: "9bb2314d666ae0b1db8161cb373fcc1381681f71445c4e0335aa80ea9c37fcddi0".to_string(),
         })); "with mint on low supply"
     )]
     fn test_brc20_verify_for_almost_minted_out_token(
@@ -527,6 +532,7 @@ mod test {
                 lim: 1000.0,
                 dec: 18,
                 address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
+                inscription_id: "9bb2314d666ae0b1db8161cb373fcc1381681f71445c4e0335aa80ea9c37fcddi0".to_string(),
             },
             &Brc20RevealBuilder::new().inscription_number(0).build(),
             &block,
@@ -538,6 +544,7 @@ mod test {
                 tick: "pepe".to_string(),
                 amt: 21000000.0 - 500.0, // For testing
                 address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
+                inscription_id: "9bb2314d666ae0b1db8161cb373fcc1381681f71445c4e0335aa80ea9c37fcddi0".to_string(),
             },
             &Brc20RevealBuilder::new().inscription_number(1).build(),
             &block,
@@ -559,7 +566,8 @@ mod test {
         => Ok(Brc20Operation::TokenMint(Brc20BalanceData {
             tick: "pepe".to_string(),
             amt: 1000.0,
-            address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string()
+            address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
+            inscription_id: "9bb2314d666ae0b1db8161cb373fcc1381681f71445c4e0335aa80ea9c37fcddi0".to_string(),
         })); "with mint on existing balance address 1"
     )]
     #[test_case(
@@ -575,7 +583,8 @@ mod test {
         => Ok(Brc20Operation::TokenMint(Brc20BalanceData {
             tick: "pepe".to_string(),
             amt: 1000.0,
-            address: "19aeyQe8hGDoA1MHmmh2oM5Bbgrs9Jx7yZ".to_string()
+            address: "19aeyQe8hGDoA1MHmmh2oM5Bbgrs9Jx7yZ".to_string(),
+            inscription_id: "9bb2314d666ae0b1db8161cb373fcc1381681f71445c4e0335aa80ea9c37fcddi0".to_string(),
         })); "with mint on existing balance address 2"
     )]
     #[test_case(
@@ -590,7 +599,8 @@ mod test {
         => Ok(Brc20Operation::TokenTransfer(Brc20BalanceData {
             tick: "pepe".to_string(),
             amt: 500.0,
-            address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string()
+            address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
+            inscription_id: "9bb2314d666ae0b1db8161cb373fcc1381681f71445c4e0335aa80ea9c37fcddi0".to_string(),
         })); "with transfer"
     )]
     #[test_case(
@@ -623,6 +633,7 @@ mod test {
                 lim: 1000.0,
                 dec: 18,
                 address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
+                inscription_id: "e45957c419f130cd5c88cdac3eb1caf2d118aee20c17b15b74a611be395a065di0".to_string(),
             },
             &Brc20RevealBuilder::new()
                 .inscription_number(0)
@@ -640,6 +651,7 @@ mod test {
                 tick: "pepe".to_string(),
                 amt: 1000.0,
                 address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
+                inscription_id: "269d46f148733ce86153e3ec0e0a3c78780e9b07e90a07e11753f0e934a60724i0".to_string(),
             },
             &Brc20RevealBuilder::new()
                 .inscription_number(1)
@@ -656,6 +668,7 @@ mod test {
                 tick: "pepe".to_string(),
                 amt: 1000.0,
                 address: "19aeyQe8hGDoA1MHmmh2oM5Bbgrs9Jx7yZ".to_string(),
+                inscription_id: "704b85a939c34ec9dbbf79c0ffc69ba09566d732dbf1af2c04de65b0697aa1f8i0".to_string(),
             },
             &Brc20RevealBuilder::new()
                 .inscription_number(2)
@@ -676,7 +689,7 @@ mod test {
             tick: "pepe".to_string(),
             amt: 500.0,
             sender_address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
-            receiver_address: "bc1pls75sfwullhygkmqap344f5cqf97qz95lvle6fvddm0tpz2l5ffslgq3m0".to_string()
+            receiver_address: "bc1pls75sfwullhygkmqap344f5cqf97qz95lvle6fvddm0tpz2l5ffslgq3m0".to_string(),
         });
         "with transfer"
     )]
@@ -728,6 +741,7 @@ mod test {
                 lim: 1000.0,
                 dec: 18,
                 address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
+                inscription_id: "e45957c419f130cd5c88cdac3eb1caf2d118aee20c17b15b74a611be395a065di0".to_string(),
             },
             &Brc20RevealBuilder::new()
                 .inscription_number(0)
@@ -744,6 +758,7 @@ mod test {
                 tick: "pepe".to_string(),
                 amt: 1000.0,
                 address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
+                inscription_id: "269d46f148733ce86153e3ec0e0a3c78780e9b07e90a07e11753f0e934a60724i0".to_string(),
             },
             &Brc20RevealBuilder::new()
                 .inscription_number(1)
@@ -760,6 +775,7 @@ mod test {
                 tick: "pepe".to_string(),
                 amt: 500.0,
                 address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
+                inscription_id: "704b85a939c34ec9dbbf79c0ffc69ba09566d732dbf1af2c04de65b0697aa1f8i0".to_string(),
             },
             &Brc20RevealBuilder::new()
                 .inscription_number(2)
@@ -797,6 +813,7 @@ mod test {
                 lim: 1000.0,
                 dec: 18,
                 address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
+                inscription_id: "e45957c419f130cd5c88cdac3eb1caf2d118aee20c17b15b74a611be395a065di0".to_string(),
             },
             &Brc20RevealBuilder::new()
                 .inscription_number(0)
@@ -813,6 +830,7 @@ mod test {
                 tick: "pepe".to_string(),
                 amt: 1000.0,
                 address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
+                inscription_id: "269d46f148733ce86153e3ec0e0a3c78780e9b07e90a07e11753f0e934a60724i0".to_string(),
             },
             &Brc20RevealBuilder::new()
                 .inscription_number(1)
@@ -829,6 +847,7 @@ mod test {
                 tick: "pepe".to_string(),
                 amt: 500.0,
                 address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
+                inscription_id: "704b85a939c34ec9dbbf79c0ffc69ba09566d732dbf1af2c04de65b0697aa1f8i0".to_string(),
             },
             &Brc20RevealBuilder::new()
                 .inscription_number(2)
