@@ -1,5 +1,6 @@
 use chainhook_sdk::types::{
-    Brc20BalanceData, Brc20Operation, Brc20TokenDeployData, Brc20TransferData, OrdinalInscriptionRevealData, OrdinalInscriptionTransferData, OrdinalInscriptionTransferDestination
+    OrdinalInscriptionRevealData, OrdinalInscriptionTransferData,
+    OrdinalInscriptionTransferDestination,
 };
 use chainhook_sdk::utils::Context;
 use rusqlite::Transaction;
@@ -12,12 +13,44 @@ use super::{
     parser::{amt_has_valid_decimals, ParsedBrc20Operation},
 };
 
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct VerifiedBrc20TokenDeployData {
+    pub tick: String,
+    pub max: f64,
+    pub lim: f64,
+    pub dec: u64,
+    pub address: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct VerifiedBrc20BalanceData {
+    pub tick: String,
+    pub amt: f64,
+    pub address: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct VerifiedBrc20TransferData {
+    pub tick: String,
+    pub amt: f64,
+    pub sender_address: String,
+    pub receiver_address: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub enum VerifiedBrc20Operation {
+    TokenDeploy(VerifiedBrc20TokenDeployData),
+    TokenMint(VerifiedBrc20BalanceData),
+    TokenTransfer(VerifiedBrc20BalanceData),
+    TokenTransferSend(VerifiedBrc20TransferData),
+}
+
 pub fn verify_brc20_operation(
     operation: &ParsedBrc20Operation,
     reveal: &OrdinalInscriptionRevealData,
     db_tx: &Transaction,
     ctx: &Context,
-) -> Result<Brc20Operation, String> {
+) -> Result<VerifiedBrc20Operation, String> {
     let Some(inscriber_address) = reveal.inscriber_address.clone() else {
         return Err(format!("Invalid inscriber address"));
     };
@@ -32,14 +65,15 @@ pub fn verify_brc20_operation(
             if token_exists(&data, db_tx, ctx) {
                 return Err(format!("Token {} already exists", &data.tick));
             }
-            return Ok(Brc20Operation::TokenDeploy(Brc20TokenDeployData {
-                tick: data.tick.clone(),
-                max: data.max,
-                lim: data.lim,
-                dec: data.dec,
-                address: inscriber_address,
-                inscription_id: reveal.inscription_id.clone(),
-            }));
+            return Ok(VerifiedBrc20Operation::TokenDeploy(
+                VerifiedBrc20TokenDeployData {
+                    tick: data.tick.clone(),
+                    max: data.max,
+                    lim: data.lim,
+                    dec: data.dec,
+                    address: inscriber_address,
+                },
+            ));
         }
         ParsedBrc20Operation::Mint(data) => {
             let Some(token) = get_token(&data.tick, db_tx, ctx) else {
@@ -68,12 +102,13 @@ pub fn verify_brc20_operation(
                 ));
             }
             let real_mint_amt = data.float_amt().min(token.lim.min(remaining_supply));
-            return Ok(Brc20Operation::TokenMint(Brc20BalanceData {
-                tick: token.tick,
-                amt: real_mint_amt,
-                address: inscriber_address,
-                inscription_id: reveal.inscription_id.clone(),
-            }));
+            return Ok(VerifiedBrc20Operation::TokenMint(
+                VerifiedBrc20BalanceData {
+                    tick: token.tick,
+                    amt: real_mint_amt,
+                    address: inscriber_address,
+                },
+            ));
         }
         ParsedBrc20Operation::Transfer(data) => {
             let Some(token) = get_token(&data.tick, db_tx, ctx) else {
@@ -97,12 +132,13 @@ pub fn verify_brc20_operation(
             if avail_balance < data.float_amt() {
                 return Err(format!("Insufficient balance for {} transfer, attempting to transfer {}, only {} available", token.tick, data.amt, avail_balance));
             }
-            return Ok(Brc20Operation::TokenTransfer(Brc20BalanceData {
-                tick: token.tick,
-                amt: data.float_amt(),
-                address: inscriber_address,
-                inscription_id: reveal.inscription_id.clone(),
-            }));
+            return Ok(VerifiedBrc20Operation::TokenTransfer(
+                VerifiedBrc20BalanceData {
+                    tick: token.tick,
+                    amt: data.float_amt(),
+                    address: inscriber_address,
+                },
+            ));
         }
     };
 }
@@ -111,7 +147,7 @@ pub fn verify_brc20_transfer(
     transfer: &OrdinalInscriptionTransferData,
     db_tx: &Transaction,
     ctx: &Context,
-) -> Result<Brc20TransferData, String> {
+) -> Result<VerifiedBrc20TransferData, String> {
     let Some(balance_delta) =
         get_unsent_token_transfer_with_sender(transfer.ordinal_number, db_tx, ctx)
     else {
@@ -122,7 +158,7 @@ pub fn verify_brc20_transfer(
     };
     match &transfer.destination {
         OrdinalInscriptionTransferDestination::Transferred(receiver_address) => {
-            return Ok(Brc20TransferData {
+            return Ok(VerifiedBrc20TransferData {
                 tick: balance_delta.tick.clone(),
                 amt: balance_delta.amt,
                 sender_address: balance_delta.address,
@@ -130,7 +166,7 @@ pub fn verify_brc20_transfer(
             });
         }
         OrdinalInscriptionTransferDestination::SpentInFees => {
-            return Ok(Brc20TransferData {
+            return Ok(VerifiedBrc20TransferData {
                 tick: balance_delta.tick.clone(),
                 amt: balance_delta.amt,
                 sender_address: balance_delta.address.clone(),
@@ -138,7 +174,7 @@ pub fn verify_brc20_transfer(
             });
         }
         OrdinalInscriptionTransferDestination::Burnt(_) => {
-            return Ok(Brc20TransferData {
+            return Ok(VerifiedBrc20TransferData {
                 tick: balance_delta.tick.clone(),
                 amt: balance_delta.amt,
                 sender_address: balance_delta.address.clone(),
@@ -152,7 +188,9 @@ pub fn verify_brc20_transfer(
 mod test {
     use chainhook_sdk::{
         types::{
-            BlockIdentifier, Brc20BalanceData, Brc20Operation, Brc20TokenDeployData, Brc20TransferData, OrdinalInscriptionNumber, OrdinalInscriptionRevealData, OrdinalInscriptionTransferData, OrdinalInscriptionTransferDestination
+            BlockIdentifier, Brc20BalanceData, Brc20Operation, Brc20TokenDeployData,
+            Brc20TransferData, OrdinalInscriptionNumber, OrdinalInscriptionRevealData,
+            OrdinalInscriptionTransferData, OrdinalInscriptionTransferDestination,
         },
         utils::Context,
     };
@@ -164,9 +202,12 @@ mod test {
             insert_token_transfer_send,
         },
         parser::{ParsedBrc20BalanceData, ParsedBrc20Operation, ParsedBrc20TokenDeployData},
+        verifier::{
+            VerifiedBrc20BalanceData, VerifiedBrc20Operation, VerifiedBrc20TokenDeployData,
+        },
     };
 
-    use super::{verify_brc20_operation, verify_brc20_transfer};
+    use super::{verify_brc20_operation, verify_brc20_transfer, VerifiedBrc20TransferData};
 
     struct Brc20RevealBuilder {
         inscription_number: OrdinalInscriptionNumber,
@@ -326,13 +367,12 @@ mod test {
         }),
         Brc20RevealBuilder::new().build()
         => Ok(
-            Brc20Operation::TokenDeploy(Brc20TokenDeployData {
+            VerifiedBrc20Operation::TokenDeploy(VerifiedBrc20TokenDeployData {
                 tick: "pepe".to_string(),
                 max: 21000000.0,
                 lim: 1000.0,
                 dec: 18,
                 address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
-                inscription_id: "9bb2314d666ae0b1db8161cb373fcc1381681f71445c4e0335aa80ea9c37fcddi0".to_string()
             })
         ); "with deploy"
     )]
@@ -357,7 +397,7 @@ mod test {
     fn test_brc20_verify_for_empty_db(
         op: ParsedBrc20Operation,
         reveal: OrdinalInscriptionRevealData,
-    ) -> Result<Brc20Operation, String> {
+    ) -> Result<VerifiedBrc20Operation, String> {
         let ctx = get_test_ctx();
         let mut conn = initialize_brc20_db(None, &ctx);
         let tx = conn.transaction().unwrap();
@@ -380,11 +420,10 @@ mod test {
             amt: "1000.0".to_string(),
         }),
         Brc20RevealBuilder::new().inscription_number(1).build()
-        => Ok(Brc20Operation::TokenMint(Brc20BalanceData {
+        => Ok(VerifiedBrc20Operation::TokenMint(VerifiedBrc20BalanceData {
             tick: "pepe".to_string(),
             amt: 1000.0,
             address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
-            inscription_id: "9bb2314d666ae0b1db8161cb373fcc1381681f71445c4e0335aa80ea9c37fcddi0".to_string(),
         })); "with mint"
     )]
     #[test_case(
@@ -426,19 +465,17 @@ mod test {
     fn test_brc20_verify_for_existing_token(
         op: ParsedBrc20Operation,
         reveal: OrdinalInscriptionRevealData,
-    ) -> Result<Brc20Operation, String> {
+    ) -> Result<VerifiedBrc20Operation, String> {
         let ctx = get_test_ctx();
         let mut conn = initialize_brc20_db(None, &ctx);
         let tx = conn.transaction().unwrap();
         insert_token(
-            &Brc20TokenDeployData {
+            &VerifiedBrc20TokenDeployData {
                 tick: "pepe".to_string(),
                 max: 21000000.0,
                 lim: 1000.0,
                 dec: 18,
                 address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
-                inscription_id: "9bb2314d666ae0b1db8161cb373fcc1381681f71445c4e0335aa80ea9c37fcddi0".to_string()
-
             },
             &Brc20RevealBuilder::new().inscription_number(0).build(),
             &BlockIdentifier {
@@ -464,7 +501,7 @@ mod test {
     fn test_brc20_verify_for_minted_out_token(
         op: ParsedBrc20Operation,
         reveal: OrdinalInscriptionRevealData,
-    ) -> Result<Brc20Operation, String> {
+    ) -> Result<VerifiedBrc20Operation, String> {
         let ctx = get_test_ctx();
         let mut conn = initialize_brc20_db(None, &ctx);
         let tx = conn.transaction().unwrap();
@@ -473,13 +510,12 @@ mod test {
             hash: "00000000000000000002d8ba402150b259ddb2b30a1d32ab4a881d4653bceb5b".to_string(),
         };
         insert_token(
-            &Brc20TokenDeployData {
+            &VerifiedBrc20TokenDeployData {
                 tick: "pepe".to_string(),
                 max: 21000000.0,
                 lim: 1000.0,
                 dec: 18,
                 address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
-                inscription_id: "9bb2314d666ae0b1db8161cb373fcc1381681f71445c4e0335aa80ea9c37fcddi0".to_string(),
             },
             &Brc20RevealBuilder::new().inscription_number(0).build(),
             &block,
@@ -487,11 +523,10 @@ mod test {
             &ctx,
         );
         insert_token_mint(
-            &Brc20BalanceData {
+            &VerifiedBrc20BalanceData {
                 tick: "pepe".to_string(),
                 amt: 21000000.0, // For testing
                 address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
-                inscription_id: "9bb2314d666ae0b1db8161cb373fcc1381681f71445c4e0335aa80ea9c37fcddi0".to_string(),
             },
             &Brc20RevealBuilder::new().inscription_number(1).build(),
             &block,
@@ -507,17 +542,16 @@ mod test {
             amt: "1000.0".to_string(),
         }),
         Brc20RevealBuilder::new().inscription_number(2).build()
-        => Ok(Brc20Operation::TokenMint(Brc20BalanceData {
+        => Ok(VerifiedBrc20Operation::TokenMint(VerifiedBrc20BalanceData {
             tick: "pepe".to_string(),
             amt: 500.0,
             address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
-            inscription_id: "9bb2314d666ae0b1db8161cb373fcc1381681f71445c4e0335aa80ea9c37fcddi0".to_string(),
         })); "with mint on low supply"
     )]
     fn test_brc20_verify_for_almost_minted_out_token(
         op: ParsedBrc20Operation,
         reveal: OrdinalInscriptionRevealData,
-    ) -> Result<Brc20Operation, String> {
+    ) -> Result<VerifiedBrc20Operation, String> {
         let ctx = get_test_ctx();
         let mut conn = initialize_brc20_db(None, &ctx);
         let tx = conn.transaction().unwrap();
@@ -526,13 +560,12 @@ mod test {
             hash: "00000000000000000002d8ba402150b259ddb2b30a1d32ab4a881d4653bceb5b".to_string(),
         };
         insert_token(
-            &Brc20TokenDeployData {
+            &VerifiedBrc20TokenDeployData {
                 tick: "pepe".to_string(),
                 max: 21000000.0,
                 lim: 1000.0,
                 dec: 18,
                 address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
-                inscription_id: "9bb2314d666ae0b1db8161cb373fcc1381681f71445c4e0335aa80ea9c37fcddi0".to_string(),
             },
             &Brc20RevealBuilder::new().inscription_number(0).build(),
             &block,
@@ -540,11 +573,10 @@ mod test {
             &ctx,
         );
         insert_token_mint(
-            &Brc20BalanceData {
+            &VerifiedBrc20BalanceData {
                 tick: "pepe".to_string(),
                 amt: 21000000.0 - 500.0, // For testing
                 address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
-                inscription_id: "9bb2314d666ae0b1db8161cb373fcc1381681f71445c4e0335aa80ea9c37fcddi0".to_string(),
             },
             &Brc20RevealBuilder::new().inscription_number(1).build(),
             &block,
@@ -563,11 +595,10 @@ mod test {
             .inscription_number(3)
             .inscription_id("04b29b646f6389154e4fa0f0761472c27b9f13a482c715d9976edc474c258bc7i0")
             .build()
-        => Ok(Brc20Operation::TokenMint(Brc20BalanceData {
+        => Ok(VerifiedBrc20Operation::TokenMint(VerifiedBrc20BalanceData {
             tick: "pepe".to_string(),
             amt: 1000.0,
             address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
-            inscription_id: "9bb2314d666ae0b1db8161cb373fcc1381681f71445c4e0335aa80ea9c37fcddi0".to_string(),
         })); "with mint on existing balance address 1"
     )]
     #[test_case(
@@ -580,11 +611,10 @@ mod test {
             .inscription_id("04b29b646f6389154e4fa0f0761472c27b9f13a482c715d9976edc474c258bc7i0")
             .inscriber_address(Some("19aeyQe8hGDoA1MHmmh2oM5Bbgrs9Jx7yZ".to_string()))
             .build()
-        => Ok(Brc20Operation::TokenMint(Brc20BalanceData {
+        => Ok(VerifiedBrc20Operation::TokenMint(VerifiedBrc20BalanceData {
             tick: "pepe".to_string(),
             amt: 1000.0,
             address: "19aeyQe8hGDoA1MHmmh2oM5Bbgrs9Jx7yZ".to_string(),
-            inscription_id: "9bb2314d666ae0b1db8161cb373fcc1381681f71445c4e0335aa80ea9c37fcddi0".to_string(),
         })); "with mint on existing balance address 2"
     )]
     #[test_case(
@@ -596,11 +626,10 @@ mod test {
             .inscription_number(3)
             .inscription_id("04b29b646f6389154e4fa0f0761472c27b9f13a482c715d9976edc474c258bc7i0")
             .build()
-        => Ok(Brc20Operation::TokenTransfer(Brc20BalanceData {
+        => Ok(VerifiedBrc20Operation::TokenTransfer(VerifiedBrc20BalanceData {
             tick: "pepe".to_string(),
             amt: 500.0,
             address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
-            inscription_id: "9bb2314d666ae0b1db8161cb373fcc1381681f71445c4e0335aa80ea9c37fcddi0".to_string(),
         })); "with transfer"
     )]
     #[test_case(
@@ -618,7 +647,7 @@ mod test {
     fn test_brc20_verify_for_token_with_mints(
         op: ParsedBrc20Operation,
         reveal: OrdinalInscriptionRevealData,
-    ) -> Result<Brc20Operation, String> {
+    ) -> Result<VerifiedBrc20Operation, String> {
         let ctx = get_test_ctx();
         let mut conn = initialize_brc20_db(None, &ctx);
         let tx = conn.transaction().unwrap();
@@ -627,13 +656,12 @@ mod test {
             hash: "00000000000000000002d8ba402150b259ddb2b30a1d32ab4a881d4653bceb5b".to_string(),
         };
         insert_token(
-            &Brc20TokenDeployData {
+            &VerifiedBrc20TokenDeployData {
                 tick: "pepe".to_string(),
                 max: 21000000.0,
                 lim: 1000.0,
                 dec: 18,
                 address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
-                inscription_id: "e45957c419f130cd5c88cdac3eb1caf2d118aee20c17b15b74a611be395a065di0".to_string(),
             },
             &Brc20RevealBuilder::new()
                 .inscription_number(0)
@@ -647,11 +675,10 @@ mod test {
         );
         // Mint from 2 addresses
         insert_token_mint(
-            &Brc20BalanceData {
+            &VerifiedBrc20BalanceData {
                 tick: "pepe".to_string(),
                 amt: 1000.0,
                 address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
-                inscription_id: "269d46f148733ce86153e3ec0e0a3c78780e9b07e90a07e11753f0e934a60724i0".to_string(),
             },
             &Brc20RevealBuilder::new()
                 .inscription_number(1)
@@ -664,11 +691,10 @@ mod test {
             &ctx,
         );
         insert_token_mint(
-            &Brc20BalanceData {
+            &VerifiedBrc20BalanceData {
                 tick: "pepe".to_string(),
                 amt: 1000.0,
                 address: "19aeyQe8hGDoA1MHmmh2oM5Bbgrs9Jx7yZ".to_string(),
-                inscription_id: "704b85a939c34ec9dbbf79c0ffc69ba09566d732dbf1af2c04de65b0697aa1f8i0".to_string(),
             },
             &Brc20RevealBuilder::new()
                 .inscription_number(2)
@@ -685,7 +711,7 @@ mod test {
 
     #[test_case(
         Brc20TransferBuilder::new().ordinal_number(5000).build()
-        => Ok(Brc20TransferData {
+        => Ok(VerifiedBrc20TransferData {
             tick: "pepe".to_string(),
             amt: 500.0,
             sender_address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
@@ -698,7 +724,7 @@ mod test {
             .ordinal_number(5000)
             .destination(OrdinalInscriptionTransferDestination::SpentInFees)
             .build()
-        => Ok(Brc20TransferData {
+        => Ok(VerifiedBrc20TransferData {
             tick: "pepe".to_string(),
             amt: 500.0,
             sender_address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
@@ -711,7 +737,7 @@ mod test {
             .ordinal_number(5000)
             .destination(OrdinalInscriptionTransferDestination::Burnt("test".to_string()))
             .build()
-        => Ok(Brc20TransferData {
+        => Ok(VerifiedBrc20TransferData {
             tick: "pepe".to_string(),
             amt: 500.0,
             sender_address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
@@ -726,7 +752,7 @@ mod test {
     )]
     fn test_brc20_verify_transfer_for_token_with_mint_and_transfer(
         transfer: OrdinalInscriptionTransferData,
-    ) -> Result<Brc20TransferData, String> {
+    ) -> Result<VerifiedBrc20TransferData, String> {
         let ctx = get_test_ctx();
         let mut conn = initialize_brc20_db(None, &ctx);
         let tx = conn.transaction().unwrap();
@@ -735,13 +761,12 @@ mod test {
             hash: "00000000000000000002d8ba402150b259ddb2b30a1d32ab4a881d4653bceb5b".to_string(),
         };
         insert_token(
-            &Brc20TokenDeployData {
+            &VerifiedBrc20TokenDeployData {
                 tick: "pepe".to_string(),
                 max: 21000000.0,
                 lim: 1000.0,
                 dec: 18,
                 address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
-                inscription_id: "e45957c419f130cd5c88cdac3eb1caf2d118aee20c17b15b74a611be395a065di0".to_string(),
             },
             &Brc20RevealBuilder::new()
                 .inscription_number(0)
@@ -754,11 +779,10 @@ mod test {
             &ctx,
         );
         insert_token_mint(
-            &Brc20BalanceData {
+            &VerifiedBrc20BalanceData {
                 tick: "pepe".to_string(),
                 amt: 1000.0,
                 address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
-                inscription_id: "269d46f148733ce86153e3ec0e0a3c78780e9b07e90a07e11753f0e934a60724i0".to_string(),
             },
             &Brc20RevealBuilder::new()
                 .inscription_number(1)
@@ -771,11 +795,10 @@ mod test {
             &ctx,
         );
         insert_token_transfer(
-            &Brc20BalanceData {
+            &VerifiedBrc20BalanceData {
                 tick: "pepe".to_string(),
                 amt: 500.0,
                 address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
-                inscription_id: "704b85a939c34ec9dbbf79c0ffc69ba09566d732dbf1af2c04de65b0697aa1f8i0".to_string(),
             },
             &Brc20RevealBuilder::new()
                 .inscription_number(2)
@@ -798,7 +821,7 @@ mod test {
     )]
     fn test_brc20_verify_transfer_for_token_with_mint_transfer_and_send(
         transfer: OrdinalInscriptionTransferData,
-    ) -> Result<Brc20TransferData, String> {
+    ) -> Result<VerifiedBrc20TransferData, String> {
         let ctx = get_test_ctx();
         let mut conn = initialize_brc20_db(None, &ctx);
         let tx = conn.transaction().unwrap();
@@ -807,13 +830,12 @@ mod test {
             hash: "00000000000000000002d8ba402150b259ddb2b30a1d32ab4a881d4653bceb5b".to_string(),
         };
         insert_token(
-            &Brc20TokenDeployData {
+            &VerifiedBrc20TokenDeployData {
                 tick: "pepe".to_string(),
                 max: 21000000.0,
                 lim: 1000.0,
                 dec: 18,
                 address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
-                inscription_id: "e45957c419f130cd5c88cdac3eb1caf2d118aee20c17b15b74a611be395a065di0".to_string(),
             },
             &Brc20RevealBuilder::new()
                 .inscription_number(0)
@@ -826,11 +848,10 @@ mod test {
             &ctx,
         );
         insert_token_mint(
-            &Brc20BalanceData {
+            &VerifiedBrc20BalanceData {
                 tick: "pepe".to_string(),
                 amt: 1000.0,
                 address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
-                inscription_id: "269d46f148733ce86153e3ec0e0a3c78780e9b07e90a07e11753f0e934a60724i0".to_string(),
             },
             &Brc20RevealBuilder::new()
                 .inscription_number(1)
@@ -843,11 +864,10 @@ mod test {
             &ctx,
         );
         insert_token_transfer(
-            &Brc20BalanceData {
+            &VerifiedBrc20BalanceData {
                 tick: "pepe".to_string(),
                 amt: 500.0,
                 address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
-                inscription_id: "704b85a939c34ec9dbbf79c0ffc69ba09566d732dbf1af2c04de65b0697aa1f8i0".to_string(),
             },
             &Brc20RevealBuilder::new()
                 .inscription_number(2)
@@ -861,7 +881,7 @@ mod test {
             &ctx,
         );
         insert_token_transfer_send(
-            &Brc20TransferData {
+            &VerifiedBrc20TransferData {
                 tick: "pepe".to_string(),
                 amt: 500.0,
                 sender_address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),

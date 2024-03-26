@@ -8,7 +8,7 @@ use crate::core::meta_protocols::brc20::db::{
     open_readwrite_brc20_db_conn,
 };
 use crate::core::meta_protocols::brc20::parser::ParsedBrc20Operation;
-use crate::core::meta_protocols::brc20::verifier::{verify_brc20_operation, verify_brc20_transfer};
+use crate::core::meta_protocols::brc20::verifier::{verify_brc20_operation, verify_brc20_transfer, VerifiedBrc20Operation};
 use crate::core::pipeline::download_and_pipeline_blocks;
 use crate::core::pipeline::processors::block_archiving::start_block_archiving_processor;
 use crate::core::pipeline::processors::inscription_indexing::process_block;
@@ -46,7 +46,7 @@ use chainhook_sdk::observer::{
     start_event_observer, BitcoinBlockDataCached, DataHandlerEvent, EventObserverConfig,
     HandleBlock, ObserverCommand, ObserverEvent, ObserverSidecar,
 };
-use chainhook_sdk::types::{BitcoinBlockData, BlockIdentifier, Brc20Operation, OrdinalOperation};
+use chainhook_sdk::types::{BitcoinBlockData, BlockIdentifier, OrdinalOperation};
 use chainhook_sdk::utils::{BlockHeights, Context};
 use crossbeam_channel::unbounded;
 use crossbeam_channel::{select, Sender};
@@ -897,28 +897,28 @@ fn write_brc20_block_operations(
                     {
                         match verify_brc20_operation(parsed_brc20_operation, reveal, &db_tx, &ctx) {
                             Ok(op) => match op {
-                                Brc20Operation::TokenDeploy(token) => insert_token(
+                                VerifiedBrc20Operation::TokenDeploy(token) => insert_token(
                                     &token,
                                     reveal,
                                     &block.block_identifier,
                                     &db_tx,
                                     &ctx,
                                 ),
-                                Brc20Operation::TokenMint(balance) => insert_token_mint(
+                                VerifiedBrc20Operation::TokenMint(balance) => insert_token_mint(
                                     &balance,
                                     reveal,
                                     &block.block_identifier,
                                     &db_tx,
                                     &ctx,
                                 ),
-                                Brc20Operation::TokenTransfer(balance) => insert_token_transfer(
+                                VerifiedBrc20Operation::TokenTransfer(balance) => insert_token_transfer(
                                     &balance,
                                     reveal,
                                     &block.block_identifier,
                                     &db_tx,
                                     &ctx,
                                 ),
-                                Brc20Operation::TokenTransferSend(_) => {
+                                VerifiedBrc20Operation::TokenTransferSend(_) => {
                                     unreachable!("BRC-20 token transfer send should never be generated on reveal")
                                 }
                             },

@@ -1,4 +1,5 @@
 use crate::config::Config;
+use crate::core::meta_protocols::brc20::db::{open_readonly_brc20_db_conn, open_readwrite_brc20_db_conn};
 use crate::core::protocol::inscription_parsing::{
     get_inscriptions_revealed_in_block, get_inscriptions_transferred_in_block,
     parse_inscriptions_and_standardize_block,
@@ -15,7 +16,7 @@ use chainhook_sdk::chainhooks::bitcoin::{
     evaluate_bitcoin_chainhooks_on_chain_event, handle_bitcoin_hook_action,
     BitcoinChainhookOccurrence, BitcoinTriggerChainhook,
 };
-use chainhook_sdk::chainhooks::types::BitcoinChainhookSpecification;
+use chainhook_sdk::chainhooks::types::{BitcoinChainhookSpecification, BitcoinPredicateType, OrdinalOperations};
 use chainhook_sdk::indexer::bitcoin::{
     build_http_client, download_and_parse_block_with_retry, retrieve_block_hash_with_retry,
 };
@@ -97,6 +98,12 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
     while let Some(current_block_height) = block_heights_to_scan.pop_front() {
         let mut inscriptions_db_conn =
             open_readonly_ordhook_db_conn(&config.expected_cache_path(), ctx)?;
+        let mut brc20_db_conn = match predicate_spec.predicate {
+            BitcoinPredicateType::OrdinalsProtocol(OrdinalOperations::InscriptionFeed(Some(_))) => {
+                Some(open_readonly_brc20_db_conn(&config.expected_cache_path(), ctx)?)
+            },
+            _ => None
+        };
 
         number_of_blocks_scanned += 1;
 
@@ -136,7 +143,7 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
                 &mut block,
                 &inscriptions_db_tx,
                 true,
-                None,
+                brc20_db_conn.as_ref(),
                 &Context::empty(),
             );
         }

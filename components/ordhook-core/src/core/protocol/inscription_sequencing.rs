@@ -19,7 +19,12 @@ use fxhash::FxHasher;
 use rusqlite::{Connection, Transaction};
 
 use crate::{
-    core::{resolve_absolute_pointer, OrdhookConfig},
+    core::{
+        meta_protocols::brc20::db::{
+            augment_transaction_with_brc20_operation_data, get_brc20_operations_on_block,
+        },
+        resolve_absolute_pointer, OrdhookConfig,
+    },
     db::{
         find_blessed_inscription_with_ordinal_number, find_nth_classic_neg_number_at_block_height,
         find_nth_classic_pos_number_at_block_height, find_nth_jubilee_number_at_block_height,
@@ -921,7 +926,7 @@ pub fn consolidate_block_with_pre_computed_ordinals_data(
     block: &mut BitcoinBlockData,
     inscriptions_db_tx: &Transaction,
     include_transfers: bool,
-    brc20_db_tx: Option<&Transaction>,
+    brc20_db_conn: Option<&Connection>,
     ctx: &Context,
 ) {
     let network = get_bitcoin_network(&block.metadata.network);
@@ -945,7 +950,11 @@ pub fn consolidate_block_with_pre_computed_ordinals_data(
         }
         break results;
     };
-    
+    let mut brc20_token_map = HashMap::new();
+    let mut brc20_block_ledger_map = match brc20_db_conn {
+        Some(conn) => get_brc20_operations_on_block(&block.block_identifier, &conn, &ctx),
+        None => HashMap::new(),
+    };
     for (tx_index, tx) in block.transactions.iter_mut().enumerate() {
         // Add inscriptions data
         consolidate_transaction_with_pre_computed_inscription_data(
@@ -972,8 +981,14 @@ pub fn consolidate_block_with_pre_computed_ordinals_data(
                 ctx,
             );
         }
-        if let Some(brc20_db_tx) = brc20_db_tx {
-            //
+        if let Some(brc20_db_conn) = brc20_db_conn {
+            augment_transaction_with_brc20_operation_data(
+                tx,
+                &mut brc20_token_map,
+                &mut brc20_block_ledger_map,
+                &brc20_db_conn,
+                &ctx,
+            );
         }
     }
 }
