@@ -1,11 +1,12 @@
 use chainhook_sdk::types::{
-    OrdinalInscriptionRevealData, OrdinalInscriptionTransferData,
+    BlockIdentifier, OrdinalInscriptionRevealData, OrdinalInscriptionTransferData,
     OrdinalInscriptionTransferDestination,
 };
 use chainhook_sdk::utils::Context;
 use rusqlite::Transaction;
 
 use super::db::get_unsent_token_transfer_with_sender;
+use super::SELF_MINT_ACTIVATION_HEIGHT;
 use super::{
     db::{
         get_token, get_token_available_balance_for_address, get_token_minted_supply, token_exists,
@@ -20,6 +21,7 @@ pub struct VerifiedBrc20TokenDeployData {
     pub lim: f64,
     pub dec: u64,
     pub address: String,
+    pub self_mint: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
@@ -48,6 +50,7 @@ pub enum VerifiedBrc20Operation {
 pub fn verify_brc20_operation(
     operation: &ParsedBrc20Operation,
     reveal: &OrdinalInscriptionRevealData,
+    block_identifier: &BlockIdentifier,
     db_tx: &Transaction,
     ctx: &Context,
 ) -> Result<VerifiedBrc20Operation, String> {
@@ -65,6 +68,12 @@ pub fn verify_brc20_operation(
             if token_exists(&data, db_tx, ctx) {
                 return Err(format!("Token {} already exists", &data.tick));
             }
+            if data.self_mint && block_identifier.index < SELF_MINT_ACTIVATION_HEIGHT {
+                return Err(format!(
+                    "Self-minted token deploy {} prohibited before activation height",
+                    &data.tick
+                ));
+            }
             return Ok(VerifiedBrc20Operation::TokenDeploy(
                 VerifiedBrc20TokenDeployData {
                     tick: data.tick.clone(),
@@ -72,6 +81,7 @@ pub fn verify_brc20_operation(
                     lim: data.lim,
                     dec: data.dec,
                     address: inscriber_address,
+                    self_mint: data.self_mint,
                 },
             ));
         }
@@ -82,6 +92,20 @@ pub fn verify_brc20_operation(
                     &data.tick
                 ));
             };
+            if data.tick.len() == 5 {
+                let Some(parent) = &reveal.parent else {
+                    return Err(format!(
+                        "Attempting to mint self-minted token {} without a parent ref",
+                        &data.tick
+                    ));
+                };
+                if parent != &token.inscription_id {
+                    return Err(format!(
+                        "Mint attempt for self-minted token {} does not point to deploy as parent",
+                        &data.tick
+                    ));
+                }
+            }
             if data.float_amt() > token.lim {
                 return Err(format!(
                     "Cannot mint more than {} tokens for {}, attempted to mint {}",
@@ -188,8 +212,7 @@ pub fn verify_brc20_transfer(
 mod test {
     use chainhook_sdk::{
         types::{
-            BlockIdentifier, Brc20BalanceData, Brc20Operation, Brc20TokenDeployData,
-            Brc20TransferData, OrdinalInscriptionNumber, OrdinalInscriptionRevealData,
+            BlockIdentifier, OrdinalInscriptionNumber, OrdinalInscriptionRevealData,
             OrdinalInscriptionTransferData, OrdinalInscriptionTransferDestination,
         },
         utils::Context,
@@ -214,6 +237,7 @@ mod test {
         inscriber_address: Option<String>,
         inscription_id: String,
         ordinal_number: u64,
+        parent: Option<String>,
     }
 
     impl Brc20RevealBuilder {
@@ -227,6 +251,7 @@ mod test {
                 inscription_id:
                     "9bb2314d666ae0b1db8161cb373fcc1381681f71445c4e0335aa80ea9c37fcddi0".to_string(),
                 ordinal_number: 0,
+                parent: None,
             }
         }
 
@@ -253,6 +278,11 @@ mod test {
             self
         }
 
+        fn parent(mut self, val: Option<String>) -> Self {
+            self.parent = val;
+            self
+        }
+
         fn build(self) -> OrdinalInscriptionRevealData {
             OrdinalInscriptionRevealData {
                 content_bytes: "".to_string(),
@@ -268,7 +298,7 @@ mod test {
                 delegate: None,
                 metaprotocol: None,
                 metadata: None,
-                parent: None,
+                parent: self.parent,
                 ordinal_number: self.ordinal_number,
                 ordinal_block_height: 767430,
                 ordinal_offset: 0,
@@ -334,9 +364,41 @@ mod test {
             max: 21000000.0,
             lim: 1000.0,
             dec: 18,
+            self_mint: false,
         }),
-        Brc20RevealBuilder::new().inscriber_address(None).build()
+        (Brc20RevealBuilder::new().inscriber_address(None).build(), 830000)
         => Err("Invalid inscriber address".to_string()); "with invalid address"
+    )]
+    #[test_case(
+        ParsedBrc20Operation::Deploy(ParsedBrc20TokenDeployData {
+            tick: "$pepe".to_string(),
+            max: 21000000.0,
+            lim: 1000.0,
+            dec: 18,
+            self_mint: true,
+        }),
+        (Brc20RevealBuilder::new().build(), 830000)
+        => Err("Self-minted token deploy $pepe prohibited before activation height".to_string());
+        "with self mint before activation"
+    )]
+    #[test_case(
+        ParsedBrc20Operation::Deploy(ParsedBrc20TokenDeployData {
+            tick: "$pepe".to_string(),
+            max: 21000000.0,
+            lim: 1000.0,
+            dec: 18,
+            self_mint: true,
+        }),
+        (Brc20RevealBuilder::new().build(), 840000)
+        => Ok(VerifiedBrc20Operation::TokenDeploy(VerifiedBrc20TokenDeployData {
+            tick: "$pepe".to_string(),
+            max: 21000000.0,
+            lim: 1000.0,
+            dec: 18,
+            address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
+            self_mint: true,
+        }));
+        "with valid self mint"
     )]
     #[test_case(
         ParsedBrc20Operation::Deploy(ParsedBrc20TokenDeployData {
@@ -344,8 +406,9 @@ mod test {
             max: 21000000.0,
             lim: 1000.0,
             dec: 18,
+            self_mint: false,
         }),
-        Brc20RevealBuilder::new().inscriber_address(Some("".to_string())).build()
+        (Brc20RevealBuilder::new().inscriber_address(Some("".to_string())).build(), 830000)
         => Err("Empty inscriber address".to_string()); "with empty address"
     )]
     #[test_case(
@@ -354,8 +417,9 @@ mod test {
             max: 21000000.0,
             lim: 1000.0,
             dec: 18,
+            self_mint: false,
         }),
-        Brc20RevealBuilder::new().inscription_number(-1).build()
+        (Brc20RevealBuilder::new().inscription_number(-1).build(), 830000)
         => Err("Inscription is cursed".to_string()); "with cursed inscription"
     )]
     #[test_case(
@@ -364,8 +428,9 @@ mod test {
             max: 21000000.0,
             lim: 1000.0,
             dec: 18,
+            self_mint: false,
         }),
-        Brc20RevealBuilder::new().build()
+        (Brc20RevealBuilder::new().build(), 830000)
         => Ok(
             VerifiedBrc20Operation::TokenDeploy(VerifiedBrc20TokenDeployData {
                 tick: "pepe".to_string(),
@@ -373,6 +438,7 @@ mod test {
                 lim: 1000.0,
                 dec: 18,
                 address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
+                self_mint: false,
             })
         ); "with deploy"
     )]
@@ -381,7 +447,7 @@ mod test {
             tick: "pepe".to_string(),
             amt: "1000.0".to_string(),
         }),
-        Brc20RevealBuilder::new().build()
+        (Brc20RevealBuilder::new().build(), 830000)
         => Err("Token pepe does not exist on mint attempt".to_string());
         "with mint non existing token"
     )]
@@ -390,18 +456,28 @@ mod test {
             tick: "pepe".to_string(),
             amt: "1000.0".to_string(),
         }),
-        Brc20RevealBuilder::new().build()
+        (Brc20RevealBuilder::new().build(), 830000)
         => Err("Token pepe does not exist on transfer attempt".to_string());
         "with transfer non existing token"
     )]
     fn test_brc20_verify_for_empty_db(
         op: ParsedBrc20Operation,
-        reveal: OrdinalInscriptionRevealData,
+        args: (OrdinalInscriptionRevealData, u64),
     ) -> Result<VerifiedBrc20Operation, String> {
         let ctx = get_test_ctx();
         let mut conn = initialize_brc20_db(None, &ctx);
         let tx = conn.transaction().unwrap();
-        verify_brc20_operation(&op, &reveal, &tx, &ctx)
+        verify_brc20_operation(
+            &op,
+            &args.0,
+            &BlockIdentifier {
+                index: args.1,
+                hash: "00000000000000000002d8ba402150b259ddb2b30a1d32ab4a881d4653bceb5b"
+                    .to_string(),
+            },
+            &tx,
+            &ctx,
+        )
     }
 
     #[test_case(
@@ -410,6 +486,7 @@ mod test {
             max: 21000000.0,
             lim: 1000.0,
             dec: 18,
+            self_mint: false,
         }),
         Brc20RevealBuilder::new().inscription_number(1).build()
         => Err("Token pepe already exists".to_string()); "with deploy existing token"
@@ -469,6 +546,10 @@ mod test {
         let ctx = get_test_ctx();
         let mut conn = initialize_brc20_db(None, &ctx);
         let tx = conn.transaction().unwrap();
+        let block = BlockIdentifier {
+            index: 835727,
+            hash: "00000000000000000002d8ba402150b259ddb2b30a1d32ab4a881d4653bceb5b".to_string(),
+        };
         insert_token(
             &VerifiedBrc20TokenDeployData {
                 tick: "pepe".to_string(),
@@ -476,17 +557,76 @@ mod test {
                 lim: 1000.0,
                 dec: 18,
                 address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
+                self_mint: false,
             },
             &Brc20RevealBuilder::new().inscription_number(0).build(),
-            &BlockIdentifier {
-                index: 835727,
-                hash: "00000000000000000002d8ba402150b259ddb2b30a1d32ab4a881d4653bceb5b"
-                    .to_string(),
-            },
+            &block,
             &tx,
             &ctx,
         );
-        verify_brc20_operation(&op, &reveal, &tx, &ctx)
+        verify_brc20_operation(&op, &reveal, &block, &tx, &ctx)
+    }
+
+    #[test_case(
+        ParsedBrc20Operation::Mint(ParsedBrc20BalanceData {
+            tick: "$pepe".to_string(),
+            amt: "100.00".to_string(),
+        }),
+        Brc20RevealBuilder::new().inscription_number(1).build()
+        => Err("Attempting to mint self-minted token $pepe without a parent ref".to_string());
+        "with mint without parent pointer"
+    )]
+    #[test_case(
+        ParsedBrc20Operation::Mint(ParsedBrc20BalanceData {
+            tick: "$pepe".to_string(),
+            amt: "100.00".to_string(),
+        }),
+        Brc20RevealBuilder::new().inscription_number(1).parent(Some("test".to_string())).build()
+        => Err("Mint attempt for self-minted token $pepe does not point to deploy as parent".to_string());
+        "with mint with wrong parent pointer"
+    )]
+    #[test_case(
+        ParsedBrc20Operation::Mint(ParsedBrc20BalanceData {
+            tick: "$pepe".to_string(),
+            amt: "100.00".to_string(),
+        }),
+        Brc20RevealBuilder::new()
+            .inscription_number(1)
+            .parent(Some("9bb2314d666ae0b1db8161cb373fcc1381681f71445c4e0335aa80ea9c37fcddi0".to_string()))
+            .build()
+        => Ok(VerifiedBrc20Operation::TokenMint(VerifiedBrc20BalanceData {
+            tick: "$pepe".to_string(),
+            amt: 100.0,
+            address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string()
+        }));
+        "with mint with valid parent"
+    )]
+    fn test_brc20_verify_for_existing_self_mint_token(
+        op: ParsedBrc20Operation,
+        reveal: OrdinalInscriptionRevealData,
+    ) -> Result<VerifiedBrc20Operation, String> {
+        let ctx = get_test_ctx();
+        let mut conn = initialize_brc20_db(None, &ctx);
+        let tx = conn.transaction().unwrap();
+        let block = BlockIdentifier {
+            index: 840000,
+            hash: "00000000000000000002d8ba402150b259ddb2b30a1d32ab4a881d4653bceb5b".to_string(),
+        };
+        insert_token(
+            &VerifiedBrc20TokenDeployData {
+                tick: "$pepe".to_string(),
+                max: 21000000.0,
+                lim: 1000.0,
+                dec: 18,
+                address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
+                self_mint: true,
+            },
+            &Brc20RevealBuilder::new().inscription_number(0).build(),
+            &block,
+            &tx,
+            &ctx,
+        );
+        verify_brc20_operation(&op, &reveal, &block, &tx, &ctx)
     }
 
     #[test_case(
@@ -516,6 +656,7 @@ mod test {
                 lim: 1000.0,
                 dec: 18,
                 address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
+                self_mint: false,
             },
             &Brc20RevealBuilder::new().inscription_number(0).build(),
             &block,
@@ -533,7 +674,7 @@ mod test {
             &tx,
             &ctx,
         );
-        verify_brc20_operation(&op, &reveal, &tx, &ctx)
+        verify_brc20_operation(&op, &reveal, &block, &tx, &ctx)
     }
 
     #[test_case(
@@ -566,6 +707,7 @@ mod test {
                 lim: 1000.0,
                 dec: 18,
                 address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
+                self_mint: false,
             },
             &Brc20RevealBuilder::new().inscription_number(0).build(),
             &block,
@@ -583,7 +725,7 @@ mod test {
             &tx,
             &ctx,
         );
-        verify_brc20_operation(&op, &reveal, &tx, &ctx)
+        verify_brc20_operation(&op, &reveal, &block, &tx, &ctx)
     }
 
     #[test_case(
@@ -662,6 +804,7 @@ mod test {
                 lim: 1000.0,
                 dec: 18,
                 address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
+                self_mint: false,
             },
             &Brc20RevealBuilder::new()
                 .inscription_number(0)
@@ -706,7 +849,7 @@ mod test {
             &tx,
             &ctx,
         );
-        verify_brc20_operation(&op, &reveal, &tx, &ctx)
+        verify_brc20_operation(&op, &reveal, &block, &tx, &ctx)
     }
 
     #[test_case(
@@ -767,6 +910,7 @@ mod test {
                 lim: 1000.0,
                 dec: 18,
                 address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
+                self_mint: false,
             },
             &Brc20RevealBuilder::new()
                 .inscription_number(0)
@@ -836,6 +980,7 @@ mod test {
                 lim: 1000.0,
                 dec: 18,
                 address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
+                self_mint: false,
             },
             &Brc20RevealBuilder::new()
                 .inscription_number(0)
