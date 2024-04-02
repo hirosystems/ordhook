@@ -47,7 +47,7 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
     };
     let mut floating_end_block = false;
 
-    let mut block_heights_to_scan = if let Some(ref blocks) = predicate_spec.blocks {
+    let block_heights_to_scan_res = if let Some(ref blocks) = predicate_spec.blocks {
         BlockHeights::Blocks(blocks.clone()).get_sorted_entries()
     } else {
         let start_block = match predicate_spec.start_block {
@@ -74,6 +74,9 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
         floating_end_block = update_end_block;
         BlockHeights::BlockRange(start_block, end_block).get_sorted_entries()
     };
+
+    let mut block_heights_to_scan =
+        block_heights_to_scan_res.map_err(|_e| format!("Block start / end block spec invalid"))?;
 
     info!(
         ctx.expect_logger(),

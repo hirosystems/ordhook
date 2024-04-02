@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use chainhook_sdk::{
     bitcoincore_rpc_json::bitcoin::{Address, Network, ScriptBuf},
     types::{
-        BitcoinBlockData, BitcoinNetwork, BitcoinTransactionData, OrdinalInscriptionTransferData,
+        BitcoinBlockData, BitcoinTransactionData, OrdinalInscriptionTransferData,
         OrdinalInscriptionTransferDestination, OrdinalOperation, TransactionIdentifier,
     },
     utils::Context,

@@ -8,7 +8,7 @@ WORKDIR /src
 
 RUN apt-get update && apt-get install -y ca-certificates pkg-config libssl-dev libclang-11-dev libunwind-dev libunwind8 curl gnupg
 
-RUN rustup update 1.72.0 && rustup default 1.72.0
+RUN rustup update 1.74.0 && rustup default 1.74.0
 
 RUN mkdir /out
 
@@ -38,6 +38,8 @@ COPY ./components/ordhook-cli /src/components/ordhook-cli
 
 WORKDIR /src/components/ordhook-sdk-js
 
+# TODO
+
 # RUN yarn install
 
 # RUN yarn build
@@ -46,7 +48,7 @@ WORKDIR /src/components/ordhook-sdk-js
 
 WORKDIR /src/components/ordhook-cli
 
-RUN cargo build --features release --release
+RUN cargo build --features release,tcmalloc --release
 
 RUN cp /src/target/release/ordhook /out
 
