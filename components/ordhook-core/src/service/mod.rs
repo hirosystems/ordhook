@@ -852,6 +852,7 @@ pub fn chainhook_sidecar_mutate_blocks(
         }
     }
     let _ = inscriptions_db_tx.rollback();
+    let _ = brc20_db_tx.rollback();
 }
 
 pub fn write_brc20_block_operations(

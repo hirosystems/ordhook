@@ -19,7 +19,9 @@ use std::hash::BuildHasherDefault;
 
 use crate::{
     core::{
-        meta_protocols::brc20::db::open_readwrite_brc20_db_conn, pipeline::processors::block_archiving::store_compacted_blocks, protocol::{
+        meta_protocols::brc20::db::open_readwrite_brc20_db_conn,
+        pipeline::processors::block_archiving::store_compacted_blocks,
+        protocol::{
             inscription_parsing::{
                 get_inscriptions_revealed_in_block, get_inscriptions_transferred_in_block,
                 parse_inscriptions_in_standardized_block,
@@ -30,11 +32,12 @@ use crate::{
                 parallelize_inscription_data_computations, SequenceCursor,
             },
             satoshi_tracking::augment_block_with_ordinals_transfer_data,
-        }, OrdhookConfig
+        },
+        OrdhookConfig,
     },
     db::{
-        get_any_entry_in_ordinal_activities, open_ordhook_db_conn_rocks_db_loop,
-        open_readonly_ordhook_db_conn,
+        delete_data_in_ordhook_db, get_any_entry_in_ordinal_activities,
+        open_ordhook_db_conn_rocks_db_loop, open_readonly_ordhook_db_conn,
     },
     service::write_brc20_block_operations,
 };
@@ -177,13 +180,12 @@ pub fn process_blocks(
 
     let mut updated_blocks = vec![];
 
-    let mut brc20_db_conn_rw =
-        match open_readwrite_brc20_db_conn(&ordhook_config.db_path, &ctx) {
-            Ok(dbs) => dbs,
-            Err(e) => {
-                panic!("Unable to open readwrite connection: {e}");
-            }
-        };
+    let mut brc20_db_conn_rw = match open_readwrite_brc20_db_conn(&ordhook_config.db_path, &ctx) {
+        Ok(dbs) => dbs,
+        Err(e) => {
+            panic!("Unable to open readwrite connection: {e}");
+        }
+    };
     for _cursor in 0..next_blocks.len() {
         let inscriptions_db_tx: rusqlite::Transaction<'_> =
             inscriptions_db_conn_rw.transaction().unwrap();
@@ -244,41 +246,26 @@ pub fn process_blocks(
                 )
             });
             let _ = inscriptions_db_tx.rollback();
+            let _ = brc20_db_tx.rollback();
         } else {
             match inscriptions_db_tx.commit() {
-                Ok(_) => {
-                    // ctx.try_log(|logger| {
-                    //     info!(
-                    //         logger,
-                    //         "Updates saved for block {}", block.block_identifier.index,
-                    //     )
-                    // });
-                }
+                Ok(_) => match brc20_db_tx.commit() {
+                    Ok(_) => {}
+                    Err(_) => {
+                        // delete_data_in_ordhook_db(
+                        //     block.block_identifier.index,
+                        //     block.block_identifier.index,
+                        //     ordhook_config,
+                        //     ctx,
+                        // );
+                        todo!()
+                    }
+                },
                 Err(e) => {
                     ctx.try_log(|logger| {
                         error!(
                             logger,
                             "Unable to update changes in block #{}: {}",
-                            block.block_identifier.index,
-                            e.to_string()
-                        )
-                    });
-                }
-            }
-            match brc20_db_tx.commit() {
-                Ok(_) => {
-                    // ctx.try_log(|logger| {
-                    //     info!(
-                    //         logger,
-                    //         "Updates saved for block {}", block.block_identifier.index,
-                    //     )
-                    // });
-                }
-                Err(e) => {
-                    ctx.try_log(|logger| {
-                        error!(
-                            logger,
-                            "Unable to update BRC-20 changes in block #{}: {}",
                             block.block_identifier.index,
                             e.to_string()
                         )
@@ -307,7 +294,7 @@ pub fn process_block(
     ctx: &Context,
 ) -> Result<(), String> {
     let mut brc20_operation_map = HashMap::new();
-        parse_inscriptions_in_standardized_block(block, &mut brc20_operation_map, &ctx);
+    parse_inscriptions_in_standardized_block(block, &mut brc20_operation_map, &ctx);
 
     let any_processable_transactions = parallelize_inscription_data_computations(
         &block,
