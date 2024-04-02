@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashMap},
     sync::Arc,
     thread::{sleep, JoinHandle},
     time::Duration,
@@ -19,10 +19,10 @@ use std::hash::BuildHasherDefault;
 
 use crate::{
     core::{
-        pipeline::processors::block_archiving::store_compacted_blocks,
-        protocol::{
+        meta_protocols::brc20::db::open_readwrite_brc20_db_conn, pipeline::processors::block_archiving::store_compacted_blocks, protocol::{
             inscription_parsing::{
                 get_inscriptions_revealed_in_block, get_inscriptions_transferred_in_block,
+                parse_inscriptions_in_standardized_block,
             },
             inscription_sequencing::{
                 augment_block_with_ordinals_inscriptions_data_and_write_to_db_tx,
@@ -30,13 +30,13 @@ use crate::{
                 parallelize_inscription_data_computations, SequenceCursor,
             },
             satoshi_tracking::augment_block_with_ordinals_transfer_data,
-        },
-        OrdhookConfig,
+        }, OrdhookConfig
     },
     db::{
         get_any_entry_in_ordinal_activities, open_ordhook_db_conn_rocks_db_loop,
         open_readonly_ordhook_db_conn,
     },
+    service::write_brc20_block_operations,
 };
 
 use crate::db::{TransactionBytesCursor, TraversalResult};
@@ -177,9 +177,17 @@ pub fn process_blocks(
 
     let mut updated_blocks = vec![];
 
+    let mut brc20_db_conn_rw =
+        match open_readwrite_brc20_db_conn(&ordhook_config.db_path, &ctx) {
+            Ok(dbs) => dbs,
+            Err(e) => {
+                panic!("Unable to open readwrite connection: {e}");
+            }
+        };
     for _cursor in 0..next_blocks.len() {
         let inscriptions_db_tx: rusqlite::Transaction<'_> =
             inscriptions_db_conn_rw.transaction().unwrap();
+        let brc20_db_tx = brc20_db_conn_rw.transaction().unwrap();
 
         let mut block = next_blocks.remove(0);
 
@@ -205,6 +213,7 @@ pub fn process_blocks(
             &mut cache_l1,
             cache_l2,
             &inscriptions_db_tx,
+            Some(&brc20_db_tx),
             ordhook_config,
             ctx,
         );
@@ -256,6 +265,26 @@ pub fn process_blocks(
                     });
                 }
             }
+            match brc20_db_tx.commit() {
+                Ok(_) => {
+                    // ctx.try_log(|logger| {
+                    //     info!(
+                    //         logger,
+                    //         "Updates saved for block {}", block.block_identifier.index,
+                    //     )
+                    // });
+                }
+                Err(e) => {
+                    ctx.try_log(|logger| {
+                        error!(
+                            logger,
+                            "Unable to update BRC-20 changes in block #{}: {}",
+                            block.block_identifier.index,
+                            e.to_string()
+                        )
+                    });
+                }
+            }
         }
 
         if let Some(post_processor_tx) = post_processor {
@@ -273,9 +302,13 @@ pub fn process_block(
     cache_l1: &mut BTreeMap<(TransactionIdentifier, usize, u64), TraversalResult>,
     cache_l2: &Arc<DashMap<(u32, [u8; 8]), TransactionBytesCursor, BuildHasherDefault<FxHasher>>>,
     inscriptions_db_tx: &Transaction,
+    brc20_db_tx: Option<&Transaction>,
     ordhook_config: &OrdhookConfig,
     ctx: &Context,
 ) -> Result<(), String> {
+    let mut brc20_operation_map = HashMap::new();
+        parse_inscriptions_in_standardized_block(block, &mut brc20_operation_map, &ctx);
+
     let any_processable_transactions = parallelize_inscription_data_computations(
         &block,
         &next_blocks,
@@ -305,6 +338,10 @@ pub fn process_block(
 
     // Handle transfers
     let _ = augment_block_with_ordinals_transfer_data(block, inscriptions_db_tx, true, &inner_ctx);
+
+    if let Some(brc20_db_tx) = brc20_db_tx {
+        write_brc20_block_operations(&block, &brc20_operation_map, &brc20_db_tx, &ctx);
+    }
 
     Ok(())
 }

@@ -1,12 +1,12 @@
 use chainhook_sdk::types::{
-    BlockIdentifier, OrdinalInscriptionRevealData, OrdinalInscriptionTransferData,
+    BitcoinNetwork, BlockIdentifier, OrdinalInscriptionRevealData, OrdinalInscriptionTransferData,
     OrdinalInscriptionTransferDestination,
 };
 use chainhook_sdk::utils::Context;
 use rusqlite::Transaction;
 
+use super::brc20_self_mint_activation_height;
 use super::db::get_unsent_token_transfer_with_sender;
-use super::SELF_MINT_ACTIVATION_HEIGHT;
 use super::{
     db::{
         get_token, get_token_available_balance_for_address, get_token_minted_supply, token_exists,
@@ -51,6 +51,7 @@ pub fn verify_brc20_operation(
     operation: &ParsedBrc20Operation,
     reveal: &OrdinalInscriptionRevealData,
     block_identifier: &BlockIdentifier,
+    network: &BitcoinNetwork,
     db_tx: &Transaction,
     ctx: &Context,
 ) -> Result<VerifiedBrc20Operation, String> {
@@ -68,7 +69,8 @@ pub fn verify_brc20_operation(
             if token_exists(&data, db_tx, ctx) {
                 return Err(format!("Token {} already exists", &data.tick));
             }
-            if data.self_mint && block_identifier.index < SELF_MINT_ACTIVATION_HEIGHT {
+            if data.self_mint && block_identifier.index < brc20_self_mint_activation_height(network)
+            {
                 return Err(format!(
                     "Self-minted token deploy {} prohibited before activation height",
                     &data.tick
@@ -212,8 +214,9 @@ pub fn verify_brc20_transfer(
 mod test {
     use chainhook_sdk::{
         types::{
-            BlockIdentifier, OrdinalInscriptionNumber, OrdinalInscriptionRevealData,
-            OrdinalInscriptionTransferData, OrdinalInscriptionTransferDestination,
+            BitcoinNetwork, BlockIdentifier, OrdinalInscriptionNumber,
+            OrdinalInscriptionRevealData, OrdinalInscriptionTransferData,
+            OrdinalInscriptionTransferDestination,
         },
         utils::Context,
     };
@@ -475,6 +478,7 @@ mod test {
                 hash: "00000000000000000002d8ba402150b259ddb2b30a1d32ab4a881d4653bceb5b"
                     .to_string(),
             },
+            &BitcoinNetwork::Mainnet,
             &tx,
             &ctx,
         )
@@ -564,7 +568,7 @@ mod test {
             &tx,
             &ctx,
         );
-        verify_brc20_operation(&op, &reveal, &block, &tx, &ctx)
+        verify_brc20_operation(&op, &reveal, &block, &BitcoinNetwork::Mainnet, &tx, &ctx)
     }
 
     #[test_case(
@@ -626,7 +630,7 @@ mod test {
             &tx,
             &ctx,
         );
-        verify_brc20_operation(&op, &reveal, &block, &tx, &ctx)
+        verify_brc20_operation(&op, &reveal, &block, &BitcoinNetwork::Mainnet, &tx, &ctx)
     }
 
     #[test_case(
@@ -674,7 +678,7 @@ mod test {
             &tx,
             &ctx,
         );
-        verify_brc20_operation(&op, &reveal, &block, &tx, &ctx)
+        verify_brc20_operation(&op, &reveal, &block, &BitcoinNetwork::Mainnet, &tx, &ctx)
     }
 
     #[test_case(
@@ -725,7 +729,7 @@ mod test {
             &tx,
             &ctx,
         );
-        verify_brc20_operation(&op, &reveal, &block, &tx, &ctx)
+        verify_brc20_operation(&op, &reveal, &block, &BitcoinNetwork::Mainnet, &tx, &ctx)
     }
 
     #[test_case(
@@ -849,7 +853,7 @@ mod test {
             &tx,
             &ctx,
         );
-        verify_brc20_operation(&op, &reveal, &block, &tx, &ctx)
+        verify_brc20_operation(&op, &reveal, &block, &BitcoinNetwork::Mainnet, &tx, &ctx)
     }
 
     #[test_case(

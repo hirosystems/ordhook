@@ -20,9 +20,9 @@ use rusqlite::{Connection, Transaction};
 
 use crate::{
     core::{
-        meta_protocols::brc20::db::{
+        meta_protocols::brc20::{brc20_activation_height, db::{
             augment_transaction_with_brc20_operation_data, get_brc20_operations_on_block,
-        },
+        }},
         resolve_absolute_pointer, OrdhookConfig,
     },
     db::{

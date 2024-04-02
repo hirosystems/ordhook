@@ -23,7 +23,13 @@ pub struct Config {
     pub resources: ResourcesConfig,
     pub network: IndexerConfig,
     pub snapshot: SnapshotConfig,
+    pub meta_protocols: MetaProtocolsConfig,
     pub logs: LogConfig,
+}
+
+#[derive(Clone, Debug)]
+pub struct MetaProtocolsConfig {
+    pub brc20: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -188,6 +194,7 @@ impl Config {
                 ordinals_internals: true,
                 chainhook_internals: false,
             },
+            meta_protocols: MetaProtocolsConfig { brc20: false },
         }
     }
 
@@ -220,6 +227,7 @@ impl Config {
                 ordinals_internals: true,
                 chainhook_internals: false,
             },
+            meta_protocols: MetaProtocolsConfig { brc20: false },
         }
     }
 
@@ -252,6 +260,7 @@ impl Config {
                 ordinals_internals: true,
                 chainhook_internals: false,
             },
+            meta_protocols: MetaProtocolsConfig { brc20: false },
         }
     }
 }

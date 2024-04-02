@@ -15,6 +15,7 @@ use ordhook::chainhook_sdk::types::{BitcoinBlockData, TransactionIdentifier};
 use ordhook::chainhook_sdk::utils::BlockHeights;
 use ordhook::chainhook_sdk::utils::Context;
 use ordhook::config::Config;
+use ordhook::core::meta_protocols::brc20::db::initialize_brc20_db;
 use ordhook::core::new_traversals_lazy_cache;
 use ordhook::core::pipeline::download_and_pipeline_blocks;
 use ordhook::core::pipeline::processors::block_archiving::start_block_archiving_processor;
@@ -26,7 +27,7 @@ use ordhook::db::{
     find_block_bytes_at_block_height, find_inscription_with_id, find_last_block_inserted,
     find_latest_inscription_block_height, find_missing_blocks, get_default_ordhook_db_file_path,
     initialize_ordhook_db, open_ordhook_db_conn_rocks_db_loop, open_readonly_ordhook_db_conn,
-    open_readonly_ordhook_db_conn_rocks_db, open_readwrite_ordhook_db_conn, BlockBytesCursor,
+    open_readonly_ordhook_db_conn_rocks_db, BlockBytesCursor,
 };
 use ordhook::download::download_ordinals_dataset_if_required;
 use ordhook::hex;
@@ -781,6 +782,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
         Command::Db(OrdhookDbCommand::New(cmd)) => {
             let config = ConfigFile::default(false, false, false, &cmd.config_path)?;
             initialize_ordhook_db(&config.expected_cache_path(), ctx);
+            initialize_brc20_db(Some(&config.expected_cache_path()), ctx);
             open_ordhook_db_conn_rocks_db_loop(
                 true,
                 &config.expected_cache_path(),
@@ -904,15 +906,6 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
         }
         Command::Db(OrdhookDbCommand::Drop(cmd)) => {
             let config = ConfigFile::default(false, false, false, &cmd.config_path)?;
-            let blocks_db = open_ordhook_db_conn_rocks_db_loop(
-                true,
-                &config.expected_cache_path(),
-                config.resources.ulimit,
-                config.resources.memory_available,
-                ctx,
-            );
-            let inscriptions_db_conn_rw =
-                open_readwrite_ordhook_db_conn(&config.expected_cache_path(), ctx)?;
 
             println!(
                 "{} blocks will be deleted. Confirm? [Y/n]",
@@ -927,8 +920,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
             delete_data_in_ordhook_db(
                 cmd.start_block,
                 cmd.end_block,
-                &blocks_db,
-                &inscriptions_db_conn_rw,
+                &config,
                 ctx,
             )?;
             info!(

@@ -110,7 +110,7 @@ pub fn parse_inscriptions_from_witness(
 }
 
 pub fn parse_inscriptions_from_standardized_tx(
-    tx: &BitcoinTransactionData,
+    tx: &mut BitcoinTransactionData,
     brc20_operation_map: &mut HashMap<String, ParsedBrc20Operation>,
     ctx: &Context,
 ) -> Vec<OrdinalOperation> {

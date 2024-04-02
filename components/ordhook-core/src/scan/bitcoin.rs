@@ -1,4 +1,5 @@
 use crate::config::Config;
+use crate::core::meta_protocols::brc20::brc20_activation_height;
 use crate::core::meta_protocols::brc20::db::{open_readonly_brc20_db_conn, open_readwrite_brc20_db_conn};
 use crate::core::protocol::inscription_parsing::{
     get_inscriptions_revealed_in_block, get_inscriptions_transferred_in_block,
@@ -98,9 +99,13 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
     while let Some(current_block_height) = block_heights_to_scan.pop_front() {
         let mut inscriptions_db_conn =
             open_readonly_ordhook_db_conn(&config.expected_cache_path(), ctx)?;
-        let mut brc20_db_conn = match predicate_spec.predicate {
+        let brc20_db_conn = match predicate_spec.predicate {
             BitcoinPredicateType::OrdinalsProtocol(OrdinalOperations::InscriptionFeed(Some(_))) => {
-                Some(open_readonly_brc20_db_conn(&config.expected_cache_path(), ctx)?)
+                if current_block_height >= brc20_activation_height(&bitcoin_config.network) {
+                    Some(open_readonly_brc20_db_conn(&config.expected_cache_path(), ctx)?)
+                } else {
+                    None
+                }
             },
             _ => None
         };

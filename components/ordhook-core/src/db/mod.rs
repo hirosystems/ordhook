@@ -22,8 +22,12 @@ use chainhook_sdk::{
 };
 
 use crate::{
-    core::protocol::inscription_parsing::{
-        get_inscriptions_revealed_in_block, get_inscriptions_transferred_in_block,
+    config::Config,
+    core::{
+        meta_protocols::brc20::db::{delete_activity_in_block_range, open_readwrite_brc20_db_conn},
+        protocol::inscription_parsing::{
+            get_inscriptions_revealed_in_block, get_inscriptions_transferred_in_block,
+        },
     },
     ord::sat::Sat,
 };
@@ -199,7 +203,7 @@ pub fn create_or_open_readwrite_db(db_path: Option<&PathBuf>, ctx: &Context) -> 
 
     let path = match db_path {
         Some(path) => path.to_str().unwrap(),
-        None => ":memory:"
+        None => ":memory:",
     };
     let conn = loop {
         match Connection::open_with_flags(&path, open_flags) {
@@ -1283,17 +1287,25 @@ pub fn remove_entries_from_locations_at_block_height(
 pub fn delete_data_in_ordhook_db(
     start_block: u64,
     end_block: u64,
-    blocks_db_rw: &DB,
-    inscriptions_db_conn_rw: &Connection,
+    config: &Config,
     ctx: &Context,
 ) -> Result<(), String> {
+    let blocks_db = open_ordhook_db_conn_rocks_db_loop(
+        true,
+        &config.expected_cache_path(),
+        config.resources.ulimit,
+        config.resources.memory_available,
+        ctx,
+    );
+    let inscriptions_db_conn_rw =
+        open_readwrite_ordhook_db_conn(&config.expected_cache_path(), ctx)?;
     ctx.try_log(|logger| {
         info!(
             logger,
             "Deleting entries from block #{start_block} to block #{end_block}"
         )
     });
-    delete_blocks_in_block_range(start_block as u32, end_block as u32, blocks_db_rw, &ctx);
+    delete_blocks_in_block_range(start_block as u32, end_block as u32, &blocks_db, &ctx);
     ctx.try_log(|logger| {
         info!(
             logger,
@@ -1303,9 +1315,19 @@ pub fn delete_data_in_ordhook_db(
     delete_inscriptions_in_block_range(
         start_block as u32,
         end_block as u32,
-        inscriptions_db_conn_rw,
+        &inscriptions_db_conn_rw,
         &ctx,
     );
+    if config.meta_protocols.brc20 {
+        let conn = open_readwrite_brc20_db_conn(&config.expected_cache_path(), ctx)?;
+        delete_activity_in_block_range(start_block as u32, end_block as u32, &conn, &ctx);
+        ctx.try_log(|logger| {
+            info!(
+                logger,
+                "Deleting BRC-20 activity from block #{start_block} to block #{end_block}"
+            )
+        });
+    }
     Ok(())
 }
 

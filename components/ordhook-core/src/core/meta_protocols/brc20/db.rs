@@ -28,6 +28,7 @@ pub struct Brc20DbTokenRow {
     pub lim: f64,
     pub dec: u64,
     pub address: String,
+    pub self_mint: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -62,6 +63,7 @@ pub fn initialize_brc20_db(base_dir: Option<&PathBuf>, ctx: &Context) -> Connect
             lim REAL NOT NULL,
             dec INTEGER NOT NULL,
             address TEXT NOT NULL,
+            self_mint BOOL NOT NULL,
             UNIQUE (inscription_id),
             UNIQUE (inscription_number),
             UNIQUE (tick)
@@ -147,6 +149,28 @@ pub fn open_readonly_brc20_db_conn(
     Ok(conn)
 }
 
+pub fn delete_activity_in_block_range(
+    start_block: u32,
+    end_block: u32,
+    db_tx: &Connection,
+    ctx: &Context,
+) {
+    while let Err(e) = db_tx.execute(
+        "DELETE FROM ledger WHERE block_height >= ?1 AND block_height <= ?2",
+        rusqlite::params![&start_block, &end_block],
+    ) {
+        ctx.try_log(|logger| warn!(logger, "unable to query brc20.sqlite: {}", e.to_string()));
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    }
+    while let Err(e) = db_tx.execute(
+        "DELETE FROM tokens WHERE block_height >= ?1 AND block_height <= ?2",
+        rusqlite::params![&start_block, &end_block],
+    ) {
+        ctx.try_log(|logger| warn!(logger, "unable to query brc20.sqlite: {}", e.to_string()));
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    }
+}
+
 pub fn token_exists(data: &ParsedBrc20TokenDeployData, db_tx: &Transaction, ctx: &Context) -> bool {
     let args: &[&dyn ToSql] = &[&data.tick.to_sql().unwrap()];
     let query = "SELECT inscription_id FROM tokens WHERE tick = ?";
@@ -156,7 +180,7 @@ pub fn token_exists(data: &ParsedBrc20TokenDeployData, db_tx: &Transaction, ctx:
 pub fn get_token(tick: &str, db_tx: &Connection, ctx: &Context) -> Option<Brc20DbTokenRow> {
     let args: &[&dyn ToSql] = &[&tick.to_sql().unwrap()];
     let query = "
-        SELECT tick, max, lim, dec, address, inscription_id, inscription_number, block_height
+        SELECT tick, max, lim, dec, address, inscription_id, inscription_number, block_height, self_mint
         FROM tokens
         WHERE tick = ?
     ";
@@ -169,6 +193,7 @@ pub fn get_token(tick: &str, db_tx: &Connection, ctx: &Context) -> Option<Brc20D
         inscription_id: row.get(5).unwrap(),
         inscription_number: row.get(6).unwrap(),
         block_height: row.get(7).unwrap(),
+        self_mint: row.get(8).unwrap(),
     })
 }
 
@@ -246,8 +271,8 @@ pub fn insert_token(
 ) {
     while let Err(e) = db_tx.execute(
         "INSERT INTO tokens
-        (inscription_id, inscription_number, block_height, tick, max, lim, dec, address)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+        (inscription_id, inscription_number, block_height, tick, max, lim, dec, address, self_mint)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
         ON CONFLICT(tick) DO NOTHING",
         rusqlite::params![
             &reveal.inscription_id,
@@ -257,7 +282,8 @@ pub fn insert_token(
             &data.max,
             &data.lim,
             &data.dec,
-            &reveal.inscriber_address
+            &reveal.inscriber_address,
+            &data.self_mint,
         ],
     ) {
         ctx.try_log(|logger| {
@@ -499,17 +525,18 @@ pub fn augment_transaction_with_brc20_operation_data(
     let dec = token.dec as usize;
     match entry.operation.as_str() {
         "deploy" => {
-            tx.metadata.brc20_operation = Some(Brc20Operation::TokenDeploy(Brc20TokenDeployData {
+            tx.metadata.brc20_operation = Some(Brc20Operation::Deploy(Brc20TokenDeployData {
                 tick: token.tick.clone(),
                 max: format!("{:.precision$}", token.max, precision = dec),
                 lim: format!("{:.precision$}", token.lim, precision = dec),
                 dec: token.dec.to_string(),
                 address: token.address.clone(),
                 inscription_id: token.inscription_id.clone(),
+                self_mint: token.self_mint,
             }));
         }
         "mint" => {
-            tx.metadata.brc20_operation = Some(Brc20Operation::TokenMint(Brc20BalanceData {
+            tx.metadata.brc20_operation = Some(Brc20Operation::Mint(Brc20BalanceData {
                 tick: entry.tick.clone(),
                 amt: format!("{:.precision$}", entry.avail_balance, precision = dec),
                 address: entry.address.clone(),
@@ -517,7 +544,7 @@ pub fn augment_transaction_with_brc20_operation_data(
             }));
         }
         "transfer" => {
-            tx.metadata.brc20_operation = Some(Brc20Operation::TokenTransfer(Brc20BalanceData {
+            tx.metadata.brc20_operation = Some(Brc20Operation::Transfer(Brc20BalanceData {
                 tick: entry.tick.clone(),
                 amt: format!("{:.precision$}", entry.trans_balance, precision = dec),
                 address: entry.address.clone(),
@@ -531,7 +558,7 @@ pub fn augment_transaction_with_brc20_operation_data(
                 unreachable!("Unable to fetch receiver address for transfer_send operation");
             };
             tx.metadata.brc20_operation =
-                Some(Brc20Operation::TokenTransferSend(Brc20TransferData {
+                Some(Brc20Operation::TransferSend(Brc20TransferData {
                     tick: entry.tick.clone(),
                     amt: format!(
                         "{:.precision$}",
@@ -540,6 +567,7 @@ pub fn augment_transaction_with_brc20_operation_data(
                     ),
                     sender_address: entry.address.clone(),
                     receiver_address,
+                    inscription_id: entry.inscription_id,
                 }));
         }
         _ => {}

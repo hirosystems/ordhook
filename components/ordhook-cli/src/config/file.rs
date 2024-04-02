@@ -4,8 +4,8 @@ use ordhook::chainhook_sdk::types::{
     BitcoinBlockSignaling, BitcoinNetwork, StacksNetwork, StacksNodeConfig,
 };
 use ordhook::config::{
-    Config, LogConfig, PredicatesApi, PredicatesApiConfig, ResourcesConfig, SnapshotConfig,
-    StorageConfig, DEFAULT_BITCOIND_RPC_THREADS, DEFAULT_BITCOIND_RPC_TIMEOUT,
+    Config, LogConfig, MetaProtocolsConfig, PredicatesApi, PredicatesApiConfig, ResourcesConfig,
+    SnapshotConfig, StorageConfig, DEFAULT_BITCOIND_RPC_THREADS, DEFAULT_BITCOIND_RPC_TIMEOUT,
     DEFAULT_CONTROL_PORT, DEFAULT_MEMORY_AVAILABLE, DEFAULT_ULIMIT,
 };
 use std::fs::File;
@@ -19,6 +19,7 @@ pub struct ConfigFile {
     pub network: NetworkConfigFile,
     pub logs: Option<LogConfigFile>,
     pub snapshot: Option<SnapshotConfigFile>,
+    pub meta_protocols: Option<MetaProtocolsConfigFile>,
 }
 
 impl ConfigFile {
@@ -123,6 +124,13 @@ impl ConfigFile {
                     .and_then(|l| l.chainhook_internals)
                     .unwrap_or(true),
             },
+            meta_protocols: MetaProtocolsConfig {
+                brc20: config_file
+                    .meta_protocols
+                    .as_ref()
+                    .and_then(|l| l.brc20)
+                    .unwrap_or(false),
+            },
         };
         Ok(config)
     }
@@ -166,6 +174,11 @@ pub struct PredicatesApiConfigFile {
 #[derive(Deserialize, Debug, Clone)]
 pub struct SnapshotConfigFile {
     pub download_url: Option<String>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct MetaProtocolsConfigFile {
+    pub brc20: Option<bool>,
 }
 
 #[derive(Deserialize, Debug, Clone)]

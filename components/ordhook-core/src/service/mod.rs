@@ -522,27 +522,6 @@ impl Service {
                 info!(self.ctx.expect_logger(), "Running database compaction",);
                 run_compaction(&blocks_db_rw, tip);
             }
-
-            if rebuild_from_scratch {
-                let blocks_db_rw = open_ordhook_db_conn_rocks_db_loop(
-                    false,
-                    &self.config.expected_cache_path(),
-                    self.config.resources.ulimit,
-                    self.config.resources.memory_available,
-                    &self.ctx,
-                );
-
-                let inscriptions_db_conn_rw =
-                    open_readwrite_ordhook_db_conn(&self.config.expected_cache_path(), &self.ctx)?;
-
-                delete_data_in_ordhook_db(
-                    767430,
-                    820000,
-                    &blocks_db_rw,
-                    &inscriptions_db_conn_rw,
-                    &self.ctx,
-                )?;
-            }
         }
         self.update_state(block_post_processor).await
     }
@@ -677,8 +656,7 @@ fn chainhook_sidecar_mutate_ordhook_db(command: HandleBlock, config: &Config, ct
             if let Err(e) = delete_data_in_ordhook_db(
                 block.block_identifier.index,
                 block.block_identifier.index,
-                &blocks_db_rw,
-                &inscriptions_db_conn_rw,
+                &config,
                 &ctx,
             ) {
                 ctx.try_log(|logger| {
@@ -793,8 +771,7 @@ pub fn chainhook_sidecar_mutate_blocks(
         if let Err(e) = delete_data_in_ordhook_db(
             block_id_to_rollback.index,
             block_id_to_rollback.index,
-            &blocks_db_rw,
-            &inscriptions_db_tx,
+            &config,
             &ctx,
         ) {
             ctx.try_log(|logger| {
@@ -839,13 +816,6 @@ pub fn chainhook_sidecar_mutate_blocks(
         } else {
             updated_blocks_ids.push(format!("{}", cache.block.block_identifier.index));
 
-            let mut brc20_operation_map = HashMap::new();
-            parse_inscriptions_in_standardized_block(
-                &mut cache.block,
-                &mut brc20_operation_map,
-                &ctx,
-            );
-
             let mut cache_l1 = BTreeMap::new();
             let mut sequence_cursor = SequenceCursor::new(&inscriptions_db_tx);
 
@@ -856,10 +826,10 @@ pub fn chainhook_sidecar_mutate_blocks(
                 &mut cache_l1,
                 &cache_l2,
                 &inscriptions_db_tx,
+                Some(&brc20_db_tx),
                 &ordhook_config,
                 &ctx,
             );
-            write_brc20_block_operations(&cache.block, &brc20_operation_map, &brc20_db_tx, &ctx);
 
             let inscription_numbers = get_inscriptions_revealed_in_block(&cache.block)
                 .iter()
@@ -884,7 +854,7 @@ pub fn chainhook_sidecar_mutate_blocks(
     let _ = inscriptions_db_tx.rollback();
 }
 
-fn write_brc20_block_operations(
+pub fn write_brc20_block_operations(
     block: &BitcoinBlockData,
     brc20_operation_map: &HashMap<String, ParsedBrc20Operation>,
     db_tx: &Transaction,
@@ -901,24 +871,45 @@ fn write_brc20_block_operations(
                             parsed_brc20_operation,
                             reveal,
                             &block.block_identifier,
+                            &block.metadata.network,
                             &db_tx,
                             &ctx,
                         ) {
                             Ok(op) => match op {
-                                VerifiedBrc20Operation::TokenDeploy(token) => insert_token(
-                                    &token,
-                                    reveal,
-                                    &block.block_identifier,
-                                    &db_tx,
-                                    &ctx,
-                                ),
-                                VerifiedBrc20Operation::TokenMint(balance) => insert_token_mint(
-                                    &balance,
-                                    reveal,
-                                    &block.block_identifier,
-                                    &db_tx,
-                                    &ctx,
-                                ),
+                                VerifiedBrc20Operation::TokenDeploy(token) => {
+                                    insert_token(
+                                        &token,
+                                        reveal,
+                                        &block.block_identifier,
+                                        &db_tx,
+                                        &ctx,
+                                    );
+                                    ctx.try_log(|logger| {
+                                        info!(
+                                            logger,
+                                            "BRC-20 detected token deploy {} at height {}",
+                                            token.tick,
+                                            block.block_identifier.index
+                                        )
+                                    });
+                                }
+                                VerifiedBrc20Operation::TokenMint(balance) => {
+                                    insert_token_mint(
+                                        &balance,
+                                        reveal,
+                                        &block.block_identifier,
+                                        &db_tx,
+                                        &ctx,
+                                    );
+                                    ctx.try_log(|logger| {
+                                        info!(
+                                            logger,
+                                            "BRC-20 detected token {} mint {} by {} at height {}",
+                                            balance.tick, balance.amt, balance.address,
+                                            block.block_identifier.index
+                                        )
+                                    });
+                                }
                                 VerifiedBrc20Operation::TokenTransfer(balance) => {
                                     insert_token_transfer(
                                         &balance,
@@ -926,7 +917,15 @@ fn write_brc20_block_operations(
                                         &block.block_identifier,
                                         &db_tx,
                                         &ctx,
-                                    )
+                                    );
+                                    ctx.try_log(|logger| {
+                                        info!(
+                                            logger,
+                                            "BRC-20 detected token {} transfer {} by {} at height {}",
+                                            balance.tick, balance.amt, balance.address,
+                                            block.block_identifier.index
+                                        )
+                                    });
                                 }
                                 VerifiedBrc20Operation::TokenTransferSend(_) => {
                                     unreachable!("BRC-20 token transfer send should never be generated on reveal")
@@ -934,7 +933,7 @@ fn write_brc20_block_operations(
                             },
                             Err(e) => {
                                 ctx.try_log(|logger| {
-                                    warn!(logger, "Error validating BRC-20 operation #{}", e)
+                                    warn!(logger, "Error validating BRC-20 operation {}", e)
                                 });
                             }
                         }
@@ -942,16 +941,26 @@ fn write_brc20_block_operations(
                 }
                 OrdinalOperation::InscriptionTransferred(transfer) => {
                     match verify_brc20_transfer(transfer, &db_tx, &ctx) {
-                        Ok(data) => insert_token_transfer_send(
-                            &data,
-                            &transfer,
-                            &block.block_identifier,
-                            &db_tx,
-                            &ctx,
-                        ),
+                        Ok(data) => {
+                            insert_token_transfer_send(
+                                &data,
+                                &transfer,
+                                &block.block_identifier,
+                                &db_tx,
+                                &ctx,
+                            );
+                            ctx.try_log(|logger| {
+                                info!(
+                                    logger,
+                                    "BRC-20 detected token {} transfer send {} from {} to {} at height {}",
+                                    data.tick, data.amt, data.sender_address, data.receiver_address,
+                                    block.block_identifier.index
+                                )
+                            });
+                        }
                         Err(e) => {
                             ctx.try_log(|logger| {
-                                warn!(logger, "Error validating BRC-20 transfer #{}", e)
+                                debug!(logger, "Error validating BRC-20 transfer {}", e)
                             });
                         }
                     }
