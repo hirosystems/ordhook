@@ -20,9 +20,9 @@ use rusqlite::{Connection, Transaction};
 
 use crate::{
     core::{
-        meta_protocols::brc20::{brc20_activation_height, db::{
+        meta_protocols::brc20::db::{
             augment_transaction_with_brc20_operation_data, get_brc20_operations_on_block,
-        }},
+        },
         resolve_absolute_pointer, OrdhookConfig,
     },
     db::{
@@ -316,7 +316,6 @@ pub fn parallelize_inscription_data_computations(
         let _ = tx.send(None);
     }
 
-    let ctx_moved = inner_ctx.clone();
     let _ = hiro_system_kit::thread_named("Garbage collection").spawn(move || {
         for handle in thread_pool_handles.into_iter() {
             let _ = handle.join();

@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, HashMap},
     io::{Read, Write},
     path::PathBuf,
     thread::sleep,
@@ -16,7 +16,7 @@ use chainhook_sdk::{
     indexer::bitcoin::BitcoinBlockFullBreakdown,
     types::{
         BitcoinBlockData, BlockIdentifier, OrdinalInscriptionNumber, OrdinalInscriptionRevealData,
-        OrdinalInscriptionTransferData, TransactionIdentifier,
+        TransactionIdentifier,
     },
     utils::Context,
 };

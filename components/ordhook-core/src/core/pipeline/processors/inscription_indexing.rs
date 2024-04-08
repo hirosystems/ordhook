@@ -36,8 +36,8 @@ use crate::{
         OrdhookConfig,
     },
     db::{
-        delete_data_in_ordhook_db, get_any_entry_in_ordinal_activities,
-        open_ordhook_db_conn_rocks_db_loop, open_readonly_ordhook_db_conn,
+        get_any_entry_in_ordinal_activities, open_ordhook_db_conn_rocks_db_loop,
+        open_readonly_ordhook_db_conn,
     },
     service::write_brc20_block_operations,
 };

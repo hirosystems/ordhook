@@ -3,7 +3,9 @@ use crate::config::generator::generate_config;
 use clap::{Parser, Subcommand};
 use hiro_system_kit;
 use ordhook::chainhook_sdk::bitcoincore_rpc::{Auth, Client, RpcApi};
-use ordhook::chainhook_sdk::chainhooks::types::{BitcoinChainhookSpecification, HttpHook};
+use ordhook::chainhook_sdk::chainhooks::types::{
+    BitcoinChainhookSpecification, HttpHook, InscriptionFeedData,
+};
 use ordhook::chainhook_sdk::chainhooks::types::{
     BitcoinPredicateType, ChainhookFullSpecification, HookAction, OrdinalOperations,
 };
@@ -917,12 +919,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 return Err("Deletion aborted".to_string());
             }
 
-            delete_data_in_ordhook_db(
-                cmd.start_block,
-                cmd.end_block,
-                &config,
-                ctx,
-            )?;
+            delete_data_in_ordhook_db(cmd.start_block, cmd.end_block, &config, ctx)?;
             info!(
                 ctx.expect_logger(),
                 "Cleaning ordhook_db: {} blocks dropped",
@@ -993,7 +990,11 @@ pub fn build_predicate_from_cli(
         include_witness: false,
         expired_at: None,
         enabled: true,
-        predicate: BitcoinPredicateType::OrdinalsProtocol(OrdinalOperations::InscriptionFeed(None)),
+        predicate: BitcoinPredicateType::OrdinalsProtocol(OrdinalOperations::InscriptionFeed(
+            InscriptionFeedData {
+                meta_protocols: None,
+            },
+        )),
         action: HookAction::HttpPost(HttpHook {
             url: post_to.to_string(),
             authorization_header: format!("Bearer {}", auth_token.unwrap_or("".to_string())),

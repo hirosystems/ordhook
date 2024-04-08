@@ -131,15 +131,11 @@ pub fn parse_inscriptions_from_standardized_tx(
                 match parse_brc20_operation(&inscription) {
                     Ok(Some(op)) => {
                         brc20_operation_map.insert(reveal.inscription_id.clone(), op);
-                    },
-                    Ok(None) => {},
+                    }
+                    Ok(None) => {}
                     Err(e) => {
                         ctx.try_log(|logger| {
-                            warn!(
-                                logger,
-                                "Error parsing BRC-20 operation: {}",
-                                e
-                            )
+                            warn!(logger, "Error parsing BRC-20 operation: {}", e)
                         });
                     }
                 };
@@ -217,10 +213,11 @@ pub fn parse_inscriptions_and_standardize_block(
 pub fn parse_inscriptions_in_standardized_block(
     block: &mut BitcoinBlockData,
     brc20_operation_map: &mut HashMap<String, ParsedBrc20Operation>,
-    ctx: &Context
+    ctx: &Context,
 ) {
     for tx in block.transactions.iter_mut() {
-        tx.metadata.ordinal_operations = parse_inscriptions_from_standardized_tx(tx, brc20_operation_map, ctx);
+        tx.metadata.ordinal_operations =
+            parse_inscriptions_from_standardized_tx(tx, brc20_operation_map, ctx);
     }
 }
 

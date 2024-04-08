@@ -347,7 +347,7 @@ impl Service {
                         &self.ctx,
                     );
                 }
-                ObserverEvent::PredicateDeregistered(spec) => {
+                ObserverEvent::PredicateDeregistered(uuid) => {
                     let observers_db_conn = match open_readwrite_observers_db_conn(
                         &self.config.expected_cache_path(),
                         &self.ctx,
@@ -362,7 +362,7 @@ impl Service {
                             continue;
                         }
                     };
-                    remove_entry_from_observers(&spec.uuid(), &observers_db_conn, &self.ctx);
+                    remove_entry_from_observers(&uuid, &observers_db_conn, &self.ctx);
                 }
                 ObserverEvent::BitcoinPredicateTriggered(data) => {
                     if let Some(ref tip) = data.apply.last() {
@@ -876,50 +876,51 @@ pub fn write_brc20_block_operations(
                             &db_tx,
                             &ctx,
                         ) {
-                            Ok(op) => match op {
-                                VerifiedBrc20Operation::TokenDeploy(token) => {
-                                    insert_token(
-                                        &token,
-                                        reveal,
-                                        &block.block_identifier,
-                                        &db_tx,
-                                        &ctx,
-                                    );
-                                    ctx.try_log(|logger| {
-                                        info!(
-                                            logger,
-                                            "BRC-20 detected token deploy {} at height {}",
-                                            token.tick,
-                                            block.block_identifier.index
-                                        )
-                                    });
-                                }
-                                VerifiedBrc20Operation::TokenMint(balance) => {
-                                    insert_token_mint(
-                                        &balance,
-                                        reveal,
-                                        &block.block_identifier,
-                                        &db_tx,
-                                        &ctx,
-                                    );
-                                    ctx.try_log(|logger| {
-                                        info!(
+                            Ok(op) => {
+                                match op {
+                                    VerifiedBrc20Operation::TokenDeploy(token) => {
+                                        insert_token(
+                                            &token,
+                                            reveal,
+                                            &block.block_identifier,
+                                            &db_tx,
+                                            &ctx,
+                                        );
+                                        ctx.try_log(|logger| {
+                                            info!(
+                                                logger,
+                                                "BRC-20 detected token deploy {} at height {}",
+                                                token.tick,
+                                                block.block_identifier.index
+                                            )
+                                        });
+                                    }
+                                    VerifiedBrc20Operation::TokenMint(balance) => {
+                                        insert_token_mint(
+                                            &balance,
+                                            reveal,
+                                            &block.block_identifier,
+                                            &db_tx,
+                                            &ctx,
+                                        );
+                                        ctx.try_log(|logger| {
+                                            info!(
                                             logger,
                                             "BRC-20 detected token {} mint {} by {} at height {}",
                                             balance.tick, balance.amt, balance.address,
                                             block.block_identifier.index
                                         )
-                                    });
-                                }
-                                VerifiedBrc20Operation::TokenTransfer(balance) => {
-                                    insert_token_transfer(
-                                        &balance,
-                                        reveal,
-                                        &block.block_identifier,
-                                        &db_tx,
-                                        &ctx,
-                                    );
-                                    ctx.try_log(|logger| {
+                                        });
+                                    }
+                                    VerifiedBrc20Operation::TokenTransfer(balance) => {
+                                        insert_token_transfer(
+                                            &balance,
+                                            reveal,
+                                            &block.block_identifier,
+                                            &db_tx,
+                                            &ctx,
+                                        );
+                                        ctx.try_log(|logger| {
                                         info!(
                                             logger,
                                             "BRC-20 detected token {} transfer {} by {} at height {}",
@@ -927,11 +928,12 @@ pub fn write_brc20_block_operations(
                                             block.block_identifier.index
                                         )
                                     });
+                                    }
+                                    VerifiedBrc20Operation::TokenTransferSend(_) => {
+                                        unreachable!("BRC-20 token transfer send should never be generated on reveal")
+                                    }
                                 }
-                                VerifiedBrc20Operation::TokenTransferSend(_) => {
-                                    unreachable!("BRC-20 token transfer send should never be generated on reveal")
-                                }
-                            },
+                            }
                             Err(e) => {
                                 ctx.try_log(|logger| {
                                     warn!(logger, "Error validating BRC-20 operation {}", e)

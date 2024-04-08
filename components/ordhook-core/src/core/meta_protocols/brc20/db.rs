@@ -1,7 +1,8 @@
 use std::{collections::HashMap, path::PathBuf};
 
 use crate::db::{
-    create_or_open_readwrite_db, format_inscription_id, open_existing_readonly_db, perform_query_exists, perform_query_one, perform_query_set
+    create_or_open_readwrite_db, format_inscription_id, open_existing_readonly_db,
+    perform_query_exists, perform_query_one, perform_query_set,
 };
 use chainhook_sdk::{
     types::{
@@ -557,18 +558,17 @@ pub fn augment_transaction_with_brc20_operation_data(
             else {
                 unreachable!("Unable to fetch receiver address for transfer_send operation");
             };
-            tx.metadata.brc20_operation =
-                Some(Brc20Operation::TransferSend(Brc20TransferData {
-                    tick: entry.tick.clone(),
-                    amt: format!(
-                        "{:.precision$}",
-                        entry.trans_balance * -1.0,
-                        precision = dec
-                    ),
-                    sender_address: entry.address.clone(),
-                    receiver_address,
-                    inscription_id: entry.inscription_id,
-                }));
+            tx.metadata.brc20_operation = Some(Brc20Operation::TransferSend(Brc20TransferData {
+                tick: entry.tick.clone(),
+                amt: format!(
+                    "{:.precision$}",
+                    entry.trans_balance * -1.0,
+                    precision = dec
+                ),
+                sender_address: entry.address.clone(),
+                receiver_address,
+                inscription_id: entry.inscription_id,
+            }));
         }
         _ => {}
     }
