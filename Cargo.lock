@@ -494,9 +494,9 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
 name = "chainhook-sdk"
-version = "0.12.7"
+version = "0.12.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c94d1b099d59a68b40fb324446bd4e1b22cf42d0a467ae4fb12ada2d026a3359"
+checksum = "8fd54af8c8b55ce530013e2dd510d76be08e9132c9918f81d8a0d3d86b6e4bde"
 dependencies = [
  "base58",
  "base64 0.21.5",
@@ -530,9 +530,9 @@ dependencies = [
 
 [[package]]
 name = "chainhook-types"
-version = "1.3.6"
+version = "1.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "275bb9d5e0e950cf496e0a3bdab2d6ded48375f6614665679b01a1c55ddfcf07"
+checksum = "63f0d358e5c530dd6888e4678ef4ba3f7782525653a1012d33e96a48020c418d"
 dependencies = [
  "hex",
  "schemars 0.8.16",
@@ -702,9 +702,9 @@ dependencies = [
 
 [[package]]
 name = "cookie"
-version = "0.17.0"
+version = "0.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7efb37c3e1ccb1ff97164ad95ac1606e8ccd35b3fa0a7d99a304c7f4a428cc24"
+checksum = "4ddef33a339a91ea89fb53151bd0a4689cfce27055c291dfa69945475d22c747"
 dependencies = [
  "percent-encoding",
  "time",
@@ -2458,9 +2458,9 @@ dependencies = [
 
 [[package]]
 name = "okapi"
-version = "0.7.0-rc.1"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce66b6366e049880a35c378123fddb630b1a1a3c37fa1ca70caaf4a09f6e2893"
+checksum = "9a64853d7ab065474e87696f7601cee817d200e86c42e04004e005cb3e20c3c5"
 dependencies = [
  "log",
  "schemars 0.8.16",
@@ -2650,7 +2650,7 @@ checksum = "4ccca0f6c17acc81df8e242ed473ec144cbf5c98037e69aa6d144780aad103c8"
 dependencies = [
  "inlinable_string",
  "pear_codegen",
- "yansi 1.0.0-rc.1",
+ "yansi",
 ]
 
 [[package]]
@@ -2839,7 +2839,7 @@ dependencies = [
  "quote",
  "syn 2.0.41",
  "version_check",
- "yansi 1.0.0-rc.1",
+ "yansi",
 ]
 
 [[package]]
@@ -3137,9 +3137,9 @@ dependencies = [
 
 [[package]]
 name = "rocket"
-version = "0.5.0-rc.3"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "58734f7401ae5cfd129685b48f61182331745b357b96f2367f01aebaf1cc9cc9"
+checksum = "9e7bb57ccb26670d73b6a47396c83139447b9e7878cab627fdfe9ea8da489150"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -3149,8 +3149,7 @@ dependencies = [
  "either",
  "figment",
  "futures",
- "indexmap 1.9.3",
- "is-terminal",
+ "indexmap 2.1.0",
  "log",
  "memchr",
  "multer",
@@ -3171,37 +3170,38 @@ dependencies = [
  "tokio-util",
  "ubyte",
  "version_check",
- "yansi 0.5.1",
+ "yansi",
 ]
 
 [[package]]
 name = "rocket_codegen"
-version = "0.5.0-rc.3"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7093353f14228c744982e409259fb54878ba9563d08214f2d880d59ff2fc508b"
+checksum = "a2238066abf75f21be6cd7dc1a09d5414a671f4246e384e49fe3f8a4936bd04c"
 dependencies = [
  "devise",
  "glob",
- "indexmap 1.9.3",
+ "indexmap 2.1.0",
  "proc-macro2",
  "quote",
  "rocket_http",
  "syn 2.0.41",
  "unicode-xid",
+ "version_check",
 ]
 
 [[package]]
 name = "rocket_http"
-version = "0.5.0-rc.3"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "936012c99162a03a67f37f9836d5f938f662e26f2717809761a9ac46432090f4"
+checksum = "37a1663694d059fe5f943ea5481363e48050acedd241d46deb2e27f71110389e"
 dependencies = [
  "cookie",
  "either",
  "futures",
  "http",
  "hyper",
- "indexmap 1.9.3",
+ "indexmap 2.1.0",
  "log",
  "memchr",
  "pear",
@@ -3219,11 +3219,10 @@ dependencies = [
 
 [[package]]
 name = "rocket_okapi"
-version = "0.8.0-rc.3"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "742098674565c8f0c35c77444f90344aafedebb71cfee9cdbf0185acc6b9cdb7"
+checksum = "e059407ecef9ee2f071fc971e10444fcf942149deb028879d6d8ca61a7ce9edc"
 dependencies = [
- "either",
  "log",
  "okapi",
  "rocket",
@@ -3235,9 +3234,9 @@ dependencies = [
 
 [[package]]
 name = "rocket_okapi_codegen"
-version = "0.8.0-rc.3"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8c43f8edc57d88750a220b0ec1870a36c1106204ec99cc35131b49de3b954a4a"
+checksum = "cfb96114e69e5d7f80bfa0948cbc0120016e9b460954abe9eed37e9a2ad3f999"
 dependencies = [
  "darling",
  "proc-macro2",
@@ -3849,9 +3848,9 @@ dependencies = [
 
 [[package]]
 name = "state"
-version = "0.5.3"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dbe866e1e51e8260c9eed836a042a5e7f6726bb2b411dffeaa712e19c388f23b"
+checksum = "2b8c4a4445d81357df8b1a650d0d0d6fbbbfe99d064aa5e02f3e4022061476d8"
 dependencies = [
  "loom",
 ]
@@ -5255,15 +5254,12 @@ dependencies = [
 
 [[package]]
 name = "yansi"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "09041cd90cf85f7f8b2df60c646f853b7f535ce68f85244eb6731cf89fa498ec"
-
-[[package]]
-name = "yansi"
 version = "1.0.0-rc.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1367295b8f788d371ce2dbc842c7b709c73ee1364d30351dd300ec2203b12377"
+dependencies = [
+ "is-terminal",
+]
 
 [[package]]
 name = "zerocopy"

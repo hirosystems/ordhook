@@ -18,13 +18,12 @@ use crate::core::pipeline::processors::start_inscription_indexing_processor;
 use crate::core::pipeline::processors::transfers_recomputing::start_transfers_recomputing_processor;
 use crate::core::protocol::inscription_parsing::{
     get_inscriptions_revealed_in_block, get_inscriptions_transferred_in_block,
-    parse_inscriptions_in_standardized_block,
 };
 use crate::core::protocol::inscription_sequencing::SequenceCursor;
 use crate::core::{new_traversals_lazy_cache, should_sync_ordhook_db, should_sync_rocks_db};
 use crate::db::{
     delete_data_in_ordhook_db, insert_entry_in_blocks, open_ordhook_db_conn_rocks_db_loop,
-    open_readwrite_ordhook_db_conn, open_readwrite_ordhook_dbs, update_ordinals_db_with_block,
+    open_readwrite_ordhook_dbs, update_ordinals_db_with_block,
     BlockBytesCursor, TransactionBytesCursor,
 };
 use crate::db::{

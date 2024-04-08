@@ -161,7 +161,7 @@ pub fn parse_inscriptions_in_raw_tx(
             if let Some(inscriptions) =
                 parse_inscriptions_from_witness(input_index, witness_bytes, &tx.txid)
             {
-                for (reveal, inscription) in inscriptions.into_iter() {
+                for (reveal, _inscription) in inscriptions.into_iter() {
                     operations.push(OrdinalOperation::InscriptionRevealed(reveal));
                 }
             }
