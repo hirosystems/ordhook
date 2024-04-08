@@ -6,8 +6,7 @@ use napi::threadsafe_function::{
 };
 use ordhook::chainhook_sdk::chainhooks::bitcoin::BitcoinTransactionPayload;
 use ordhook::chainhook_sdk::chainhooks::types::{
-  BitcoinChainhookFullSpecification, BitcoinChainhookNetworkSpecification, BitcoinPredicateType,
-  HookAction, OrdinalOperations,
+  BitcoinChainhookFullSpecification, BitcoinChainhookNetworkSpecification, BitcoinPredicateType, HookAction, InscriptionFeedData, OrdinalOperations
 };
 use ordhook::chainhook_sdk::observer::DataHandlerEvent;
 use ordhook::chainhook_sdk::utils::{BlockHeights, Context as OrdhookContext};
@@ -184,7 +183,9 @@ impl OrdinalsIndexingRunloop {
                 include_outputs: None,
                 include_witness: None,
                 predicate: BitcoinPredicateType::OrdinalsProtocol(
-                  OrdinalOperations::InscriptionFeed(None),
+                  OrdinalOperations::InscriptionFeed(InscriptionFeedData {
+                    meta_protocols: None
+                  }),
                 ),
                 action: HookAction::Noop,
               },
