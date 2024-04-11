@@ -2,15 +2,16 @@ use chainhook_sdk::bitcoincore_rpc_json::bitcoin::Txid;
 use chainhook_sdk::indexer::bitcoin::BitcoinTransactionFullBreakdown;
 use chainhook_sdk::indexer::bitcoin::{standardize_bitcoin_block, BitcoinBlockFullBreakdown};
 use chainhook_sdk::types::{
-    BitcoinBlockData, BitcoinNetwork, BitcoinTransactionData, OrdinalInscriptionCurseType,
-    OrdinalInscriptionNumber, OrdinalInscriptionRevealData, OrdinalInscriptionTransferData,
-    OrdinalOperation,
+    BitcoinBlockData, BitcoinNetwork, BitcoinTransactionData, BlockIdentifier,
+    OrdinalInscriptionCurseType, OrdinalInscriptionNumber, OrdinalInscriptionRevealData,
+    OrdinalInscriptionTransferData, OrdinalOperation,
 };
 use chainhook_sdk::utils::Context;
 use serde_json::json;
 use std::collections::{BTreeMap, HashMap};
 use std::str::FromStr;
 
+use crate::core::meta_protocols::brc20::brc20_activation_height;
 use crate::core::meta_protocols::brc20::parser::{parse_brc20_operation, ParsedBrc20Operation};
 use crate::ord::envelope::{Envelope, ParsedEnvelope, RawEnvelope};
 use crate::ord::inscription::Inscription;
@@ -111,6 +112,8 @@ pub fn parse_inscriptions_from_witness(
 
 pub fn parse_inscriptions_from_standardized_tx(
     tx: &mut BitcoinTransactionData,
+    block_identifier: &BlockIdentifier,
+    network: &BitcoinNetwork,
     brc20_operation_map: &mut HashMap<String, ParsedBrc20Operation>,
     ctx: &Context,
 ) -> Vec<OrdinalOperation> {
@@ -128,17 +131,19 @@ pub fn parse_inscriptions_from_standardized_tx(
             tx.transaction_identifier.get_hash_bytes_str(),
         ) {
             for (reveal, inscription) in inscriptions.into_iter() {
-                match parse_brc20_operation(&inscription) {
-                    Ok(Some(op)) => {
-                        brc20_operation_map.insert(reveal.inscription_id.clone(), op);
-                    }
-                    Ok(None) => {}
-                    Err(e) => {
-                        ctx.try_log(|logger| {
-                            warn!(logger, "Error parsing BRC-20 operation: {}", e)
-                        });
-                    }
-                };
+                if block_identifier.index >= brc20_activation_height(&network) {
+                    match parse_brc20_operation(&inscription) {
+                        Ok(Some(op)) => {
+                            brc20_operation_map.insert(reveal.inscription_id.clone(), op);
+                        }
+                        Ok(None) => {}
+                        Err(e) => {
+                            ctx.try_log(|logger| {
+                                warn!(logger, "Error parsing BRC-20 operation: {}", e)
+                            });
+                        }
+                    };
+                }
                 operations.push(OrdinalOperation::InscriptionRevealed(reveal));
             }
         }
@@ -216,8 +221,13 @@ pub fn parse_inscriptions_in_standardized_block(
     ctx: &Context,
 ) {
     for tx in block.transactions.iter_mut() {
-        tx.metadata.ordinal_operations =
-            parse_inscriptions_from_standardized_tx(tx, brc20_operation_map, ctx);
+        tx.metadata.ordinal_operations = parse_inscriptions_from_standardized_tx(
+            tx,
+            &block.block_identifier,
+            &block.metadata.network,
+            brc20_operation_map,
+            ctx,
+        );
     }
 }
 

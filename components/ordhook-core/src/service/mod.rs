@@ -3,6 +3,7 @@ pub mod observers;
 mod runloops;
 
 use crate::config::{Config, PredicatesApi};
+use crate::core::meta_protocols::brc20::brc20_activation_height;
 use crate::core::meta_protocols::brc20::db::{
     insert_token, insert_token_mint, insert_token_transfer, insert_token_transfer_send,
     open_readwrite_brc20_db_conn,
@@ -860,6 +861,9 @@ pub fn write_brc20_block_operations(
     db_tx: &Transaction,
     ctx: &Context,
 ) {
+    if block.block_identifier.index < brc20_activation_height(&block.metadata.network) {
+        return;
+    }
     for tx in block.transactions.iter() {
         for op in tx.metadata.ordinal_operations.iter() {
             match op {
