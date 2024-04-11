@@ -17,7 +17,6 @@ use ordhook::chainhook_sdk::types::{BitcoinBlockData, TransactionIdentifier};
 use ordhook::chainhook_sdk::utils::BlockHeights;
 use ordhook::chainhook_sdk::utils::Context;
 use ordhook::config::Config;
-use ordhook::core::meta_protocols::brc20::db::initialize_brc20_db;
 use ordhook::core::new_traversals_lazy_cache;
 use ordhook::core::pipeline::download_and_pipeline_blocks;
 use ordhook::core::pipeline::processors::block_archiving::start_block_archiving_processor;
@@ -28,11 +27,11 @@ use ordhook::db::{
     delete_data_in_ordhook_db, find_all_inscriptions_in_block, find_all_transfers_in_block,
     find_block_bytes_at_block_height, find_inscription_with_id, find_last_block_inserted,
     find_latest_inscription_block_height, find_missing_blocks, get_default_ordhook_db_file_path,
-    initialize_ordhook_db, open_ordhook_db_conn_rocks_db_loop, open_readonly_ordhook_db_conn,
+    open_ordhook_db_conn_rocks_db_loop, open_readonly_ordhook_db_conn,
     open_readonly_ordhook_db_conn_rocks_db, BlockBytesCursor,
 };
 use ordhook::download::download_ordinals_dataset_if_required;
-use ordhook::hex;
+use ordhook::{hex, initialize_db};
 use ordhook::scan::bitcoin::scan_bitcoin_chainstate_via_rpc_using_predicate;
 use ordhook::service::observers::initialize_observers_db;
 use ordhook::service::{start_observer_forwarding, Service};
@@ -584,8 +583,8 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 let mut total_inscriptions = 0;
                 let mut total_transfers = 0;
 
-                let inscriptions_db_conn =
-                    initialize_ordhook_db(&config.expected_cache_path(), ctx);
+                let db_connections = initialize_db(&config, ctx);
+                let inscriptions_db_conn = db_connections.ordhook;
                 while let Some(block_height) = block_range.pop_front() {
                     let inscriptions =
                         find_all_inscriptions_in_block(&block_height, &inscriptions_db_conn, ctx);
@@ -703,7 +702,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 let config =
                     ConfigFile::default(cmd.regtest, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
 
-                let _ = initialize_ordhook_db(&config.expected_cache_path(), ctx);
+                initialize_db(&config, ctx);
 
                 let inscriptions_db_conn =
                     open_readonly_ordhook_db_conn(&config.expected_cache_path(), ctx)?;
@@ -783,8 +782,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
         },
         Command::Db(OrdhookDbCommand::New(cmd)) => {
             let config = ConfigFile::default(false, false, false, &cmd.config_path)?;
-            initialize_ordhook_db(&config.expected_cache_path(), ctx);
-            initialize_brc20_db(Some(&config.expected_cache_path()), ctx);
+            initialize_db(&config, ctx);
             open_ordhook_db_conn_rocks_db_loop(
                 true,
                 &config.expected_cache_path(),
@@ -795,7 +793,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
         }
         Command::Db(OrdhookDbCommand::Sync(cmd)) => {
             let config = ConfigFile::default(false, false, false, &cmd.config_path)?;
-            initialize_ordhook_db(&config.expected_cache_path(), ctx);
+            initialize_db(&config, ctx);
             let service = Service::new(config, ctx.clone());
             service.update_state(None).await?;
         }
