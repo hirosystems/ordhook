@@ -172,10 +172,22 @@ pub fn delete_activity_in_block_range(
     }
 }
 
-pub fn token_exists(data: &ParsedBrc20TokenDeployData, db_tx: &Transaction, ctx: &Context) -> bool {
-    let args: &[&dyn ToSql] = &[&data.tick.to_sql().unwrap()];
-    let query = "SELECT inscription_id FROM tokens WHERE tick = ?";
-    perform_query_exists(query, args, &db_tx, ctx)
+pub fn get_cached_token(
+    tick: &str,
+    token_map: &mut HashMap<String, Brc20DbTokenRow>,
+    db_tx: &Connection,
+    ctx: &Context,
+) -> Option<Brc20DbTokenRow> {
+    if let Some(token) = token_map.get(&tick.to_string()) {
+        return Some(token.clone());
+    }
+    match get_token(tick, db_tx, ctx) {
+        Some(db_token) => {
+            token_map.insert(tick.to_string(), db_token.clone());
+            return Some(db_token);
+        }
+        None => return None,
+    }
 }
 
 pub fn get_token(tick: &str, db_tx: &Connection, ctx: &Context) -> Option<Brc20DbTokenRow> {
@@ -196,6 +208,32 @@ pub fn get_token(tick: &str, db_tx: &Connection, ctx: &Context) -> Option<Brc20D
         block_height: row.get(7).unwrap(),
         self_mint: row.get(8).unwrap(),
     })
+}
+
+pub fn get_cached_token_minted_supply(
+    tick: &str,
+    mint_amount_map: &mut HashMap<String, f64>,
+    db_tx: &Transaction,
+    ctx: &Context,
+) -> f64 {
+    if let Some(minted) = mint_amount_map.get(&tick.to_string()) {
+        return minted.clone();
+    }
+    let minted_supply = get_token_minted_supply(tick, db_tx, ctx);
+    mint_amount_map.insert(tick.to_string(), minted_supply);
+    return minted_supply;
+}
+
+pub fn update_cached_token_minted_supply(
+    tick: &str,
+    mint_amount_map: &mut HashMap<String, f64>,
+    additional_minted_amount: f64,
+) {
+    if let Some(minted) = mint_amount_map.get(&tick.to_string()) {
+        mint_amount_map.insert(tick.to_string(), minted + additional_minted_amount);
+    } else {
+        mint_amount_map.insert(tick.to_string(), additional_minted_amount);
+    }
 }
 
 pub fn get_token_minted_supply(tick: &str, db_tx: &Transaction, ctx: &Context) -> f64 {

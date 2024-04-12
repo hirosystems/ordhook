@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use chainhook_sdk::types::{
     BitcoinNetwork, BlockIdentifier, OrdinalInscriptionRevealData, OrdinalInscriptionTransferData,
     OrdinalInscriptionTransferDestination,
@@ -6,11 +8,12 @@ use chainhook_sdk::utils::Context;
 use rusqlite::Transaction;
 
 use super::brc20_self_mint_activation_height;
-use super::db::get_unsent_token_transfer_with_sender;
+use super::db::{
+    get_cached_token, get_cached_token_minted_supply, get_unsent_token_transfer_with_sender,
+    update_cached_token_minted_supply, Brc20DbTokenRow,
+};
 use super::{
-    db::{
-        get_token, get_token_available_balance_for_address, get_token_minted_supply, token_exists,
-    },
+    db::get_token_available_balance_for_address,
     parser::{amt_has_valid_decimals, ParsedBrc20Operation},
 };
 
@@ -52,6 +55,8 @@ pub fn verify_brc20_operation(
     reveal: &OrdinalInscriptionRevealData,
     block_identifier: &BlockIdentifier,
     network: &BitcoinNetwork,
+    token_map: &mut HashMap<String, Brc20DbTokenRow>,
+    mint_amount_map: &mut HashMap<String, f64>,
     db_tx: &Transaction,
     ctx: &Context,
 ) -> Result<VerifiedBrc20Operation, String> {
@@ -66,7 +71,7 @@ pub fn verify_brc20_operation(
     }
     match operation {
         ParsedBrc20Operation::Deploy(data) => {
-            if token_exists(&data, db_tx, ctx) {
+            if get_cached_token(&data.tick, token_map, db_tx, ctx).is_some() {
                 return Err(format!("Token {} already exists", &data.tick));
             }
             if data.self_mint && block_identifier.index < brc20_self_mint_activation_height(network)
@@ -88,7 +93,7 @@ pub fn verify_brc20_operation(
             ));
         }
         ParsedBrc20Operation::Mint(data) => {
-            let Some(token) = get_token(&data.tick, db_tx, ctx) else {
+            let Some(token) = get_cached_token(&data.tick, token_map, db_tx, ctx) else {
                 return Err(format!(
                     "Token {} does not exist on mint attempt",
                     &data.tick
@@ -120,7 +125,8 @@ pub fn verify_brc20_operation(
                     token.tick, data.amt
                 ));
             }
-            let remaining_supply = token.max - get_token_minted_supply(&data.tick, db_tx, ctx);
+            let remaining_supply =
+                token.max - get_cached_token_minted_supply(&data.tick, mint_amount_map, db_tx, ctx);
             if remaining_supply == 0.0 {
                 return Err(format!(
                     "No supply available for {} mint, attempted to mint {}, remaining {}",
@@ -128,6 +134,7 @@ pub fn verify_brc20_operation(
                 ));
             }
             let real_mint_amt = data.float_amt().min(token.lim.min(remaining_supply));
+            update_cached_token_minted_supply(&data.tick, mint_amount_map, real_mint_amt);
             return Ok(VerifiedBrc20Operation::TokenMint(
                 VerifiedBrc20BalanceData {
                     tick: token.tick,
@@ -137,7 +144,7 @@ pub fn verify_brc20_operation(
             ));
         }
         ParsedBrc20Operation::Transfer(data) => {
-            let Some(token) = get_token(&data.tick, db_tx, ctx) else {
+            let Some(token) = get_cached_token(&data.tick, token_map, db_tx, ctx) else {
                 return Err(format!(
                     "Token {} does not exist on transfer attempt",
                     &data.tick
@@ -212,6 +219,8 @@ pub fn verify_brc20_transfer(
 
 #[cfg(test)]
 mod test {
+    use std::collections::HashMap;
+
     use chainhook_sdk::{
         types::{
             BitcoinNetwork, BlockIdentifier, OrdinalInscriptionNumber,
@@ -479,6 +488,8 @@ mod test {
                     .to_string(),
             },
             &BitcoinNetwork::Mainnet,
+            &mut HashMap::new(),
+            &mut HashMap::new(),
             &tx,
             &ctx,
         )
@@ -568,7 +579,16 @@ mod test {
             &tx,
             &ctx,
         );
-        verify_brc20_operation(&op, &reveal, &block, &BitcoinNetwork::Mainnet, &tx, &ctx)
+        verify_brc20_operation(
+            &op,
+            &reveal,
+            &block,
+            &BitcoinNetwork::Mainnet,
+            &mut HashMap::new(),
+            &mut HashMap::new(),
+            &tx,
+            &ctx,
+        )
     }
 
     #[test_case(
@@ -630,7 +650,16 @@ mod test {
             &tx,
             &ctx,
         );
-        verify_brc20_operation(&op, &reveal, &block, &BitcoinNetwork::Mainnet, &tx, &ctx)
+        verify_brc20_operation(
+            &op,
+            &reveal,
+            &block,
+            &BitcoinNetwork::Mainnet,
+            &mut HashMap::new(),
+            &mut HashMap::new(),
+            &tx,
+            &ctx,
+        )
     }
 
     #[test_case(
@@ -678,7 +707,16 @@ mod test {
             &tx,
             &ctx,
         );
-        verify_brc20_operation(&op, &reveal, &block, &BitcoinNetwork::Mainnet, &tx, &ctx)
+        verify_brc20_operation(
+            &op,
+            &reveal,
+            &block,
+            &BitcoinNetwork::Mainnet,
+            &mut HashMap::new(),
+            &mut HashMap::new(),
+            &tx,
+            &ctx,
+        )
     }
 
     #[test_case(
@@ -729,7 +767,16 @@ mod test {
             &tx,
             &ctx,
         );
-        verify_brc20_operation(&op, &reveal, &block, &BitcoinNetwork::Mainnet, &tx, &ctx)
+        verify_brc20_operation(
+            &op,
+            &reveal,
+            &block,
+            &BitcoinNetwork::Mainnet,
+            &mut HashMap::new(),
+            &mut HashMap::new(),
+            &tx,
+            &ctx,
+        )
     }
 
     #[test_case(
@@ -853,7 +900,16 @@ mod test {
             &tx,
             &ctx,
         );
-        verify_brc20_operation(&op, &reveal, &block, &BitcoinNetwork::Mainnet, &tx, &ctx)
+        verify_brc20_operation(
+            &op,
+            &reveal,
+            &block,
+            &BitcoinNetwork::Mainnet,
+            &mut HashMap::new(),
+            &mut HashMap::new(),
+            &tx,
+            &ctx,
+        )
     }
 
     #[test_case(
