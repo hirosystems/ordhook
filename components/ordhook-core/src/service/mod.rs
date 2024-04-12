@@ -939,7 +939,7 @@ pub fn write_brc20_block_operations(
                             }
                             Err(e) => {
                                 ctx.try_log(|logger| {
-                                    warn!(logger, "Error validating BRC-20 operation {}", e)
+                                    debug!(logger, "Error validating BRC-20 operation {}", e)
                                 });
                             }
                         }
