@@ -6,7 +6,7 @@ use crate::config::{Config, PredicatesApi};
 use crate::core::meta_protocols::brc20::brc20_activation_height;
 use crate::core::meta_protocols::brc20::db::{
     insert_token, insert_token_mint, insert_token_transfer, insert_token_transfer_send,
-    open_readwrite_brc20_db_conn, Brc20DbTokenRow,
+    open_readwrite_brc20_db_conn, Brc20DbTokenRow, Brc20MemoryCache,
 };
 use crate::core::meta_protocols::brc20::parser::ParsedBrc20Operation;
 use crate::core::meta_protocols::brc20::verifier::{
@@ -864,8 +864,7 @@ pub fn write_brc20_block_operations(
     if block.block_identifier.index < brc20_activation_height(&block.metadata.network) {
         return;
     }
-    let mut token_map = HashMap::new();
-    let mut mint_amount_map = HashMap::new();
+    let mut cache = Brc20MemoryCache::new();
     for tx in block.transactions.iter() {
         for op in tx.metadata.ordinal_operations.iter() {
             match op {
@@ -878,8 +877,7 @@ pub fn write_brc20_block_operations(
                             reveal,
                             &block.block_identifier,
                             &block.metadata.network,
-                            &mut token_map,
-                            &mut mint_amount_map,
+                            &mut cache,
                             &db_tx,
                             &ctx,
                         ) {

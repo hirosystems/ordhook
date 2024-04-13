@@ -2,7 +2,7 @@ use std::{collections::HashMap, path::PathBuf};
 
 use crate::db::{
     create_or_open_readwrite_db, format_inscription_id, open_existing_readonly_db,
-    perform_query_exists, perform_query_one, perform_query_set,
+    perform_query_one, perform_query_set,
 };
 use chainhook_sdk::{
     types::{
@@ -14,9 +14,8 @@ use chainhook_sdk::{
 };
 use rusqlite::{Connection, ToSql, Transaction};
 
-use super::{
-    parser::ParsedBrc20TokenDeployData,
-    verifier::{VerifiedBrc20BalanceData, VerifiedBrc20TokenDeployData, VerifiedBrc20TransferData},
+use super::verifier::{
+    VerifiedBrc20BalanceData, VerifiedBrc20TokenDeployData, VerifiedBrc20TransferData,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -43,6 +42,96 @@ pub struct Brc20DbLedgerRow {
     pub avail_balance: f64,
     pub trans_balance: f64,
     pub operation: String,
+}
+
+/// In-memory cache that keeps verified token data to avoid excessive reads to the database.
+pub struct Brc20MemoryCache {
+    token_map: HashMap<String, Brc20DbTokenRow>,
+    token_minted_supply_map: HashMap<String, f64>,
+    token_addr_avail_balance_map: HashMap<(String, String), f64>,
+}
+
+impl Brc20MemoryCache {
+    pub fn new() -> Self {
+        Brc20MemoryCache {
+            token_map: HashMap::new(),
+            token_minted_supply_map: HashMap::new(),
+            token_addr_avail_balance_map: HashMap::new(),
+        }
+    }
+
+    pub fn get_token(
+        &mut self,
+        tick: &str,
+        db_tx: &Connection,
+        ctx: &Context,
+    ) -> Option<Brc20DbTokenRow> {
+        if let Some(token) = self.token_map.get(&tick.to_string()) {
+            return Some(token.clone());
+        }
+        match get_token(tick, db_tx, ctx) {
+            Some(db_token) => {
+                self.token_map.insert(tick.to_string(), db_token.clone());
+                return Some(db_token);
+            }
+            None => return None,
+        }
+    }
+
+    pub fn get_token_minted_supply(
+        &mut self,
+        tick: &str,
+        db_tx: &Transaction,
+        ctx: &Context,
+    ) -> f64 {
+        if let Some(minted) = self.token_minted_supply_map.get(&tick.to_string()) {
+            return minted.clone();
+        }
+        let minted_supply = get_token_minted_supply(tick, db_tx, ctx);
+        self.token_minted_supply_map
+            .insert(tick.to_string(), minted_supply);
+        return minted_supply;
+    }
+
+    pub fn update_token_minted_supply(&mut self, tick: &str, delta: f64) {
+        if let Some(minted) = self.token_minted_supply_map.get(&tick.to_string()) {
+            self.token_minted_supply_map
+                .insert(tick.to_string(), minted + delta);
+        } else {
+            self.token_minted_supply_map.insert(tick.to_string(), delta);
+        }
+    }
+
+    pub fn get_token_available_balance_for_address(
+        &mut self,
+        tick: &str,
+        address: &str,
+        db_tx: &Transaction,
+        ctx: &Context,
+    ) -> f64 {
+        let key = (tick.to_string(), address.to_string());
+        if let Some(balance) = self.token_addr_avail_balance_map.get(&key) {
+            return balance.clone();
+        }
+        let balance = get_token_available_balance_for_address(tick, address, db_tx, ctx);
+        self.token_addr_avail_balance_map.insert(key, balance);
+        return balance;
+    }
+
+    pub fn update_token_available_balance_for_address(
+        &mut self,
+        tick: &str,
+        address: &str,
+        delta: f64,
+    ) {
+        let key = (tick.to_string(), address.to_string());
+        if let Some(balance) = self.token_addr_avail_balance_map.get(&key) {
+            self.token_addr_avail_balance_map
+                .insert(key, balance + delta);
+        } else {
+            self.token_addr_avail_balance_map.insert(key, delta);
+        }
+    }
 }
 
 pub fn get_default_brc20_db_file_path(base_dir: &PathBuf) -> PathBuf {
@@ -172,24 +261,6 @@ pub fn delete_activity_in_block_range(
     }
 }
 
-pub fn get_cached_token(
-    tick: &str,
-    token_map: &mut HashMap<String, Brc20DbTokenRow>,
-    db_tx: &Connection,
-    ctx: &Context,
-) -> Option<Brc20DbTokenRow> {
-    if let Some(token) = token_map.get(&tick.to_string()) {
-        return Some(token.clone());
-    }
-    match get_token(tick, db_tx, ctx) {
-        Some(db_token) => {
-            token_map.insert(tick.to_string(), db_token.clone());
-            return Some(db_token);
-        }
-        None => return None,
-    }
-}
-
 pub fn get_token(tick: &str, db_tx: &Connection, ctx: &Context) -> Option<Brc20DbTokenRow> {
     let args: &[&dyn ToSql] = &[&tick.to_sql().unwrap()];
     let query = "
@@ -208,32 +279,6 @@ pub fn get_token(tick: &str, db_tx: &Connection, ctx: &Context) -> Option<Brc20D
         block_height: row.get(7).unwrap(),
         self_mint: row.get(8).unwrap(),
     })
-}
-
-pub fn get_cached_token_minted_supply(
-    tick: &str,
-    mint_amount_map: &mut HashMap<String, f64>,
-    db_tx: &Transaction,
-    ctx: &Context,
-) -> f64 {
-    if let Some(minted) = mint_amount_map.get(&tick.to_string()) {
-        return minted.clone();
-    }
-    let minted_supply = get_token_minted_supply(tick, db_tx, ctx);
-    mint_amount_map.insert(tick.to_string(), minted_supply);
-    return minted_supply;
-}
-
-pub fn update_cached_token_minted_supply(
-    tick: &str,
-    mint_amount_map: &mut HashMap<String, f64>,
-    additional_minted_amount: f64,
-) {
-    if let Some(minted) = mint_amount_map.get(&tick.to_string()) {
-        mint_amount_map.insert(tick.to_string(), minted + additional_minted_amount);
-    } else {
-        mint_amount_map.insert(tick.to_string(), additional_minted_amount);
-    }
 }
 
 pub fn get_token_minted_supply(tick: &str, db_tx: &Transaction, ctx: &Context) -> f64 {
