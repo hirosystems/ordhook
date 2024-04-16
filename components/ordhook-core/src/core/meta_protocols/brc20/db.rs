@@ -44,96 +44,6 @@ pub struct Brc20DbLedgerRow {
     pub operation: String,
 }
 
-/// In-memory cache that keeps verified token data to avoid excessive reads to the database.
-pub struct Brc20MemoryCache {
-    token_map: HashMap<String, Brc20DbTokenRow>,
-    token_minted_supply_map: HashMap<String, f64>,
-    token_addr_avail_balance_map: HashMap<(String, String), f64>,
-}
-
-impl Brc20MemoryCache {
-    pub fn new() -> Self {
-        Brc20MemoryCache {
-            token_map: HashMap::new(),
-            token_minted_supply_map: HashMap::new(),
-            token_addr_avail_balance_map: HashMap::new(),
-        }
-    }
-
-    pub fn get_token(
-        &mut self,
-        tick: &str,
-        db_tx: &Connection,
-        ctx: &Context,
-    ) -> Option<Brc20DbTokenRow> {
-        if let Some(token) = self.token_map.get(&tick.to_string()) {
-            return Some(token.clone());
-        }
-        match get_token(tick, db_tx, ctx) {
-            Some(db_token) => {
-                self.token_map.insert(tick.to_string(), db_token.clone());
-                return Some(db_token);
-            }
-            None => return None,
-        }
-    }
-
-    pub fn get_token_minted_supply(
-        &mut self,
-        tick: &str,
-        db_tx: &Transaction,
-        ctx: &Context,
-    ) -> f64 {
-        if let Some(minted) = self.token_minted_supply_map.get(&tick.to_string()) {
-            return minted.clone();
-        }
-        let minted_supply = get_token_minted_supply(tick, db_tx, ctx);
-        self.token_minted_supply_map
-            .insert(tick.to_string(), minted_supply);
-        return minted_supply;
-    }
-
-    pub fn update_token_minted_supply(&mut self, tick: &str, delta: f64) {
-        if let Some(minted) = self.token_minted_supply_map.get(&tick.to_string()) {
-            self.token_minted_supply_map
-                .insert(tick.to_string(), minted + delta);
-        } else {
-            self.token_minted_supply_map.insert(tick.to_string(), delta);
-        }
-    }
-
-    pub fn get_token_available_balance_for_address(
-        &mut self,
-        tick: &str,
-        address: &str,
-        db_tx: &Transaction,
-        ctx: &Context,
-    ) -> f64 {
-        let key = (tick.to_string(), address.to_string());
-        if let Some(balance) = self.token_addr_avail_balance_map.get(&key) {
-            return balance.clone();
-        }
-        let balance = get_token_available_balance_for_address(tick, address, db_tx, ctx);
-        self.token_addr_avail_balance_map.insert(key, balance);
-        return balance;
-    }
-
-    pub fn update_token_available_balance_for_address(
-        &mut self,
-        tick: &str,
-        address: &str,
-        delta: f64,
-    ) {
-        let key = (tick.to_string(), address.to_string());
-        if let Some(balance) = self.token_addr_avail_balance_map.get(&key) {
-            self.token_addr_avail_balance_map
-                .insert(key, balance + delta);
-        } else {
-            self.token_addr_avail_balance_map.insert(key, delta);
-        }
-    }
-}
-
 pub fn get_default_brc20_db_file_path(base_dir: &PathBuf) -> PathBuf {
     let mut destination_path = base_dir.clone();
     destination_path.push("brc20.sqlite");
@@ -346,6 +256,73 @@ pub fn get_transfer_send_receiver_address(
     perform_query_one(query, args, &db_tx, ctx, |row| row.get(0).unwrap())
 }
 
+pub fn insert_ledger_rows(rows: &Vec<Brc20DbLedgerRow>, db_tx: &Transaction, ctx: &Context) {
+    match db_tx.prepare_cached("INSERT INTO ledger
+        (inscription_id, inscription_number, ordinal_number, block_height, tick, address, avail_balance, trans_balance, operation)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)") {
+        Ok(mut stmt) => {
+            for row in rows.iter() {
+                while let Err(e) = stmt.execute(rusqlite::params![
+                    &row.inscription_id,
+                    &row.inscription_number,
+                    &row.ordinal_number,
+                    &row.block_height,
+                    &row.tick,
+                    &row.address,
+                    &row.avail_balance,
+                    &row.trans_balance,
+                    &row.operation
+                ]) {
+                    ctx.try_log(|logger| warn!(logger, "unable to insert into brc20.sqlite: {}", e.to_string()));
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                }
+            }
+        },
+        Err(error) => ctx.try_log(|logger| warn!(logger, "unable to prepare statement for brc20.sqlite: {}", error.to_string()))
+    }
+}
+
+pub fn insert_token_rows(rows: &Vec<Brc20DbTokenRow>, db_tx: &Transaction, ctx: &Context) {
+    match db_tx.prepare_cached(
+        "INSERT INTO tokens
+        (inscription_id, inscription_number, block_height, tick, max, lim, dec, address, self_mint)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ) {
+        Ok(mut stmt) => {
+            for row in rows.iter() {
+                while let Err(e) = stmt.execute(rusqlite::params![
+                    &row.inscription_id,
+                    &row.inscription_number,
+                    &row.block_height,
+                    &row.tick,
+                    &row.max,
+                    &row.lim,
+                    &row.dec,
+                    &row.address,
+                    &row.self_mint,
+                ]) {
+                    ctx.try_log(|logger| {
+                        warn!(
+                            logger,
+                            "unable to insert into brc20.sqlite: {}",
+                            e.to_string()
+                        )
+                    });
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                }
+            }
+        }
+        Err(error) => ctx.try_log(|logger| {
+            warn!(
+                logger,
+                "unable to prepare statement for brc20.sqlite: {}",
+                error.to_string()
+            )
+        }),
+    }
+}
+
+/// For tests only
 pub fn insert_token(
     data: &VerifiedBrc20TokenDeployData,
     reveal: &OrdinalInscriptionRevealData,
@@ -405,6 +382,7 @@ pub fn insert_token(
     }
 }
 
+/// For tests only
 pub fn insert_token_mint(
     data: &VerifiedBrc20BalanceData,
     reveal: &OrdinalInscriptionRevealData,
@@ -438,6 +416,7 @@ pub fn insert_token_mint(
     }
 }
 
+/// For tests only
 pub fn insert_token_transfer(
     data: &VerifiedBrc20BalanceData,
     reveal: &OrdinalInscriptionRevealData,
@@ -472,6 +451,7 @@ pub fn insert_token_transfer(
     }
 }
 
+/// For tests only
 pub fn insert_token_transfer_send(
     data: &VerifiedBrc20TransferData,
     transfer: &OrdinalInscriptionTransferData,

@@ -3,6 +3,7 @@ use chainhook_sdk::types::BitcoinNetwork;
 pub mod db;
 pub mod parser;
 pub mod verifier;
+pub mod cache;
 
 pub fn brc20_activation_height(network: &BitcoinNetwork) -> u64 {
     match network {

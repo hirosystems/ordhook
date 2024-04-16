@@ -4,10 +4,8 @@ mod runloops;
 
 use crate::config::{Config, PredicatesApi};
 use crate::core::meta_protocols::brc20::brc20_activation_height;
-use crate::core::meta_protocols::brc20::db::{
-    insert_token, insert_token_mint, insert_token_transfer, insert_token_transfer_send,
-    open_readwrite_brc20_db_conn, Brc20DbTokenRow, Brc20MemoryCache,
-};
+use crate::core::meta_protocols::brc20::cache::Brc20MemoryCache;
+use crate::core::meta_protocols::brc20::db::open_readwrite_brc20_db_conn;
 use crate::core::meta_protocols::brc20::parser::ParsedBrc20Operation;
 use crate::core::meta_protocols::brc20::verifier::{
     verify_brc20_operation, verify_brc20_transfer, VerifiedBrc20Operation,
@@ -24,8 +22,8 @@ use crate::core::protocol::inscription_sequencing::SequenceCursor;
 use crate::core::{new_traversals_lazy_cache, should_sync_ordhook_db, should_sync_rocks_db};
 use crate::db::{
     delete_data_in_ordhook_db, insert_entry_in_blocks, open_ordhook_db_conn_rocks_db_loop,
-    open_readwrite_ordhook_dbs, update_ordinals_db_with_block,
-    BlockBytesCursor, TransactionBytesCursor,
+    open_readwrite_ordhook_dbs, update_ordinals_db_with_block, BlockBytesCursor,
+    TransactionBytesCursor,
 };
 use crate::db::{
     find_last_block_inserted, find_missing_blocks, run_compaction,
@@ -884,12 +882,10 @@ pub fn write_brc20_block_operations(
                             Ok(op) => {
                                 match op {
                                     VerifiedBrc20Operation::TokenDeploy(token) => {
-                                        insert_token(
+                                        cache.insert_token_deploy(
                                             &token,
                                             reveal,
                                             &block.block_identifier,
-                                            &db_tx,
-                                            &ctx,
                                         );
                                         ctx.try_log(|logger| {
                                             info!(
@@ -901,12 +897,10 @@ pub fn write_brc20_block_operations(
                                         });
                                     }
                                     VerifiedBrc20Operation::TokenMint(balance) => {
-                                        insert_token_mint(
+                                        cache.insert_token_mint(
                                             &balance,
                                             reveal,
                                             &block.block_identifier,
-                                            &db_tx,
-                                            &ctx,
                                         );
                                         ctx.try_log(|logger| {
                                             info!(
@@ -918,21 +912,19 @@ pub fn write_brc20_block_operations(
                                         });
                                     }
                                     VerifiedBrc20Operation::TokenTransfer(balance) => {
-                                        insert_token_transfer(
+                                        cache.insert_token_transfer(
                                             &balance,
                                             reveal,
                                             &block.block_identifier,
-                                            &db_tx,
-                                            &ctx,
                                         );
                                         ctx.try_log(|logger| {
-                                        info!(
-                                            logger,
-                                            "BRC-20 detected token {} transfer {} by {} at height {}",
-                                            balance.tick, balance.amt, balance.address,
-                                            block.block_identifier.index
-                                        )
-                                    });
+                                            info!(
+                                                logger,
+                                                "BRC-20 detected token {} transfer {} by {} at height {}",
+                                                balance.tick, balance.amt, balance.address,
+                                                block.block_identifier.index
+                                            )
+                                        });
                                     }
                                     VerifiedBrc20Operation::TokenTransferSend(_) => {
                                         unreachable!("BRC-20 token transfer send should never be generated on reveal")
@@ -950,12 +942,10 @@ pub fn write_brc20_block_operations(
                 OrdinalOperation::InscriptionTransferred(transfer) => {
                     match verify_brc20_transfer(transfer, &db_tx, &ctx) {
                         Ok(data) => {
-                            insert_token_transfer_send(
+                            cache.insert_token_transfer_send(
                                 &data,
                                 &transfer,
                                 &block.block_identifier,
-                                &db_tx,
-                                &ctx,
                             );
                             ctx.try_log(|logger| {
                                 info!(
@@ -976,4 +966,5 @@ pub fn write_brc20_block_operations(
             }
         }
     }
+    cache.flush_row_cache(db_tx, ctx);
 }

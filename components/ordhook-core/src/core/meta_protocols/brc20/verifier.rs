@@ -6,7 +6,8 @@ use chainhook_sdk::utils::Context;
 use rusqlite::Transaction;
 
 use super::brc20_self_mint_activation_height;
-use super::db::{get_unsent_token_transfer_with_sender, Brc20MemoryCache};
+use super::cache::Brc20MemoryCache;
+use super::db::get_unsent_token_transfer_with_sender;
 use super::parser::{amt_has_valid_decimals, ParsedBrc20Operation};
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
@@ -125,7 +126,6 @@ pub fn verify_brc20_operation(
                 ));
             }
             let real_mint_amt = data.float_amt().min(token.lim.min(remaining_supply));
-            cache.update_token_minted_supply(&data.tick, real_mint_amt);
             return Ok(VerifiedBrc20Operation::TokenMint(
                 VerifiedBrc20BalanceData {
                     tick: token.tick,
@@ -147,7 +147,7 @@ pub fn verify_brc20_operation(
                     token.tick, data.amt
                 ));
             }
-            let avail_balance = cache.get_token_available_balance_for_address(
+            let avail_balance = cache.get_token_avail_balance_for_address(
                 &token.tick,
                 &inscriber_address,
                 db_tx,
@@ -156,11 +156,6 @@ pub fn verify_brc20_operation(
             if avail_balance < data.float_amt() {
                 return Err(format!("Insufficient balance for {} transfer, attempting to transfer {}, only {} available", token.tick, data.amt, avail_balance));
             }
-            cache.update_token_available_balance_for_address(
-                &data.tick,
-                &inscriber_address,
-                data.float_amt(),
-            );
             return Ok(VerifiedBrc20Operation::TokenTransfer(
                 VerifiedBrc20BalanceData {
                     tick: token.tick,
@@ -215,8 +210,6 @@ pub fn verify_brc20_transfer(
 
 #[cfg(test)]
 mod test {
-    use std::collections::HashMap;
-
     use chainhook_sdk::{
         types::{
             BitcoinNetwork, BlockIdentifier, OrdinalInscriptionNumber,
@@ -228,14 +221,12 @@ mod test {
     use test_case::test_case;
 
     use crate::core::meta_protocols::brc20::{
-        db::{
+        cache::Brc20MemoryCache, db::{
             initialize_brc20_db, insert_token, insert_token_mint, insert_token_transfer,
-            insert_token_transfer_send, Brc20MemoryCache,
-        },
-        parser::{ParsedBrc20BalanceData, ParsedBrc20Operation, ParsedBrc20TokenDeployData},
-        verifier::{
+            insert_token_transfer_send,
+        }, parser::{ParsedBrc20BalanceData, ParsedBrc20Operation, ParsedBrc20TokenDeployData}, verifier::{
             VerifiedBrc20BalanceData, VerifiedBrc20Operation, VerifiedBrc20TokenDeployData,
-        },
+        }
     };
 
     use super::{verify_brc20_operation, verify_brc20_transfer, VerifiedBrc20TransferData};
