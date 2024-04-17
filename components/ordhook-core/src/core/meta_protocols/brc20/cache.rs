@@ -29,12 +29,12 @@ pub struct Brc20MemoryCache {
 }
 
 impl Brc20MemoryCache {
-    pub fn new() -> Self {
+    pub fn new(lru_size: usize) -> Self {
         Brc20MemoryCache {
-            token_map: LruCache::new(NonZeroUsize::new(10_000).unwrap()),
-            token_minted_supply_map: LruCache::new(NonZeroUsize::new(10_000).unwrap()),
-            token_addr_avail_balance_map: LruCache::new(NonZeroUsize::new(10_000).unwrap()),
-            transfer_cache: LruCache::new(NonZeroUsize::new(10_000).unwrap()),
+            token_map: LruCache::new(NonZeroUsize::new(lru_size).unwrap()),
+            token_minted_supply_map: LruCache::new(NonZeroUsize::new(lru_size).unwrap()),
+            token_addr_avail_balance_map: LruCache::new(NonZeroUsize::new(lru_size).unwrap()),
+            transfer_cache: LruCache::new(NonZeroUsize::new(lru_size).unwrap()),
             ledger_row_cache: Vec::new(),
             token_row_cache: Vec::new(),
         }

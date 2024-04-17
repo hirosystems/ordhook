@@ -15,6 +15,7 @@ pub const DEFAULT_ULIMIT: usize = 2048;
 pub const DEFAULT_MEMORY_AVAILABLE: usize = 8;
 pub const DEFAULT_BITCOIND_RPC_THREADS: usize = 4;
 pub const DEFAULT_BITCOIND_RPC_TIMEOUT: u32 = 15;
+pub const DEFAULT_BRC20_LRU_CACHE_SIZE: usize = 50_000;
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -79,6 +80,7 @@ pub struct ResourcesConfig {
     pub bitcoind_rpc_threads: usize,
     pub bitcoind_rpc_timeout: u32,
     pub expected_observers_count: usize,
+    pub brc20_lru_cache_size: usize,
 }
 
 impl ResourcesConfig {
@@ -179,6 +181,7 @@ impl Config {
                 bitcoind_rpc_threads: DEFAULT_BITCOIND_RPC_THREADS,
                 bitcoind_rpc_timeout: DEFAULT_BITCOIND_RPC_TIMEOUT,
                 expected_observers_count: 1,
+                brc20_lru_cache_size: DEFAULT_BRC20_LRU_CACHE_SIZE,
             },
             network: IndexerConfig {
                 bitcoind_rpc_url: "http://0.0.0.0:18443".into(),
@@ -212,6 +215,7 @@ impl Config {
                 bitcoind_rpc_threads: DEFAULT_BITCOIND_RPC_THREADS,
                 bitcoind_rpc_timeout: DEFAULT_BITCOIND_RPC_TIMEOUT,
                 expected_observers_count: 1,
+                brc20_lru_cache_size: DEFAULT_BRC20_LRU_CACHE_SIZE,
             },
             network: IndexerConfig {
                 bitcoind_rpc_url: "http://0.0.0.0:18332".into(),
@@ -245,6 +249,7 @@ impl Config {
                 bitcoind_rpc_threads: DEFAULT_BITCOIND_RPC_THREADS,
                 bitcoind_rpc_timeout: DEFAULT_BITCOIND_RPC_TIMEOUT,
                 expected_observers_count: 1,
+                brc20_lru_cache_size: DEFAULT_BRC20_LRU_CACHE_SIZE,
             },
             network: IndexerConfig {
                 bitcoind_rpc_url: "http://0.0.0.0:8332".into(),

@@ -478,7 +478,7 @@ mod test {
                     .to_string(),
             },
             &BitcoinNetwork::Mainnet,
-            &mut Brc20MemoryCache::new(),
+            &mut Brc20MemoryCache::new(50),
             &tx,
             &ctx,
         )
@@ -573,7 +573,7 @@ mod test {
             &reveal,
             &block,
             &BitcoinNetwork::Mainnet,
-            &mut Brc20MemoryCache::new(),
+            &mut Brc20MemoryCache::new(50),
             &tx,
             &ctx,
         )
@@ -643,7 +643,7 @@ mod test {
             &reveal,
             &block,
             &BitcoinNetwork::Mainnet,
-            &mut Brc20MemoryCache::new(),
+            &mut Brc20MemoryCache::new(50),
             &tx,
             &ctx,
         )
@@ -699,7 +699,7 @@ mod test {
             &reveal,
             &block,
             &BitcoinNetwork::Mainnet,
-            &mut Brc20MemoryCache::new(),
+            &mut Brc20MemoryCache::new(50),
             &tx,
             &ctx,
         )
@@ -758,7 +758,7 @@ mod test {
             &reveal,
             &block,
             &BitcoinNetwork::Mainnet,
-            &mut Brc20MemoryCache::new(),
+            &mut Brc20MemoryCache::new(50),
             &tx,
             &ctx,
         )
@@ -890,7 +890,7 @@ mod test {
             &reveal,
             &block,
             &BitcoinNetwork::Mainnet,
-            &mut Brc20MemoryCache::new(),
+            &mut Brc20MemoryCache::new(50),
             &tx,
             &ctx,
         )
@@ -999,7 +999,7 @@ mod test {
             &tx,
             &ctx,
         );
-        verify_brc20_transfer(&transfer, &mut Brc20MemoryCache::new(), &tx, &ctx)
+        verify_brc20_transfer(&transfer, &mut Brc20MemoryCache::new(50), &tx, &ctx)
     }
 
     #[test_case(
@@ -1082,6 +1082,6 @@ mod test {
             &tx,
             &ctx,
         );
-        verify_brc20_transfer(&transfer, &mut Brc20MemoryCache::new(), &tx, &ctx)
+        verify_brc20_transfer(&transfer, &mut Brc20MemoryCache::new(50), &tx, &ctx)
     }
 }

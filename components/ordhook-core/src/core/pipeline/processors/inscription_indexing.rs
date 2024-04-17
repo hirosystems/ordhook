@@ -327,7 +327,7 @@ pub fn process_block(
     let _ = augment_block_with_ordinals_transfer_data(block, inscriptions_db_tx, true, &inner_ctx);
 
     if let Some(brc20_db_tx) = brc20_db_tx {
-        let mut cache = Brc20MemoryCache::new();
+        let mut cache = Brc20MemoryCache::new(ordhook_config.resources.brc20_lru_cache_size);
         write_brc20_block_operations(&block, &brc20_operation_map, &mut cache, &brc20_db_tx, &ctx);
     }
 

@@ -6,7 +6,7 @@ use ordhook::chainhook_sdk::types::{
 use ordhook::config::{
     Config, LogConfig, MetaProtocolsConfig, PredicatesApi, PredicatesApiConfig, ResourcesConfig,
     SnapshotConfig, StorageConfig, DEFAULT_BITCOIND_RPC_THREADS, DEFAULT_BITCOIND_RPC_TIMEOUT,
-    DEFAULT_CONTROL_PORT, DEFAULT_MEMORY_AVAILABLE, DEFAULT_ULIMIT,
+    DEFAULT_BRC20_LRU_CACHE_SIZE, DEFAULT_CONTROL_PORT, DEFAULT_MEMORY_AVAILABLE, DEFAULT_ULIMIT,
 };
 use std::fs::File;
 use std::io::{BufReader, Read};
@@ -95,6 +95,10 @@ impl ConfigFile {
                     .resources
                     .expected_observers_count
                     .unwrap_or(1),
+                brc20_lru_cache_size: config_file
+                    .resources
+                    .brc20_lru_cache_size
+                    .unwrap_or(DEFAULT_BRC20_LRU_CACHE_SIZE),
             },
             network: IndexerConfig {
                 bitcoind_rpc_url: config_file.network.bitcoind_rpc_url.to_string(),
@@ -189,6 +193,7 @@ pub struct ResourcesConfigFile {
     pub bitcoind_rpc_threads: Option<usize>,
     pub bitcoind_rpc_timeout: Option<u32>,
     pub expected_observers_count: Option<usize>,
+    pub brc20_lru_cache_size: Option<usize>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
