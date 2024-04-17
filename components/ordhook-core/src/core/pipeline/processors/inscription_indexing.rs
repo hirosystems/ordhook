@@ -19,7 +19,7 @@ use std::hash::BuildHasherDefault;
 
 use crate::{
     core::{
-        meta_protocols::brc20::db::open_readwrite_brc20_db_conn,
+        meta_protocols::brc20::{cache::Brc20MemoryCache, db::open_readwrite_brc20_db_conn},
         pipeline::processors::block_archiving::store_compacted_blocks,
         protocol::{
             inscription_parsing::{
@@ -327,7 +327,8 @@ pub fn process_block(
     let _ = augment_block_with_ordinals_transfer_data(block, inscriptions_db_tx, true, &inner_ctx);
 
     if let Some(brc20_db_tx) = brc20_db_tx {
-        write_brc20_block_operations(&block, &brc20_operation_map, &brc20_db_tx, &ctx);
+        let mut cache = Brc20MemoryCache::new();
+        write_brc20_block_operations(&block, &brc20_operation_map, &mut cache, &brc20_db_tx, &ctx);
     }
 
     Ok(())

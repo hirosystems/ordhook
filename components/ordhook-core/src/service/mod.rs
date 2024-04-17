@@ -3,7 +3,7 @@ pub mod observers;
 mod runloops;
 
 use crate::config::{Config, PredicatesApi};
-use crate::core::meta_protocols::brc20::brc20_activation_height;
+use crate::core::meta_protocols::brc20::{self, brc20_activation_height};
 use crate::core::meta_protocols::brc20::cache::Brc20MemoryCache;
 use crate::core::meta_protocols::brc20::db::open_readwrite_brc20_db_conn;
 use crate::core::meta_protocols::brc20::parser::ParsedBrc20Operation;
@@ -856,13 +856,13 @@ pub fn chainhook_sidecar_mutate_blocks(
 pub fn write_brc20_block_operations(
     block: &BitcoinBlockData,
     brc20_operation_map: &HashMap<String, ParsedBrc20Operation>,
+    brc20_memory_cache: &mut Brc20MemoryCache,
     db_tx: &Transaction,
     ctx: &Context,
 ) {
     if block.block_identifier.index < brc20_activation_height(&block.metadata.network) {
         return;
     }
-    let mut cache = Brc20MemoryCache::new();
     for tx in block.transactions.iter() {
         for op in tx.metadata.ordinal_operations.iter() {
             match op {
@@ -875,17 +875,19 @@ pub fn write_brc20_block_operations(
                             reveal,
                             &block.block_identifier,
                             &block.metadata.network,
-                            &mut cache,
+                            brc20_memory_cache,
                             &db_tx,
                             &ctx,
                         ) {
                             Ok(op) => {
                                 match op {
                                     VerifiedBrc20Operation::TokenDeploy(token) => {
-                                        cache.insert_token_deploy(
+                                        brc20_memory_cache.insert_token_deploy(
                                             &token,
                                             reveal,
                                             &block.block_identifier,
+                                            db_tx,
+                                            ctx,
                                         );
                                         ctx.try_log(|logger| {
                                             info!(
@@ -897,10 +899,12 @@ pub fn write_brc20_block_operations(
                                         });
                                     }
                                     VerifiedBrc20Operation::TokenMint(balance) => {
-                                        cache.insert_token_mint(
+                                        brc20_memory_cache.insert_token_mint(
                                             &balance,
                                             reveal,
                                             &block.block_identifier,
+                                            db_tx,
+                                            ctx,
                                         );
                                         ctx.try_log(|logger| {
                                             info!(
@@ -912,10 +916,12 @@ pub fn write_brc20_block_operations(
                                         });
                                     }
                                     VerifiedBrc20Operation::TokenTransfer(balance) => {
-                                        cache.insert_token_transfer(
+                                        brc20_memory_cache.insert_token_transfer(
                                             &balance,
                                             reveal,
                                             &block.block_identifier,
+                                            db_tx,
+                                            ctx,
                                         );
                                         ctx.try_log(|logger| {
                                             info!(
@@ -940,12 +946,14 @@ pub fn write_brc20_block_operations(
                     }
                 }
                 OrdinalOperation::InscriptionTransferred(transfer) => {
-                    match verify_brc20_transfer(transfer, &db_tx, &ctx) {
+                    match verify_brc20_transfer(transfer, brc20_memory_cache, &db_tx, &ctx) {
                         Ok(data) => {
-                            cache.insert_token_transfer_send(
+                            brc20_memory_cache.insert_token_transfer_send(
                                 &data,
                                 &transfer,
                                 &block.block_identifier,
+                                db_tx,
+                                ctx,
                             );
                             ctx.try_log(|logger| {
                                 info!(
@@ -966,5 +974,5 @@ pub fn write_brc20_block_operations(
             }
         }
     }
-    cache.flush_row_cache(db_tx, ctx);
+    brc20_memory_cache.flush_row_cache(db_tx, ctx);
 }

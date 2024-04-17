@@ -218,15 +218,15 @@ pub fn get_token_available_balance_for_address(
 
 pub fn get_unsent_token_transfer_with_sender(
     ordinal_number: u64,
-    db_tx: &Transaction,
+    db_tx: &Connection,
     ctx: &Context,
-) -> Option<VerifiedBrc20BalanceData> {
+) -> Option<Brc20DbLedgerRow> {
     let args: &[&dyn ToSql] = &[
         &ordinal_number.to_sql().unwrap(),
         &ordinal_number.to_sql().unwrap(),
     ];
     let query = "
-        SELECT tick, trans_balance, address
+        SELECT inscription_id, inscription_number, ordinal_number, block_height, tick, address, avail_balance, trans_balance, operation
         FROM ledger
         WHERE ordinal_number = ? AND operation = 'transfer'
             AND NOT EXISTS (
@@ -234,10 +234,16 @@ pub fn get_unsent_token_transfer_with_sender(
             )
         LIMIT 1
     ";
-    perform_query_one(query, args, &db_tx, ctx, |row| VerifiedBrc20BalanceData {
-        tick: row.get(0).unwrap(),
-        amt: row.get(1).unwrap(),
-        address: row.get(2).unwrap(),
+    perform_query_one(query, args, &db_tx, ctx, |row| Brc20DbLedgerRow {
+        inscription_id: row.get(0).unwrap(),
+        inscription_number: row.get(1).unwrap(),
+        ordinal_number: row.get(2).unwrap(),
+        block_height: row.get(3).unwrap(),
+        tick: row.get(4).unwrap(),
+        address: row.get(5).unwrap(),
+        avail_balance: row.get(6).unwrap(),
+        trans_balance: row.get(7).unwrap(),
+        operation: row.get(8).unwrap(),
     })
 }
 

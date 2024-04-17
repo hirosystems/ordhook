@@ -7,7 +7,6 @@ use rusqlite::Transaction;
 
 use super::brc20_self_mint_activation_height;
 use super::cache::Brc20MemoryCache;
-use super::db::get_unsent_token_transfer_with_sender;
 use super::parser::{amt_has_valid_decimals, ParsedBrc20Operation};
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
@@ -169,11 +168,12 @@ pub fn verify_brc20_operation(
 
 pub fn verify_brc20_transfer(
     transfer: &OrdinalInscriptionTransferData,
+    cache: &mut Brc20MemoryCache,
     db_tx: &Transaction,
     ctx: &Context,
 ) -> Result<VerifiedBrc20TransferData, String> {
-    let Some(balance_delta) =
-        get_unsent_token_transfer_with_sender(transfer.ordinal_number, db_tx, ctx)
+    let Some(transfer_row) =
+        cache.get_unsent_token_transfer_with_sender(transfer.ordinal_number, db_tx, ctx)
     else {
         return Err(format!(
             "No BRC-20 transfer in ordinal {} or transfer already sent",
@@ -183,25 +183,25 @@ pub fn verify_brc20_transfer(
     match &transfer.destination {
         OrdinalInscriptionTransferDestination::Transferred(receiver_address) => {
             return Ok(VerifiedBrc20TransferData {
-                tick: balance_delta.tick.clone(),
-                amt: balance_delta.amt,
-                sender_address: balance_delta.address,
+                tick: transfer_row.tick.clone(),
+                amt: transfer_row.trans_balance,
+                sender_address: transfer_row.address.clone(),
                 receiver_address: receiver_address.to_string(),
             });
         }
         OrdinalInscriptionTransferDestination::SpentInFees => {
             return Ok(VerifiedBrc20TransferData {
-                tick: balance_delta.tick.clone(),
-                amt: balance_delta.amt,
-                sender_address: balance_delta.address.clone(),
-                receiver_address: balance_delta.address.clone(), // Return to sender
+                tick: transfer_row.tick.clone(),
+                amt: transfer_row.trans_balance,
+                sender_address: transfer_row.address.clone(),
+                receiver_address: transfer_row.address.clone(), // Return to sender
             });
         }
         OrdinalInscriptionTransferDestination::Burnt(_) => {
             return Ok(VerifiedBrc20TransferData {
-                tick: balance_delta.tick.clone(),
-                amt: balance_delta.amt,
-                sender_address: balance_delta.address.clone(),
+                tick: transfer_row.tick.clone(),
+                amt: transfer_row.trans_balance,
+                sender_address: transfer_row.address.clone(),
                 receiver_address: "".to_string(),
             });
         }
@@ -221,12 +221,15 @@ mod test {
     use test_case::test_case;
 
     use crate::core::meta_protocols::brc20::{
-        cache::Brc20MemoryCache, db::{
+        cache::Brc20MemoryCache,
+        db::{
             initialize_brc20_db, insert_token, insert_token_mint, insert_token_transfer,
             insert_token_transfer_send,
-        }, parser::{ParsedBrc20BalanceData, ParsedBrc20Operation, ParsedBrc20TokenDeployData}, verifier::{
+        },
+        parser::{ParsedBrc20BalanceData, ParsedBrc20Operation, ParsedBrc20TokenDeployData},
+        verifier::{
             VerifiedBrc20BalanceData, VerifiedBrc20Operation, VerifiedBrc20TokenDeployData,
-        }
+        },
     };
 
     use super::{verify_brc20_operation, verify_brc20_transfer, VerifiedBrc20TransferData};
@@ -996,7 +999,7 @@ mod test {
             &tx,
             &ctx,
         );
-        verify_brc20_transfer(&transfer, &tx, &ctx)
+        verify_brc20_transfer(&transfer, &mut Brc20MemoryCache::new(), &tx, &ctx)
     }
 
     #[test_case(
@@ -1079,6 +1082,6 @@ mod test {
             &tx,
             &ctx,
         );
-        verify_brc20_transfer(&transfer, &tx, &ctx)
+        verify_brc20_transfer(&transfer, &mut Brc20MemoryCache::new(), &tx, &ctx)
     }
 }

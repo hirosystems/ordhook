@@ -1,10 +1,13 @@
-use std::collections::HashMap;
+use std::num::NonZeroUsize;
 
 use chainhook_sdk::{
     types::{BlockIdentifier, OrdinalInscriptionRevealData, OrdinalInscriptionTransferData},
     utils::Context,
 };
+use lru::LruCache;
 use rusqlite::{Connection, Transaction};
+
+use crate::core::meta_protocols::brc20::db::get_unsent_token_transfer_with_sender;
 
 use super::{
     db::{
@@ -16,9 +19,10 @@ use super::{
 
 /// In-memory cache that keeps verified token data to avoid excessive reads to the database.
 pub struct Brc20MemoryCache {
-    token_map: HashMap<String, Brc20DbTokenRow>,
-    token_minted_supply_map: HashMap<String, f64>,
-    token_addr_avail_balance_map: HashMap<(String, String), f64>,
+    token_map: LruCache<String, Brc20DbTokenRow>,
+    token_minted_supply_map: LruCache<String, f64>,
+    token_addr_avail_balance_map: LruCache<(String, String), f64>,
+    transfer_cache: LruCache<u64, Brc20DbLedgerRow>,
 
     ledger_row_cache: Vec<Brc20DbLedgerRow>,
     token_row_cache: Vec<Brc20DbTokenRow>,
@@ -27,9 +31,10 @@ pub struct Brc20MemoryCache {
 impl Brc20MemoryCache {
     pub fn new() -> Self {
         Brc20MemoryCache {
-            token_map: HashMap::new(),
-            token_minted_supply_map: HashMap::new(),
-            token_addr_avail_balance_map: HashMap::new(),
+            token_map: LruCache::new(NonZeroUsize::new(10_000).unwrap()),
+            token_minted_supply_map: LruCache::new(NonZeroUsize::new(10_000).unwrap()),
+            token_addr_avail_balance_map: LruCache::new(NonZeroUsize::new(10_000).unwrap()),
+            transfer_cache: LruCache::new(NonZeroUsize::new(10_000).unwrap()),
             ledger_row_cache: Vec::new(),
             token_row_cache: Vec::new(),
         }
@@ -46,7 +51,7 @@ impl Brc20MemoryCache {
         }
         match get_token(tick, db_tx, ctx) {
             Some(db_token) => {
-                self.token_map.insert(tick.to_string(), db_token.clone());
+                self.token_map.put(tick.to_string(), db_token.clone());
                 return Some(db_token);
             }
             None => return None,
@@ -64,7 +69,7 @@ impl Brc20MemoryCache {
         }
         let minted_supply = get_token_minted_supply(tick, db_tx, ctx);
         self.token_minted_supply_map
-            .insert(tick.to_string(), minted_supply);
+            .put(tick.to_string(), minted_supply);
         return minted_supply;
     }
 
@@ -80,8 +85,26 @@ impl Brc20MemoryCache {
             return balance.clone();
         }
         let balance = get_token_available_balance_for_address(tick, address, db_tx, ctx);
-        self.token_addr_avail_balance_map.insert(key, balance);
+        self.token_addr_avail_balance_map.put(key, balance);
         return balance;
+    }
+
+    pub fn get_unsent_token_transfer_with_sender(
+        &mut self,
+        ordinal_number: u64,
+        db_tx: &Transaction,
+        ctx: &Context,
+    ) -> Option<Brc20DbLedgerRow> {
+        if let Some(row) = self.transfer_cache.get(&ordinal_number) {
+            return Some(row.clone());
+        }
+        match get_unsent_token_transfer_with_sender(ordinal_number, db_tx, ctx) {
+            Some(row) => {
+                self.transfer_cache.put(ordinal_number, row.clone());
+                return Some(row);
+            }
+            None => return None,
+        }
     }
 
     pub fn insert_token_deploy(
@@ -89,6 +112,8 @@ impl Brc20MemoryCache {
         data: &VerifiedBrc20TokenDeployData,
         reveal: &OrdinalInscriptionRevealData,
         block_identifier: &BlockIdentifier,
+        _db_tx: &Connection,
+        _ctx: &Context,
     ) {
         let token = Brc20DbTokenRow {
             inscription_id: reveal.inscription_id.clone(),
@@ -101,8 +126,8 @@ impl Brc20MemoryCache {
             address: data.address.clone(),
             self_mint: data.self_mint,
         };
-        self.token_map.insert(token.tick.clone(), token.clone());
-        self.token_minted_supply_map.insert(token.tick.clone(), 0.0);
+        self.token_map.put(token.tick.clone(), token.clone());
+        self.token_minted_supply_map.put(token.tick.clone(), 0.0);
         self.token_row_cache.push(token);
         self.ledger_row_cache.push(Brc20DbLedgerRow {
             inscription_id: reveal.inscription_id.clone(),
@@ -122,6 +147,8 @@ impl Brc20MemoryCache {
         data: &VerifiedBrc20BalanceData,
         reveal: &OrdinalInscriptionRevealData,
         block_identifier: &BlockIdentifier,
+        _db_tx: &Connection,
+        _ctx: &Context,
     ) {
         self.update_token_minted_supply(&data.tick, data.amt);
         self.update_token_avail_balance_for_address(&data.tick, &data.address, data.amt);
@@ -143,9 +170,11 @@ impl Brc20MemoryCache {
         data: &VerifiedBrc20BalanceData,
         reveal: &OrdinalInscriptionRevealData,
         block_identifier: &BlockIdentifier,
+        _db_tx: &Connection,
+        _ctx: &Context,
     ) {
         self.update_token_avail_balance_for_address(&data.tick, &data.address, data.amt * -1.0);
-        self.ledger_row_cache.push(Brc20DbLedgerRow {
+        let ledger_row = Brc20DbLedgerRow {
             inscription_id: reveal.inscription_id.clone(),
             inscription_number: reveal.inscription_number.jubilee as u64,
             ordinal_number: reveal.ordinal_number,
@@ -155,7 +184,10 @@ impl Brc20MemoryCache {
             avail_balance: data.amt * -1.0,
             trans_balance: data.amt,
             operation: "transfer".to_string(),
-        });
+        };
+        self.transfer_cache
+            .put(reveal.ordinal_number, ledger_row.clone());
+        self.ledger_row_cache.push(ledger_row);
     }
 
     pub fn insert_token_transfer_send(
@@ -163,11 +195,13 @@ impl Brc20MemoryCache {
         data: &VerifiedBrc20TransferData,
         transfer: &OrdinalInscriptionTransferData,
         block_identifier: &BlockIdentifier,
+        db_tx: &Connection,
+        ctx: &Context,
     ) {
-        // `inscription_id` and `inscription_number` will be calculated upon insert.
+        let transfer_row = self.get_transfer_balance_data(transfer.ordinal_number, db_tx, ctx);
         self.ledger_row_cache.push(Brc20DbLedgerRow {
-            inscription_id: "".to_string(),
-            inscription_number: 0,
+            inscription_id: transfer_row.inscription_id.clone(),
+            inscription_number: transfer_row.inscription_number,
             ordinal_number: transfer.ordinal_number,
             block_height: block_identifier.index,
             tick: data.tick.clone(),
@@ -177,8 +211,8 @@ impl Brc20MemoryCache {
             operation: "transfer_send".to_string(),
         });
         self.ledger_row_cache.push(Brc20DbLedgerRow {
-            inscription_id: "".to_string(),
-            inscription_number: 0,
+            inscription_id: transfer_row.inscription_id.clone(),
+            inscription_number: transfer_row.inscription_number,
             ordinal_number: transfer.ordinal_number,
             block_height: block_identifier.index,
             tick: data.tick.clone(),
@@ -203,21 +237,35 @@ impl Brc20MemoryCache {
     //
 
     fn update_token_minted_supply(&mut self, tick: &str, delta: f64) {
-        if let Some(minted) = self.token_minted_supply_map.get(&tick.to_string()) {
-            self.token_minted_supply_map
-                .insert(tick.to_string(), minted + delta);
-        } else {
-            self.token_minted_supply_map.insert(tick.to_string(), delta);
-        }
+        let Some(minted) = self.token_minted_supply_map.get_mut(&tick.to_string()) else {
+            self.token_minted_supply_map.put(tick.to_string(), delta);
+            return;
+        };
+        *minted += delta;
     }
 
     fn update_token_avail_balance_for_address(&mut self, tick: &str, address: &str, delta: f64) {
         let key = (tick.to_string(), address.to_string());
-        if let Some(balance) = self.token_addr_avail_balance_map.get(&key) {
-            self.token_addr_avail_balance_map
-                .insert(key, balance + delta);
-        } else {
-            self.token_addr_avail_balance_map.insert(key, delta);
+        let Some(balance) = self.token_addr_avail_balance_map.get_mut(&key) else {
+            self.token_addr_avail_balance_map.put(key, delta);
+            return;
+        };
+        *balance += delta;
+    }
+
+    fn get_transfer_balance_data(
+        &mut self,
+        ordinal_number: u64,
+        db_tx: &Connection,
+        ctx: &Context,
+    ) -> Brc20DbLedgerRow {
+        if let Some(transfer) = self.transfer_cache.get(&ordinal_number) {
+            return transfer.clone();
         }
+        if let Some(transfer) = get_unsent_token_transfer_with_sender(ordinal_number, db_tx, ctx) {
+            self.transfer_cache.put(ordinal_number, transfer.clone());
+            return transfer;
+        }
+        unreachable!("Invalid transfer ordinal number")
     }
 }
