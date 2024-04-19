@@ -1,4 +1,4 @@
-use std::num::NonZeroUsize;
+use std::{collections::HashMap, num::NonZeroUsize};
 
 use chainhook_sdk::{
     types::{BlockIdentifier, OrdinalInscriptionRevealData, OrdinalInscriptionTransferData},
@@ -7,26 +7,56 @@ use chainhook_sdk::{
 use lru::LruCache;
 use rusqlite::{Connection, Transaction};
 
-use crate::core::meta_protocols::brc20::db::get_unsent_token_transfer_with_sender;
+use crate::core::meta_protocols::brc20::db::get_unsent_token_transfer;
 
 use super::{
     db::{
         get_token, get_token_available_balance_for_address, get_token_minted_supply,
         insert_ledger_rows, insert_token_rows, Brc20DbLedgerRow, Brc20DbTokenRow,
     },
+    parser::ParsedBrc20Operation,
     verifier::{VerifiedBrc20BalanceData, VerifiedBrc20TokenDeployData, VerifiedBrc20TransferData},
 };
+
+struct BlockCache {
+    parsed_operations: HashMap<String, ParsedBrc20Operation>,
+    ledger_db_rows: Vec<Brc20DbLedgerRow>,
+    token_db_rows: Vec<Brc20DbTokenRow>,
+}
+
+impl BlockCache {
+    fn new() -> Self {
+        BlockCache {
+            parsed_operations: HashMap::new(),
+            ledger_db_rows: Vec::new(),
+            token_db_rows: Vec::new(),
+        }
+    }
+
+    pub fn get_parsed_operation(
+        &mut self,
+        inscription_id: String,
+    ) -> Option<&ParsedBrc20Operation> {
+        self.parsed_operations.get(&inscription_id)
+    }
+
+    pub fn flush(&mut self, db_tx: &Transaction, ctx: &Context) {
+        insert_token_rows(&self.token_db_rows, db_tx, ctx);
+        insert_ledger_rows(&self.ledger_db_rows, db_tx, ctx);
+        self.parsed_operations.clear();
+        self.ledger_db_rows.clear();
+        self.token_db_rows.clear();
+    }
+}
 
 /// In-memory cache that keeps verified token data to avoid excessive reads to the database.
 pub struct Brc20MemoryCache {
     tokens: LruCache<String, Brc20DbTokenRow>,
     token_minted_supplies: LruCache<String, f64>,
     token_addr_avail_balances: LruCache<(String, String), f64>,
-    transfers: LruCache<u64, Brc20DbLedgerRow>,
-    blacklisted_inscriptions: LruCache<u64, bool>,
-
-    ledger_db_rows: Vec<Brc20DbLedgerRow>,
-    token_db_rows: Vec<Brc20DbTokenRow>,
+    unsent_transfers: LruCache<u64, Brc20DbLedgerRow>,
+    ignored_inscriptions: LruCache<u64, bool>,
+    pub block_cache: BlockCache,
 }
 
 impl Brc20MemoryCache {
@@ -35,10 +65,9 @@ impl Brc20MemoryCache {
             tokens: LruCache::new(NonZeroUsize::new(lru_size).unwrap()),
             token_minted_supplies: LruCache::new(NonZeroUsize::new(lru_size).unwrap()),
             token_addr_avail_balances: LruCache::new(NonZeroUsize::new(lru_size).unwrap()),
-            transfers: LruCache::new(NonZeroUsize::new(lru_size).unwrap()),
-            blacklisted_inscriptions: LruCache::new(NonZeroUsize::new(lru_size).unwrap()),
-            ledger_db_rows: Vec::new(),
-            token_db_rows: Vec::new(),
+            unsent_transfers: LruCache::new(NonZeroUsize::new(lru_size).unwrap()),
+            ignored_inscriptions: LruCache::new(NonZeroUsize::new(lru_size).unwrap()),
+            block_cache: BlockCache::new(),
         }
     }
 
@@ -91,30 +120,35 @@ impl Brc20MemoryCache {
         return balance;
     }
 
-    pub fn get_unsent_token_transfer_with_sender(
+    pub fn get_unsent_token_transfer(
         &mut self,
         ordinal_number: u64,
         db_tx: &Transaction,
         ctx: &Context,
     ) -> Option<Brc20DbLedgerRow> {
-        if let Some(row) = self.transfers.get(&ordinal_number) {
-            return Some(row.clone());
-        }
-        if let Some(_) = self.blacklisted_inscriptions.get(&ordinal_number) {
-            // Avoid a DB read if this is not a valid transfer.
+        // Use `get` instead of `contains` so we promote this value in the LRU.
+        if let Some(_) = self.ignored_inscriptions.get(&ordinal_number) {
             return None;
         }
-        match get_unsent_token_transfer_with_sender(ordinal_number, db_tx, ctx) {
+        if let Some(row) = self.unsent_transfers.get(&ordinal_number) {
+            return Some(row.clone());
+        }
+        match get_unsent_token_transfer(ordinal_number, db_tx, ctx) {
             Some(row) => {
-                self.transfers.put(ordinal_number, row.clone());
+                self.unsent_transfers.put(ordinal_number, row.clone());
                 return Some(row);
             }
             None => {
-                // Ignore that inscription's future transfers.
-                self.blacklisted_inscriptions.put(ordinal_number, true);
+                // Inscription is not relevant for BRC20.
+                self.ignore_inscription(ordinal_number);
                 return None;
             }
         }
+    }
+
+    /// Marks an ordinal number as ignored so we don't bother computing its transfers for BRC20 purposes.
+    pub fn ignore_inscription(&mut self, ordinal_number: u64) {
+        self.ignored_inscriptions.put(ordinal_number, true);
     }
 
     pub fn insert_token_deploy(
@@ -138,8 +172,8 @@ impl Brc20MemoryCache {
         };
         self.tokens.put(token.tick.clone(), token.clone());
         self.token_minted_supplies.put(token.tick.clone(), 0.0);
-        self.token_db_rows.push(token);
-        self.ledger_db_rows.push(Brc20DbLedgerRow {
+        self.block_cache.token_db_rows.push(token);
+        self.block_cache.ledger_db_rows.push(Brc20DbLedgerRow {
             inscription_id: reveal.inscription_id.clone(),
             inscription_number: reveal.inscription_number.jubilee as u64,
             ordinal_number: reveal.ordinal_number,
@@ -150,6 +184,7 @@ impl Brc20MemoryCache {
             trans_balance: 0.0,
             operation: "deploy".to_string(),
         });
+        self.ignore_inscription(reveal.ordinal_number);
     }
 
     pub fn insert_token_mint(
@@ -162,7 +197,7 @@ impl Brc20MemoryCache {
     ) {
         self.increase_token_minted_supply(&data.tick, data.amt);
         self.update_token_addr_avail_balance(&data.tick, &data.address, data.amt);
-        self.ledger_db_rows.push(Brc20DbLedgerRow {
+        self.block_cache.ledger_db_rows.push(Brc20DbLedgerRow {
             inscription_id: reveal.inscription_id.clone(),
             inscription_number: reveal.inscription_number.jubilee as u64,
             ordinal_number: reveal.ordinal_number,
@@ -173,6 +208,7 @@ impl Brc20MemoryCache {
             trans_balance: 0.0,
             operation: "mint".to_string(),
         });
+        self.ignore_inscription(reveal.ordinal_number);
     }
 
     pub fn insert_token_transfer(
@@ -195,9 +231,10 @@ impl Brc20MemoryCache {
             trans_balance: data.amt,
             operation: "transfer".to_string(),
         };
-        self.transfers
+        self.unsent_transfers
             .put(reveal.ordinal_number, ledger_row.clone());
-        self.ledger_db_rows.push(ledger_row);
+        self.block_cache.ledger_db_rows.push(ledger_row);
+        self.ignored_inscriptions.pop(&reveal.ordinal_number); // Just in case.
     }
 
     pub fn insert_token_transfer_send(
@@ -208,8 +245,8 @@ impl Brc20MemoryCache {
         db_tx: &Connection,
         ctx: &Context,
     ) {
-        let transfer_row = self.get_transfer_row(transfer.ordinal_number, db_tx, ctx);
-        self.ledger_db_rows.push(Brc20DbLedgerRow {
+        let transfer_row = self.get_unsent_transfer_row(transfer.ordinal_number, db_tx, ctx);
+        self.block_cache.ledger_db_rows.push(Brc20DbLedgerRow {
             inscription_id: transfer_row.inscription_id.clone(),
             inscription_number: transfer_row.inscription_number,
             ordinal_number: transfer.ordinal_number,
@@ -220,7 +257,7 @@ impl Brc20MemoryCache {
             trans_balance: data.amt * -1.0,
             operation: "transfer_send".to_string(),
         });
-        self.ledger_db_rows.push(Brc20DbLedgerRow {
+        self.block_cache.ledger_db_rows.push(Brc20DbLedgerRow {
             inscription_id: transfer_row.inscription_id.clone(),
             inscription_number: transfer_row.inscription_number,
             ordinal_number: transfer.ordinal_number,
@@ -232,16 +269,9 @@ impl Brc20MemoryCache {
             operation: "transfer_receive".to_string(),
         });
         self.update_token_addr_avail_balance(&data.tick, &data.receiver_address, data.amt);
-        self.transfers.demote(&transfer.ordinal_number);
-    }
-
-    /// Writes all pending `tokens` and `ledger` DB rows to the database and clears caches. Usually
-    /// called once per block.
-    pub fn flush_row_cache(&mut self, db_tx: &Transaction, ctx: &Context) {
-        insert_token_rows(&self.token_db_rows, db_tx, ctx);
-        self.token_db_rows.clear();
-        insert_ledger_rows(&self.ledger_db_rows, db_tx, ctx);
-        self.ledger_db_rows.clear();
+        // We're not interested in further transfers.
+        self.unsent_transfers.pop(&transfer.ordinal_number);
+        self.ignore_inscription(transfer.ordinal_number);
     }
 
     //
@@ -265,17 +295,17 @@ impl Brc20MemoryCache {
         *balance += delta;
     }
 
-    fn get_transfer_row(
+    fn get_unsent_transfer_row(
         &mut self,
         ordinal_number: u64,
         db_tx: &Connection,
         ctx: &Context,
     ) -> Brc20DbLedgerRow {
-        if let Some(transfer) = self.transfers.get(&ordinal_number) {
+        if let Some(transfer) = self.unsent_transfers.get(&ordinal_number) {
             return transfer.clone();
         }
-        if let Some(transfer) = get_unsent_token_transfer_with_sender(ordinal_number, db_tx, ctx) {
-            self.transfers.put(ordinal_number, transfer.clone());
+        if let Some(transfer) = get_unsent_token_transfer(ordinal_number, db_tx, ctx) {
+            self.unsent_transfers.put(ordinal_number, transfer.clone());
             return transfer;
         }
         unreachable!("Invalid transfer ordinal number {}", ordinal_number)

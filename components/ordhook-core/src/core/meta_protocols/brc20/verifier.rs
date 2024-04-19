@@ -172,8 +172,7 @@ pub fn verify_brc20_transfer(
     db_tx: &Transaction,
     ctx: &Context,
 ) -> Result<VerifiedBrc20TransferData, String> {
-    let Some(transfer_row) =
-        cache.get_unsent_token_transfer_with_sender(transfer.ordinal_number, db_tx, ctx)
+    let Some(transfer_row) = cache.get_unsent_token_transfer(transfer.ordinal_number, db_tx, ctx)
     else {
         return Err(format!(
             "No BRC-20 transfer in ordinal {} or transfer already sent",

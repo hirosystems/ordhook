@@ -3,7 +3,7 @@ pub mod observers;
 mod runloops;
 
 use crate::config::{Config, PredicatesApi};
-use crate::core::meta_protocols::brc20::{self, brc20_activation_height};
+use crate::core::meta_protocols::brc20::{self, brc20_activation_height, cache};
 use crate::core::meta_protocols::brc20::cache::Brc20MemoryCache;
 use crate::core::meta_protocols::brc20::db::open_readwrite_brc20_db_conn;
 use crate::core::meta_protocols::brc20::parser::ParsedBrc20Operation;
@@ -29,6 +29,7 @@ use crate::db::{
     find_last_block_inserted, find_missing_blocks, run_compaction,
     update_sequence_metadata_with_block,
 };
+use crate::ord::inscription;
 use crate::scan::bitcoin::process_block_with_predicates;
 use crate::service::http_api::start_predicate_api_server;
 use crate::service::observers::{
@@ -855,7 +856,6 @@ pub fn chainhook_sidecar_mutate_blocks(
 
 pub fn write_brc20_block_operations(
     block: &BitcoinBlockData,
-    brc20_operation_map: &HashMap<String, ParsedBrc20Operation>,
     brc20_memory_cache: &mut Brc20MemoryCache,
     db_tx: &Transaction,
     ctx: &Context,
@@ -868,7 +868,7 @@ pub fn write_brc20_block_operations(
             match op {
                 OrdinalOperation::InscriptionRevealed(reveal) => {
                     if let Some(parsed_brc20_operation) =
-                        brc20_operation_map.get(&reveal.inscription_id)
+                        brc20_memory_cache.block_cache.get_parsed_operation(reveal.inscription_id)
                     {
                         match verify_brc20_operation(
                             parsed_brc20_operation,
@@ -943,6 +943,8 @@ pub fn write_brc20_block_operations(
                                 });
                             }
                         }
+                    } else {
+                        brc20_memory_cache.ignore_inscription(reveal.ordinal_number);
                     }
                 }
                 OrdinalOperation::InscriptionTransferred(transfer) => {
@@ -974,5 +976,5 @@ pub fn write_brc20_block_operations(
             }
         }
     }
-    brc20_memory_cache.flush_row_cache(db_tx, ctx);
+    brc20_memory_cache.block_cache.flush(db_tx, ctx);
 }

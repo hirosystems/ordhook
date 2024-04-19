@@ -216,7 +216,7 @@ pub fn get_token_available_balance_for_address(
     perform_query_one(query, args, &db_tx, ctx, |row| row.get(0).unwrap()).unwrap_or(0.0)
 }
 
-pub fn get_unsent_token_transfer_with_sender(
+pub fn get_unsent_token_transfer(
     ordinal_number: u64,
     db_tx: &Connection,
     ctx: &Context,
