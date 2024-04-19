@@ -111,6 +111,7 @@ impl Config {
                 BitcoinNetwork::Signet => 112402,
             },
             logs: self.logs.clone(),
+            meta_protocols: self.meta_protocols.clone(),
         }
     }
 
