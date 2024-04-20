@@ -1,4 +1,4 @@
-use std::{collections::HashMap, num::NonZeroUsize};
+use std::num::NonZeroUsize;
 
 use chainhook_sdk::{
     types::{BlockIdentifier, OrdinalInscriptionRevealData, OrdinalInscriptionTransferData},
@@ -14,36 +14,25 @@ use super::{
         get_token, get_token_available_balance_for_address, get_token_minted_supply,
         insert_ledger_rows, insert_token_rows, Brc20DbLedgerRow, Brc20DbTokenRow,
     },
-    parser::ParsedBrc20Operation,
     verifier::{VerifiedBrc20BalanceData, VerifiedBrc20TokenDeployData, VerifiedBrc20TransferData},
 };
 
-struct BlockCache {
-    parsed_operations: HashMap<String, ParsedBrc20Operation>,
+pub struct Brc20DbCache {
     ledger_db_rows: Vec<Brc20DbLedgerRow>,
     token_db_rows: Vec<Brc20DbTokenRow>,
 }
 
-impl BlockCache {
+impl Brc20DbCache {
     fn new() -> Self {
-        BlockCache {
-            parsed_operations: HashMap::new(),
+        Brc20DbCache {
             ledger_db_rows: Vec::new(),
             token_db_rows: Vec::new(),
         }
     }
 
-    pub fn get_parsed_operation(
-        &mut self,
-        inscription_id: String,
-    ) -> Option<&ParsedBrc20Operation> {
-        self.parsed_operations.get(&inscription_id)
-    }
-
     pub fn flush(&mut self, db_tx: &Transaction, ctx: &Context) {
         insert_token_rows(&self.token_db_rows, db_tx, ctx);
         insert_ledger_rows(&self.ledger_db_rows, db_tx, ctx);
-        self.parsed_operations.clear();
         self.ledger_db_rows.clear();
         self.token_db_rows.clear();
     }
@@ -56,7 +45,7 @@ pub struct Brc20MemoryCache {
     token_addr_avail_balances: LruCache<(String, String), f64>,
     unsent_transfers: LruCache<u64, Brc20DbLedgerRow>,
     ignored_inscriptions: LruCache<u64, bool>,
-    pub block_cache: BlockCache,
+    pub db_cache: Brc20DbCache,
 }
 
 impl Brc20MemoryCache {
@@ -67,7 +56,7 @@ impl Brc20MemoryCache {
             token_addr_avail_balances: LruCache::new(NonZeroUsize::new(lru_size).unwrap()),
             unsent_transfers: LruCache::new(NonZeroUsize::new(lru_size).unwrap()),
             ignored_inscriptions: LruCache::new(NonZeroUsize::new(lru_size).unwrap()),
-            block_cache: BlockCache::new(),
+            db_cache: Brc20DbCache::new(),
         }
     }
 
@@ -172,8 +161,8 @@ impl Brc20MemoryCache {
         };
         self.tokens.put(token.tick.clone(), token.clone());
         self.token_minted_supplies.put(token.tick.clone(), 0.0);
-        self.block_cache.token_db_rows.push(token);
-        self.block_cache.ledger_db_rows.push(Brc20DbLedgerRow {
+        self.db_cache.token_db_rows.push(token);
+        self.db_cache.ledger_db_rows.push(Brc20DbLedgerRow {
             inscription_id: reveal.inscription_id.clone(),
             inscription_number: reveal.inscription_number.jubilee as u64,
             ordinal_number: reveal.ordinal_number,
@@ -197,7 +186,7 @@ impl Brc20MemoryCache {
     ) {
         self.increase_token_minted_supply(&data.tick, data.amt);
         self.update_token_addr_avail_balance(&data.tick, &data.address, data.amt);
-        self.block_cache.ledger_db_rows.push(Brc20DbLedgerRow {
+        self.db_cache.ledger_db_rows.push(Brc20DbLedgerRow {
             inscription_id: reveal.inscription_id.clone(),
             inscription_number: reveal.inscription_number.jubilee as u64,
             ordinal_number: reveal.ordinal_number,
@@ -233,7 +222,7 @@ impl Brc20MemoryCache {
         };
         self.unsent_transfers
             .put(reveal.ordinal_number, ledger_row.clone());
-        self.block_cache.ledger_db_rows.push(ledger_row);
+        self.db_cache.ledger_db_rows.push(ledger_row);
         self.ignored_inscriptions.pop(&reveal.ordinal_number); // Just in case.
     }
 
@@ -246,7 +235,7 @@ impl Brc20MemoryCache {
         ctx: &Context,
     ) {
         let transfer_row = self.get_unsent_transfer_row(transfer.ordinal_number, db_tx, ctx);
-        self.block_cache.ledger_db_rows.push(Brc20DbLedgerRow {
+        self.db_cache.ledger_db_rows.push(Brc20DbLedgerRow {
             inscription_id: transfer_row.inscription_id.clone(),
             inscription_number: transfer_row.inscription_number,
             ordinal_number: transfer.ordinal_number,
@@ -257,7 +246,7 @@ impl Brc20MemoryCache {
             trans_balance: data.amt * -1.0,
             operation: "transfer_send".to_string(),
         });
-        self.block_cache.ledger_db_rows.push(Brc20DbLedgerRow {
+        self.db_cache.ledger_db_rows.push(Brc20DbLedgerRow {
             inscription_id: transfer_row.inscription_id.clone(),
             inscription_number: transfer_row.inscription_number,
             ordinal_number: transfer.ordinal_number,

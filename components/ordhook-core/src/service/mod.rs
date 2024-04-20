@@ -3,13 +3,13 @@ pub mod observers;
 mod runloops;
 
 use crate::config::{Config, PredicatesApi};
-use crate::core::meta_protocols::brc20::{self, brc20_activation_height, cache};
 use crate::core::meta_protocols::brc20::cache::Brc20MemoryCache;
 use crate::core::meta_protocols::brc20::db::open_readwrite_brc20_db_conn;
 use crate::core::meta_protocols::brc20::parser::ParsedBrc20Operation;
 use crate::core::meta_protocols::brc20::verifier::{
     verify_brc20_operation, verify_brc20_transfer, VerifiedBrc20Operation,
 };
+use crate::core::meta_protocols::brc20::{self, brc20_activation_height, cache};
 use crate::core::pipeline::download_and_pipeline_blocks;
 use crate::core::pipeline::processors::block_archiving::start_block_archiving_processor;
 use crate::core::pipeline::processors::inscription_indexing::process_block;
@@ -764,6 +764,7 @@ pub fn chainhook_sidecar_mutate_blocks(
                 return;
             }
         };
+    let mut brc20_cache = Brc20MemoryCache::new(config.resources.brc20_lru_cache_size);
     let brc20_db_tx = brc20_db_conn_rw.transaction().unwrap();
 
     for block_id_to_rollback in blocks_ids_to_rollback.iter() {
@@ -826,6 +827,7 @@ pub fn chainhook_sidecar_mutate_blocks(
                 &cache_l2,
                 &inscriptions_db_tx,
                 Some(&brc20_db_tx),
+                &mut brc20_cache,
                 &ordhook_config,
                 &ctx,
             );
@@ -856,7 +858,8 @@ pub fn chainhook_sidecar_mutate_blocks(
 
 pub fn write_brc20_block_operations(
     block: &BitcoinBlockData,
-    brc20_memory_cache: &mut Brc20MemoryCache,
+    brc20_operation_map: &mut HashMap<String, ParsedBrc20Operation>,
+    brc20_cache: &mut Brc20MemoryCache,
     db_tx: &Transaction,
     ctx: &Context,
 ) {
@@ -868,21 +871,21 @@ pub fn write_brc20_block_operations(
             match op {
                 OrdinalOperation::InscriptionRevealed(reveal) => {
                     if let Some(parsed_brc20_operation) =
-                        brc20_memory_cache.block_cache.get_parsed_operation(reveal.inscription_id)
+                        brc20_operation_map.get(&reveal.inscription_id)
                     {
                         match verify_brc20_operation(
                             parsed_brc20_operation,
                             reveal,
                             &block.block_identifier,
                             &block.metadata.network,
-                            brc20_memory_cache,
+                            brc20_cache,
                             &db_tx,
                             &ctx,
                         ) {
                             Ok(op) => {
                                 match op {
                                     VerifiedBrc20Operation::TokenDeploy(token) => {
-                                        brc20_memory_cache.insert_token_deploy(
+                                        brc20_cache.insert_token_deploy(
                                             &token,
                                             reveal,
                                             &block.block_identifier,
@@ -899,7 +902,7 @@ pub fn write_brc20_block_operations(
                                         });
                                     }
                                     VerifiedBrc20Operation::TokenMint(balance) => {
-                                        brc20_memory_cache.insert_token_mint(
+                                        brc20_cache.insert_token_mint(
                                             &balance,
                                             reveal,
                                             &block.block_identifier,
@@ -916,7 +919,7 @@ pub fn write_brc20_block_operations(
                                         });
                                     }
                                     VerifiedBrc20Operation::TokenTransfer(balance) => {
-                                        brc20_memory_cache.insert_token_transfer(
+                                        brc20_cache.insert_token_transfer(
                                             &balance,
                                             reveal,
                                             &block.block_identifier,
@@ -944,13 +947,13 @@ pub fn write_brc20_block_operations(
                             }
                         }
                     } else {
-                        brc20_memory_cache.ignore_inscription(reveal.ordinal_number);
+                        brc20_cache.ignore_inscription(reveal.ordinal_number);
                     }
                 }
                 OrdinalOperation::InscriptionTransferred(transfer) => {
-                    match verify_brc20_transfer(transfer, brc20_memory_cache, &db_tx, &ctx) {
+                    match verify_brc20_transfer(transfer, brc20_cache, &db_tx, &ctx) {
                         Ok(data) => {
-                            brc20_memory_cache.insert_token_transfer_send(
+                            brc20_cache.insert_token_transfer_send(
                                 &data,
                                 &transfer,
                                 &block.block_identifier,
@@ -976,5 +979,5 @@ pub fn write_brc20_block_operations(
             }
         }
     }
-    brc20_memory_cache.block_cache.flush(db_tx, ctx);
+    brc20_cache.db_cache.flush(db_tx, ctx);
 }

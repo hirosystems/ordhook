@@ -19,7 +19,9 @@ use std::hash::BuildHasherDefault;
 
 use crate::{
     core::{
-        meta_protocols::brc20::{cache::Brc20MemoryCache, db::open_readwrite_brc20_db_conn},
+        meta_protocols::brc20::{
+            cache::Brc20MemoryCache, db::open_readwrite_brc20_db_conn, parser::ParsedBrc20Operation,
+        },
         pipeline::processors::block_archiving::store_compacted_blocks,
         protocol::{
             inscription_parsing::{
@@ -186,6 +188,8 @@ pub fn process_blocks(
             panic!("Unable to open readwrite connection: {e}");
         }
     };
+    let mut brc20_cache = Brc20MemoryCache::new(ordhook_config.resources.brc20_lru_cache_size);
+
     for _cursor in 0..next_blocks.len() {
         let inscriptions_db_tx: rusqlite::Transaction<'_> =
             inscriptions_db_conn_rw.transaction().unwrap();
@@ -216,6 +220,7 @@ pub fn process_blocks(
             cache_l2,
             &inscriptions_db_tx,
             Some(&brc20_db_tx),
+            &mut brc20_cache,
             ordhook_config,
             ctx,
         );
@@ -290,9 +295,11 @@ pub fn process_block(
     cache_l2: &Arc<DashMap<(u32, [u8; 8]), TransactionBytesCursor, BuildHasherDefault<FxHasher>>>,
     inscriptions_db_tx: &Transaction,
     brc20_db_tx: Option<&Transaction>,
+    brc20_cache: &mut Brc20MemoryCache,
     ordhook_config: &OrdhookConfig,
     ctx: &Context,
 ) -> Result<(), String> {
+    // Parsed BRC20 ops will be deposited here for this block.
     let mut brc20_operation_map = HashMap::new();
     parse_inscriptions_in_standardized_block(block, &mut brc20_operation_map, &ctx);
 
@@ -327,8 +334,13 @@ pub fn process_block(
     let _ = augment_block_with_ordinals_transfer_data(block, inscriptions_db_tx, true, &inner_ctx);
 
     if let Some(brc20_db_tx) = brc20_db_tx {
-        let mut cache = Brc20MemoryCache::new(ordhook_config.resources.brc20_lru_cache_size);
-        write_brc20_block_operations(&block, &brc20_operation_map, &mut cache, &brc20_db_tx, &ctx);
+        write_brc20_block_operations(
+            &block,
+            &mut brc20_operation_map,
+            brc20_cache,
+            &brc20_db_tx,
+            &ctx,
+        );
     }
 
     Ok(())
