@@ -209,155 +209,23 @@ pub fn verify_brc20_transfer(
 
 #[cfg(test)]
 mod test {
-    use chainhook_sdk::{
-        types::{
-            BitcoinNetwork, BlockIdentifier, OrdinalInscriptionNumber,
-            OrdinalInscriptionRevealData, OrdinalInscriptionTransferData,
-            OrdinalInscriptionTransferDestination,
-        },
-        utils::Context,
+    use chainhook_sdk::types::{
+        BitcoinNetwork, BlockIdentifier, OrdinalInscriptionRevealData,
+        OrdinalInscriptionTransferData, OrdinalInscriptionTransferDestination,
     };
     use test_case::test_case;
 
     use crate::core::meta_protocols::brc20::{
         cache::Brc20MemoryCache,
-        db::{
-            initialize_brc20_db, insert_token, insert_token_mint, insert_token_transfer,
-            insert_token_transfer_send,
-        },
+        db::initialize_brc20_db,
         parser::{ParsedBrc20BalanceData, ParsedBrc20Operation, ParsedBrc20TokenDeployData},
+        test_utils::{get_test_ctx, Brc20RevealBuilder, Brc20TransferBuilder},
         verifier::{
             VerifiedBrc20BalanceData, VerifiedBrc20Operation, VerifiedBrc20TokenDeployData,
         },
     };
 
     use super::{verify_brc20_operation, verify_brc20_transfer, VerifiedBrc20TransferData};
-
-    struct Brc20RevealBuilder {
-        inscription_number: OrdinalInscriptionNumber,
-        inscriber_address: Option<String>,
-        inscription_id: String,
-        ordinal_number: u64,
-        parent: Option<String>,
-    }
-
-    impl Brc20RevealBuilder {
-        fn new() -> Self {
-            Brc20RevealBuilder {
-                inscription_number: OrdinalInscriptionNumber {
-                    classic: 0,
-                    jubilee: 0,
-                },
-                inscriber_address: Some("324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string()),
-                inscription_id:
-                    "9bb2314d666ae0b1db8161cb373fcc1381681f71445c4e0335aa80ea9c37fcddi0".to_string(),
-                ordinal_number: 0,
-                parent: None,
-            }
-        }
-
-        fn inscription_number(mut self, val: i64) -> Self {
-            self.inscription_number = OrdinalInscriptionNumber {
-                classic: val,
-                jubilee: val,
-            };
-            self
-        }
-
-        fn inscriber_address(mut self, val: Option<String>) -> Self {
-            self.inscriber_address = val;
-            self
-        }
-
-        fn inscription_id(mut self, val: &str) -> Self {
-            self.inscription_id = val.to_string();
-            self
-        }
-
-        fn ordinal_number(mut self, val: u64) -> Self {
-            self.ordinal_number = val;
-            self
-        }
-
-        fn parent(mut self, val: Option<String>) -> Self {
-            self.parent = val;
-            self
-        }
-
-        fn build(self) -> OrdinalInscriptionRevealData {
-            OrdinalInscriptionRevealData {
-                content_bytes: "".to_string(),
-                content_type: "text/plain".to_string(),
-                content_length: 10,
-                inscription_number: self.inscription_number,
-                inscription_fee: 100,
-                inscription_output_value: 10000,
-                inscription_id: self.inscription_id,
-                inscription_input_index: 0,
-                inscription_pointer: None,
-                inscriber_address: self.inscriber_address,
-                delegate: None,
-                metaprotocol: None,
-                metadata: None,
-                parent: self.parent,
-                ordinal_number: self.ordinal_number,
-                ordinal_block_height: 767430,
-                ordinal_offset: 0,
-                tx_index: 0,
-                transfers_pre_inscription: 0,
-                satpoint_post_inscription:
-                    "9bb2314d666ae0b1db8161cb373fcc1381681f71445c4e0335aa80ea9c37fcdd:0:0"
-                        .to_string(),
-                curse_type: None,
-            }
-        }
-    }
-
-    struct Brc20TransferBuilder {
-        ordinal_number: u64,
-        destination: OrdinalInscriptionTransferDestination,
-    }
-
-    impl Brc20TransferBuilder {
-        fn new() -> Self {
-            Brc20TransferBuilder {
-                ordinal_number: 0,
-                destination: OrdinalInscriptionTransferDestination::Transferred(
-                    "bc1pls75sfwullhygkmqap344f5cqf97qz95lvle6fvddm0tpz2l5ffslgq3m0".to_string(),
-                ),
-            }
-        }
-
-        fn ordinal_number(mut self, val: u64) -> Self {
-            self.ordinal_number = val;
-            self
-        }
-
-        fn destination(mut self, val: OrdinalInscriptionTransferDestination) -> Self {
-            self.destination = val;
-            self
-        }
-
-        fn build(self) -> OrdinalInscriptionTransferData {
-            OrdinalInscriptionTransferData {
-                ordinal_number: self.ordinal_number,
-                destination: self.destination,
-                satpoint_pre_transfer: "".to_string(),
-                satpoint_post_transfer: "".to_string(),
-                post_transfer_output_value: Some(500),
-                tx_index: 0,
-            }
-        }
-    }
-
-    fn get_test_ctx() -> Context {
-        let logger = hiro_system_kit::log::setup_logger();
-        let _guard = hiro_system_kit::log::setup_global_logger(logger.clone());
-        Context {
-            logger: Some(logger),
-            tracer: false,
-        }
-    }
 
     #[test_case(
         ParsedBrc20Operation::Deploy(ParsedBrc20TokenDeployData {
@@ -553,7 +421,8 @@ mod test {
             index: 835727,
             hash: "00000000000000000002d8ba402150b259ddb2b30a1d32ab4a881d4653bceb5b".to_string(),
         };
-        insert_token(
+        let mut cache = Brc20MemoryCache::new(10);
+        cache.insert_token_deploy(
             &VerifiedBrc20TokenDeployData {
                 tick: "pepe".to_string(),
                 max: 21000000.0,
@@ -572,7 +441,7 @@ mod test {
             &reveal,
             &block,
             &BitcoinNetwork::Mainnet,
-            &mut Brc20MemoryCache::new(50),
+            &mut cache,
             &tx,
             &ctx,
         )
@@ -623,7 +492,8 @@ mod test {
             index: 840000,
             hash: "00000000000000000002d8ba402150b259ddb2b30a1d32ab4a881d4653bceb5b".to_string(),
         };
-        insert_token(
+        let mut cache = Brc20MemoryCache::new(10);
+        cache.insert_token_deploy(
             &VerifiedBrc20TokenDeployData {
                 tick: "$pepe".to_string(),
                 max: 21000000.0,
@@ -642,7 +512,7 @@ mod test {
             &reveal,
             &block,
             &BitcoinNetwork::Mainnet,
-            &mut Brc20MemoryCache::new(50),
+            &mut cache,
             &tx,
             &ctx,
         )
@@ -668,7 +538,8 @@ mod test {
             index: 835727,
             hash: "00000000000000000002d8ba402150b259ddb2b30a1d32ab4a881d4653bceb5b".to_string(),
         };
-        insert_token(
+        let mut cache = Brc20MemoryCache::new(10);
+        cache.insert_token_deploy(
             &VerifiedBrc20TokenDeployData {
                 tick: "pepe".to_string(),
                 max: 21000000.0,
@@ -682,7 +553,7 @@ mod test {
             &tx,
             &ctx,
         );
-        insert_token_mint(
+        cache.insert_token_mint(
             &VerifiedBrc20BalanceData {
                 tick: "pepe".to_string(),
                 amt: 21000000.0, // For testing
@@ -698,7 +569,7 @@ mod test {
             &reveal,
             &block,
             &BitcoinNetwork::Mainnet,
-            &mut Brc20MemoryCache::new(50),
+            &mut cache,
             &tx,
             &ctx,
         )
@@ -727,7 +598,8 @@ mod test {
             index: 835727,
             hash: "00000000000000000002d8ba402150b259ddb2b30a1d32ab4a881d4653bceb5b".to_string(),
         };
-        insert_token(
+        let mut cache = Brc20MemoryCache::new(10);
+        cache.insert_token_deploy(
             &VerifiedBrc20TokenDeployData {
                 tick: "pepe".to_string(),
                 max: 21000000.0,
@@ -741,7 +613,7 @@ mod test {
             &tx,
             &ctx,
         );
-        insert_token_mint(
+        cache.insert_token_mint(
             &VerifiedBrc20BalanceData {
                 tick: "pepe".to_string(),
                 amt: 21000000.0 - 500.0, // For testing
@@ -757,7 +629,7 @@ mod test {
             &reveal,
             &block,
             &BitcoinNetwork::Mainnet,
-            &mut Brc20MemoryCache::new(50),
+            &mut cache,
             &tx,
             &ctx,
         )
@@ -832,7 +704,8 @@ mod test {
             index: 835727,
             hash: "00000000000000000002d8ba402150b259ddb2b30a1d32ab4a881d4653bceb5b".to_string(),
         };
-        insert_token(
+        let mut cache = Brc20MemoryCache::new(10);
+        cache.insert_token_deploy(
             &VerifiedBrc20TokenDeployData {
                 tick: "pepe".to_string(),
                 max: 21000000.0,
@@ -852,7 +725,7 @@ mod test {
             &ctx,
         );
         // Mint from 2 addresses
-        insert_token_mint(
+        cache.insert_token_mint(
             &VerifiedBrc20BalanceData {
                 tick: "pepe".to_string(),
                 amt: 1000.0,
@@ -868,7 +741,7 @@ mod test {
             &tx,
             &ctx,
         );
-        insert_token_mint(
+        cache.insert_token_mint(
             &VerifiedBrc20BalanceData {
                 tick: "pepe".to_string(),
                 amt: 1000.0,
@@ -889,7 +762,7 @@ mod test {
             &reveal,
             &block,
             &BitcoinNetwork::Mainnet,
-            &mut Brc20MemoryCache::new(50),
+            &mut cache,
             &tx,
             &ctx,
         )
@@ -946,7 +819,8 @@ mod test {
             index: 835727,
             hash: "00000000000000000002d8ba402150b259ddb2b30a1d32ab4a881d4653bceb5b".to_string(),
         };
-        insert_token(
+        let mut cache = Brc20MemoryCache::new(10);
+        cache.insert_token_deploy(
             &VerifiedBrc20TokenDeployData {
                 tick: "pepe".to_string(),
                 max: 21000000.0,
@@ -965,7 +839,7 @@ mod test {
             &tx,
             &ctx,
         );
-        insert_token_mint(
+        cache.insert_token_mint(
             &VerifiedBrc20BalanceData {
                 tick: "pepe".to_string(),
                 amt: 1000.0,
@@ -981,7 +855,7 @@ mod test {
             &tx,
             &ctx,
         );
-        insert_token_transfer(
+        cache.insert_token_transfer(
             &VerifiedBrc20BalanceData {
                 tick: "pepe".to_string(),
                 amt: 500.0,
@@ -998,7 +872,7 @@ mod test {
             &tx,
             &ctx,
         );
-        verify_brc20_transfer(&transfer, &mut Brc20MemoryCache::new(50), &tx, &ctx)
+        verify_brc20_transfer(&transfer, &mut cache, &tx, &ctx)
     }
 
     #[test_case(
@@ -1016,7 +890,8 @@ mod test {
             index: 835727,
             hash: "00000000000000000002d8ba402150b259ddb2b30a1d32ab4a881d4653bceb5b".to_string(),
         };
-        insert_token(
+        let mut cache = Brc20MemoryCache::new(10);
+        cache.insert_token_deploy(
             &VerifiedBrc20TokenDeployData {
                 tick: "pepe".to_string(),
                 max: 21000000.0,
@@ -1035,7 +910,7 @@ mod test {
             &tx,
             &ctx,
         );
-        insert_token_mint(
+        cache.insert_token_mint(
             &VerifiedBrc20BalanceData {
                 tick: "pepe".to_string(),
                 amt: 1000.0,
@@ -1051,7 +926,7 @@ mod test {
             &tx,
             &ctx,
         );
-        insert_token_transfer(
+        cache.insert_token_transfer(
             &VerifiedBrc20BalanceData {
                 tick: "pepe".to_string(),
                 amt: 500.0,
@@ -1068,7 +943,7 @@ mod test {
             &tx,
             &ctx,
         );
-        insert_token_transfer_send(
+        cache.insert_token_transfer_send(
             &VerifiedBrc20TransferData {
                 tick: "pepe".to_string(),
                 amt: 500.0,
@@ -1081,6 +956,6 @@ mod test {
             &tx,
             &ctx,
         );
-        verify_brc20_transfer(&transfer, &mut Brc20MemoryCache::new(50), &tx, &ctx)
+        verify_brc20_transfer(&transfer, &mut cache, &tx, &ctx)
     }
 }

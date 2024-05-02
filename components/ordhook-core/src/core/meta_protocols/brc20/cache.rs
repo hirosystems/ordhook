@@ -301,3 +301,88 @@ impl Brc20MemoryCache {
         unreachable!("Invalid transfer ordinal number {}", ordinal_number)
     }
 }
+
+#[cfg(test)]
+mod test {
+    use chainhook_sdk::types::BlockIdentifier;
+    use test_case::test_case;
+
+    use crate::core::meta_protocols::brc20::{
+        db::initialize_brc20_db,
+        test_utils::{get_test_ctx, Brc20RevealBuilder},
+        verifier::{VerifiedBrc20BalanceData, VerifiedBrc20TokenDeployData},
+    };
+
+    use super::Brc20MemoryCache;
+
+    #[test_case(500.0 => Ok(500.0); "with transfer amt")]
+    #[test_case(1000.0 => Ok(0.0); "with transfer to zero")]
+    fn test_brc20_memory_cache_transfer_avail_balance(amt: f64) -> Result<f64, String> {
+        let ctx = get_test_ctx();
+        let mut conn = initialize_brc20_db(None, &ctx);
+        let tx = conn.transaction().unwrap();
+        let mut cache = Brc20MemoryCache::new(10);
+        cache.insert_token_deploy(
+            &VerifiedBrc20TokenDeployData {
+                tick: "pepe".to_string(),
+                max: 21000000.0,
+                lim: 1000.0,
+                dec: 18,
+                address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
+                self_mint: false,
+            },
+            &Brc20RevealBuilder::new().inscription_number(0).build(),
+            &BlockIdentifier {
+                index: 800000,
+                hash: "00000000000000000002d8ba402150b259ddb2b30a1d32ab4a881d4653bceb5b"
+                    .to_string(),
+            },
+            &tx,
+            &ctx,
+        );
+        cache.insert_token_mint(
+            &VerifiedBrc20BalanceData {
+                tick: "pepe".to_string(),
+                amt: 1000.0,
+                address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
+            },
+            &Brc20RevealBuilder::new().inscription_number(1).build(),
+            &BlockIdentifier {
+                index: 800001,
+                hash: "00000000000000000002d8ba402150b259ddb2b30a1d32ab4a881d4653bceb5b"
+                    .to_string(),
+            },
+            &tx,
+            &ctx,
+        );
+        assert!(
+            cache.get_token_avail_balance_for_address(
+                "pepe",
+                "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp",
+                &tx,
+                &ctx,
+            ) == 1000.0
+        );
+        cache.insert_token_transfer(
+            &VerifiedBrc20BalanceData {
+                tick: "pepe".to_string(),
+                amt,
+                address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
+            },
+            &Brc20RevealBuilder::new().inscription_number(2).build(),
+            &BlockIdentifier {
+                index: 800002,
+                hash: "00000000000000000002d8ba402150b259ddb2b30a1d32ab4a881d4653bceb5b"
+                    .to_string(),
+            },
+            &tx,
+            &ctx,
+        );
+        Ok(cache.get_token_avail_balance_for_address(
+            "pepe",
+            "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp",
+            &tx,
+            &ctx,
+        ))
+    }
+}
