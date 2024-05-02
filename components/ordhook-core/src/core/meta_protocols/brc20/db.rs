@@ -206,14 +206,14 @@ pub fn get_token_available_balance_for_address(
     address: &str,
     db_tx: &Transaction,
     ctx: &Context,
-) -> f64 {
+) -> Option<f64> {
     let args: &[&dyn ToSql] = &[&tick.to_sql().unwrap(), &address.to_sql().unwrap()];
     let query = "
-        SELECT COALESCE(SUM(avail_balance), 0.0) AS avail_balance
+        SELECT SUM(avail_balance) AS avail_balance
         FROM ledger
         WHERE tick = ? AND address = ?
     ";
-    perform_query_one(query, args, &db_tx, ctx, |row| row.get(0).unwrap()).unwrap_or(0.0)
+    perform_query_one(query, args, &db_tx, ctx, |row| row.get(0).unwrap()).unwrap_or(None)
 }
 
 pub fn get_unsent_token_transfer(

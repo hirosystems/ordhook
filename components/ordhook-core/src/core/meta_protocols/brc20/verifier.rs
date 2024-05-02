@@ -146,7 +146,7 @@ pub fn verify_brc20_operation(
                     token.tick, data.amt
                 ));
             }
-            let avail_balance = cache.get_token_avail_balance_for_address(
+            let avail_balance = cache.get_token_avail_balance_for_address_transfer(
                 &token.tick,
                 &inscriber_address,
                 db_tx,

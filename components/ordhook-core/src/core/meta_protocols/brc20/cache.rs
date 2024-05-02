@@ -94,7 +94,7 @@ impl Brc20MemoryCache {
         return minted_supply;
     }
 
-    pub fn get_token_avail_balance_for_address(
+    pub fn get_token_avail_balance_for_address_transfer(
         &mut self,
         tick: &str,
         address: &str,
@@ -105,7 +105,12 @@ impl Brc20MemoryCache {
         if let Some(balance) = self.token_addr_avail_balances.get(&key) {
             return balance.clone();
         }
-        let balance = get_token_available_balance_for_address(tick, address, db_tx, ctx);
+        // Flush cache in case balance was affected in between.
+        self.db_cache.flush(db_tx, ctx);
+        let Some(balance) = get_token_available_balance_for_address(tick, address, db_tx, ctx)
+        else {
+            unreachable!("BRC-20 cache unable to find available balance for address transfer");
+        };
         self.token_addr_avail_balances.put(key, balance);
         return balance;
     }
@@ -304,16 +309,130 @@ impl Brc20MemoryCache {
 
 #[cfg(test)]
 mod test {
-    use chainhook_sdk::types::BlockIdentifier;
+    use chainhook_sdk::types::{BitcoinNetwork, BlockIdentifier};
     use test_case::test_case;
 
     use crate::core::meta_protocols::brc20::{
         db::initialize_brc20_db,
+        parser::{ParsedBrc20BalanceData, ParsedBrc20Operation},
         test_utils::{get_test_ctx, Brc20RevealBuilder},
-        verifier::{VerifiedBrc20BalanceData, VerifiedBrc20TokenDeployData},
+        verifier::{
+            verify_brc20_operation, VerifiedBrc20BalanceData, VerifiedBrc20Operation,
+            VerifiedBrc20TokenDeployData,
+        },
     };
 
     use super::Brc20MemoryCache;
+
+    #[test]
+    fn test_brc20_memory_cache_transfer_miss() {
+        let ctx = get_test_ctx();
+        let mut conn = initialize_brc20_db(None, &ctx);
+        let tx = conn.transaction().unwrap();
+        // LRU size as 1 so we can test a miss.
+        let mut cache = Brc20MemoryCache::new(1);
+        cache.insert_token_deploy(
+            &VerifiedBrc20TokenDeployData {
+                tick: "pepe".to_string(),
+                max: 21000000.0,
+                lim: 1000.0,
+                dec: 18,
+                address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
+                self_mint: false,
+            },
+            &Brc20RevealBuilder::new().inscription_number(0).build(),
+            &BlockIdentifier {
+                index: 800000,
+                hash: "00000000000000000002d8ba402150b259ddb2b30a1d32ab4a881d4653bceb5b"
+                    .to_string(),
+            },
+            &tx,
+            &ctx,
+        );
+        let block = BlockIdentifier {
+            index: 800002,
+            hash: "00000000000000000002d8ba402150b259ddb2b30a1d32ab4a881d4653bceb5b".to_string(),
+        };
+        let address1 = "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string();
+        let address2 = "bc1pngjqgeamkmmhlr6ft5yllgdmfllvcvnw5s7ew2ler3rl0z47uaesrj6jte".to_string();
+        cache.insert_token_mint(
+            &VerifiedBrc20BalanceData {
+                tick: "pepe".to_string(),
+                amt: 1000.0,
+                address: address1.clone(),
+            },
+            &Brc20RevealBuilder::new().inscription_number(1).build(),
+            &block,
+            &tx,
+            &ctx,
+        );
+        cache.insert_token_transfer(
+            &VerifiedBrc20BalanceData {
+                tick: "pepe".to_string(),
+                amt: 100.0,
+                address: address1.clone(),
+            },
+            &Brc20RevealBuilder::new().inscription_number(2).build(),
+            &block,
+            &tx,
+            &ctx,
+        );
+        // These mint+transfer from a 2nd address will delete the first address' entries from cache.
+        cache.insert_token_mint(
+            &VerifiedBrc20BalanceData {
+                tick: "pepe".to_string(),
+                amt: 1000.0,
+                address: address2.clone(),
+            },
+            &Brc20RevealBuilder::new()
+                .inscription_number(3)
+                .inscriber_address(Some(address2.clone()))
+                .build(),
+            &block,
+            &tx,
+            &ctx,
+        );
+        cache.insert_token_transfer(
+            &VerifiedBrc20BalanceData {
+                tick: "pepe".to_string(),
+                amt: 100.0,
+                address: address2.clone(),
+            },
+            &Brc20RevealBuilder::new()
+                .inscription_number(4)
+                .inscriber_address(Some(address2.clone()))
+                .build(),
+            &block,
+            &tx,
+            &ctx,
+        );
+        // Validate another transfer from the first address. Should pass because we still have 900 avail balance.
+        let result = verify_brc20_operation(
+            &ParsedBrc20Operation::Transfer(ParsedBrc20BalanceData {
+                tick: "pepe".to_string(),
+                amt: "100".to_string(),
+            }),
+            &Brc20RevealBuilder::new()
+                .inscription_number(5)
+                .inscriber_address(Some(address1.clone()))
+                .build(),
+            &block,
+            &BitcoinNetwork::Mainnet,
+            &mut cache,
+            &tx,
+            &ctx,
+        );
+        assert!(
+            result
+                == Ok(VerifiedBrc20Operation::TokenTransfer(
+                    VerifiedBrc20BalanceData {
+                        tick: "pepe".to_string(),
+                        amt: 100.0,
+                        address: address1
+                    }
+                ))
+        )
+    }
 
     #[test_case(500.0 => Ok(500.0); "with transfer amt")]
     #[test_case(1000.0 => Ok(0.0); "with transfer to zero")]
@@ -356,7 +475,7 @@ mod test {
             &ctx,
         );
         assert!(
-            cache.get_token_avail_balance_for_address(
+            cache.get_token_avail_balance_for_address_transfer(
                 "pepe",
                 "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp",
                 &tx,
@@ -378,7 +497,7 @@ mod test {
             &tx,
             &ctx,
         );
-        Ok(cache.get_token_avail_balance_for_address(
+        Ok(cache.get_token_avail_balance_for_address_transfer(
             "pepe",
             "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp",
             &tx,
