@@ -191,14 +191,14 @@ pub fn get_token(tick: &str, db_tx: &Connection, ctx: &Context) -> Option<Brc20D
     })
 }
 
-pub fn get_token_minted_supply(tick: &str, db_tx: &Transaction, ctx: &Context) -> f64 {
+pub fn get_token_minted_supply(tick: &str, db_tx: &Transaction, ctx: &Context) -> Option<f64> {
     let args: &[&dyn ToSql] = &[&tick.to_sql().unwrap()];
     let query = "
         SELECT COALESCE(SUM(avail_balance + trans_balance), 0.0) AS minted
         FROM ledger
         WHERE tick = ?
     ";
-    perform_query_one(query, args, &db_tx, ctx, |row| row.get(0).unwrap()).unwrap_or(0.0)
+    perform_query_one(query, args, &db_tx, ctx, |row| row.get(0).unwrap()).unwrap_or(None)
 }
 
 pub fn get_token_available_balance_for_address(

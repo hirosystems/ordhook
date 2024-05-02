@@ -116,8 +116,10 @@ pub fn verify_brc20_operation(
                     token.tick, data.amt
                 ));
             }
-            let remaining_supply =
-                token.max - cache.get_token_minted_supply(&data.tick, db_tx, ctx);
+            let Some(minted_supply) = cache.get_token_minted_supply(&data.tick, db_tx, ctx) else {
+                unreachable!("BRC-20 token exists but does not have entries in the ledger");
+            };
+            let remaining_supply = token.max - minted_supply;
             if remaining_supply == 0.0 {
                 return Err(format!(
                     "No supply available for {} mint, attempted to mint {}, remaining {}",
@@ -146,12 +148,14 @@ pub fn verify_brc20_operation(
                     token.tick, data.amt
                 ));
             }
-            let avail_balance = cache.get_token_avail_balance_for_address_transfer(
+            let Some(avail_balance) = cache.get_token_address_avail_balance(
                 &token.tick,
                 &inscriber_address,
                 db_tx,
                 ctx,
-            );
+            ) else {
+                return Err(format!("Balance does not exist for {} transfer, attempting to transfer {}", token.tick, data.amt));
+            };
             if avail_balance < data.float_amt() {
                 return Err(format!("Insufficient balance for {} transfer, attempting to transfer {}, only {} available", token.tick, data.amt, avail_balance));
             }
