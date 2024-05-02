@@ -32,10 +32,14 @@ impl Brc20DbCache {
     }
 
     pub fn flush(&mut self, db_tx: &Transaction, ctx: &Context) {
-        insert_token_rows(&self.token_rows, db_tx, ctx);
-        self.token_rows.clear();
-        insert_ledger_rows(&self.ledger_rows, db_tx, ctx);
-        self.ledger_rows.clear();
+        if self.token_rows.len() > 0 {
+            insert_token_rows(&self.token_rows, db_tx, ctx);
+            self.token_rows.clear();
+        }
+        if self.ledger_rows.len() > 0 {
+            insert_ledger_rows(&self.ledger_rows, db_tx, ctx);
+            self.ledger_rows.clear();
+        }
     }
 }
 
