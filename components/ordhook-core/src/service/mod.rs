@@ -897,9 +897,9 @@ pub fn write_brc20_block_operations(
                                             info!(
                                                 logger,
                                                 "BRC-20 deploy {} ({}) at block {}",
-                                                block.block_identifier.index,
                                                 token.tick,
-                                                token.address
+                                                token.address,
+                                                block.block_identifier.index
                                             )
                                         });
                                     }

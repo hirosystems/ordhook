@@ -270,6 +270,10 @@ mod test {
         }))); "with deploy"
     )]
     #[test_case(
+        InscriptionBuilder::new().body(&String::from("{\"p\":\"brc-20\",\"op\":\"deploy\",\"tick\":\"X\0\0Z\",\"max\":\"21000000\",\"lim\":\"1000\",\"dec\":\"6\"}")).build()
+        => Ok(None); "with deploy null bytes"
+    )]
+    #[test_case(
         InscriptionBuilder::new().body(r#"{"p":"brc-20", "op": "deploy", "tick": "PEPE", "max": "21000000", "lim": "1000", "dec": "6"}"#).build()
         => Ok(Some(ParsedBrc20Operation::Deploy(ParsedBrc20TokenDeployData {
             tick: "pepe".to_string(),
