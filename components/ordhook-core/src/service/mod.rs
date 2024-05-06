@@ -895,9 +895,10 @@ pub fn write_brc20_block_operations(
                                         ctx.try_log(|logger| {
                                             info!(
                                                 logger,
-                                                "BRC-20 detected token deploy {} at height {}",
+                                                "BRC-20 deploy {} ({}) at block {}",
+                                                block.block_identifier.index,
                                                 token.tick,
-                                                block.block_identifier.index
+                                                token.address
                                             )
                                         });
                                     }
@@ -912,7 +913,7 @@ pub fn write_brc20_block_operations(
                                         ctx.try_log(|logger| {
                                             info!(
                                             logger,
-                                            "BRC-20 detected token {} mint {} by {} at height {}",
+                                            "BRC-20 mint {} {} ({}) at block {}",
                                             balance.tick, balance.amt, balance.address,
                                             block.block_identifier.index
                                         )
@@ -929,7 +930,7 @@ pub fn write_brc20_block_operations(
                                         ctx.try_log(|logger| {
                                             info!(
                                                 logger,
-                                                "BRC-20 detected token {} transfer {} by {} at height {}",
+                                                "BRC-20 transfer {} {} ({}) at block {}",
                                                 balance.tick, balance.amt, balance.address,
                                                 block.block_identifier.index
                                             )
@@ -963,7 +964,7 @@ pub fn write_brc20_block_operations(
                             ctx.try_log(|logger| {
                                 info!(
                                     logger,
-                                    "BRC-20 detected token {} transfer send {} from {} to {} at height {}",
+                                    "BRC-20 transfer_send {} {} ({} -> {}) at block {}",
                                     data.tick, data.amt, data.sender_address, data.receiver_address,
                                     block.block_identifier.index
                                 )
