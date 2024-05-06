@@ -158,6 +158,7 @@ impl Brc20MemoryCache {
         data: &VerifiedBrc20TokenDeployData,
         reveal: &OrdinalInscriptionRevealData,
         block_identifier: &BlockIdentifier,
+        tx_index: u64,
         _db_tx: &Connection,
         _ctx: &Context,
     ) {
@@ -182,6 +183,7 @@ impl Brc20MemoryCache {
             inscription_number: reveal.inscription_number.jubilee as u64,
             ordinal_number: reveal.ordinal_number,
             block_height: block_identifier.index,
+            tx_index,
             tick: data.tick.clone(),
             address: data.address.clone(),
             avail_balance: 0.0,
@@ -196,6 +198,7 @@ impl Brc20MemoryCache {
         data: &VerifiedBrc20BalanceData,
         reveal: &OrdinalInscriptionRevealData,
         block_identifier: &BlockIdentifier,
+        tx_index: u64,
         db_tx: &Transaction,
         ctx: &Context,
     ) {
@@ -216,6 +219,7 @@ impl Brc20MemoryCache {
             inscription_number: reveal.inscription_number.jubilee as u64,
             ordinal_number: reveal.ordinal_number,
             block_height: block_identifier.index,
+            tx_index,
             tick: data.tick.clone(),
             address: data.address.clone(),
             avail_balance: data.amt,
@@ -230,6 +234,7 @@ impl Brc20MemoryCache {
         data: &VerifiedBrc20BalanceData,
         reveal: &OrdinalInscriptionRevealData,
         block_identifier: &BlockIdentifier,
+        tx_index: u64,
         db_tx: &Transaction,
         ctx: &Context,
     ) {
@@ -247,6 +252,7 @@ impl Brc20MemoryCache {
             inscription_number: reveal.inscription_number.jubilee as u64,
             ordinal_number: reveal.ordinal_number,
             block_height: block_identifier.index,
+            tx_index,
             tick: data.tick.clone(),
             address: data.address.clone(),
             avail_balance: data.amt * -1.0,
@@ -264,6 +270,7 @@ impl Brc20MemoryCache {
         data: &VerifiedBrc20TransferData,
         transfer: &OrdinalInscriptionTransferData,
         block_identifier: &BlockIdentifier,
+        tx_index: u64,
         db_tx: &Transaction,
         ctx: &Context,
     ) {
@@ -273,6 +280,7 @@ impl Brc20MemoryCache {
             inscription_number: transfer_row.inscription_number,
             ordinal_number: transfer.ordinal_number,
             block_height: block_identifier.index,
+            tx_index,
             tick: data.tick.clone(),
             address: data.sender_address.clone(),
             avail_balance: 0.0,
@@ -284,6 +292,7 @@ impl Brc20MemoryCache {
             inscription_number: transfer_row.inscription_number,
             ordinal_number: transfer.ordinal_number,
             block_height: block_identifier.index,
+            tx_index,
             tick: data.tick.clone(),
             address: data.receiver_address.clone(),
             avail_balance: data.amt,
@@ -368,6 +377,7 @@ mod test {
                 hash: "00000000000000000002d8ba402150b259ddb2b30a1d32ab4a881d4653bceb5b"
                     .to_string(),
             },
+            0,
             &tx,
             &ctx,
         );
@@ -385,6 +395,7 @@ mod test {
             },
             &Brc20RevealBuilder::new().inscription_number(1).build(),
             &block,
+            0,
             &tx,
             &ctx,
         );
@@ -396,6 +407,7 @@ mod test {
             },
             &Brc20RevealBuilder::new().inscription_number(2).build(),
             &block,
+            1,
             &tx,
             &ctx,
         );
@@ -411,6 +423,7 @@ mod test {
                 .inscriber_address(Some(address2.clone()))
                 .build(),
             &block,
+            2,
             &tx,
             &ctx,
         );
@@ -425,6 +438,7 @@ mod test {
                 .inscriber_address(Some(address2.clone()))
                 .build(),
             &block,
+            3,
             &tx,
             &ctx,
         );
@@ -478,6 +492,7 @@ mod test {
                 hash: "00000000000000000002d8ba402150b259ddb2b30a1d32ab4a881d4653bceb5b"
                     .to_string(),
             },
+            0,
             &tx,
             &ctx,
         );
@@ -493,6 +508,7 @@ mod test {
                 hash: "00000000000000000002d8ba402150b259ddb2b30a1d32ab4a881d4653bceb5b"
                     .to_string(),
             },
+            0,
             &tx,
             &ctx,
         );
@@ -516,6 +532,7 @@ mod test {
                 hash: "00000000000000000002d8ba402150b259ddb2b30a1d32ab4a881d4653bceb5b"
                     .to_string(),
             },
+            0,
             &tx,
             &ctx,
         );

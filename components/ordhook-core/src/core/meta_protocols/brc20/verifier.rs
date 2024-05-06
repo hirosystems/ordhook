@@ -437,6 +437,7 @@ mod test {
             },
             &Brc20RevealBuilder::new().inscription_number(0).build(),
             &block,
+            0,
             &tx,
             &ctx,
         );
@@ -508,6 +509,7 @@ mod test {
             },
             &Brc20RevealBuilder::new().inscription_number(0).build(),
             &block,
+            0,
             &tx,
             &ctx,
         );
@@ -554,6 +556,7 @@ mod test {
             },
             &Brc20RevealBuilder::new().inscription_number(0).build(),
             &block,
+            0,
             &tx,
             &ctx,
         );
@@ -565,6 +568,7 @@ mod test {
             },
             &Brc20RevealBuilder::new().inscription_number(1).build(),
             &block,
+            1,
             &tx,
             &ctx,
         );
@@ -614,6 +618,7 @@ mod test {
             },
             &Brc20RevealBuilder::new().inscription_number(0).build(),
             &block,
+            0,
             &tx,
             &ctx,
         );
@@ -625,6 +630,7 @@ mod test {
             },
             &Brc20RevealBuilder::new().inscription_number(1).build(),
             &block,
+            1,
             &tx,
             &ctx,
         );
@@ -740,6 +746,7 @@ mod test {
                 )
                 .build(),
             &block,
+            0,
             &tx,
             &ctx,
         );
@@ -757,6 +764,7 @@ mod test {
                 )
                 .build(),
             &block,
+            1,
             &tx,
             &ctx,
         );
@@ -773,6 +781,7 @@ mod test {
                 )
                 .build(),
             &block,
+            2,
             &tx,
             &ctx,
         );
@@ -855,6 +864,7 @@ mod test {
                 )
                 .build(),
             &block,
+            0,
             &tx,
             &ctx,
         );
@@ -871,6 +881,7 @@ mod test {
                 )
                 .build(),
             &block,
+            1,
             &tx,
             &ctx,
         );
@@ -888,6 +899,7 @@ mod test {
                 )
                 .build(),
             &block,
+            2,
             &tx,
             &ctx,
         );
@@ -926,6 +938,7 @@ mod test {
                 )
                 .build(),
             &block,
+            0,
             &tx,
             &ctx,
         );
@@ -942,6 +955,7 @@ mod test {
                 )
                 .build(),
             &block,
+            1,
             &tx,
             &ctx,
         );
@@ -959,6 +973,7 @@ mod test {
                 )
                 .build(),
             &block,
+            2,
             &tx,
             &ctx,
         );
@@ -972,6 +987,7 @@ mod test {
             },
             &Brc20TransferBuilder::new().ordinal_number(5000).build(),
             &block,
+            3,
             &tx,
             &ctx,
         );

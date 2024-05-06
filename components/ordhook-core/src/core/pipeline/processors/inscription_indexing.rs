@@ -19,9 +19,7 @@ use std::hash::BuildHasherDefault;
 
 use crate::{
     core::{
-        meta_protocols::brc20::{
-            cache::Brc20MemoryCache, db::open_readwrite_brc20_db_conn, parser::ParsedBrc20Operation,
-        },
+        meta_protocols::brc20::{cache::Brc20MemoryCache, db::open_readwrite_brc20_db_conn},
         pipeline::processors::block_archiving::store_compacted_blocks,
         protocol::{
             inscription_parsing::{

@@ -7,16 +7,11 @@ use crate::db::{
 use chainhook_sdk::{
     types::{
         BitcoinTransactionData, BlockIdentifier, Brc20BalanceData, Brc20Operation,
-        Brc20TokenDeployData, Brc20TransferData, OrdinalInscriptionRevealData,
-        OrdinalInscriptionTransferData,
+        Brc20TokenDeployData, Brc20TransferData,
     },
     utils::Context,
 };
 use rusqlite::{Connection, ToSql, Transaction};
-
-use super::verifier::{
-    VerifiedBrc20BalanceData, VerifiedBrc20TokenDeployData, VerifiedBrc20TransferData,
-};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Brc20DbTokenRow {
@@ -37,6 +32,7 @@ pub struct Brc20DbLedgerRow {
     pub inscription_number: u64,
     pub ordinal_number: u64,
     pub block_height: u64,
+    pub tx_index: u64,
     pub tick: String,
     pub address: String,
     pub avail_balance: f64,
@@ -81,16 +77,17 @@ pub fn initialize_brc20_db(base_dir: Option<&PathBuf>, ctx: &Context) -> Connect
     }
     if let Err(e) = conn.execute(
         "CREATE TABLE IF NOT EXISTS ledger (
-            id INTEGER PRIMARY KEY,
             inscription_id TEXT NOT NULL,
             inscription_number INTEGER NOT NULL,
             ordinal_number INTEGER NOT NULL,
             block_height INTEGER NOT NULL,
+            tx_index INTEGER NOT NULL,
             tick TEXT NOT NULL,
             address TEXT NOT NULL,
             avail_balance REAL NOT NULL,
             trans_balance REAL NOT NULL,
-            operation TEXT NOT NULL CHECK(operation IN ('deploy', 'mint', 'transfer', 'transfer_send', 'transfer_receive'))
+            operation TEXT NOT NULL CHECK(operation IN ('deploy', 'mint', 'transfer', 'transfer_send', 'transfer_receive')),
+            UNIQUE(block_height, tx_index, operation)
         )",
         [],
     ) {
@@ -104,12 +101,6 @@ pub fn initialize_brc20_db(base_dir: Option<&PathBuf>, ctx: &Context) -> Connect
         }
         if let Err(e) = conn.execute(
             "CREATE INDEX IF NOT EXISTS index_ledger_on_ordinal_number_operation ON ledger(ordinal_number, operation);",
-            [],
-        ) {
-            ctx.try_log(|logger| warn!(logger, "unable to create brc20.sqlite: {}", e.to_string()));
-        }
-        if let Err(e) = conn.execute(
-            "CREATE INDEX IF NOT EXISTS index_ledger_on_block_height_operation ON ledger(block_height, operation);",
             [],
         ) {
             ctx.try_log(|logger| warn!(logger, "unable to create brc20.sqlite: {}", e.to_string()));
@@ -226,7 +217,7 @@ pub fn get_unsent_token_transfer(
         &ordinal_number.to_sql().unwrap(),
     ];
     let query = "
-        SELECT inscription_id, inscription_number, ordinal_number, block_height, tick, address, avail_balance, trans_balance, operation
+        SELECT inscription_id, inscription_number, ordinal_number, block_height, tx_index, tick, address, avail_balance, trans_balance, operation
         FROM ledger
         WHERE ordinal_number = ? AND operation = 'transfer'
             AND NOT EXISTS (
@@ -239,11 +230,12 @@ pub fn get_unsent_token_transfer(
         inscription_number: row.get(1).unwrap(),
         ordinal_number: row.get(2).unwrap(),
         block_height: row.get(3).unwrap(),
-        tick: row.get(4).unwrap(),
-        address: row.get(5).unwrap(),
-        avail_balance: row.get(6).unwrap(),
-        trans_balance: row.get(7).unwrap(),
-        operation: row.get(8).unwrap(),
+        tx_index: row.get(4).unwrap(),
+        tick: row.get(5).unwrap(),
+        address: row.get(6).unwrap(),
+        avail_balance: row.get(7).unwrap(),
+        trans_balance: row.get(8).unwrap(),
+        operation: row.get(9).unwrap(),
     })
 }
 
@@ -264,8 +256,8 @@ pub fn get_transfer_send_receiver_address(
 
 pub fn insert_ledger_rows(rows: &Vec<Brc20DbLedgerRow>, db_tx: &Transaction, ctx: &Context) {
     match db_tx.prepare_cached("INSERT INTO ledger
-        (inscription_id, inscription_number, ordinal_number, block_height, tick, address, avail_balance, trans_balance, operation)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)") {
+        (inscription_id, inscription_number, ordinal_number, block_height, tx_index, tick, address, avail_balance, trans_balance, operation)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)") {
         Ok(mut stmt) => {
             for row in rows.iter() {
                 while let Err(e) = stmt.execute(rusqlite::params![
@@ -273,6 +265,7 @@ pub fn insert_ledger_rows(rows: &Vec<Brc20DbLedgerRow>, db_tx: &Transaction, ctx
                     &row.inscription_number,
                     &row.ordinal_number,
                     &row.block_height,
+                    &row.tx_index,
                     &row.tick,
                     &row.address,
                     &row.avail_balance,
@@ -336,7 +329,7 @@ pub fn get_brc20_operations_on_block(
     let args: &[&dyn ToSql] = &[&block_identifier.index.to_sql().unwrap()];
     let query = "
         SELECT
-            inscription_id, inscription_number, ordinal_number, block_height, tick, address, avail_balance, trans_balance, operation
+            inscription_id, inscription_number, ordinal_number, block_height, tx_index, tick, address, avail_balance, trans_balance, operation
         FROM ledger AS l
         WHERE block_height = ? AND operation <> 'transfer_receive'
     ";
@@ -346,11 +339,12 @@ pub fn get_brc20_operations_on_block(
         inscription_number: row.get(1).unwrap(),
         ordinal_number: row.get(2).unwrap(),
         block_height: row.get(3).unwrap(),
-        tick: row.get(4).unwrap(),
-        address: row.get(5).unwrap(),
-        avail_balance: row.get(6).unwrap(),
-        trans_balance: row.get(7).unwrap(),
-        operation: row.get(8).unwrap(),
+        tx_index: row.get(4).unwrap(),
+        tick: row.get(5).unwrap(),
+        address: row.get(6).unwrap(),
+        avail_balance: row.get(7).unwrap(),
+        trans_balance: row.get(8).unwrap(),
+        operation: row.get(9).unwrap(),
     });
     for row in rows.iter() {
         map.insert(row.inscription_id.clone(), row.clone());

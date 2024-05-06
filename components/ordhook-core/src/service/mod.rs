@@ -9,7 +9,7 @@ use crate::core::meta_protocols::brc20::parser::ParsedBrc20Operation;
 use crate::core::meta_protocols::brc20::verifier::{
     verify_brc20_operation, verify_brc20_transfer, VerifiedBrc20Operation,
 };
-use crate::core::meta_protocols::brc20::{self, brc20_activation_height, cache};
+use crate::core::meta_protocols::brc20::brc20_activation_height;
 use crate::core::pipeline::download_and_pipeline_blocks;
 use crate::core::pipeline::processors::block_archiving::start_block_archiving_processor;
 use crate::core::pipeline::processors::inscription_indexing::process_block;
@@ -866,7 +866,7 @@ pub fn write_brc20_block_operations(
     if block.block_identifier.index < brc20_activation_height(&block.metadata.network) {
         return;
     }
-    for tx in block.transactions.iter() {
+    for (tx_index, tx) in block.transactions.iter().enumerate() {
         for op in tx.metadata.ordinal_operations.iter() {
             match op {
                 OrdinalOperation::InscriptionRevealed(reveal) => {
@@ -889,6 +889,7 @@ pub fn write_brc20_block_operations(
                                             &token,
                                             reveal,
                                             &block.block_identifier,
+                                            tx_index as u64,
                                             db_tx,
                                             ctx,
                                         );
@@ -907,6 +908,7 @@ pub fn write_brc20_block_operations(
                                             &balance,
                                             reveal,
                                             &block.block_identifier,
+                                            tx_index as u64,
                                             db_tx,
                                             ctx,
                                         );
@@ -924,6 +926,7 @@ pub fn write_brc20_block_operations(
                                             &balance,
                                             reveal,
                                             &block.block_identifier,
+                                            tx_index as u64,
                                             db_tx,
                                             ctx,
                                         );
@@ -958,6 +961,7 @@ pub fn write_brc20_block_operations(
                                 &data,
                                 &transfer,
                                 &block.block_identifier,
+                                tx_index as u64,
                                 db_tx,
                                 ctx,
                             );
