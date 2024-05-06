@@ -688,6 +688,21 @@ mod test {
     #[test_case(
         ParsedBrc20Operation::Transfer(ParsedBrc20BalanceData {
             tick: "pepe".to_string(),
+            amt: "1000".to_string(),
+        }),
+        Brc20RevealBuilder::new()
+            .inscription_number(3)
+            .inscription_id("04b29b646f6389154e4fa0f0761472c27b9f13a482c715d9976edc474c258bc7i0")
+            .build()
+        => Ok(VerifiedBrc20Operation::TokenTransfer(VerifiedBrc20BalanceData {
+            tick: "pepe".to_string(),
+            amt: 1000.0,
+            address: "324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string(),
+        })); "with transfer full balance"
+    )]
+    #[test_case(
+        ParsedBrc20Operation::Transfer(ParsedBrc20BalanceData {
+            tick: "pepe".to_string(),
             amt: "5000.0".to_string(),
         }),
         Brc20RevealBuilder::new()
