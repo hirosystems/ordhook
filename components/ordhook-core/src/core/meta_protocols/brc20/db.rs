@@ -86,8 +86,7 @@ pub fn initialize_brc20_db(base_dir: Option<&PathBuf>, ctx: &Context) -> Connect
             address TEXT NOT NULL,
             avail_balance REAL NOT NULL,
             trans_balance REAL NOT NULL,
-            operation TEXT NOT NULL CHECK(operation IN ('deploy', 'mint', 'transfer', 'transfer_send', 'transfer_receive')),
-            UNIQUE(block_height, tx_index, operation)
+            operation TEXT NOT NULL CHECK(operation IN ('deploy', 'mint', 'transfer', 'transfer_send', 'transfer_receive'))
         )",
         [],
     ) {
@@ -101,6 +100,12 @@ pub fn initialize_brc20_db(base_dir: Option<&PathBuf>, ctx: &Context) -> Connect
         }
         if let Err(e) = conn.execute(
             "CREATE INDEX IF NOT EXISTS index_ledger_on_ordinal_number_operation ON ledger(ordinal_number, operation);",
+            [],
+        ) {
+            ctx.try_log(|logger| warn!(logger, "unable to create brc20.sqlite: {}", e.to_string()));
+        }
+        if let Err(e) = conn.execute(
+            "CREATE INDEX IF NOT EXISTS index_ledger_on_block_height_operation ON ledger(block_height, operation);",
             [],
         ) {
             ctx.try_log(|logger| warn!(logger, "unable to create brc20.sqlite: {}", e.to_string()));
