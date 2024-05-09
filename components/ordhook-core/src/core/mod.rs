@@ -1,3 +1,4 @@
+pub mod meta_protocols;
 pub mod pipeline;
 pub mod protocol;
 
@@ -13,7 +14,7 @@ use chainhook_sdk::{
 };
 
 use crate::{
-    config::{Config, LogConfig, ResourcesConfig},
+    config::{Config, LogConfig, MetaProtocolsConfig, ResourcesConfig},
     db::{find_pinned_block_bytes_at_block_height, open_ordhook_db_conn_rocks_db_loop},
 };
 
@@ -30,6 +31,7 @@ pub struct OrdhookConfig {
     pub db_path: PathBuf,
     pub first_inscription_height: u64,
     pub logs: LogConfig,
+    pub meta_protocols: MetaProtocolsConfig,
 }
 
 pub fn new_traversals_cache(

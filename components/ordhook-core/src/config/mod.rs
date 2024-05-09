@@ -15,6 +15,7 @@ pub const DEFAULT_ULIMIT: usize = 2048;
 pub const DEFAULT_MEMORY_AVAILABLE: usize = 8;
 pub const DEFAULT_BITCOIND_RPC_THREADS: usize = 4;
 pub const DEFAULT_BITCOIND_RPC_TIMEOUT: u32 = 15;
+pub const DEFAULT_BRC20_LRU_CACHE_SIZE: usize = 50_000;
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -23,7 +24,13 @@ pub struct Config {
     pub resources: ResourcesConfig,
     pub network: IndexerConfig,
     pub snapshot: SnapshotConfig,
+    pub meta_protocols: MetaProtocolsConfig,
     pub logs: LogConfig,
+}
+
+#[derive(Clone, Debug)]
+pub struct MetaProtocolsConfig {
+    pub brc20: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -73,6 +80,7 @@ pub struct ResourcesConfig {
     pub bitcoind_rpc_threads: usize,
     pub bitcoind_rpc_timeout: u32,
     pub expected_observers_count: usize,
+    pub brc20_lru_cache_size: usize,
 }
 
 impl ResourcesConfig {
@@ -103,6 +111,7 @@ impl Config {
                 BitcoinNetwork::Signet => 112402,
             },
             logs: self.logs.clone(),
+            meta_protocols: self.meta_protocols.clone(),
         }
     }
 
@@ -119,6 +128,7 @@ impl Config {
             cache_path: self.storage.working_dir.clone(),
             bitcoin_network: self.network.bitcoin_network.clone(),
             stacks_network: self.network.stacks_network.clone(),
+            prometheus_monitoring_port: None,
             data_handler_tx: None,
         }
     }
@@ -172,6 +182,7 @@ impl Config {
                 bitcoind_rpc_threads: DEFAULT_BITCOIND_RPC_THREADS,
                 bitcoind_rpc_timeout: DEFAULT_BITCOIND_RPC_TIMEOUT,
                 expected_observers_count: 1,
+                brc20_lru_cache_size: DEFAULT_BRC20_LRU_CACHE_SIZE,
             },
             network: IndexerConfig {
                 bitcoind_rpc_url: "http://0.0.0.0:18443".into(),
@@ -187,6 +198,7 @@ impl Config {
                 ordinals_internals: true,
                 chainhook_internals: false,
             },
+            meta_protocols: MetaProtocolsConfig { brc20: false },
         }
     }
 
@@ -204,6 +216,7 @@ impl Config {
                 bitcoind_rpc_threads: DEFAULT_BITCOIND_RPC_THREADS,
                 bitcoind_rpc_timeout: DEFAULT_BITCOIND_RPC_TIMEOUT,
                 expected_observers_count: 1,
+                brc20_lru_cache_size: DEFAULT_BRC20_LRU_CACHE_SIZE,
             },
             network: IndexerConfig {
                 bitcoind_rpc_url: "http://0.0.0.0:18332".into(),
@@ -219,6 +232,7 @@ impl Config {
                 ordinals_internals: true,
                 chainhook_internals: false,
             },
+            meta_protocols: MetaProtocolsConfig { brc20: false },
         }
     }
 
@@ -236,6 +250,7 @@ impl Config {
                 bitcoind_rpc_threads: DEFAULT_BITCOIND_RPC_THREADS,
                 bitcoind_rpc_timeout: DEFAULT_BITCOIND_RPC_TIMEOUT,
                 expected_observers_count: 1,
+                brc20_lru_cache_size: DEFAULT_BRC20_LRU_CACHE_SIZE,
             },
             network: IndexerConfig {
                 bitcoind_rpc_url: "http://0.0.0.0:8332".into(),
@@ -251,6 +266,7 @@ impl Config {
                 ordinals_internals: true,
                 chainhook_internals: false,
             },
+            meta_protocols: MetaProtocolsConfig { brc20: false },
         }
     }
 }

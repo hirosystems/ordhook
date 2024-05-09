@@ -4,9 +4,9 @@ use ordhook::chainhook_sdk::types::{
     BitcoinBlockSignaling, BitcoinNetwork, StacksNetwork, StacksNodeConfig,
 };
 use ordhook::config::{
-    Config, LogConfig, PredicatesApi, PredicatesApiConfig, ResourcesConfig, SnapshotConfig,
-    StorageConfig, DEFAULT_BITCOIND_RPC_THREADS, DEFAULT_BITCOIND_RPC_TIMEOUT,
-    DEFAULT_CONTROL_PORT, DEFAULT_MEMORY_AVAILABLE, DEFAULT_ULIMIT,
+    Config, LogConfig, MetaProtocolsConfig, PredicatesApi, PredicatesApiConfig, ResourcesConfig,
+    SnapshotConfig, StorageConfig, DEFAULT_BITCOIND_RPC_THREADS, DEFAULT_BITCOIND_RPC_TIMEOUT,
+    DEFAULT_BRC20_LRU_CACHE_SIZE, DEFAULT_CONTROL_PORT, DEFAULT_MEMORY_AVAILABLE, DEFAULT_ULIMIT,
 };
 use std::fs::File;
 use std::io::{BufReader, Read};
@@ -19,6 +19,7 @@ pub struct ConfigFile {
     pub network: NetworkConfigFile,
     pub logs: Option<LogConfigFile>,
     pub snapshot: Option<SnapshotConfigFile>,
+    pub meta_protocols: Option<MetaProtocolsConfigFile>,
 }
 
 impl ConfigFile {
@@ -94,6 +95,10 @@ impl ConfigFile {
                     .resources
                     .expected_observers_count
                     .unwrap_or(1),
+                brc20_lru_cache_size: config_file
+                    .resources
+                    .brc20_lru_cache_size
+                    .unwrap_or(DEFAULT_BRC20_LRU_CACHE_SIZE),
             },
             network: IndexerConfig {
                 bitcoind_rpc_url: config_file.network.bitcoind_rpc_url.to_string(),
@@ -122,6 +127,13 @@ impl ConfigFile {
                     .as_ref()
                     .and_then(|l| l.chainhook_internals)
                     .unwrap_or(true),
+            },
+            meta_protocols: MetaProtocolsConfig {
+                brc20: config_file
+                    .meta_protocols
+                    .as_ref()
+                    .and_then(|l| l.brc20)
+                    .unwrap_or(false),
             },
         };
         Ok(config)
@@ -169,6 +181,11 @@ pub struct SnapshotConfigFile {
 }
 
 #[derive(Deserialize, Debug, Clone)]
+pub struct MetaProtocolsConfigFile {
+    pub brc20: Option<bool>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
 pub struct ResourcesConfigFile {
     pub ulimit: Option<usize>,
     pub cpu_core_available: Option<usize>,
@@ -176,6 +193,7 @@ pub struct ResourcesConfigFile {
     pub bitcoind_rpc_threads: Option<usize>,
     pub bitcoind_rpc_timeout: Option<u32>,
     pub expected_observers_count: Option<usize>,
+    pub brc20_lru_cache_size: Option<usize>,
 }
 
 #[derive(Deserialize, Debug, Clone)]

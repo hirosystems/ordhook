@@ -6,8 +6,7 @@ use napi::threadsafe_function::{
 };
 use ordhook::chainhook_sdk::chainhooks::bitcoin::BitcoinTransactionPayload;
 use ordhook::chainhook_sdk::chainhooks::types::{
-  BitcoinChainhookFullSpecification, BitcoinChainhookNetworkSpecification, BitcoinPredicateType,
-  HookAction, OrdinalOperations,
+  BitcoinChainhookFullSpecification, BitcoinChainhookNetworkSpecification, BitcoinPredicateType, HookAction, InscriptionFeedData, OrdinalOperations
 };
 use ordhook::chainhook_sdk::observer::DataHandlerEvent;
 use ordhook::chainhook_sdk::utils::{BlockHeights, Context as OrdhookContext};
@@ -184,7 +183,9 @@ impl OrdinalsIndexingRunloop {
                 include_outputs: None,
                 include_witness: None,
                 predicate: BitcoinPredicateType::OrdinalsProtocol(
-                  OrdinalOperations::InscriptionFeed,
+                  OrdinalOperations::InscriptionFeed(InscriptionFeedData {
+                    meta_protocols: None
+                  }),
                 ),
                 action: HookAction::Noop,
               },
@@ -349,7 +350,7 @@ impl OrdinalsIndexer {
   #[napi]
   pub fn replay_block_range(&self, start_block: i64, end_block: i64) {
     let range = BlockHeights::BlockRange(start_block as u64, end_block as u64);
-    let blocks = range.get_sorted_entries().into_iter().collect();
+    let blocks = range.get_sorted_entries().unwrap().into_iter().collect();
     let _ = self
       .runloop
       .command_tx
