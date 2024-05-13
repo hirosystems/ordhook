@@ -4,7 +4,7 @@ use clap::{Parser, Subcommand};
 use hiro_system_kit;
 use ordhook::chainhook_sdk::bitcoincore_rpc::{Auth, Client, RpcApi};
 use ordhook::chainhook_sdk::chainhooks::types::{
-    BitcoinChainhookSpecification, HttpHook, InscriptionFeedData,
+    BitcoinChainhookSpecification, HttpHook, InscriptionFeedData, OrdinalsMetaProtocol,
 };
 use ordhook::chainhook_sdk::chainhooks::types::{
     BitcoinPredicateType, ChainhookFullSpecification, HookAction, OrdinalOperations,
@@ -36,6 +36,7 @@ use ordhook::scan::bitcoin::scan_bitcoin_chainstate_via_rpc_using_predicate;
 use ordhook::service::observers::initialize_observers_db;
 use ordhook::service::{start_observer_forwarding, Service};
 use reqwest::Client as HttpClient;
+use std::collections::HashSet;
 use std::io::{BufReader, Read};
 use std::path::PathBuf;
 use std::process;
@@ -972,6 +973,12 @@ pub fn build_predicate_from_cli(
         (Some(start), None) => (Some(start), None, None),
         _ => unreachable!(),
     };
+    let mut meta_protocols: Option<HashSet<OrdinalsMetaProtocol>> = None;
+    if config.meta_protocols.brc20 {
+        let mut meta = HashSet::<OrdinalsMetaProtocol>::new();
+        meta.insert(OrdinalsMetaProtocol::All);
+        meta_protocols = Some(meta.clone());
+    }
     let predicate = BitcoinChainhookSpecification {
         network: config.network.bitcoin_network.clone(),
         uuid: post_to.to_string(),
@@ -990,7 +997,7 @@ pub fn build_predicate_from_cli(
         enabled: true,
         predicate: BitcoinPredicateType::OrdinalsProtocol(OrdinalOperations::InscriptionFeed(
             InscriptionFeedData {
-                meta_protocols: None,
+                meta_protocols,
             },
         )),
         action: HookAction::HttpPost(HttpHook {

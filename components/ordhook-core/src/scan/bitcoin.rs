@@ -105,14 +105,10 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
             BitcoinPredicateType::OrdinalsProtocol(OrdinalOperations::InscriptionFeed(
                 ref feed_data,
             )) if feed_data.meta_protocols.is_some() => {
-                if current_block_height >= brc20_activation_height(&bitcoin_config.network) {
-                    Some(open_readonly_brc20_db_conn(
-                        &config.expected_cache_path(),
-                        ctx,
-                    )?)
-                } else {
-                    None
-                }
+                Some(open_readonly_brc20_db_conn(
+                    &config.expected_cache_path(),
+                    ctx,
+                )?)
             }
             _ => None,
         };
@@ -156,7 +152,7 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
                 &inscriptions_db_tx,
                 true,
                 brc20_db_conn.as_ref(),
-                &Context::empty(),
+                &ctx,
             );
         }
 
