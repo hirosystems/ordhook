@@ -617,7 +617,7 @@ pub fn augment_block_with_ordinals_inscriptions_data(
 
     let network = get_bitcoin_network(&block.metadata.network);
     let coinbase_subsidy = Height(block.block_identifier.index).subsidy();
-    let coinbase_txid = &block.transactions[0].transaction_identifier.clone();
+    let coinbase_tx = &block.transactions[0].clone();
     let mut cumulated_fees = 0u64;
 
     for (tx_index, tx) in block.transactions.iter_mut().enumerate() {
@@ -628,7 +628,7 @@ pub fn augment_block_with_ordinals_inscriptions_data(
             sequence_cursor,
             &network,
             inscriptions_data,
-            coinbase_txid,
+            coinbase_tx,
             coinbase_subsidy,
             &mut cumulated_fees,
             &mut sats_overflows,
@@ -684,7 +684,7 @@ fn augment_transaction_with_ordinals_inscriptions_data(
     sequence_cursor: &mut SequenceCursor,
     network: &Network,
     inscriptions_data: &mut BTreeMap<(TransactionIdentifier, usize, u64), TraversalResult>,
-    coinbase_txid: &TransactionIdentifier,
+    coinbase_tx: &BitcoinTransactionData,
     coinbase_subsidy: u64,
     cumulated_fees: &mut u64,
     sats_overflows: &mut VecDeque<(usize, usize)>,
@@ -773,11 +773,10 @@ fn augment_transaction_with_ordinals_inscriptions_data(
 
         let (destination, satpoint_post_transfer, output_value) = compute_satpoint_post_transfer(
             &&*tx,
-            tx_index,
             input_index,
             relative_offset,
             network,
-            coinbase_txid,
+            coinbase_tx,
             coinbase_subsidy,
             cumulated_fees,
             ctx,
@@ -842,7 +841,7 @@ fn augment_transaction_with_ordinals_inscriptions_data(
 fn consolidate_transaction_with_pre_computed_inscription_data(
     tx: &mut BitcoinTransactionData,
     tx_index: usize,
-    coinbase_txid: &TransactionIdentifier,
+    coinbase_tx: &BitcoinTransactionData,
     coinbase_subsidy: u64,
     cumulated_fees: &mut u64,
     network: &Network,
@@ -889,11 +888,10 @@ fn consolidate_transaction_with_pre_computed_inscription_data(
         // Compute satpoint_post_inscription
         let (destination, satpoint_post_transfer, output_value) = compute_satpoint_post_transfer(
             tx,
-            tx_index,
             input_index,
             relative_offset,
             network,
-            coinbase_txid,
+            coinbase_tx,
             coinbase_subsidy,
             cumulated_fees,
             ctx,
@@ -930,7 +928,7 @@ pub fn consolidate_block_with_pre_computed_ordinals_data(
 ) {
     let network = get_bitcoin_network(&block.metadata.network);
     let coinbase_subsidy = Height(block.block_identifier.index).subsidy();
-    let coinbase_txid = &block.transactions[0].transaction_identifier.clone();
+    let coinbase_tx = &block.transactions[0].clone();
     let mut cumulated_fees = 0;
     let expected_inscriptions_count = get_inscriptions_revealed_in_block(&block).len();
     let mut inscriptions_data = loop {
@@ -959,7 +957,7 @@ pub fn consolidate_block_with_pre_computed_ordinals_data(
         consolidate_transaction_with_pre_computed_inscription_data(
             tx,
             tx_index,
-            coinbase_txid,
+            &coinbase_tx,
             coinbase_subsidy,
             &mut cumulated_fees,
             &network,
@@ -973,7 +971,7 @@ pub fn consolidate_block_with_pre_computed_ordinals_data(
                 tx,
                 tx_index,
                 &network,
-                &coinbase_txid,
+                &coinbase_tx,
                 coinbase_subsidy,
                 &mut cumulated_fees,
                 inscriptions_db_tx,
