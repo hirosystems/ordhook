@@ -141,7 +141,7 @@ pub fn compute_satpoint_post_transfer(
                 let total_offset = coinbase_subsidy + *cumulated_fees + offset;
                 let outputs = coinbase_tx.metadata.outputs.iter().map(|o| o.value).collect();
                 let post_transfer_data = compute_next_satpoint_data(
-                    input_index,
+                    0,
                     &vec![total_offset],
                     &outputs,
                     total_offset,
