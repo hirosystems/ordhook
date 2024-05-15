@@ -31,10 +31,10 @@ use ordhook::db::{
     open_readonly_ordhook_db_conn_rocks_db, BlockBytesCursor,
 };
 use ordhook::download::download_ordinals_dataset_if_required;
-use ordhook::{hex, initialize_db};
 use ordhook::scan::bitcoin::scan_bitcoin_chainstate_via_rpc_using_predicate;
 use ordhook::service::observers::initialize_observers_db;
 use ordhook::service::{start_observer_forwarding, Service};
+use ordhook::{hex, initialize_db};
 use reqwest::Client as HttpClient;
 use std::collections::HashSet;
 use std::io::{BufReader, Read};
@@ -996,9 +996,7 @@ pub fn build_predicate_from_cli(
         expired_at: None,
         enabled: true,
         predicate: BitcoinPredicateType::OrdinalsProtocol(OrdinalOperations::InscriptionFeed(
-            InscriptionFeedData {
-                meta_protocols,
-            },
+            InscriptionFeedData { meta_protocols },
         )),
         action: HookAction::HttpPost(HttpHook {
             url: post_to.to_string(),
