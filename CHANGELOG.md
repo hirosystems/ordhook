@@ -1,3 +1,15 @@
+## [2.2.0](https://github.com/hirosystems/ordhook/compare/v2.1.0...v2.2.0) (2024-05-24)
+
+
+### Features
+
+* add BRC-20 indexing ([#284](https://github.com/hirosystems/ordhook/issues/284)) ([729affb](https://github.com/hirosystems/ordhook/commit/729affb699d5cddaf6e2e41690d071ae9c4009fa))
+
+
+### Bug Fixes
+
+* issue [#296](https://github.com/hirosystems/ordhook/issues/296) ([#300](https://github.com/hirosystems/ordhook/issues/300)) ([7a8dca5](https://github.com/hirosystems/ordhook/commit/7a8dca53c116fb76e1e7d026c7cdf6863cd74ccd))
+
 ## [2.1.0](https://github.com/hirosystems/ordhook/compare/v2.0.1...v2.1.0) (2024-02-12)
 
 
