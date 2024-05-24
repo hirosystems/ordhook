@@ -1,4 +1,6 @@
 use crate::config::Config;
+use crate::core::meta_protocols::brc20::brc20_activation_height;
+use crate::core::meta_protocols::brc20::db::open_readonly_brc20_db_conn;
 use crate::core::protocol::inscription_parsing::{
     get_inscriptions_revealed_in_block, get_inscriptions_transferred_in_block,
     parse_inscriptions_and_standardize_block,
@@ -15,7 +17,9 @@ use chainhook_sdk::chainhooks::bitcoin::{
     evaluate_bitcoin_chainhooks_on_chain_event, handle_bitcoin_hook_action,
     BitcoinChainhookOccurrence, BitcoinTriggerChainhook,
 };
-use chainhook_sdk::chainhooks::types::BitcoinChainhookSpecification;
+use chainhook_sdk::chainhooks::types::{
+    BitcoinChainhookSpecification, BitcoinPredicateType, OrdinalOperations,
+};
 use chainhook_sdk::indexer::bitcoin::{
     build_http_client, download_and_parse_block_with_retry, retrieve_block_hash_with_retry,
 };
@@ -47,7 +51,7 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
     };
     let mut floating_end_block = false;
 
-    let mut block_heights_to_scan = if let Some(ref blocks) = predicate_spec.blocks {
+    let block_heights_to_scan_res = if let Some(ref blocks) = predicate_spec.blocks {
         BlockHeights::Blocks(blocks.clone()).get_sorted_entries()
     } else {
         let start_block = match predicate_spec.start_block {
@@ -75,6 +79,9 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
         BlockHeights::BlockRange(start_block, end_block).get_sorted_entries()
     };
 
+    let mut block_heights_to_scan =
+        block_heights_to_scan_res.map_err(|_e| format!("Block start / end block spec invalid"))?;
+
     info!(
         ctx.expect_logger(),
         "Starting predicate evaluation on {} Bitcoin blocks",
@@ -94,6 +101,17 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
     while let Some(current_block_height) = block_heights_to_scan.pop_front() {
         let mut inscriptions_db_conn =
             open_readonly_ordhook_db_conn(&config.expected_cache_path(), ctx)?;
+        let brc20_db_conn = match predicate_spec.predicate {
+            BitcoinPredicateType::OrdinalsProtocol(OrdinalOperations::InscriptionFeed(
+                ref feed_data,
+            )) if feed_data.meta_protocols.is_some() => {
+                Some(open_readonly_brc20_db_conn(
+                    &config.expected_cache_path(),
+                    ctx,
+                )?)
+            }
+            _ => None,
+        };
 
         number_of_blocks_scanned += 1;
 
@@ -133,7 +151,8 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
                 &mut block,
                 &inscriptions_db_tx,
                 true,
-                &Context::empty(),
+                brc20_db_conn.as_ref(),
+                &ctx,
             );
         }
 

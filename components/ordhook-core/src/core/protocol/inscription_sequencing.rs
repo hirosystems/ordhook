@@ -19,7 +19,12 @@ use fxhash::FxHasher;
 use rusqlite::{Connection, Transaction};
 
 use crate::{
-    core::{resolve_absolute_pointer, OrdhookConfig},
+    core::{
+        meta_protocols::brc20::db::{
+            augment_transaction_with_brc20_operation_data, get_brc20_operations_on_block,
+        },
+        resolve_absolute_pointer, OrdhookConfig,
+    },
     db::{
         find_blessed_inscription_with_ordinal_number, find_nth_classic_neg_number_at_block_height,
         find_nth_classic_pos_number_at_block_height, find_nth_jubilee_number_at_block_height,
@@ -311,7 +316,6 @@ pub fn parallelize_inscription_data_computations(
         let _ = tx.send(None);
     }
 
-    let ctx_moved = inner_ctx.clone();
     let _ = hiro_system_kit::thread_named("Garbage collection").spawn(move || {
         for handle in thread_pool_handles.into_iter() {
             let _ = handle.join();
@@ -613,7 +617,7 @@ pub fn augment_block_with_ordinals_inscriptions_data(
 
     let network = get_bitcoin_network(&block.metadata.network);
     let coinbase_subsidy = Height(block.block_identifier.index).subsidy();
-    let coinbase_txid = &block.transactions[0].transaction_identifier.clone();
+    let coinbase_tx = &block.transactions[0].clone();
     let mut cumulated_fees = 0u64;
 
     for (tx_index, tx) in block.transactions.iter_mut().enumerate() {
@@ -624,7 +628,7 @@ pub fn augment_block_with_ordinals_inscriptions_data(
             sequence_cursor,
             &network,
             inscriptions_data,
-            coinbase_txid,
+            coinbase_tx,
             coinbase_subsidy,
             &mut cumulated_fees,
             &mut sats_overflows,
@@ -680,7 +684,7 @@ fn augment_transaction_with_ordinals_inscriptions_data(
     sequence_cursor: &mut SequenceCursor,
     network: &Network,
     inscriptions_data: &mut BTreeMap<(TransactionIdentifier, usize, u64), TraversalResult>,
-    coinbase_txid: &TransactionIdentifier,
+    coinbase_tx: &BitcoinTransactionData,
     coinbase_subsidy: u64,
     cumulated_fees: &mut u64,
     sats_overflows: &mut VecDeque<(usize, usize)>,
@@ -769,11 +773,10 @@ fn augment_transaction_with_ordinals_inscriptions_data(
 
         let (destination, satpoint_post_transfer, output_value) = compute_satpoint_post_transfer(
             &&*tx,
-            tx_index,
             input_index,
             relative_offset,
             network,
-            coinbase_txid,
+            coinbase_tx,
             coinbase_subsidy,
             cumulated_fees,
             ctx,
@@ -838,7 +841,7 @@ fn augment_transaction_with_ordinals_inscriptions_data(
 fn consolidate_transaction_with_pre_computed_inscription_data(
     tx: &mut BitcoinTransactionData,
     tx_index: usize,
-    coinbase_txid: &TransactionIdentifier,
+    coinbase_tx: &BitcoinTransactionData,
     coinbase_subsidy: u64,
     cumulated_fees: &mut u64,
     network: &Network,
@@ -885,11 +888,10 @@ fn consolidate_transaction_with_pre_computed_inscription_data(
         // Compute satpoint_post_inscription
         let (destination, satpoint_post_transfer, output_value) = compute_satpoint_post_transfer(
             tx,
-            tx_index,
             input_index,
             relative_offset,
             network,
-            coinbase_txid,
+            coinbase_tx,
             coinbase_subsidy,
             cumulated_fees,
             ctx,
@@ -921,11 +923,12 @@ pub fn consolidate_block_with_pre_computed_ordinals_data(
     block: &mut BitcoinBlockData,
     inscriptions_db_tx: &Transaction,
     include_transfers: bool,
+    brc20_db_conn: Option<&Connection>,
     ctx: &Context,
 ) {
     let network = get_bitcoin_network(&block.metadata.network);
     let coinbase_subsidy = Height(block.block_identifier.index).subsidy();
-    let coinbase_txid = &block.transactions[0].transaction_identifier.clone();
+    let coinbase_tx = &block.transactions[0].clone();
     let mut cumulated_fees = 0;
     let expected_inscriptions_count = get_inscriptions_revealed_in_block(&block).len();
     let mut inscriptions_data = loop {
@@ -944,12 +947,17 @@ pub fn consolidate_block_with_pre_computed_ordinals_data(
         }
         break results;
     };
+    let mut brc20_token_map = HashMap::new();
+    let mut brc20_block_ledger_map = match brc20_db_conn {
+        Some(conn) => get_brc20_operations_on_block(&block.block_identifier, &conn, &ctx),
+        None => HashMap::new(),
+    };
     for (tx_index, tx) in block.transactions.iter_mut().enumerate() {
         // Add inscriptions data
         consolidate_transaction_with_pre_computed_inscription_data(
             tx,
             tx_index,
-            coinbase_txid,
+            &coinbase_tx,
             coinbase_subsidy,
             &mut cumulated_fees,
             &network,
@@ -963,11 +971,20 @@ pub fn consolidate_block_with_pre_computed_ordinals_data(
                 tx,
                 tx_index,
                 &network,
-                &coinbase_txid,
+                &coinbase_tx,
                 coinbase_subsidy,
                 &mut cumulated_fees,
                 inscriptions_db_tx,
                 ctx,
+            );
+        }
+        if let Some(brc20_db_conn) = brc20_db_conn {
+            augment_transaction_with_brc20_operation_data(
+                tx,
+                &mut brc20_token_map,
+                &mut brc20_block_ledger_map,
+                &brc20_db_conn,
+                &ctx,
             );
         }
     }

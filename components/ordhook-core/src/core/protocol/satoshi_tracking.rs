@@ -3,8 +3,8 @@ use std::collections::HashSet;
 use chainhook_sdk::{
     bitcoincore_rpc_json::bitcoin::{Address, Network, ScriptBuf},
     types::{
-        BitcoinBlockData, BitcoinNetwork, BitcoinTransactionData, OrdinalInscriptionTransferData,
-        OrdinalInscriptionTransferDestination, OrdinalOperation, TransactionIdentifier,
+        BitcoinBlockData, BitcoinTransactionData, OrdinalInscriptionTransferData,
+        OrdinalInscriptionTransferDestination, OrdinalOperation,
     },
     utils::Context,
 };
@@ -31,14 +31,14 @@ pub fn augment_block_with_ordinals_transfer_data(
 
     let network = get_bitcoin_network(&block.metadata.network);
     let coinbase_subsidy = Height(block.block_identifier.index).subsidy();
-    let coinbase_txid = &block.transactions[0].transaction_identifier.clone();
+    let coinbase_tx = &block.transactions[0].clone();
     let mut cumulated_fees = 0;
     for (tx_index, tx) in block.transactions.iter_mut().enumerate() {
         let transfers = augment_transaction_with_ordinals_transfers_data(
             tx,
             tx_index,
             &network,
-            &coinbase_txid,
+            &coinbase_tx,
             coinbase_subsidy,
             &mut cumulated_fees,
             inscriptions_db_tx,
@@ -73,11 +73,10 @@ pub fn augment_block_with_ordinals_transfer_data(
 
 pub fn compute_satpoint_post_transfer(
     tx: &BitcoinTransactionData,
-    tx_index: usize,
     input_index: usize,
     relative_pointer_value: u64,
     network: &Network,
-    coinbase_txid: &TransactionIdentifier,
+    coinbase_tx: &BitcoinTransactionData,
     coinbase_subsidy: u64,
     cumulated_fees: &mut u64,
     ctx: &Context,
@@ -90,7 +89,6 @@ pub fn compute_satpoint_post_transfer(
         .collect::<_>();
     let outputs = tx.metadata.outputs.iter().map(|o| o.value).collect::<_>();
     let post_transfer_data = compute_next_satpoint_data(
-        tx_index,
         input_index,
         &inputs,
         &outputs,
@@ -141,10 +139,33 @@ pub fn compute_satpoint_post_transfer(
             SatPosition::Fee(offset) => {
                 // Get Coinbase TX
                 let total_offset = coinbase_subsidy + *cumulated_fees + offset;
-                let outpoint = format_outpoint_to_watch(&coinbase_txid, 0);
+                let outputs = coinbase_tx.metadata.outputs.iter().map(|o| o.value).collect();
+                let post_transfer_data = compute_next_satpoint_data(
+                    0,
+                    &vec![total_offset],
+                    &outputs,
+                    total_offset,
+                    Some(ctx),
+                );
+
+                // Identify the correct output
+                let (output_index, offset) = match post_transfer_data {
+                    SatPosition::Output(pos) => pos,
+                    _ => {
+                        ctx.try_log(|logger| {
+                            info!(
+                                logger,
+                                "unable to locate satoshi in coinbase outputs",
+                            )
+                        });        
+                        (0, total_offset)
+                    }
+                };
+
+                let outpoint = format_outpoint_to_watch(&coinbase_tx.transaction_identifier, output_index);
                 (
                     outpoint,
-                    total_offset,
+                    offset,
                     OrdinalInscriptionTransferDestination::SpentInFees,
                     None,
                 )
@@ -163,7 +184,7 @@ pub fn augment_transaction_with_ordinals_transfers_data(
     tx: &mut BitcoinTransactionData,
     tx_index: usize,
     network: &Network,
-    coinbase_txid: &TransactionIdentifier,
+    coinbase_tx: &BitcoinTransactionData,
     coinbase_subsidy: u64,
     cumulated_fees: &mut u64,
     inscriptions_db_tx: &Transaction,
@@ -203,11 +224,10 @@ pub fn augment_transaction_with_ordinals_transfers_data(
             let (destination, satpoint_post_transfer, post_transfer_output_value) =
                 compute_satpoint_post_transfer(
                     &&*tx,
-                    tx_index,
                     input_index,
                     watched_satpoint.offset,
                     network,
-                    coinbase_txid,
+                    coinbase_tx,
                     coinbase_subsidy,
                     cumulated_fees,
                     ctx,

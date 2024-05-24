@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, HashMap},
     io::{Read, Write},
     path::PathBuf,
     thread::sleep,
@@ -16,14 +16,18 @@ use chainhook_sdk::{
     indexer::bitcoin::BitcoinBlockFullBreakdown,
     types::{
         BitcoinBlockData, BlockIdentifier, OrdinalInscriptionNumber, OrdinalInscriptionRevealData,
-        OrdinalInscriptionTransferData, TransactionIdentifier,
+        TransactionIdentifier,
     },
     utils::Context,
 };
 
 use crate::{
-    core::protocol::inscription_parsing::{
-        get_inscriptions_revealed_in_block, get_inscriptions_transferred_in_block,
+    config::Config,
+    core::{
+        meta_protocols::brc20::db::{delete_activity_in_block_range, open_readwrite_brc20_db_conn},
+        protocol::inscription_parsing::{
+            get_inscriptions_revealed_in_block, get_inscriptions_transferred_in_block,
+        },
     },
     ord::sat::Sat,
 };
@@ -48,13 +52,13 @@ pub fn open_readwrite_ordhook_db_conn(
     ctx: &Context,
 ) -> Result<Connection, String> {
     let db_path = get_default_ordhook_db_file_path(&base_dir);
-    let conn = create_or_open_readwrite_db(&db_path, ctx);
+    let conn = create_or_open_readwrite_db(Some(&db_path), ctx);
     Ok(conn)
 }
 
 pub fn initialize_ordhook_db(base_dir: &PathBuf, ctx: &Context) -> Connection {
     let db_path = get_default_ordhook_db_file_path(&base_dir);
-    let conn = create_or_open_readwrite_db(&db_path, ctx);
+    let conn = create_or_open_readwrite_db(Some(&db_path), ctx);
     // TODO: introduce initial output
     if let Err(e) = conn.execute(
         "CREATE TABLE IF NOT EXISTS inscriptions (
@@ -172,29 +176,37 @@ pub fn initialize_ordhook_db(base_dir: &PathBuf, ctx: &Context) -> Connection {
     conn
 }
 
-pub fn create_or_open_readwrite_db(db_path: &PathBuf, ctx: &Context) -> Connection {
-    let open_flags = match std::fs::metadata(&db_path) {
-        Err(e) => {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                // need to create
-                if let Some(dirp) = PathBuf::from(&db_path).parent() {
-                    std::fs::create_dir_all(dirp).unwrap_or_else(|e| {
-                        ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
-                    });
+pub fn create_or_open_readwrite_db(db_path: Option<&PathBuf>, ctx: &Context) -> Connection {
+    let open_flags = if let Some(db_path) = db_path {
+        match std::fs::metadata(&db_path) {
+            Err(e) => {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    // need to create
+                    if let Some(dirp) = PathBuf::from(&db_path).parent() {
+                        std::fs::create_dir_all(dirp).unwrap_or_else(|e| {
+                            ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
+                        });
+                    }
+                    OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE
+                } else {
+                    panic!("FATAL: could not stat {}", db_path.display());
                 }
-                OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE
-            } else {
-                panic!("FATAL: could not stat {}", db_path.display());
+            }
+            Ok(_md) => {
+                // can just open
+                OpenFlags::SQLITE_OPEN_READ_WRITE
             }
         }
-        Ok(_md) => {
-            // can just open
-            OpenFlags::SQLITE_OPEN_READ_WRITE
-        }
+    } else {
+        OpenFlags::SQLITE_OPEN_READ_WRITE
     };
 
+    let path = match db_path {
+        Some(path) => path.to_str().unwrap(),
+        None => ":memory:",
+    };
     let conn = loop {
-        match Connection::open_with_flags(&db_path, open_flags) {
+        match Connection::open_with_flags(&path, open_flags) {
             Ok(conn) => break conn,
             Err(e) => {
                 ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
@@ -1275,17 +1287,25 @@ pub fn remove_entries_from_locations_at_block_height(
 pub fn delete_data_in_ordhook_db(
     start_block: u64,
     end_block: u64,
-    blocks_db_rw: &DB,
-    inscriptions_db_conn_rw: &Connection,
+    config: &Config,
     ctx: &Context,
 ) -> Result<(), String> {
+    let blocks_db = open_ordhook_db_conn_rocks_db_loop(
+        true,
+        &config.expected_cache_path(),
+        config.resources.ulimit,
+        config.resources.memory_available,
+        ctx,
+    );
+    let inscriptions_db_conn_rw =
+        open_readwrite_ordhook_db_conn(&config.expected_cache_path(), ctx)?;
     ctx.try_log(|logger| {
         info!(
             logger,
             "Deleting entries from block #{start_block} to block #{end_block}"
         )
     });
-    delete_blocks_in_block_range(start_block as u32, end_block as u32, blocks_db_rw, &ctx);
+    delete_blocks_in_block_range(start_block as u32, end_block as u32, &blocks_db, &ctx);
     ctx.try_log(|logger| {
         info!(
             logger,
@@ -1295,9 +1315,19 @@ pub fn delete_data_in_ordhook_db(
     delete_inscriptions_in_block_range(
         start_block as u32,
         end_block as u32,
-        inscriptions_db_conn_rw,
+        &inscriptions_db_conn_rw,
         &ctx,
     );
+    if config.meta_protocols.brc20 {
+        let conn = open_readwrite_brc20_db_conn(&config.expected_cache_path(), ctx)?;
+        delete_activity_in_block_range(start_block as u32, end_block as u32, &conn, &ctx);
+        ctx.try_log(|logger| {
+            info!(
+                logger,
+                "Deleting BRC-20 activity from block #{start_block} to block #{end_block}"
+            )
+        });
+    }
     Ok(())
 }
 
