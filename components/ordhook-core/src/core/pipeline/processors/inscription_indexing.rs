@@ -333,7 +333,7 @@ pub fn process_block(
 
     if let Some(brc20_db_tx) = brc20_db_tx {
         write_brc20_block_operations(
-            &block,
+            block,
             &mut brc20_operation_map,
             brc20_cache,
             &brc20_db_tx,

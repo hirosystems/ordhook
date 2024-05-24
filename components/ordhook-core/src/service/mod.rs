@@ -3,13 +3,13 @@ pub mod observers;
 mod runloops;
 
 use crate::config::{Config, PredicatesApi};
+use crate::core::meta_protocols::brc20::brc20_activation_height;
 use crate::core::meta_protocols::brc20::cache::Brc20MemoryCache;
 use crate::core::meta_protocols::brc20::db::open_readwrite_brc20_db_conn;
 use crate::core::meta_protocols::brc20::parser::ParsedBrc20Operation;
 use crate::core::meta_protocols::brc20::verifier::{
     verify_brc20_operation, verify_brc20_transfer, VerifiedBrc20Operation,
 };
-use crate::core::meta_protocols::brc20::brc20_activation_height;
 use crate::core::pipeline::download_and_pipeline_blocks;
 use crate::core::pipeline::processors::block_archiving::start_block_archiving_processor;
 use crate::core::pipeline::processors::inscription_indexing::process_block;
@@ -47,7 +47,10 @@ use chainhook_sdk::observer::{
     start_event_observer, BitcoinBlockDataCached, DataHandlerEvent, EventObserverConfig,
     HandleBlock, ObserverCommand, ObserverEvent, ObserverSidecar,
 };
-use chainhook_sdk::types::{BitcoinBlockData, BlockIdentifier, OrdinalOperation};
+use chainhook_sdk::types::{
+    BitcoinBlockData, BlockIdentifier, Brc20BalanceData, Brc20Operation, Brc20TokenDeployData,
+    Brc20TransferData, OrdinalOperation,
+};
 use chainhook_sdk::utils::{BlockHeights, Context};
 use crossbeam_channel::unbounded;
 use crossbeam_channel::{select, Sender};
@@ -857,7 +860,7 @@ pub fn chainhook_sidecar_mutate_blocks(
 }
 
 pub fn write_brc20_block_operations(
-    block: &BitcoinBlockData,
+    block: &mut BitcoinBlockData,
     brc20_operation_map: &mut HashMap<String, ParsedBrc20Operation>,
     brc20_cache: &mut Brc20MemoryCache,
     db_tx: &Transaction,
@@ -866,7 +869,7 @@ pub fn write_brc20_block_operations(
     if block.block_identifier.index < brc20_activation_height(&block.metadata.network) {
         return;
     }
-    for (tx_index, tx) in block.transactions.iter().enumerate() {
+    for (tx_index, tx) in block.transactions.iter_mut().enumerate() {
         for op in tx.metadata.ordinal_operations.iter() {
             match op {
                 OrdinalOperation::InscriptionRevealed(reveal) => {
@@ -882,68 +885,121 @@ pub fn write_brc20_block_operations(
                             &db_tx,
                             &ctx,
                         ) {
-                            Ok(op) => {
-                                match op {
-                                    VerifiedBrc20Operation::TokenDeploy(token) => {
-                                        brc20_cache.insert_token_deploy(
-                                            &token,
-                                            reveal,
-                                            &block.block_identifier,
-                                            tx_index as u64,
-                                            db_tx,
-                                            ctx,
-                                        );
-                                        ctx.try_log(|logger| {
-                                            info!(
-                                                logger,
-                                                "BRC-20 deploy {} ({}) at block {}",
-                                                token.tick,
-                                                token.address,
-                                                block.block_identifier.index
-                                            )
-                                        });
-                                    }
-                                    VerifiedBrc20Operation::TokenMint(balance) => {
-                                        brc20_cache.insert_token_mint(
-                                            &balance,
-                                            reveal,
-                                            &block.block_identifier,
-                                            tx_index as u64,
-                                            db_tx,
-                                            ctx,
-                                        );
-                                        ctx.try_log(|logger| {
-                                            info!(
+                            Ok(op) => match op {
+                                VerifiedBrc20Operation::TokenDeploy(token) => {
+                                    let dec = token.dec as usize;
+                                    tx.metadata.brc20_operation =
+                                        Some(Brc20Operation::Deploy(Brc20TokenDeployData {
+                                            tick: token.tick.clone(),
+                                            max: format!(
+                                                "{:.precision$}",
+                                                token.max,
+                                                precision = dec
+                                            ),
+                                            lim: format!(
+                                                "{:.precision$}",
+                                                token.lim,
+                                                precision = dec
+                                            ),
+                                            dec: token.dec.to_string(),
+                                            address: token.address.clone(),
+                                            inscription_id: reveal.inscription_id.clone(),
+                                            self_mint: token.self_mint,
+                                        }));
+                                    brc20_cache.insert_token_deploy(
+                                        &token,
+                                        reveal,
+                                        &block.block_identifier,
+                                        tx_index as u64,
+                                        db_tx,
+                                        ctx,
+                                    );
+                                    ctx.try_log(|logger| {
+                                        info!(
                                             logger,
-                                            "BRC-20 mint {} {} ({}) at block {}",
-                                            balance.tick, balance.amt, balance.address,
+                                            "BRC-20 deploy {} ({}) at block {}",
+                                            token.tick,
+                                            token.address,
                                             block.block_identifier.index
                                         )
-                                        });
-                                    }
-                                    VerifiedBrc20Operation::TokenTransfer(balance) => {
-                                        brc20_cache.insert_token_transfer(
-                                            &balance,
-                                            reveal,
-                                            &block.block_identifier,
-                                            tx_index as u64,
-                                            db_tx,
-                                            ctx,
-                                        );
-                                        ctx.try_log(|logger| {
-                                            info!(
-                                                logger,
-                                                "BRC-20 transfer {} {} ({}) at block {}",
-                                                balance.tick, balance.amt, balance.address,
-                                                block.block_identifier.index
-                                            )
-                                        });
-                                    }
-                                    VerifiedBrc20Operation::TokenTransferSend(_) => {
-                                        unreachable!("BRC-20 token transfer send should never be generated on reveal")
-                                    }
+                                    });
                                 }
-                            }
+                                VerifiedBrc20Operation::TokenMint(balance) => {
+                                    let Some(token) =
+                                        brc20_cache.get_token(&balance.tick, db_tx, ctx)
+                                    else {
+                                        unreachable!();
+                                    };
+                                    tx.metadata.brc20_operation =
+                                        Some(Brc20Operation::Mint(Brc20BalanceData {
+                                            tick: balance.tick.clone(),
+                                            amt: format!(
+                                                "{:.precision$}",
+                                                balance.amt,
+                                                precision = token.dec as usize
+                                            ),
+                                            address: balance.address.clone(),
+                                            inscription_id: reveal.inscription_id.clone(),
+                                        }));
+                                    brc20_cache.insert_token_mint(
+                                        &balance,
+                                        reveal,
+                                        &block.block_identifier,
+                                        tx_index as u64,
+                                        db_tx,
+                                        ctx,
+                                    );
+                                    ctx.try_log(|logger| {
+                                        info!(
+                                            logger,
+                                            "BRC-20 mint {} {} ({}) at block {}",
+                                            balance.tick,
+                                            balance.amt,
+                                            balance.address,
+                                            block.block_identifier.index
+                                        )
+                                    });
+                                }
+                                VerifiedBrc20Operation::TokenTransfer(balance) => {
+                                    let Some(token) =
+                                        brc20_cache.get_token(&balance.tick, db_tx, ctx)
+                                    else {
+                                        unreachable!();
+                                    };
+                                    tx.metadata.brc20_operation =
+                                        Some(Brc20Operation::Transfer(Brc20BalanceData {
+                                            tick: balance.tick.clone(),
+                                            amt: format!(
+                                                "{:.precision$}",
+                                                balance.amt,
+                                                precision = token.dec as usize
+                                            ),
+                                            address: balance.address.clone(),
+                                            inscription_id: reveal.inscription_id.clone(),
+                                        }));
+                                    brc20_cache.insert_token_transfer(
+                                        &balance,
+                                        reveal,
+                                        &block.block_identifier,
+                                        tx_index as u64,
+                                        db_tx,
+                                        ctx,
+                                    );
+                                    ctx.try_log(|logger| {
+                                        info!(
+                                            logger,
+                                            "BRC-20 transfer {} {} ({}) at block {}",
+                                            balance.tick,
+                                            balance.amt,
+                                            balance.address,
+                                            block.block_identifier.index
+                                        )
+                                    });
+                                }
+                                VerifiedBrc20Operation::TokenTransferSend(_) => {
+                                    unreachable!("BRC-20 token transfer send should never be generated on reveal")
+                                }
+                            },
                             Err(e) => {
                                 ctx.try_log(|logger| {
                                     debug!(logger, "Error validating BRC-20 operation {}", e)
@@ -957,6 +1013,28 @@ pub fn write_brc20_block_operations(
                 OrdinalOperation::InscriptionTransferred(transfer) => {
                     match verify_brc20_transfer(transfer, brc20_cache, &db_tx, &ctx) {
                         Ok(data) => {
+                            let Some(token) = brc20_cache.get_token(&data.tick, db_tx, ctx) else {
+                                unreachable!();
+                            };
+                            let Some(unsent_transfer) = brc20_cache.get_unsent_token_transfer(
+                                transfer.ordinal_number,
+                                db_tx,
+                                ctx,
+                            ) else {
+                                unreachable!();
+                            };
+                            tx.metadata.brc20_operation =
+                                Some(Brc20Operation::TransferSend(Brc20TransferData {
+                                    tick: data.tick.clone(),
+                                    amt: format!(
+                                        "{:.precision$}",
+                                        data.amt * -1.0,
+                                        precision = token.dec as usize
+                                    ),
+                                    sender_address: data.sender_address.clone(),
+                                    receiver_address: data.receiver_address.clone(),
+                                    inscription_id: unsent_transfer.inscription_id,
+                                }));
                             brc20_cache.insert_token_transfer_send(
                                 &data,
                                 &transfer,
@@ -969,7 +1047,10 @@ pub fn write_brc20_block_operations(
                                 info!(
                                     logger,
                                     "BRC-20 transfer_send {} {} ({} -> {}) at block {}",
-                                    data.tick, data.amt, data.sender_address, data.receiver_address,
+                                    data.tick,
+                                    data.amt,
+                                    data.sender_address,
+                                    data.receiver_address,
                                     block.block_identifier.index
                                 )
                             });

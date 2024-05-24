@@ -494,9 +494,9 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
 name = "chainhook-sdk"
-version = "0.12.8"
+version = "0.12.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8fd54af8c8b55ce530013e2dd510d76be08e9132c9918f81d8a0d3d86b6e4bde"
+checksum = "14eeb8a1a055202ca86122c9508dc4f9d9cd8643ef9f25773173b645c33b09ac"
 dependencies = [
  "base58",
  "base64 0.21.5",
@@ -517,7 +517,7 @@ dependencies = [
  "regex",
  "reqwest",
  "rocket",
- "schemars 0.8.16",
+ "schemars 0.8.16 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde",
  "serde-hex",
  "serde_derive",
@@ -535,7 +535,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "63f0d358e5c530dd6888e4678ef4ba3f7782525653a1012d33e96a48020c418d"
 dependencies = [
  "hex",
- "schemars 0.8.16",
+ "schemars 0.8.16 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde",
  "serde_derive",
  "serde_json",
@@ -2472,7 +2472,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a64853d7ab065474e87696f7601cee817d200e86c42e04004e005cb3e20c3c5"
 dependencies = [
  "log",
- "schemars 0.8.16",
+ "schemars 0.8.16 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde",
  "serde_json",
 ]
@@ -2520,7 +2520,7 @@ dependencies = [
  "rocket_okapi",
  "rocksdb",
  "rusqlite",
- "schemars 0.8.12",
+ "schemars 0.8.16 (git+https://github.com/hirosystems/schemars.git?branch=feat-chainhook-fixes)",
  "serde",
  "serde_derive",
  "serde_json",
@@ -3237,7 +3237,7 @@ dependencies = [
  "okapi",
  "rocket",
  "rocket_okapi_codegen",
- "schemars 0.8.16",
+ "schemars 0.8.16 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde",
  "serde_json",
 ]
@@ -3387,11 +3387,13 @@ dependencies = [
 
 [[package]]
 name = "schemars"
-version = "0.8.12"
-source = "git+https://github.com/hirosystems/schemars.git?branch=feat-chainhook-fixes#15fdd4711700114d57c090aad62516593bd4ca6d"
+version = "0.8.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "45a28f4c49489add4ce10783f7911893516f15afe45d015608d41faca6bc4d29"
 dependencies = [
  "dyn-clone",
- "schemars_derive 0.8.12",
+ "indexmap 1.9.3",
+ "schemars_derive 0.8.16 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde",
  "serde_json",
 ]
@@ -3399,20 +3401,19 @@ dependencies = [
 [[package]]
 name = "schemars"
 version = "0.8.16"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "45a28f4c49489add4ce10783f7911893516f15afe45d015608d41faca6bc4d29"
+source = "git+https://github.com/hirosystems/schemars.git?branch=feat-chainhook-fixes#d0c10b50478a06198a54e5b90be460112b38b357"
 dependencies = [
  "dyn-clone",
- "indexmap 1.9.3",
- "schemars_derive 0.8.16",
+ "schemars_derive 0.8.16 (git+https://github.com/hirosystems/schemars.git?branch=feat-chainhook-fixes)",
  "serde",
  "serde_json",
 ]
 
 [[package]]
 name = "schemars_derive"
-version = "0.8.12"
-source = "git+https://github.com/hirosystems/schemars.git?branch=feat-chainhook-fixes#15fdd4711700114d57c090aad62516593bd4ca6d"
+version = "0.8.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c767fd6fa65d9ccf9cf026122c1b555f2ef9a4f0cea69da4d7dbc3e258d30967"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3423,8 +3424,7 @@ dependencies = [
 [[package]]
 name = "schemars_derive"
 version = "0.8.16"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c767fd6fa65d9ccf9cf026122c1b555f2ef9a4f0cea69da4d7dbc3e258d30967"
+source = "git+https://github.com/hirosystems/schemars.git?branch=feat-chainhook-fixes#d0c10b50478a06198a54e5b90be460112b38b357"
 dependencies = [
  "proc-macro2",
  "quote",

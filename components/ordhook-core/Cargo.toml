@@ -11,8 +11,8 @@ serde_derive = "1"
 hex = "0.4.3"
 rand = "0.8.5"
 lru = "0.12.3"
-chainhook-sdk = { version = "=0.12.8", features = ["zeromq"] }
-# chainhook-sdk = { version = "=0.12.5", path = "../../../chainhook/components/chainhook-sdk", features = ["zeromq"] }
+chainhook-sdk = { version = "=0.12.10", features = ["zeromq"] }
+# chainhook-sdk = { version = "=0.12.10", path = "../../../chainhook/components/chainhook-sdk", features = ["zeromq"] }
 hiro-system-kit = "0.3.1"
 reqwest = { version = "0.11", default-features = false, features = [
     "stream",
@@ -35,7 +35,7 @@ dashmap = "5.4.0"
 fxhash = "0.2.1"
 rusqlite = { version = "0.28.0", features = ["bundled"] }
 anyhow = { version = "1.0.56", features = ["backtrace"] }
-schemars = { version = "0.8.10", git = "https://github.com/hirosystems/schemars.git", branch = "feat-chainhook-fixes" }
+schemars = { version = "0.8.16", git = "https://github.com/hirosystems/schemars.git", branch = "feat-chainhook-fixes" }
 progressing = '3'
 futures = "0.3.28"
 rocksdb = { version = "0.21.0", default-features = false, features = [
