@@ -568,6 +568,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                     Some(&block_heights),
                     None,
                     cmd.auth_token,
+                    false,
                 )?;
 
                 let _ = initialize_observers_db(&config.expected_cache_path(), ctx);
@@ -751,6 +752,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                         None,
                         Some(start_block),
                         cmd.auth_token.clone(),
+                        true,
                     )?;
                     predicates.push(predicate);
                 }
@@ -965,6 +967,7 @@ pub fn build_predicate_from_cli(
     block_heights: Option<&BlockHeights>,
     start_block: Option<u64>,
     auth_token: Option<String>,
+    is_streaming: bool,
 ) -> Result<BitcoinChainhookSpecification, String> {
     // Retrieve last block height known, and display it
     let (start_block, end_block, blocks) = match (start_block, block_heights) {
@@ -994,7 +997,7 @@ pub fn build_predicate_from_cli(
         include_outputs: false,
         include_witness: false,
         expired_at: None,
-        enabled: true,
+        enabled: is_streaming,
         predicate: BitcoinPredicateType::OrdinalsProtocol(OrdinalOperations::InscriptionFeed(
             InscriptionFeedData { meta_protocols },
         )),

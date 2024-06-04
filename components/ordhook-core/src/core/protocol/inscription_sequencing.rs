@@ -571,6 +571,7 @@ pub fn augment_block_with_ordinals_inscriptions_data_and_write_to_db_tx(
     // Handle re-inscriptions
     let mut reinscriptions_data = HashMap::new();
     for (_, inscription_data) in inscriptions_data.iter() {
+        // TODO: Comment on why this is necessary.
         if inscription_data.ordinal_number != 0 {
             if let Some(inscription_id) = find_blessed_inscription_with_ordinal_number(
                 &inscription_data.ordinal_number,
