@@ -104,12 +104,10 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
         let brc20_db_conn = match predicate_spec.predicate {
             BitcoinPredicateType::OrdinalsProtocol(OrdinalOperations::InscriptionFeed(
                 ref feed_data,
-            )) if feed_data.meta_protocols.is_some() => {
-                Some(open_readonly_brc20_db_conn(
-                    &config.expected_cache_path(),
-                    ctx,
-                )?)
-            }
+            )) if feed_data.meta_protocols.is_some() => Some(open_readonly_brc20_db_conn(
+                &config.expected_cache_path(),
+                ctx,
+            )?),
             _ => None,
         };
 
