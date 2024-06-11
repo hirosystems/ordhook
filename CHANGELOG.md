@@ -1,3 +1,12 @@
+## [2.2.1](https://github.com/hirosystems/ordhook/compare/v2.2.0...v2.2.1) (2024-06-11)
+
+
+### Bug Fixes
+
+* base catchup on inscriptions db, vs blocks db ([a76a037](https://github.com/hirosystems/ordhook/commit/a76a037cf8965863e5bb2401637a2327f79dcb5f))
+* consider meta protocols when switching to stream ([#311](https://github.com/hirosystems/ordhook/issues/311)) ([26d8ed9](https://github.com/hirosystems/ordhook/commit/26d8ed9f5c3121f9caa7ca89436d980088e27bd8))
+* set is_streaming_blocks to false when scanning ([#309](https://github.com/hirosystems/ordhook/issues/309)) ([b31f6bd](https://github.com/hirosystems/ordhook/commit/b31f6bdea79a8a553b31f1492da80ffd8c35a6e5))
+
 ## [2.2.0](https://github.com/hirosystems/ordhook/compare/v2.1.0...v2.2.0) (2024-05-24)
 
 
