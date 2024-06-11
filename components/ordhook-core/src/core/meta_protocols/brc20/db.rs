@@ -6,8 +6,9 @@ use crate::db::{
 };
 use chainhook_sdk::{
     types::{
-        BitcoinTransactionData, BlockIdentifier, Brc20BalanceData, Brc20Operation,
-        Brc20TokenDeployData, Brc20TransferData,
+        BitcoinBlockData, BitcoinTransactionData, BlockIdentifier, Brc20BalanceData,
+        Brc20Operation, Brc20TokenDeployData, Brc20TransferData, OrdinalInscriptionRevealData,
+        OrdinalOperation,
     },
     utils::Context,
 };
@@ -259,7 +260,7 @@ pub fn get_transfer_send_receiver_address(
     perform_query_one(query, args, &db_tx, ctx, |row| row.get(0).unwrap())
 }
 
-pub fn insert_ledger_rows(rows: &Vec<Brc20DbLedgerRow>, db_tx: &Transaction, ctx: &Context) {
+pub fn insert_ledger_rows(rows: &Vec<Brc20DbLedgerRow>, db_tx: &Connection, ctx: &Context) {
     match db_tx.prepare_cached("INSERT INTO ledger
         (inscription_id, inscription_number, ordinal_number, block_height, tx_index, tick, address, avail_balance, trans_balance, operation)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)") {
@@ -286,7 +287,7 @@ pub fn insert_ledger_rows(rows: &Vec<Brc20DbLedgerRow>, db_tx: &Transaction, ctx
     }
 }
 
-pub fn insert_token_rows(rows: &Vec<Brc20DbTokenRow>, db_tx: &Transaction, ctx: &Context) {
+pub fn insert_token_rows(rows: &Vec<Brc20DbTokenRow>, db_tx: &Connection, ctx: &Context) {
     match db_tx.prepare_cached(
         "INSERT INTO tokens
         (inscription_id, inscription_number, block_height, tick, max, lim, dec, address, self_mint)
@@ -424,6 +425,200 @@ pub fn augment_transaction_with_brc20_operation_data(
                 inscription_id: entry.inscription_id,
             }));
         }
+        // `transfer_receive` ops are not reflected in transaction metadata.
         _ => {}
     }
+}
+
+/// Retrieves the inscription number and ordinal number from a `transfer` operation.
+fn get_transfer_inscription_info(
+    inscription_id: &String,
+    db_tx: &Connection,
+    ctx: &Context,
+) -> Option<(u64, u64)> {
+    let args: &[&dyn ToSql] = &[&inscription_id.to_sql().unwrap()];
+    let query = "
+        SELECT inscription_number, ordinal_number
+        FROM ledger
+        WHERE inscription_id = ? AND operation = 'transfer'
+        LIMIT 1
+    ";
+    perform_query_one(query, args, &db_tx, ctx, |row| {
+        (row.get(0).unwrap(), row.get(1).unwrap())
+    })
+}
+
+/// Finds an inscription reveal with a specific inscription ID within an augmented block.
+fn find_reveal_in_tx<'a>(
+    inscription_id: &String,
+    tx: &'a BitcoinTransactionData,
+) -> Option<&'a OrdinalInscriptionRevealData> {
+    for operation in tx.metadata.ordinal_operations.iter() {
+        match operation {
+            OrdinalOperation::InscriptionRevealed(reveal) => {
+                if reveal.inscription_id == *inscription_id {
+                    return Some(reveal);
+                }
+            }
+            OrdinalOperation::InscriptionTransferred(_) => return None,
+        }
+    }
+    None
+}
+
+/// Takes a block already augmented with BRC-20 data and writes its operations into the brc20.sqlite DB. Called when
+/// receiving a block back from Chainhook SDK.
+pub fn write_augmented_block_to_brc20_db(
+    block: &BitcoinBlockData,
+    db_conn: &Connection,
+    ctx: &Context,
+) {
+    let mut tokens: Vec<Brc20DbTokenRow> = vec![];
+    let mut ledger_rows: Vec<Brc20DbLedgerRow> = vec![];
+    let mut transfers = HashMap::<String, (u64, u64)>::new();
+    for tx in block.transactions.iter() {
+        if let Some(brc20_operation) = &tx.metadata.brc20_operation {
+            match brc20_operation {
+                Brc20Operation::Deploy(token) => {
+                    let Some(reveal) = find_reveal_in_tx(&token.inscription_id, tx) else {
+                        ctx.try_log(|logger| {
+                            warn!(
+                                logger,
+                                "Could not find BRC-20 deploy inscription in augmented block: {}",
+                                token.inscription_id
+                            )
+                        });
+                        continue;
+                    };
+                    tokens.push(Brc20DbTokenRow {
+                        inscription_id: token.inscription_id.clone(),
+                        inscription_number: reveal.inscription_number.jubilee as u64,
+                        block_height: block.block_identifier.index,
+                        tick: token.tick.clone(),
+                        max: token.max.parse::<f64>().unwrap(),
+                        lim: token.lim.parse::<f64>().unwrap(),
+                        dec: token.dec.parse::<u64>().unwrap(),
+                        address: token.address.clone(),
+                        self_mint: token.self_mint,
+                    });
+                    ledger_rows.push(Brc20DbLedgerRow {
+                        inscription_id: token.inscription_id.clone(),
+                        inscription_number: reveal.inscription_number.jubilee as u64,
+                        ordinal_number: reveal.ordinal_number,
+                        block_height: block.block_identifier.index,
+                        tx_index: tx.metadata.index as u64,
+                        tick: token.tick.clone(),
+                        address: token.address.clone(),
+                        avail_balance: 0.0,
+                        trans_balance: 0.0,
+                        operation: "deploy".to_string(),
+                    });
+                }
+                Brc20Operation::Mint(balance) => {
+                    let Some(reveal) = find_reveal_in_tx(&balance.inscription_id, tx) else {
+                        ctx.try_log(|logger| {
+                            warn!(
+                                logger,
+                                "Could not find BRC-20 mint inscription in augmented block: {}",
+                                balance.inscription_id
+                            )
+                        });
+                        continue;
+                    };
+                    ledger_rows.push(Brc20DbLedgerRow {
+                        inscription_id: balance.inscription_id.clone(),
+                        inscription_number: reveal.inscription_number.jubilee as u64,
+                        ordinal_number: reveal.ordinal_number,
+                        block_height: block.block_identifier.index,
+                        tx_index: tx.metadata.index as u64,
+                        tick: balance.tick.clone(),
+                        address: balance.address.clone(),
+                        avail_balance: balance.amt.parse::<f64>().unwrap(),
+                        trans_balance: 0.0,
+                        operation: "mint".to_string(),
+                    });
+                }
+                Brc20Operation::Transfer(balance) => {
+                    let Some(reveal) = find_reveal_in_tx(&balance.inscription_id, tx) else {
+                        ctx.try_log(|logger| {
+                            warn!(
+                                logger,
+                                "Could not find BRC-20 transfer inscription in augmented block: {}",
+                                balance.inscription_id
+                            )
+                        });
+                        continue;
+                    };
+                    ledger_rows.push(Brc20DbLedgerRow {
+                        inscription_id: balance.inscription_id.clone(),
+                        inscription_number: reveal.inscription_number.jubilee as u64,
+                        ordinal_number: reveal.ordinal_number,
+                        block_height: block.block_identifier.index,
+                        tx_index: tx.metadata.index as u64,
+                        tick: balance.tick.clone(),
+                        address: balance.address.clone(),
+                        avail_balance: balance.amt.parse::<f64>().unwrap() * -1.0,
+                        trans_balance: balance.amt.parse::<f64>().unwrap(),
+                        operation: "transfer".to_string(),
+                    });
+                    transfers.insert(
+                        balance.inscription_id.clone(),
+                        (
+                            reveal.inscription_number.jubilee as u64,
+                            reveal.ordinal_number,
+                        ),
+                    );
+                }
+                Brc20Operation::TransferSend(transfer) => {
+                    let inscription_number: u64;
+                    let ordinal_number: u64;
+                    if let Some(info) = transfers.get(&transfer.inscription_id) {
+                        inscription_number = info.0;
+                        ordinal_number = info.1;
+                    } else if let Some(info) =
+                        get_transfer_inscription_info(&transfer.inscription_id, db_conn, ctx)
+                    {
+                        inscription_number = info.0;
+                        ordinal_number = info.1;
+                    } else {
+                        ctx.try_log(|logger| {
+                            warn!(
+                                logger,
+                                "Could not find BRC-20 transfer inscription in brc20 db: {}",
+                                transfer.inscription_id
+                            )
+                        });
+                        continue;
+                    };
+                    let amt = transfer.amt.parse::<f64>().unwrap();
+                    ledger_rows.push(Brc20DbLedgerRow {
+                        inscription_id: transfer.inscription_id.clone(),
+                        inscription_number,
+                        ordinal_number,
+                        block_height: block.block_identifier.index,
+                        tx_index: tx.metadata.index as u64,
+                        tick: transfer.tick.clone(),
+                        address: transfer.sender_address.clone(),
+                        avail_balance: 0.0,
+                        trans_balance: amt * -1.0,
+                        operation: "transfer_send".to_string(),
+                    });
+                    ledger_rows.push(Brc20DbLedgerRow {
+                        inscription_id: transfer.inscription_id.clone(),
+                        inscription_number,
+                        ordinal_number,
+                        block_height: block.block_identifier.index,
+                        tx_index: tx.metadata.index as u64,
+                        tick: transfer.tick.clone(),
+                        address: transfer.receiver_address.clone(),
+                        avail_balance: amt,
+                        trans_balance: 0.0,
+                        operation: "transfer_receive".to_string(),
+                    });
+                }
+            }
+        }
+    }
+    insert_token_rows(&tokens, db_conn, ctx);
+    insert_ledger_rows(&ledger_rows, db_conn, ctx);
 }

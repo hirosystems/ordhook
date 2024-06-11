@@ -5,7 +5,9 @@ mod runloops;
 use crate::config::{Config, PredicatesApi};
 use crate::core::meta_protocols::brc20::brc20_activation_height;
 use crate::core::meta_protocols::brc20::cache::Brc20MemoryCache;
-use crate::core::meta_protocols::brc20::db::open_readwrite_brc20_db_conn;
+use crate::core::meta_protocols::brc20::db::{
+    delete_activity_in_block_range, open_readwrite_brc20_db_conn, write_augmented_block_to_brc20_db,
+};
 use crate::core::meta_protocols::brc20::parser::ParsedBrc20Operation;
 use crate::core::meta_protocols::brc20::verifier::{
     verify_brc20_operation, verify_brc20_transfer, VerifiedBrc20Operation,
@@ -29,7 +31,6 @@ use crate::db::{
     find_last_block_inserted, find_missing_blocks, run_compaction,
     update_sequence_metadata_with_block,
 };
-use crate::ord::inscription;
 use crate::scan::bitcoin::process_block_with_predicates;
 use crate::service::http_api::start_predicate_api_server;
 use crate::service::observers::{
@@ -56,7 +57,7 @@ use crossbeam_channel::unbounded;
 use crossbeam_channel::{select, Sender};
 use dashmap::DashMap;
 use fxhash::FxHasher;
-use rusqlite::Transaction;
+use rusqlite::{Connection, Transaction};
 
 use std::collections::{BTreeMap, HashMap};
 use std::hash::BuildHasherDefault;
@@ -642,10 +643,22 @@ fn chainhook_sidecar_mutate_ordhook_db(command: HandleBlock, config: &Config, ct
     ) {
         Ok(dbs) => dbs,
         Err(e) => {
-            ctx.try_log(|logger| error!(logger, "Unable to open readwtite connection: {e}",));
+            ctx.try_log(|logger| error!(logger, "Unable to open readwrite connection: {e}",));
             return;
         }
     };
+    let mut brc20_conn_rw: Option<Connection> = None;
+    if config.meta_protocols.brc20 {
+        match open_readwrite_brc20_db_conn(&config.expected_cache_path(), ctx) {
+            Ok(dbs) => brc20_conn_rw = Some(dbs),
+            Err(e) => {
+                ctx.try_log(|logger| {
+                    error!(logger, "Unable to open readwrite brc20 connection: {e}",)
+                });
+                return;
+            }
+        };
+    }
 
     match command {
         HandleBlock::UndoBlock(block) => {
@@ -667,6 +680,14 @@ fn chainhook_sidecar_mutate_ordhook_db(command: HandleBlock, config: &Config, ct
                         "Unable to rollback bitcoin block {}: {e}", block.block_identifier
                     )
                 });
+            }
+            if let Some(brc20_conn_rw) = brc20_conn_rw {
+                delete_activity_in_block_range(
+                    block.block_identifier.index as u32,
+                    block.block_identifier.index as u32,
+                    &brc20_conn_rw,
+                    &ctx,
+                );
             }
         }
         HandleBlock::ApplyBlock(block) => {
@@ -696,6 +717,10 @@ fn chainhook_sidecar_mutate_ordhook_db(command: HandleBlock, config: &Config, ct
             update_ordinals_db_with_block(&block, &inscriptions_db_conn_rw, ctx);
 
             update_sequence_metadata_with_block(&block, &inscriptions_db_conn_rw, &ctx);
+
+            if let Some(brc20_conn_rw) = brc20_conn_rw {
+                write_augmented_block_to_brc20_db(&block, &brc20_conn_rw, ctx);
+            }
         }
     }
 }

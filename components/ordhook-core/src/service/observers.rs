@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashSet},
     path::PathBuf,
     sync::mpsc::{channel, Sender},
 };
@@ -8,7 +8,7 @@ use chainhook_sdk::{
     chainhooks::types::{
         BitcoinChainhookFullSpecification, BitcoinChainhookNetworkSpecification,
         BitcoinChainhookSpecification, ChainhookConfig, ChainhookSpecification,
-        InscriptionFeedData,
+        InscriptionFeedData, OrdinalsMetaProtocol,
     },
     observer::EventObserverConfig,
     types::BitcoinBlockData,
@@ -252,7 +252,12 @@ pub fn create_and_consolidate_chainhook_config_with_predicates(
     ctx: &Context,
 ) -> Result<(ChainhookConfig, Vec<BitcoinChainhookFullSpecification>), String> {
     let mut chainhook_config: ChainhookConfig = ChainhookConfig::new();
-
+    let mut meta_protocols: Option<HashSet<OrdinalsMetaProtocol>> = None;
+    if config.meta_protocols.brc20 {
+        let mut meta = HashSet::<OrdinalsMetaProtocol>::new();
+        meta.insert(OrdinalsMetaProtocol::All);
+        meta_protocols = Some(meta.clone());
+    }
     if enable_internal_trigger {
         let _ = chainhook_config.register_specification(ChainhookSpecification::Bitcoin(
             BitcoinChainhookSpecification {
@@ -269,7 +274,7 @@ pub fn create_and_consolidate_chainhook_config_with_predicates(
                 predicate: chainhook_sdk::chainhooks::types::BitcoinPredicateType::OrdinalsProtocol(
                     chainhook_sdk::chainhooks::types::OrdinalOperations::InscriptionFeed(
                         InscriptionFeedData {
-                            meta_protocols: None,
+                            meta_protocols,
                         },
                     ),
                 ),
