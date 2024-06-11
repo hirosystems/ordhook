@@ -1,3 +1,52 @@
+## [2.2.0](https://github.com/hirosystems/ordhook/compare/v2.1.0...v2.2.0) (2024-05-24)
+
+
+### Features
+
+* add BRC-20 indexing ([#284](https://github.com/hirosystems/ordhook/issues/284)) ([729affb](https://github.com/hirosystems/ordhook/commit/729affb699d5cddaf6e2e41690d071ae9c4009fa))
+
+
+### Bug Fixes
+
+* issue [#296](https://github.com/hirosystems/ordhook/issues/296) ([#300](https://github.com/hirosystems/ordhook/issues/300)) ([7a8dca5](https://github.com/hirosystems/ordhook/commit/7a8dca53c116fb76e1e7d026c7cdf6863cd74ccd))
+
+## [2.1.0](https://github.com/hirosystems/ordhook/compare/v2.0.1...v2.1.0) (2024-02-12)
+
+
+### Features
+
+* confirm before deleting blocks ([a5fee25](https://github.com/hirosystems/ordhook/commit/a5fee2520c23e6374d86d7effbbcbf304551f817))
+* display git-commit ([3256427](https://github.com/hirosystems/ordhook/commit/3256427632e3443c988a3a096ad6208bfbaf58d4))
+* extract additional data ([4141fd6](https://github.com/hirosystems/ordhook/commit/4141fd6cca2b742bb6f491f002a6bd1f9260d602))
+* improve queue management ([d57ac75](https://github.com/hirosystems/ordhook/commit/d57ac758e143ae902bb7d92827c3a3a41bcea1da))
+* improve transfers handling ([21ce9ca](https://github.com/hirosystems/ordhook/commit/21ce9caabdd3ce51874dc27775267048094c05f4))
+* introduce stream-indexing flag ([9c9e2a5](https://github.com/hirosystems/ordhook/commit/9c9e2a57a529775baf73dd6095fde90f98926c51))
+* locations are now ordinal_number centric (instead of inscription_id) ([d667958](https://github.com/hirosystems/ordhook/commit/d6679588fac9f7335e3072103882eb6a42c5d561))
+* migrate to tcmalloc ([7d048a3](https://github.com/hirosystems/ordhook/commit/7d048a3128fc4809950c2aca85c7b139119a05c1))
+* revisit config files ([1c80b67](https://github.com/hirosystems/ordhook/commit/1c80b67658a27057b12874e1d7ebfbc0d84dd287))
+
+
+### Bug Fixes
+
+* add unicity constraints, cascade changes ([4b81d1e](https://github.com/hirosystems/ordhook/commit/4b81d1ebe49cf544d51ed158feb75b414faa1c65))
+* additional adjustments on pointers ([faacfc5](https://github.com/hirosystems/ordhook/commit/faacfc53ac5f798bf267feadfdcaf2bcb35bbe39))
+* consider end_block when scanning ([2feb512](https://github.com/hirosystems/ordhook/commit/2feb5128a1c2c659e758616f36b93d336afa5a16))
+* git-commit ENV ([203cfa3](https://github.com/hirosystems/ordhook/commit/203cfa39d024188fd6e151607b519bd3b04183dd))
+* handle inscription pointers ([3ce1932](https://github.com/hirosystems/ordhook/commit/3ce1932a5465624379646e11329eb53a7eb5e4c7))
+* imitate overflow behavior ([306f850](https://github.com/hirosystems/ordhook/commit/306f850e7f679b14161b9940a117507037adf0bd))
+* jubilee block transition ([d1b995b](https://github.com/hirosystems/ordhook/commit/d1b995b460ebe857abf00debbadea3dc5cd7f724))
+* jubilee increment ([4222d46](https://github.com/hirosystems/ordhook/commit/4222d46b164400e9d877ecbeb2c8e2fb47f145ae))
+* observers.sqlite code path missing ([5076275](https://github.com/hirosystems/ordhook/commit/5076275153cc1e838931863469a0a04c407d35e5))
+* ordinal_number data type ([0b54537](https://github.com/hirosystems/ordhook/commit/0b54537003132b07d86a0cb06de8d1583057467f))
+* pointer ignored ([2db6f1f](https://github.com/hirosystems/ordhook/commit/2db6f1fb449e7f014cd5590bb95fb9f3c7b30712))
+* satoshis computations duplicates ([22eb729](https://github.com/hirosystems/ordhook/commit/22eb729f33ee73432a1a6c0674bf27a605684b3c))
+* simulate ord numbering bug ([5828f82](https://github.com/hirosystems/ordhook/commit/5828f820a717c447ed263bc9be893419834273cf))
+* tests ([869b17e](https://github.com/hirosystems/ordhook/commit/869b17e1701dddc7fac8248f9c4ac98329d3a8eb))
+* transfer duplicates ([0416cd8](https://github.com/hirosystems/ordhook/commit/0416cd8e50270ecb4b6f810f20947945b1b49fcb))
+* transfer offset ([1c3a5dd](https://github.com/hirosystems/ordhook/commit/1c3a5ddae423b7d03a5e78182eed378cd847cf0e))
+* transfer tracking ([8098673](https://github.com/hirosystems/ordhook/commit/80986734c8a59aca5247000e4c1af3ad624a46f7))
+* typo ([eca79f0](https://github.com/hirosystems/ordhook/commit/eca79f0e92ae82843f55d2e270a02874ad4e1120))
+
 ## [2.0.1](https://github.com/hirosystems/ordhook/compare/v2.0.0...v2.0.1) (2024-01-08)
 
 

@@ -40,8 +40,11 @@ pub fn initialize_db(config: &Config, ctx: &Context) -> DbConnections {
     DbConnections {
         ordhook: initialize_ordhook_db(&config.expected_cache_path(), ctx),
         brc20: match config.meta_protocols.brc20 {
-            true => Some(initialize_brc20_db(Some(&config.expected_cache_path()), ctx)),
-            false => None
+            true => Some(initialize_brc20_db(
+                Some(&config.expected_cache_path()),
+                ctx,
+            )),
+            false => None,
         },
     }
 }
