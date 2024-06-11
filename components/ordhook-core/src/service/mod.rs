@@ -487,7 +487,14 @@ impl Service {
                         self.config.resources.memory_available,
                         &self.ctx,
                     );
-                    let tip = find_last_block_inserted(&blocks_db);
+
+                    let ordhook_db = open_readonly_ordhook_db_conn(
+                        &self.config.expected_cache_path(),
+                        &self.ctx,
+                    )
+                    .expect("unable to retrieve ordhook db");
+                    let tip = find_latest_inscription_block_height(&ordhook_db, &self.ctx)?.unwrap()
+                        as u32;
                     info!(
                         self.ctx.expect_logger(),
                         "Checking database integrity up to block #{tip}",

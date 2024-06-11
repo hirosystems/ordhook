@@ -809,7 +809,7 @@ pub fn find_latest_inscription_block_height(
     ctx: &Context,
 ) -> Result<Option<u64>, String> {
     let args: &[&dyn ToSql] = &[];
-    let query = "SELECT block_height FROM inscriptions ORDER BY block_height DESC LIMIT 1";
+    let query = "SELECT block_height FROM sequence_metadata ORDER BY block_height DESC LIMIT 1";
     let entry = perform_query_one(query, args, db_conn, ctx, |row| {
         let block_height: u64 = row.get(0).unwrap();
         block_height
