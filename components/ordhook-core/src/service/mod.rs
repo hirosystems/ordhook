@@ -21,15 +21,14 @@ use crate::core::protocol::inscription_parsing::{
 use crate::core::protocol::inscription_sequencing::SequenceCursor;
 use crate::core::{new_traversals_lazy_cache, should_sync_ordhook_db, should_sync_rocks_db};
 use crate::db::{
-    delete_data_in_ordhook_db, insert_entry_in_blocks, open_ordhook_db_conn_rocks_db_loop,
-    open_readwrite_ordhook_dbs, update_ordinals_db_with_block, BlockBytesCursor,
-    TransactionBytesCursor,
+    delete_data_in_ordhook_db, find_latest_inscription_block_height, insert_entry_in_blocks,
+    open_ordhook_db_conn_rocks_db_loop, open_readonly_ordhook_db_conn, open_readwrite_ordhook_dbs,
+    update_ordinals_db_with_block, BlockBytesCursor, TransactionBytesCursor,
 };
 use crate::db::{
     find_last_block_inserted, find_missing_blocks, run_compaction,
     update_sequence_metadata_with_block,
 };
-use crate::ord::inscription;
 use crate::scan::bitcoin::process_block_with_predicates;
 use crate::service::http_api::start_predicate_api_server;
 use crate::service::observers::{

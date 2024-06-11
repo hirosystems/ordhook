@@ -148,13 +148,13 @@ pub fn verify_brc20_operation(
                     token.tick, data.amt
                 ));
             }
-            let Some(avail_balance) = cache.get_token_address_avail_balance(
-                &token.tick,
-                &inscriber_address,
-                db_tx,
-                ctx,
-            ) else {
-                return Err(format!("Balance does not exist for {} transfer, attempting to transfer {}", token.tick, data.amt));
+            let Some(avail_balance) =
+                cache.get_token_address_avail_balance(&token.tick, &inscriber_address, db_tx, ctx)
+            else {
+                return Err(format!(
+                    "Balance does not exist for {} transfer, attempting to transfer {}",
+                    token.tick, data.amt
+                ));
             };
             if avail_balance < data.float_amt() {
                 return Err(format!("Insufficient balance for {} transfer, attempting to transfer {}, only {} available", token.tick, data.amt, avail_balance));

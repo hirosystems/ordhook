@@ -1,4 +1,10 @@
-use chainhook_sdk::{types::{OrdinalInscriptionNumber, OrdinalInscriptionRevealData, OrdinalInscriptionTransferData, OrdinalInscriptionTransferDestination}, utils::Context};
+use chainhook_sdk::{
+    types::{
+        OrdinalInscriptionNumber, OrdinalInscriptionRevealData, OrdinalInscriptionTransferData,
+        OrdinalInscriptionTransferDestination,
+    },
+    utils::Context,
+};
 
 pub fn get_test_ctx() -> Context {
     let logger = hiro_system_kit::log::setup_logger();
@@ -25,8 +31,8 @@ impl Brc20RevealBuilder {
                 jubilee: 0,
             },
             inscriber_address: Some("324A7GHA2azecbVBAFy4pzEhcPT1GjbUAp".to_string()),
-            inscription_id:
-                "9bb2314d666ae0b1db8161cb373fcc1381681f71445c4e0335aa80ea9c37fcddi0".to_string(),
+            inscription_id: "9bb2314d666ae0b1db8161cb373fcc1381681f71445c4e0335aa80ea9c37fcddi0"
+                .to_string(),
             ordinal_number: 0,
             parent: None,
         }
@@ -82,8 +88,7 @@ impl Brc20RevealBuilder {
             tx_index: 0,
             transfers_pre_inscription: 0,
             satpoint_post_inscription:
-                "9bb2314d666ae0b1db8161cb373fcc1381681f71445c4e0335aa80ea9c37fcdd:0:0"
-                    .to_string(),
+                "9bb2314d666ae0b1db8161cb373fcc1381681f71445c4e0335aa80ea9c37fcdd:0:0".to_string(),
             curse_type: None,
         }
     }

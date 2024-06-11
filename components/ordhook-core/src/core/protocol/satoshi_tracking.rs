@@ -139,7 +139,12 @@ pub fn compute_satpoint_post_transfer(
             SatPosition::Fee(offset) => {
                 // Get Coinbase TX
                 let total_offset = coinbase_subsidy + *cumulated_fees + offset;
-                let outputs = coinbase_tx.metadata.outputs.iter().map(|o| o.value).collect();
+                let outputs = coinbase_tx
+                    .metadata
+                    .outputs
+                    .iter()
+                    .map(|o| o.value)
+                    .collect();
                 let post_transfer_data = compute_next_satpoint_data(
                     0,
                     &vec![total_offset],
@@ -153,16 +158,14 @@ pub fn compute_satpoint_post_transfer(
                     SatPosition::Output(pos) => pos,
                     _ => {
                         ctx.try_log(|logger| {
-                            info!(
-                                logger,
-                                "unable to locate satoshi in coinbase outputs",
-                            )
-                        });        
+                            info!(logger, "unable to locate satoshi in coinbase outputs",)
+                        });
                         (0, total_offset)
                     }
                 };
 
-                let outpoint = format_outpoint_to_watch(&coinbase_tx.transaction_identifier, output_index);
+                let outpoint =
+                    format_outpoint_to_watch(&coinbase_tx.transaction_identifier, output_index);
                 (
                     outpoint,
                     offset,
