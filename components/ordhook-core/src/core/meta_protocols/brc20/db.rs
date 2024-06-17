@@ -409,7 +409,7 @@ pub fn augment_transaction_with_brc20_operation_data(
             let Some(receiver_address) =
                 get_transfer_send_receiver_address(entry.ordinal_number, &db_conn, &ctx)
             else {
-                unreachable!("Unable to fetch receiver address for transfer_send operation");
+                unreachable!("Unable to fetch receiver address for transfer_send operation {:?}", entry);
             };
             tx.metadata.brc20_operation = Some(Brc20Operation::TransferSend(Brc20TransferData {
                 tick: entry.tick.clone(),
