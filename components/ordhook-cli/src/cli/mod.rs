@@ -17,6 +17,7 @@ use ordhook::chainhook_sdk::types::{BitcoinBlockData, TransactionIdentifier};
 use ordhook::chainhook_sdk::utils::BlockHeights;
 use ordhook::chainhook_sdk::utils::Context;
 use ordhook::config::Config;
+use ordhook::core::meta_protocols::brc20::db::open_readwrite_brc20_db_conn;
 use ordhook::core::new_traversals_lazy_cache;
 use ordhook::core::pipeline::download_and_pipeline_blocks;
 use ordhook::core::pipeline::processors::block_archiving::start_block_archiving_processor;
@@ -28,7 +29,7 @@ use ordhook::db::{
     find_block_bytes_at_block_height, find_inscription_with_id, find_last_block_inserted,
     find_latest_inscription_block_height, find_missing_blocks, get_default_ordhook_db_file_path,
     open_ordhook_db_conn_rocks_db_loop, open_readonly_ordhook_db_conn,
-    open_readonly_ordhook_db_conn_rocks_db, BlockBytesCursor,
+    open_readonly_ordhook_db_conn_rocks_db, open_readwrite_ordhook_dbs, BlockBytesCursor,
 };
 use ordhook::download::download_ordinals_dataset_if_required;
 use ordhook::scan::bitcoin::scan_bitcoin_chainstate_via_rpc_using_predicate;
@@ -712,6 +713,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 let last_known_block =
                     find_latest_inscription_block_height(&inscriptions_db_conn, ctx)?;
                 if last_known_block.is_none() {
+                    // Create DB
                     open_ordhook_db_conn_rocks_db_loop(
                         true,
                         &config.expected_cache_path(),
@@ -785,6 +787,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
         },
         Command::Db(OrdhookDbCommand::New(cmd)) => {
             let config = ConfigFile::default(false, false, false, &cmd.config_path)?;
+            // Create DB
             initialize_db(&config, ctx);
             open_ordhook_db_conn_rocks_db_loop(
                 true,
@@ -920,7 +923,29 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 return Err("Deletion aborted".to_string());
             }
 
-            delete_data_in_ordhook_db(cmd.start_block, cmd.end_block, &config, ctx)?;
+            let (blocks_db_rw, inscriptions_db_conn_rw) = open_readwrite_ordhook_dbs(
+                &config.expected_cache_path(),
+                config.resources.ulimit,
+                config.resources.memory_available,
+                &ctx,
+            )?;
+            let brc_20_db_conn_rw = if config.meta_protocols.brc20 {
+                Some(open_readwrite_brc20_db_conn(
+                    &config.expected_cache_path(),
+                    ctx,
+                )?)
+            } else {
+                None
+            };
+
+            delete_data_in_ordhook_db(
+                cmd.start_block,
+                cmd.end_block,
+                &inscriptions_db_conn_rw,
+                &blocks_db_rw,
+                &brc_20_db_conn_rw,
+                ctx,
+            )?;
             info!(
                 ctx.expect_logger(),
                 "Cleaning ordhook_db: {} blocks dropped",

@@ -1287,25 +1287,18 @@ pub fn remove_entries_from_locations_at_block_height(
 pub fn delete_data_in_ordhook_db(
     start_block: u64,
     end_block: u64,
-    config: &Config,
+    inscriptions_db_conn_rw: &Connection,
+    blocks_db_rw: &DB,
+    brc_20_db_conn_rw: &Option<Connection>,
     ctx: &Context,
 ) -> Result<(), String> {
-    let blocks_db = open_ordhook_db_conn_rocks_db_loop(
-        true,
-        &config.expected_cache_path(),
-        config.resources.ulimit,
-        config.resources.memory_available,
-        ctx,
-    );
-    let inscriptions_db_conn_rw =
-        open_readwrite_ordhook_db_conn(&config.expected_cache_path(), ctx)?;
     ctx.try_log(|logger| {
         info!(
             logger,
             "Deleting entries from block #{start_block} to block #{end_block}"
         )
     });
-    delete_blocks_in_block_range(start_block as u32, end_block as u32, &blocks_db, &ctx);
+    delete_blocks_in_block_range(start_block as u32, end_block as u32, &blocks_db_rw, &ctx);
     ctx.try_log(|logger| {
         info!(
             logger,
@@ -1318,8 +1311,7 @@ pub fn delete_data_in_ordhook_db(
         &inscriptions_db_conn_rw,
         &ctx,
     );
-    if config.meta_protocols.brc20 {
-        let conn = open_readwrite_brc20_db_conn(&config.expected_cache_path(), ctx)?;
+    if let Some(conn) = brc_20_db_conn_rw {
         delete_activity_in_block_range(start_block as u32, end_block as u32, &conn, &ctx);
         ctx.try_log(|logger| {
             info!(
