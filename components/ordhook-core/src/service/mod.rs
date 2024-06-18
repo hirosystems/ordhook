@@ -531,20 +531,6 @@ impl Service {
                 run_compaction(&blocks_db_rw, tip);
             }
         }
-        // Ensure that all the databases are correctly aligned
-        // Get height from inscription table
-        // -> There could be no inscription at this height.
-
-        // Get height from rocksdb
-
-        // Get height from inscription table
-
-        // Get height from locations table
-
-        // Get height from brc20 table
-
-        // Get height from metadata table
-
         self.update_state(block_post_processor).await
     }
 
