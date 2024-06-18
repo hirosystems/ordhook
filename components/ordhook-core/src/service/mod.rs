@@ -54,7 +54,7 @@ use crossbeam_channel::unbounded;
 use crossbeam_channel::{select, Sender};
 use dashmap::DashMap;
 use fxhash::FxHasher;
-use rusqlite::{Connection, Transaction};
+use rusqlite::Transaction;
 
 use std::collections::{BTreeMap, HashMap};
 use std::hash::BuildHasherDefault;
@@ -98,8 +98,7 @@ impl Service {
         };
 
         // Catch-up with chain tip
-        let chain_tip_height = self
-            .catch_up_with_chain_tip(false, check_blocks_integrity, block_post_processor)
+        self.catch_up_with_chain_tip(false, check_blocks_integrity, block_post_processor)
             .await?;
         info!(
             self.ctx.expect_logger(),
@@ -120,6 +119,11 @@ impl Service {
         };
 
         // Observers handling
+        let ordhook_db =
+            open_readonly_ordhook_db_conn(&self.config.expected_cache_path(), &self.ctx)
+                .expect("unable to retrieve ordhook db");
+        let chain_tip_height =
+            find_latest_inscription_block_height(&ordhook_db, &self.ctx)?.unwrap();
         // 1) update event_observer_config with observers ready to be used
         // 2) catch-up outdated observers by dispatching replays
         let (chainhook_config, outdated_observers) =
@@ -476,7 +480,7 @@ impl Service {
         rebuild_from_scratch: bool,
         compact_and_check_rocksdb_integrity: bool,
         block_post_processor: Option<crossbeam_channel::Sender<BitcoinBlockData>>,
-    ) -> Result<u64, String> {
+    ) -> Result<(), String> {
         {
             if compact_and_check_rocksdb_integrity {
                 let (tip, missing_blocks) = {
@@ -537,7 +541,7 @@ impl Service {
     pub async fn update_state(
         &self,
         block_post_processor: Option<crossbeam_channel::Sender<BitcoinBlockData>>,
-    ) -> Result<u64, String> {
+    ) -> Result<(), String> {
         // First, make sure that rocksdb and sqlite are aligned.
         // If rocksdb.chain_tip.height <= sqlite.chain_tip.height
         // Perform some block compression until that height.
@@ -611,7 +615,7 @@ impl Service {
             last_block_processed = end_block;
         }
 
-        Ok(last_block_processed)
+        Ok(())
     }
 
     pub async fn replay_transfers(
