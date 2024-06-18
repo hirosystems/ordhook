@@ -1,3 +1,11 @@
+## [2.2.2](https://github.com/hirosystems/ordhook/compare/v2.2.1...v2.2.2) (2024-06-18)
+
+
+### Bug Fixes
+
+* augment brc20 tx by tx_index ([#315](https://github.com/hirosystems/ordhook/issues/315)) ([122bfdf](https://github.com/hirosystems/ordhook/commit/122bfdfd80c21242c8b46055d4f924387f909919))
+* retrieving block height from inscriptions db ([6c9ea06](https://github.com/hirosystems/ordhook/commit/6c9ea060ef9c6fbb944203e764e42e1b5d75ee5d))
+
 ## [2.2.1](https://github.com/hirosystems/ordhook/compare/v2.2.0...v2.2.1) (2024-06-11)
 
 
