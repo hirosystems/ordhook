@@ -27,10 +27,7 @@ use crate::db::{
     open_ordhook_db_conn_rocks_db_loop, open_readonly_ordhook_db_conn, open_readwrite_ordhook_dbs,
     update_ordinals_db_with_block, BlockBytesCursor, TransactionBytesCursor,
 };
-use crate::db::{
-    find_last_block_inserted, find_missing_blocks, run_compaction,
-    update_sequence_metadata_with_block,
-};
+use crate::db::{find_missing_blocks, run_compaction, update_sequence_metadata_with_block};
 use crate::scan::bitcoin::process_block_with_predicates;
 use crate::service::http_api::start_predicate_api_server;
 use crate::service::observers::{
@@ -57,7 +54,7 @@ use crossbeam_channel::unbounded;
 use crossbeam_channel::{select, Sender};
 use dashmap::DashMap;
 use fxhash::FxHasher;
-use rusqlite::{Connection, Transaction};
+use rusqlite::Transaction;
 
 use std::collections::{BTreeMap, HashMap};
 use std::hash::BuildHasherDefault;
@@ -101,8 +98,7 @@ impl Service {
         };
 
         // Catch-up with chain tip
-        let chain_tip_height = self
-            .catch_up_with_chain_tip(false, check_blocks_integrity, block_post_processor)
+        self.catch_up_with_chain_tip(false, check_blocks_integrity, block_post_processor)
             .await?;
         info!(
             self.ctx.expect_logger(),
@@ -123,6 +119,11 @@ impl Service {
         };
 
         // Observers handling
+        let ordhook_db =
+            open_readonly_ordhook_db_conn(&self.config.expected_cache_path(), &self.ctx)
+                .expect("unable to retrieve ordhook db");
+        let chain_tip_height =
+            find_latest_inscription_block_height(&ordhook_db, &self.ctx)?.unwrap();
         // 1) update event_observer_config with observers ready to be used
         // 2) catch-up outdated observers by dispatching replays
         let (chainhook_config, outdated_observers) =
@@ -302,6 +303,7 @@ impl Service {
             };
             match event {
                 ObserverEvent::PredicateRegistered(spec) => {
+                    // ?? That seems weird?
                     // If start block specified, use it.
                     // If no start block specified, depending on the nature the hook, we'd like to retrieve:
                     // - contract-id
@@ -478,7 +480,7 @@ impl Service {
         rebuild_from_scratch: bool,
         compact_and_check_rocksdb_integrity: bool,
         block_post_processor: Option<crossbeam_channel::Sender<BitcoinBlockData>>,
-    ) -> Result<u64, String> {
+    ) -> Result<(), String> {
         {
             if compact_and_check_rocksdb_integrity {
                 let (tip, missing_blocks) = {
@@ -539,7 +541,7 @@ impl Service {
     pub async fn update_state(
         &self,
         block_post_processor: Option<crossbeam_channel::Sender<BitcoinBlockData>>,
-    ) -> Result<u64, String> {
+    ) -> Result<(), String> {
         // First, make sure that rocksdb and sqlite are aligned.
         // If rocksdb.chain_tip.height <= sqlite.chain_tip.height
         // Perform some block compression until that height.
@@ -613,7 +615,7 @@ impl Service {
             last_block_processed = end_block;
         }
 
-        Ok(last_block_processed)
+        Ok(())
     }
 
     pub async fn replay_transfers(
@@ -654,18 +656,19 @@ fn chainhook_sidecar_mutate_ordhook_db(command: HandleBlock, config: &Config, ct
             return;
         }
     };
-    let mut brc20_conn_rw: Option<Connection> = None;
-    if config.meta_protocols.brc20 {
+    let brc_20_db_conn_rw = if config.meta_protocols.brc20 {
         match open_readwrite_brc20_db_conn(&config.expected_cache_path(), ctx) {
-            Ok(dbs) => brc20_conn_rw = Some(dbs),
+            Ok(dbs) => Some(dbs),
             Err(e) => {
                 ctx.try_log(|logger| {
                     error!(logger, "Unable to open readwrite brc20 connection: {e}",)
                 });
                 return;
             }
-        };
-    }
+        }
+    } else {
+        None
+    };
 
     match command {
         HandleBlock::UndoBlock(block) => {
@@ -675,26 +678,22 @@ fn chainhook_sidecar_mutate_ordhook_db(command: HandleBlock, config: &Config, ct
                     "Re-org handling: reverting changes in block #{}", block.block_identifier.index
                 )
             });
-            if let Err(e) = delete_data_in_ordhook_db(
+            let res = delete_data_in_ordhook_db(
                 block.block_identifier.index,
                 block.block_identifier.index,
-                &config,
-                &ctx,
-            ) {
+                &inscriptions_db_conn_rw,
+                &blocks_db_rw,
+                &brc_20_db_conn_rw,
+                ctx,
+            );
+
+            if let Err(e) = res {
                 ctx.try_log(|logger| {
                     error!(
                         logger,
                         "Unable to rollback bitcoin block {}: {e}", block.block_identifier
                     )
                 });
-            }
-            if let Some(brc20_conn_rw) = brc20_conn_rw {
-                delete_activity_in_block_range(
-                    block.block_identifier.index as u32,
-                    block.block_identifier.index as u32,
-                    &brc20_conn_rw,
-                    &ctx,
-                );
             }
         }
         HandleBlock::ApplyBlock(block) => {
@@ -712,6 +711,20 @@ fn chainhook_sidecar_mutate_ordhook_db(command: HandleBlock, config: &Config, ct
                     return;
                 }
             };
+            let (blocks_db_rw, inscriptions_db_conn_rw) = match open_readwrite_ordhook_dbs(
+                &config.expected_cache_path(),
+                config.resources.ulimit,
+                config.resources.memory_available,
+                &ctx,
+            ) {
+                Ok(dbs) => dbs,
+                Err(e) => {
+                    ctx.try_log(|logger| {
+                        error!(logger, "Unable to open readwrite connection: {e}",)
+                    });
+                    return;
+                }
+            };
             insert_entry_in_blocks(
                 block.block_identifier.index as u32,
                 &block_bytes,
@@ -719,13 +732,17 @@ fn chainhook_sidecar_mutate_ordhook_db(command: HandleBlock, config: &Config, ct
                 &blocks_db_rw,
                 &ctx,
             );
-            let _ = blocks_db_rw.flush();
+            if let Err(e) = blocks_db_rw.flush() {
+                ctx.try_log(|logger| {
+                    error!(logger, "{}", e.to_string());
+                });
+            }
 
             update_ordinals_db_with_block(&block, &inscriptions_db_conn_rw, ctx);
 
             update_sequence_metadata_with_block(&block, &inscriptions_db_conn_rw, &ctx);
 
-            if let Some(brc20_conn_rw) = brc20_conn_rw {
+            if let Some(brc20_conn_rw) = brc_20_db_conn_rw {
                 write_augmented_block_to_brc20_db(&block, &brc20_conn_rw, ctx);
             }
         }
@@ -788,25 +805,29 @@ pub fn chainhook_sidecar_mutate_blocks(
             return;
         }
     };
-
-    let inscriptions_db_tx = inscriptions_db_conn_rw.transaction().unwrap();
-
-    let mut brc20_db_conn_rw =
-        match open_readwrite_brc20_db_conn(&config.expected_cache_path(), &ctx) {
-            Ok(dbs) => dbs,
+    let mut brc_20_db_conn_rw = if config.meta_protocols.brc20 {
+        match open_readwrite_brc20_db_conn(&config.expected_cache_path(), ctx) {
+            Ok(db) => Some(db),
             Err(e) => {
-                ctx.try_log(|logger| error!(logger, "Unable to open readwrite connection: {e}",));
+                ctx.try_log(|logger| {
+                    error!(logger, "Unable to open readwrite brc20 connection: {e}",)
+                });
                 return;
             }
-        };
+        }
+    } else {
+        None
+    };
+
     let mut brc20_cache = Brc20MemoryCache::new(config.resources.brc20_lru_cache_size);
-    let brc20_db_tx = brc20_db_conn_rw.transaction().unwrap();
 
     for block_id_to_rollback in blocks_ids_to_rollback.iter() {
         if let Err(e) = delete_data_in_ordhook_db(
             block_id_to_rollback.index,
             block_id_to_rollback.index,
-            &config,
+            &inscriptions_db_conn_rw,
+            &blocks_db_rw,
+            &brc_20_db_conn_rw,
             &ctx,
         ) {
             ctx.try_log(|logger| {
@@ -817,6 +838,13 @@ pub fn chainhook_sidecar_mutate_blocks(
             });
         }
     }
+
+    let brc20_db_tx = if let Some(ref mut db_conn) = brc_20_db_conn_rw {
+        Some(db_conn.transaction().unwrap())
+    } else {
+        None
+    };
+    let inscriptions_db_tx = inscriptions_db_conn_rw.transaction().unwrap();
 
     let ordhook_config = config.get_ordhook_config();
 
@@ -843,7 +871,11 @@ pub fn chainhook_sidecar_mutate_blocks(
             &blocks_db_rw,
             &ctx,
         );
-        let _ = blocks_db_rw.flush();
+        if let Err(e) = blocks_db_rw.flush() {
+            ctx.try_log(|logger| {
+                error!(logger, "{}", e.to_string());
+            });
+        }
 
         if cache.processed_by_sidecar {
             update_ordinals_db_with_block(&cache.block, &inscriptions_db_tx, &ctx);
@@ -861,7 +893,7 @@ pub fn chainhook_sidecar_mutate_blocks(
                 &mut cache_l1,
                 &cache_l2,
                 &inscriptions_db_tx,
-                Some(&brc20_db_tx),
+                brc20_db_tx.as_ref(),
                 &mut brc20_cache,
                 &ordhook_config,
                 &ctx,
@@ -888,7 +920,10 @@ pub fn chainhook_sidecar_mutate_blocks(
         }
     }
     let _ = inscriptions_db_tx.rollback();
-    let _ = brc20_db_tx.rollback();
+
+    if let Some(tx) = brc20_db_tx {
+        let _ = tx.rollback();
+    }
 }
 
 pub fn write_brc20_block_operations(
