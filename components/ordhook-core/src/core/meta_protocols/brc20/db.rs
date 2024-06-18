@@ -1,8 +1,7 @@
 use std::{collections::HashMap, path::PathBuf};
 
 use crate::db::{
-    create_or_open_readwrite_db, format_inscription_id, open_existing_readonly_db,
-    perform_query_one, perform_query_set,
+    create_or_open_readwrite_db, open_existing_readonly_db, perform_query_one, perform_query_set,
 };
 use chainhook_sdk::{
     types::{
@@ -331,7 +330,7 @@ pub fn get_brc20_operations_on_block(
     block_identifier: &BlockIdentifier,
     db_tx: &Connection,
     ctx: &Context,
-) -> HashMap<String, Brc20DbLedgerRow> {
+) -> HashMap<u64, Brc20DbLedgerRow> {
     let args: &[&dyn ToSql] = &[&block_identifier.index.to_sql().unwrap()];
     let query = "
         SELECT
@@ -353,7 +352,7 @@ pub fn get_brc20_operations_on_block(
         operation: row.get(9).unwrap(),
     });
     for row in rows.iter() {
-        map.insert(row.inscription_id.clone(), row.clone());
+        map.insert(row.tx_index, row.clone());
     }
     map
 }
@@ -361,12 +360,11 @@ pub fn get_brc20_operations_on_block(
 pub fn augment_transaction_with_brc20_operation_data(
     tx: &mut BitcoinTransactionData,
     token_map: &mut HashMap<String, Brc20DbTokenRow>,
-    block_ledger_map: &mut HashMap<String, Brc20DbLedgerRow>,
+    block_ledger_map: &mut HashMap<u64, Brc20DbLedgerRow>,
     db_conn: &Connection,
     ctx: &Context,
 ) {
-    let inscription_id = format_inscription_id(&tx.transaction_identifier, 0);
-    let Some(entry) = block_ledger_map.remove(inscription_id.as_str()) else {
+    let Some(entry) = block_ledger_map.remove(&(tx.metadata.index as u64)) else {
         return;
     };
     if token_map.get(&entry.tick) == None {
@@ -411,21 +409,17 @@ pub fn augment_transaction_with_brc20_operation_data(
             let Some(receiver_address) =
                 get_transfer_send_receiver_address(entry.ordinal_number, &db_conn, &ctx)
             else {
-                unreachable!("Unable to fetch receiver address for transfer_send operation");
+                unreachable!("Unable to fetch receiver address for transfer_send operation {:?}", entry);
             };
             tx.metadata.brc20_operation = Some(Brc20Operation::TransferSend(Brc20TransferData {
                 tick: entry.tick.clone(),
-                amt: format!(
-                    "{:.precision$}",
-                    entry.trans_balance * -1.0,
-                    precision = dec
-                ),
+                amt: format!("{:.precision$}", entry.trans_balance.abs(), precision = dec),
                 sender_address: entry.address.clone(),
                 receiver_address,
                 inscription_id: entry.inscription_id,
             }));
         }
-        // `transfer_receive` ops are not reflected in transaction metadata.
+        // `transfer_receive` ops are not reflected in transaction metadata, they are sent as part of `transfer_send`.
         _ => {}
     }
 }
@@ -590,7 +584,7 @@ pub fn write_augmented_block_to_brc20_db(
                         });
                         continue;
                     };
-                    let amt = transfer.amt.parse::<f64>().unwrap();
+                    let amt = transfer.amt.parse::<f64>().unwrap().abs();
                     ledger_rows.push(Brc20DbLedgerRow {
                         inscription_id: transfer.inscription_id.clone(),
                         inscription_number,
