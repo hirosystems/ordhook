@@ -711,20 +711,6 @@ fn chainhook_sidecar_mutate_ordhook_db(command: HandleBlock, config: &Config, ct
                     return;
                 }
             };
-            let (blocks_db_rw, inscriptions_db_conn_rw) = match open_readwrite_ordhook_dbs(
-                &config.expected_cache_path(),
-                config.resources.ulimit,
-                config.resources.memory_available,
-                &ctx,
-            ) {
-                Ok(dbs) => dbs,
-                Err(e) => {
-                    ctx.try_log(|logger| {
-                        error!(logger, "Unable to open readwrite connection: {e}",)
-                    });
-                    return;
-                }
-            };
             insert_entry_in_blocks(
                 block.block_identifier.index as u32,
                 &block_bytes,
