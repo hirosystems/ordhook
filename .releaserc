@@ -15,7 +15,12 @@
                 "preset": "conventionalcommits"
             }
         ],
-        "@semantic-release/github",
+        [
+          "@semantic-release/github",
+          {
+            "successComment": false
+          }
+        ],
         "@semantic-release/changelog",
         "@semantic-release/git"
     ]
