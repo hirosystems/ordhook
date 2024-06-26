@@ -1,3 +1,10 @@
+## [2.2.4](https://github.com/hirosystems/ordhook/compare/v2.2.3...v2.2.4) (2024-06-26)
+
+
+### Bug Fixes
+
+* release 2.2.4 ([6a8a63a](https://github.com/hirosystems/ordhook/commit/6a8a63a01dcca7544f4090877cae7cc8af16b2ce))
+
 ## [2.2.3](https://github.com/hirosystems/ordhook/compare/v2.2.2...v2.2.3) (2024-06-26)
 
 
