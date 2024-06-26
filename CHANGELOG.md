@@ -1,3 +1,10 @@
+## [2.2.3](https://github.com/hirosystems/ordhook/compare/v2.2.2...v2.2.3) (2024-06-26)
+
+
+### Bug Fixes
+
+* nested readwrite connection ([#327](https://github.com/hirosystems/ordhook/issues/327)) ([a593995](https://github.com/hirosystems/ordhook/commit/a593995e606c10de0b7145a5e003cd18743d32c6))
+
 ## [2.2.2](https://github.com/hirosystems/ordhook/compare/v2.2.1...v2.2.2) (2024-06-18)
 
 
