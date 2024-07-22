@@ -44,12 +44,12 @@ jobs:
       - name: Run Core tests
         run: |
           cd ${{ github.workspace }}/components/ordhook-core
-          cargo tarpaulin --out lcov -- --test-threads=1
+          cargo tarpaulin --skip-clean --out lcov -- --test-threads=1
 
       - name: Run CLI tests
         run: |
           cd ${{ github.workspace }}/components/ordhook-cli
-          cargo tarpaulin --out lcov -- --test-threads=1
+          cargo tarpaulin --skip-clean --out lcov -- --test-threads=1
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v4.0.1
