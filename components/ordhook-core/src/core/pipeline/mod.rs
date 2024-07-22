@@ -11,6 +11,7 @@ use tokio::task::JoinSet;
 
 use crate::config::Config;
 use crate::db::BlockBytesCursor;
+use crate::{try_debug, try_info};
 
 use chainhook_sdk::indexer::bitcoin::{
     build_http_client, parse_downloaded_block, try_download_block_bytes_with_retry,
@@ -147,8 +148,7 @@ pub async fn download_and_pipeline_blocks(
                         compressed_block,
                     )));
                 }
-                moved_ctx
-                    .try_log(|logger| debug!(logger, "Exiting processing thread {thread_index}"));
+                try_debug!(moved_ctx, "Exiting processing thread {thread_index}");
             })
             .expect("unable to spawn thread");
         thread_pool_handles.push(handle);
@@ -169,12 +169,10 @@ pub async fn download_and_pipeline_blocks(
 
             loop {
                 if stop_runloop {
-                    cloned_ctx.try_log(|logger| {
-                        info!(
-                            logger,
-                            "#{blocks_processed} blocks successfully sent to processor"
-                        )
-                    });
+                    try_info!(
+                        cloned_ctx,
+                        "#{blocks_processed} blocks successfully sent to processor"
+                    );
                     if let Some(ref blocks_tx) = blocks_post_processor_commands_tx {
                         let _ = blocks_tx.send(PostProcessorCommand::Terminate);
                     }
@@ -289,24 +287,24 @@ pub async fn download_and_pipeline_blocks(
         }
     }
 
-    ctx.try_log(|logger| {
-        debug!(
-            logger,
-            "Pipeline successfully fed with sequence of blocks ({} to {})", start_block, end_block
-        )
-    });
+    try_debug!(
+        ctx,
+        "Pipeline successfully fed with sequence of blocks ({} to {})",
+        start_block,
+        end_block
+    );
 
     for tx in tx_thread_pool.iter() {
         let _ = tx.send(None);
     }
 
-    ctx.try_log(|logger| debug!(logger, "Enqueued pipeline termination commands"));
+    try_debug!(ctx, "Enqueued pipeline termination commands");
 
     for handle in thread_pool_handles.into_iter() {
         let _ = handle.join();
     }
 
-    ctx.try_log(|logger| debug!(logger, "Pipeline successfully terminated"));
+    try_debug!(ctx, "Pipeline successfully terminated");
 
     if let Some(post_processor) = blocks_post_processor {
         loop {
@@ -323,27 +321,12 @@ pub async fn download_and_pipeline_blocks(
     let _ = storage_thread.join();
     let _ = set.shutdown();
 
-    ctx.try_log(|logger| {
-        info!(
-            logger,
-            "Pipeline successfully processed sequence of blocks ({} to {})", start_block, end_block
-        )
-    });
-
-    // match guard.report().build() {
-    //     Ok(report) => {
-    //         ctx.try_log(|logger| {
-    //             slog::info!(logger, "Generating report");
-    //         });
-    //         let file = std::fs::File::create("ordhook-perf.svg").unwrap();
-    //         report.flamegraph(file).unwrap();
-    //     }
-    //     Err(e) => {
-    //         ctx.try_log(|logger| {
-    //             slog::error!(logger, "Reporting failed: {}", e.to_string());
-    //         });
-    //     }
-    // }
+    try_info!(
+        ctx,
+        "Pipeline successfully processed sequence of blocks ({} to {})",
+        start_block,
+        end_block
+    );
 
     Ok(())
 }

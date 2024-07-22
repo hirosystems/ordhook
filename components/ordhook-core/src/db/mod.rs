@@ -29,6 +29,7 @@ use crate::{
         },
     },
     ord::sat::Sat,
+    try_error, try_info, try_warn,
 };
 
 pub fn get_default_ordhook_db_file_path(base_dir: &PathBuf) -> PathBuf {
@@ -73,39 +74,37 @@ pub fn initialize_ordhook_db(base_dir: &PathBuf, ctx: &Context) -> Connection {
         )",
         [],
     ) {
-        ctx.try_log(|logger| {
-            warn!(
-                logger,
-                "Unable to create table inscriptions: {}",
-                e.to_string()
-            )
-        });
+        try_warn!(
+            ctx,
+            "Unable to create table inscriptions: {}",
+            e.to_string()
+        );
     } else {
         if let Err(e) = conn.execute(
             "CREATE INDEX IF NOT EXISTS index_inscriptions_on_ordinal_number ON inscriptions(ordinal_number);",
             [],
         ) {
-            ctx.try_log(|logger| warn!(logger, "unable to create hord.sqlite: {}", e.to_string()));
+            try_warn!(ctx, "unable to create hord.sqlite: {}", e.to_string());
         }
         if let Err(e) = conn.execute(
             "CREATE INDEX IF NOT EXISTS index_inscriptions_on_jubilee_inscription_number ON inscriptions(jubilee_inscription_number);",
             [],
         ) {
-            ctx.try_log(|logger| warn!(logger, "unable to create hord.sqlite: {}", e.to_string()));
+            try_warn!(ctx, "unable to create hord.sqlite: {}", e.to_string());
         }
 
         if let Err(e) = conn.execute(
             "CREATE INDEX IF NOT EXISTS index_inscriptions_on_classic_inscription_number ON inscriptions(classic_inscription_number);",
             [],
         ) {
-            ctx.try_log(|logger| warn!(logger, "unable to create hord.sqlite: {}", e.to_string()));
+            try_warn!(ctx, "unable to create hord.sqlite: {}", e.to_string());
         }
 
         if let Err(e) = conn.execute(
             "CREATE INDEX IF NOT EXISTS index_inscriptions_on_block_height ON inscriptions(block_height);",
             [],
         ) {
-            ctx.try_log(|logger| warn!(logger, "unable to create hord.sqlite: {}", e.to_string()));
+            try_warn!(ctx, "unable to create hord.sqlite: {}", e.to_string());
         }
     }
     if let Err(e) = conn.execute(
@@ -119,31 +118,29 @@ pub fn initialize_ordhook_db(base_dir: &PathBuf, ctx: &Context) -> Connection {
         )",
         [],
     ) {
-        ctx.try_log(|logger| {
-            warn!(
-                logger,
-                "Unable to create table locations: {}",
-                e.to_string()
-            )
-        });
+        try_warn!(
+            ctx,
+            "Unable to create table locations: {}",
+            e.to_string()
+        );
     } else {
         if let Err(e) = conn.execute(
             "CREATE INDEX IF NOT EXISTS locations_indexed_on_block_height ON locations(block_height);",
             [],
         ) {
-            ctx.try_log(|logger| warn!(logger, "unable to create hord.sqlite: {}", e.to_string()));
+            try_warn!(ctx, "unable to create hord.sqlite: {}", e.to_string());
         }
         if let Err(e) = conn.execute(
             "CREATE INDEX IF NOT EXISTS locations_indexed_on_outpoint_to_watch ON locations(outpoint_to_watch);",
             [],
         ) {
-            ctx.try_log(|logger| warn!(logger, "unable to create hord.sqlite: {}", e.to_string()));
+            try_warn!(ctx, "unable to create hord.sqlite: {}", e.to_string());
         }
         if let Err(e) = conn.execute(
             "CREATE INDEX IF NOT EXISTS locations_indexed_on_ordinal_number ON locations(ordinal_number);",
             [],
         ) {
-            ctx.try_log(|logger| warn!(logger, "unable to create hord.sqlite: {}", e.to_string()));
+            try_warn!(ctx, "unable to create hord.sqlite: {}", e.to_string());
         }
     }
 
@@ -156,19 +153,17 @@ pub fn initialize_ordhook_db(base_dir: &PathBuf, ctx: &Context) -> Connection {
         )",
         [],
     ) {
-        ctx.try_log(|logger| {
-            warn!(
-                logger,
-                "Unable to create table sequence_metadata: {}",
-                e.to_string()
-            )
-        });
+        try_warn!(
+            ctx,
+            "Unable to create table sequence_metadata: {}",
+            e.to_string()
+        );
     } else {
         if let Err(e) = conn.execute(
             "CREATE INDEX IF NOT EXISTS sequence_metadata_indexed_on_block_height ON sequence_metadata(block_height);",
             [],
         ) {
-            ctx.try_log(|logger| warn!(logger, "unable to create hord.sqlite: {}", e.to_string()));
+            try_warn!(ctx, "unable to create hord.sqlite: {}", e.to_string());
         }
     }
 
@@ -183,7 +178,7 @@ pub fn create_or_open_readwrite_db(db_path: Option<&PathBuf>, ctx: &Context) -> 
                     // need to create
                     if let Some(dirp) = PathBuf::from(&db_path).parent() {
                         std::fs::create_dir_all(dirp).unwrap_or_else(|e| {
-                            ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
+                            try_error!(ctx, "{}", e.to_string());
                         });
                     }
                     OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE
@@ -208,7 +203,7 @@ pub fn create_or_open_readwrite_db(db_path: Option<&PathBuf>, ctx: &Context) -> 
         match Connection::open_with_flags(&path, open_flags) {
             Ok(conn) => break conn,
             Err(e) => {
-                ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
+                try_error!(ctx, "{}", e.to_string());
             }
         };
         std::thread::sleep(std::time::Duration::from_secs(1));
@@ -235,9 +230,7 @@ pub fn open_existing_readonly_db(db_path: &PathBuf, ctx: &Context) -> Connection
         match Connection::open_with_flags(db_path, open_flags) {
             Ok(conn) => break conn,
             Err(e) => {
-                ctx.try_log(|logger| {
-                    warn!(logger, "unable to open hord.rocksdb: {}", e.to_string())
-                });
+                try_warn!(ctx, "unable to open hord.rocksdb: {}", e.to_string());
             }
         };
         std::thread::sleep(std::time::Duration::from_secs(1));
@@ -263,7 +256,7 @@ fn get_default_ordhook_db_file_path_rocks_db(base_dir: &PathBuf) -> PathBuf {
     destination_path
 }
 
-fn rocks_db_default_options(ulimit: usize, memory_available: usize) -> rocksdb::Options {
+fn rocks_db_default_options(ulimit: usize, _memory_available: usize) -> rocksdb::Options {
     let mut opts = rocksdb::Options::default();
     // Per rocksdb's documentation:
     // If cache_index_and_filter_blocks is false (which is default),
@@ -330,9 +323,7 @@ pub fn open_ordhook_db_conn_rocks_db_loop(
             Err(e) => {
                 retries += 1;
                 if retries > 10 {
-                    ctx.try_log(|logger| {
-                        warn!(logger, "Unable to open db: {e}. Retrying in 10s",);
-                    });
+                    try_warn!(ctx, "Unable to open db: {e}. Retrying in 10s",);
                     sleep(Duration::from_secs(10));
                 } else {
                     sleep(Duration::from_secs(2));
@@ -385,13 +376,11 @@ pub fn insert_entry_in_blocks(
             Err(e) => {
                 retries += 1;
                 if retries > 10 {
-                    ctx.try_log(|logger| {
-                        error!(
-                            logger,
-                            "unable to insert block {block_height} ({}). will retry in 5 secs",
-                            e.to_string()
-                        );
-                    });
+                    try_error!(
+                        ctx,
+                        "unable to insert block {block_height} ({}). will retry in 5 secs",
+                        e.to_string()
+                    );
                     sleep(Duration::from_secs(5));
                 }
             }
@@ -431,12 +420,12 @@ pub fn find_pinned_block_bytes_at_block_height<'a>(
                 attempt += 1;
                 backoff = 2.0 * backoff + (backoff * rng.gen_range(0.0..1.0));
                 let duration = std::time::Duration::from_millis((backoff * 1_000.0) as u64);
-                ctx.try_log(|logger| {
-                    warn!(
-                        logger,
-                        "Unable to find block #{}, will retry in {:?}", block_height, duration
-                    )
-                });
+                try_warn!(
+                    ctx,
+                    "Unable to find block #{}, will retry in {:?}",
+                    block_height,
+                    duration
+                );
                 std::thread::sleep(duration);
                 if attempt > retry {
                     return None;
@@ -466,12 +455,12 @@ pub fn find_block_bytes_at_block_height<'a>(
                 attempt += 1;
                 backoff = 2.0 * backoff + (backoff * rng.gen_range(0.0..1.0));
                 let duration = std::time::Duration::from_millis((backoff * 1_000.0) as u64);
-                ctx.try_log(|logger| {
-                    warn!(
-                        logger,
-                        "Unable to find block #{}, will retry in {:?}", block_height, duration
-                    )
-                });
+                try_warn!(
+                    ctx,
+                    "Unable to find block #{}, will retry in {:?}",
+                    block_height,
+                    duration
+                );
                 std::thread::sleep(duration);
                 if attempt > retry {
                     return None;
@@ -498,7 +487,7 @@ pub fn find_missing_blocks(blocks_db: &DB, start: u32, end: u32, ctx: &Context) 
 
 pub fn remove_entry_from_blocks(block_height: u32, blocks_db_rw: &DB, ctx: &Context) {
     if let Err(e) = blocks_db_rw.delete(block_height.to_be_bytes()) {
-        ctx.try_log(|logger| error!(logger, "{}", e.to_string()));
+        try_error!(ctx, "{}", e.to_string());
     }
 }
 
@@ -527,7 +516,7 @@ pub fn insert_entry_in_inscriptions(
         "INSERT INTO inscriptions (inscription_id, ordinal_number, jubilee_inscription_number, classic_inscription_number, block_height, input_index) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         rusqlite::params![&inscription_data.inscription_id, &inscription_data.ordinal_number, &inscription_data.inscription_number.jubilee, &inscription_data.inscription_number.classic, &block_identifier.index, &inscription_data.inscription_input_index],
     ) {
-        ctx.try_log(|logger| warn!(logger, "unable to insert inscription in hord.sqlite: {} - {:?}", e.to_string(), inscription_data));
+        try_warn!(ctx, "unable to insert inscription in hord.sqlite: {} - {:?}", e.to_string(), inscription_data);
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
 }
@@ -580,14 +569,12 @@ pub fn update_ordinals_db_with_block(
             },
         );
         if let Some(prev_location) = insertion_res {
-            ctx.try_log(|logger| {
-                warn!(
-                    logger,
-                    "Ignoring location insertion from inscriptions: {}, {:?}",
-                    inscription_data.ordinal_number,
-                    prev_location
-                )
-            });
+            try_warn!(
+                ctx,
+                "Ignoring location insertion from inscriptions: {}, {:?}",
+                inscription_data.ordinal_number,
+                prev_location
+            );
         }
     }
 
@@ -604,14 +591,12 @@ pub fn update_ordinals_db_with_block(
             },
         );
         if let Some(prev_location) = insertion_res {
-            ctx.try_log(|logger| {
-                warn!(
-                    logger,
-                    "Ignoring location insertion from transfers: {}, {:?}",
-                    transfer_data.ordinal_number,
-                    prev_location
-                )
-            });
+            try_warn!(
+                ctx,
+                "Ignoring location insertion from transfers: {}, {:?}",
+                transfer_data.ordinal_number,
+                prev_location
+            );
         }
     }
 
@@ -660,7 +645,7 @@ pub fn update_sequence_metadata_with_block(
         "INSERT INTO sequence_metadata (block_height, nth_classic_pos_number, nth_classic_neg_number, nth_jubilee_number) VALUES (?1, ?2, ?3, ?4)",
         rusqlite::params![&block.block_identifier.index, nth_classic_pos_number, nth_classic_neg_number, nth_jubilee_number],
     ) {
-        ctx.try_log(|logger| warn!(logger, "unable to update sequence_metadata: {}", e.to_string()));
+        try_warn!(ctx, "unable to update sequence_metadata: {}", e.to_string());
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
 }
@@ -678,10 +663,10 @@ pub fn insert_ordinal_transfer_in_locations_tx(
         rusqlite::params![&ordinal_number, &outpoint_to_watch, data.offset, data.block_height, &data.tx_index],
     ) {
         retry += 1;
-        ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+        try_warn!(ctx, "unable to query hord.sqlite: {}", e.to_string());
         std::thread::sleep(std::time::Duration::from_secs(1));
         if retry > 2 {
-            ctx.try_log(|logger| error!(logger, "unable to insert inscription in location in hord.sqlite: {}", e.to_string()));
+            try_error!(ctx, "unable to insert inscription in location in hord.sqlite: {}", e.to_string());
             return
         }
     }
@@ -743,9 +728,7 @@ where
         let mut stmt = match db_conn.prepare(query) {
             Ok(stmt) => stmt,
             Err(e) => {
-                ctx.try_log(|logger| {
-                    warn!(logger, "unable to prepare query {query}: {}", e.to_string())
-                });
+                try_warn!(ctx, "unable to prepare query {query}: {}", e.to_string());
                 std::thread::sleep(std::time::Duration::from_secs(5));
                 continue;
             }
@@ -763,22 +746,18 @@ where
                     }
                     Ok(None) => break,
                     Err(e) => {
-                        ctx.try_log(|logger| {
-                            warn!(
-                                logger,
-                                "unable to iterate over results from {query}: {}",
-                                e.to_string()
-                            )
-                        });
+                        try_warn!(
+                            ctx,
+                            "unable to iterate over results from {query}: {}",
+                            e.to_string()
+                        );
                         std::thread::sleep(std::time::Duration::from_secs(5));
                         continue;
                     }
                 }
             },
             Err(e) => {
-                ctx.try_log(|logger| {
-                    warn!(logger, "unable to execute query {query}: {}", e.to_string())
-                });
+                try_warn!(ctx, "unable to execute query {query}: {}", e.to_string());
                 std::thread::sleep(std::time::Duration::from_secs(5));
                 continue;
             }
@@ -892,9 +871,7 @@ pub fn find_all_transfers_in_block(
         {
             Ok(stmt) => break stmt,
             Err(e) => {
-                ctx.try_log(|logger| {
-                    warn!(logger, "unable to prepare query hord.sqlite: {}", e.to_string())
-                });
+                try_warn!(ctx, "unable to prepare query hord.sqlite: {}", e.to_string());
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
@@ -905,9 +882,7 @@ pub fn find_all_transfers_in_block(
         match stmt.query(args) {
             Ok(rows) => break rows,
             Err(e) => {
-                ctx.try_log(|logger| {
-                    warn!(logger, "unable to query hord.sqlite: {}", e.to_string())
-                });
+                try_warn!(ctx, "unable to query hord.sqlite: {}", e.to_string());
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
@@ -934,9 +909,7 @@ pub fn find_all_transfers_in_block(
             }
             Ok(None) => break,
             Err(e) => {
-                ctx.try_log(|logger| {
-                    warn!(logger, "unable to query hord.sqlite: {}", e.to_string())
-                });
+                try_warn!(ctx, "unable to query hord.sqlite: {}", e.to_string());
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
@@ -1016,12 +989,10 @@ pub fn compute_nth_jubilee_number_at_block_height(
     db_conn: &Connection,
     ctx: &Context,
 ) -> Option<i64> {
-    ctx.try_log(|logger| {
-        warn!(
-            logger,
-            "Start computing latest_inscription_number at block height: {block_height}"
-        )
-    });
+    try_warn!(
+        ctx,
+        "Start computing latest_inscription_number at block height: {block_height}"
+    );
     let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
     let query = "SELECT jubilee_inscription_number FROM inscriptions WHERE block_height < ? ORDER BY jubilee_inscription_number DESC LIMIT 1";
     perform_query_one(query, args, db_conn, ctx, |row| {
@@ -1035,12 +1006,10 @@ pub fn compute_nth_classic_pos_number_at_block_height(
     db_conn: &Connection,
     ctx: &Context,
 ) -> Option<i64> {
-    ctx.try_log(|logger| {
-        warn!(
-            logger,
-            "Start computing latest_inscription_number at block height: {block_height}"
-        )
-    });
+    try_warn!(
+        ctx,
+        "Start computing latest_inscription_number at block height: {block_height}"
+    );
     let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
     let query = "SELECT classic_inscription_number FROM inscriptions WHERE block_height < ? ORDER BY classic_inscription_number DESC LIMIT 1";
     perform_query_one(query, args, db_conn, ctx, |row| {
@@ -1054,12 +1023,10 @@ pub fn compute_nth_classic_neg_number_at_block_height(
     db_conn: &Connection,
     ctx: &Context,
 ) -> Option<i64> {
-    ctx.try_log(|logger| {
-        warn!(
-            logger,
-            "Start computing nth_classic_neg_number at block height: {block_height}"
-        )
-    });
+    try_warn!(
+        ctx,
+        "Start computing nth_classic_neg_number at block height: {block_height}"
+    );
     let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
     let query = "SELECT classic_inscription_number FROM inscriptions WHERE block_height < ? ORDER BY classic_inscription_number ASC LIMIT 1";
     perform_query_one(query, args, db_conn, ctx, |row| {
@@ -1143,9 +1110,7 @@ pub fn find_all_inscriptions_in_block(
         {
             Ok(stmt) => break stmt,
             Err(e) => {
-                ctx.try_log(|logger| {
-                    warn!(logger, "unable to prepare query hord.sqlite: {}", e.to_string())
-                });
+                try_warn!(ctx, "unable to prepare query hord.sqlite: {}", e.to_string());
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
@@ -1155,9 +1120,7 @@ pub fn find_all_inscriptions_in_block(
         match stmt.query(args) {
             Ok(rows) => break rows,
             Err(e) => {
-                ctx.try_log(|logger| {
-                    warn!(logger, "unable to query hord.sqlite: {}", e.to_string())
-                });
+                try_warn!(ctx, "unable to query hord.sqlite: {}", e.to_string());
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
@@ -1186,9 +1149,7 @@ pub fn find_all_inscriptions_in_block(
             }
             Ok(None) => break,
             Err(e) => {
-                ctx.try_log(|logger| {
-                    warn!(logger, "unable to query hord.sqlite: {}", e.to_string())
-                });
+                try_warn!(ctx, "unable to query hord.sqlite: {}", e.to_string());
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
@@ -1229,21 +1190,21 @@ pub fn delete_inscriptions_in_block_range(
         "DELETE FROM inscriptions WHERE block_height >= ?1 AND block_height <= ?2",
         rusqlite::params![&start_block, &end_block],
     ) {
-        ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+        try_warn!(ctx, "unable to query hord.sqlite: {}", e.to_string());
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
     while let Err(e) = inscriptions_db_conn_rw.execute(
         "DELETE FROM locations WHERE block_height >= ?1 AND block_height <= ?2",
         rusqlite::params![&start_block, &end_block],
     ) {
-        ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+        try_warn!(ctx, "unable to query hord.sqlite: {}", e.to_string());
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
     while let Err(e) = inscriptions_db_conn_rw.execute(
         "DELETE FROM sequence_metadata WHERE block_height >= ?1 AND block_height <= ?2",
         rusqlite::params![&start_block, &end_block],
     ) {
-        ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+        try_warn!(ctx, "unable to query hord.sqlite: {}", e.to_string());
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
 }
@@ -1257,14 +1218,14 @@ pub fn remove_entry_from_inscriptions(
         "DELETE FROM inscriptions WHERE inscription_id = ?1",
         rusqlite::params![&inscription_id],
     ) {
-        ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+        try_warn!(ctx, "unable to query hord.sqlite: {}", e.to_string());
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
     while let Err(e) = inscriptions_db_rw_conn.execute(
         "DELETE FROM locations WHERE inscription_id = ?1",
         rusqlite::params![&inscription_id],
     ) {
-        ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+        try_warn!(ctx, "unable to query hord.sqlite: {}", e.to_string());
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
 }
@@ -1278,7 +1239,7 @@ pub fn remove_entries_from_locations_at_block_height(
         "DELETE FROM locations WHERE block_height = ?1",
         rusqlite::params![&block_height],
     ) {
-        ctx.try_log(|logger| warn!(logger, "unable to query hord.sqlite: {}", e.to_string()));
+        try_warn!(ctx, "unable to query hord.sqlite: {}", e.to_string());
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
 }
@@ -1291,19 +1252,15 @@ pub fn delete_data_in_ordhook_db(
     brc_20_db_conn_rw: &Option<Connection>,
     ctx: &Context,
 ) -> Result<(), String> {
-    ctx.try_log(|logger| {
-        info!(
-            logger,
-            "Deleting entries from block #{start_block} to block #{end_block}"
-        )
-    });
+    try_info!(
+        ctx,
+        "Deleting entries from block #{start_block} to block #{end_block}"
+    );
     delete_blocks_in_block_range(start_block as u32, end_block as u32, &blocks_db_rw, &ctx);
-    ctx.try_log(|logger| {
-        info!(
-            logger,
-            "Deleting inscriptions and locations from block #{start_block} to block #{end_block}"
-        )
-    });
+    try_info!(
+        ctx,
+        "Deleting inscriptions and locations from block #{start_block} to block #{end_block}"
+    );
     delete_inscriptions_in_block_range(
         start_block as u32,
         end_block as u32,
@@ -1312,12 +1269,10 @@ pub fn delete_data_in_ordhook_db(
     );
     if let Some(conn) = brc_20_db_conn_rw {
         delete_activity_in_block_range(start_block as u32, end_block as u32, &conn, &ctx);
-        ctx.try_log(|logger| {
-            info!(
-                logger,
-                "Deleting BRC-20 activity from block #{start_block} to block #{end_block}"
-            )
-        });
+        try_info!(
+            ctx,
+            "Deleting BRC-20 activity from block #{start_block} to block #{end_block}"
+        );
     }
     Ok(())
 }
