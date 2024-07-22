@@ -1,3 +1,6 @@
+pub mod bitcoind;
+pub mod logger;
+
 use std::{
     fs,
     io::{Read, Write},
