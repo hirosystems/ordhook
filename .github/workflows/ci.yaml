@@ -39,13 +39,16 @@ jobs:
       - name: Update Rust
         run: |
           rustup update
-
-      - name: Run tests
-        run: |
           cargo install --force cargo-tarpaulin
-          cd ./components/ordhook-core
+
+      - name: Run Core tests
+        run: |
+          cd ${{ github.workspace }}/components/ordhook-core
           cargo tarpaulin --out lcov -- --test-threads=1
-          cd ../ordhook-cli
+
+      - name: Run CLI tests
+        run: |
+          cd ${{ github.workspace }}/components/ordhook-cli
           cargo tarpaulin --out lcov -- --test-threads=1
 
       - name: Upload coverage reports to Codecov
