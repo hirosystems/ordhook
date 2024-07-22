@@ -20,6 +20,7 @@ fn bitcoind_get_client(config: &Config, ctx: &Context) -> Client {
     }
 }
 
+/// Retrieves the block height from bitcoind.
 pub fn bitcoind_get_block_height(config: &Config, ctx: &Context) -> u64 {
     let bitcoin_rpc = bitcoind_get_client(config, ctx);
     loop {
