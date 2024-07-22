@@ -43,6 +43,9 @@ jobs:
       - name: Run tests
         run: |
           cargo install --force cargo-tarpaulin
+          cd ./components/ordhook-core
+          cargo tarpaulin --out lcov -- --test-threads=1
+          cd ../ordhook-cli
           cargo tarpaulin --out lcov -- --test-threads=1
 
       - name: Upload coverage reports to Codecov
