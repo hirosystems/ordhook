@@ -12,7 +12,8 @@ use chainhook_sdk::utils::Context;
 
 use crate::{
     config::{Config, LogConfig, MetaProtocolsConfig, ResourcesConfig},
-    db::{find_pinned_block_bytes_at_block_height, open_ordhook_db_conn_rocks_db_loop}, utils::bitcoind::bitcoind_get_block_height,
+    db::{find_pinned_block_bytes_at_block_height, open_ordhook_db_conn_rocks_db_loop},
+    utils::bitcoind::bitcoind_get_block_height,
 };
 
 use crate::db::{

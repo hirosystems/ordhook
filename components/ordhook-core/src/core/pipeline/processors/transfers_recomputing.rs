@@ -19,6 +19,7 @@ use crate::{
         insert_entries_from_block_in_inscriptions, open_readwrite_ordhook_db_conn,
         remove_entries_from_locations_at_block_height,
     },
+    try_info, try_warn,
 };
 
 pub fn start_transfers_recomputing_processor(
@@ -51,9 +52,7 @@ pub fn start_transfers_recomputing_processor(
                         TryRecvError::Empty => {
                             empty_cycles += 1;
                             if empty_cycles == 10 {
-                                ctx.try_log(|logger| {
-                                    warn!(logger, "Block processor reached expiration")
-                                });
+                                try_warn!(ctx, "Block processor reached expiration");
                                 let _ = events_tx.send(PostProcessorEvent::Expired);
                                 break;
                             }
@@ -66,7 +65,7 @@ pub fn start_transfers_recomputing_processor(
                     },
                 };
 
-                ctx.try_log(|logger| info!(logger, "Processing {} blocks", blocks.len()));
+                try_info!(ctx, "Processing {} blocks", blocks.len());
                 let inscriptions_db_tx = inscriptions_db_conn_rw.transaction().unwrap();
 
                 for block in blocks.iter_mut() {

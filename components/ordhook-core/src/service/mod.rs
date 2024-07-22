@@ -6,7 +6,7 @@ use crate::config::{Config, PredicatesApi};
 use crate::core::meta_protocols::brc20::brc20_activation_height;
 use crate::core::meta_protocols::brc20::cache::Brc20MemoryCache;
 use crate::core::meta_protocols::brc20::db::{
-    delete_activity_in_block_range, open_readwrite_brc20_db_conn, write_augmented_block_to_brc20_db,
+    open_readwrite_brc20_db_conn, write_augmented_block_to_brc20_db,
 };
 use crate::core::meta_protocols::brc20::parser::ParsedBrc20Operation;
 use crate::core::meta_protocols::brc20::verifier::{
@@ -36,6 +36,7 @@ use crate::service::observers::{
     update_observer_streaming_enabled, ObserverReport,
 };
 use crate::service::runloops::start_bitcoin_scan_runloop;
+use crate::{try_debug, try_error, try_info};
 use chainhook_sdk::chainhooks::bitcoin::BitcoinChainhookOccurrencePayload;
 use chainhook_sdk::chainhooks::types::{
     BitcoinChainhookSpecification, ChainhookConfig, ChainhookFullSpecification,
@@ -477,7 +478,7 @@ impl Service {
 
     pub async fn catch_up_with_chain_tip(
         &mut self,
-        rebuild_from_scratch: bool,
+        _rebuild_from_scratch: bool,
         compact_and_check_rocksdb_integrity: bool,
         block_post_processor: Option<crossbeam_channel::Sender<BitcoinBlockData>>,
     ) -> Result<(), String> {
@@ -553,12 +554,10 @@ impl Service {
                 block_post_processor.clone(),
             );
 
-            self.ctx.try_log(|logger| {
-                info!(
-                    logger,
-                    "Compressing blocks (from #{start_block} to #{end_block})"
-                )
-            });
+            try_info!(
+                self.ctx,
+                "Compressing blocks (from #{start_block} to #{end_block})"
+            );
 
             let ordhook_config = self.config.get_ordhook_config();
             let first_inscription_height = ordhook_config.first_inscription_height;
@@ -590,12 +589,10 @@ impl Service {
                 block_post_processor.clone(),
             );
 
-            self.ctx.try_log(|logger| {
-                info!(
-                    logger,
-                    "Indexing inscriptions from block #{start_block} to block #{end_block}"
-                )
-            });
+            try_info!(
+                self.ctx,
+                "Indexing inscriptions from block #{start_block} to block #{end_block}"
+            );
 
             let ordhook_config = self.config.get_ordhook_config();
             let first_inscription_height = ordhook_config.first_inscription_height;
@@ -652,7 +649,7 @@ fn chainhook_sidecar_mutate_ordhook_db(command: HandleBlock, config: &Config, ct
     ) {
         Ok(dbs) => dbs,
         Err(e) => {
-            ctx.try_log(|logger| error!(logger, "Unable to open readwrite connection: {e}",));
+            try_error!(ctx, "Unable to open readwrite connection: {e}");
             return;
         }
     };
@@ -660,9 +657,7 @@ fn chainhook_sidecar_mutate_ordhook_db(command: HandleBlock, config: &Config, ct
         match open_readwrite_brc20_db_conn(&config.expected_cache_path(), ctx) {
             Ok(dbs) => Some(dbs),
             Err(e) => {
-                ctx.try_log(|logger| {
-                    error!(logger, "Unable to open readwrite brc20 connection: {e}",)
-                });
+                try_error!(ctx, "Unable to open readwrite brc20 connection: {e}");
                 return;
             }
         }
@@ -672,12 +667,11 @@ fn chainhook_sidecar_mutate_ordhook_db(command: HandleBlock, config: &Config, ct
 
     match command {
         HandleBlock::UndoBlock(block) => {
-            ctx.try_log(|logger| {
-                info!(
-                    logger,
-                    "Re-org handling: reverting changes in block #{}", block.block_identifier.index
-                )
-            });
+            try_info!(
+                ctx,
+                "Re-org handling: reverting changes in block #{}",
+                block.block_identifier.index
+            );
             let res = delete_data_in_ordhook_db(
                 block.block_identifier.index,
                 block.block_identifier.index,
@@ -688,26 +682,23 @@ fn chainhook_sidecar_mutate_ordhook_db(command: HandleBlock, config: &Config, ct
             );
 
             if let Err(e) = res {
-                ctx.try_log(|logger| {
-                    error!(
-                        logger,
-                        "Unable to rollback bitcoin block {}: {e}", block.block_identifier
-                    )
-                });
+                try_error!(
+                    ctx,
+                    "Unable to rollback bitcoin block {}: {e}",
+                    block.block_identifier
+                );
             }
         }
         HandleBlock::ApplyBlock(block) => {
             let block_bytes = match BlockBytesCursor::from_standardized_block(&block) {
                 Ok(block_bytes) => block_bytes,
                 Err(e) => {
-                    ctx.try_log(|logger| {
-                        error!(
-                            logger,
-                            "Unable to compress block #{}: #{}",
-                            block.block_identifier.index,
-                            e.to_string()
-                        )
-                    });
+                    try_error!(
+                        ctx,
+                        "Unable to compress block #{}: #{}",
+                        block.block_identifier.index,
+                        e.to_string()
+                    );
                     return;
                 }
             };
@@ -719,9 +710,7 @@ fn chainhook_sidecar_mutate_ordhook_db(command: HandleBlock, config: &Config, ct
                 &ctx,
             );
             if let Err(e) = blocks_db_rw.flush() {
-                ctx.try_log(|logger| {
-                    error!(logger, "{}", e.to_string());
-                });
+                try_error!(ctx, "{}", e.to_string());
             }
 
             update_ordinals_db_with_block(&block, &inscriptions_db_conn_rw, ctx);
@@ -787,7 +776,7 @@ pub fn chainhook_sidecar_mutate_blocks(
     ) {
         Ok(dbs) => dbs,
         Err(e) => {
-            ctx.try_log(|logger| error!(logger, "Unable to open readwrite connection: {e}",));
+            try_error!(ctx, "Unable to open readwrite connection: {e}");
             return;
         }
     };
@@ -795,9 +784,7 @@ pub fn chainhook_sidecar_mutate_blocks(
         match open_readwrite_brc20_db_conn(&config.expected_cache_path(), ctx) {
             Ok(db) => Some(db),
             Err(e) => {
-                ctx.try_log(|logger| {
-                    error!(logger, "Unable to open readwrite brc20 connection: {e}",)
-                });
+                try_error!(ctx, "Unable to open readwrite brc20 connection: {e}");
                 return;
             }
         }
@@ -816,12 +803,11 @@ pub fn chainhook_sidecar_mutate_blocks(
             &brc_20_db_conn_rw,
             &ctx,
         ) {
-            ctx.try_log(|logger| {
-                error!(
-                    logger,
-                    "Unable to rollback bitcoin block {}: {e}", block_id_to_rollback.index
-                )
-            });
+            try_error!(
+                ctx,
+                "Unable to rollback bitcoin block {}: {e}",
+                block_id_to_rollback.index
+            );
         }
     }
 
@@ -838,14 +824,12 @@ pub fn chainhook_sidecar_mutate_blocks(
         let block_bytes = match BlockBytesCursor::from_standardized_block(&cache.block) {
             Ok(block_bytes) => block_bytes,
             Err(e) => {
-                ctx.try_log(|logger| {
-                    error!(
-                        logger,
-                        "Unable to compress block #{}: #{}",
-                        cache.block.block_identifier.index,
-                        e.to_string()
-                    )
-                });
+                try_error!(
+                    ctx,
+                    "Unable to compress block #{}: #{}",
+                    cache.block.block_identifier.index,
+                    e.to_string()
+                );
                 continue;
             }
         };
@@ -858,9 +842,7 @@ pub fn chainhook_sidecar_mutate_blocks(
             &ctx,
         );
         if let Err(e) = blocks_db_rw.flush() {
-            ctx.try_log(|logger| {
-                error!(logger, "{}", e.to_string());
-            });
+            try_error!(ctx, "{}", e.to_string());
         }
 
         if cache.processed_by_sidecar {
@@ -893,15 +875,13 @@ pub fn chainhook_sidecar_mutate_blocks(
             let inscriptions_transferred =
                 get_inscriptions_transferred_in_block(&cache.block).len();
 
-            ctx.try_log(|logger| {
-                info!(
-                    logger,
-                    "Block #{} processed, mutated and revealed {} inscriptions [{}] and {inscriptions_transferred} transfers",
-                    cache.block.block_identifier.index,
-                    inscription_numbers.len(),
-                    inscription_numbers.join(", ")
-                )
-            });
+            try_info!(
+                ctx,
+                "Block #{} processed, mutated and revealed {} inscriptions [{}] and {inscriptions_transferred} transfers",
+                cache.block.block_identifier.index,
+                inscription_numbers.len(),
+                inscription_numbers.join(", ")
+            );
             cache.processed_by_sidecar = true;
         }
     }
@@ -967,15 +947,13 @@ pub fn write_brc20_block_operations(
                                         db_tx,
                                         ctx,
                                     );
-                                    ctx.try_log(|logger| {
-                                        info!(
-                                            logger,
-                                            "BRC-20 deploy {} ({}) at block {}",
-                                            token.tick,
-                                            token.address,
-                                            block.block_identifier.index
-                                        )
-                                    });
+                                    try_info!(
+                                        ctx,
+                                        "BRC-20 deploy {} ({}) at block {}",
+                                        token.tick,
+                                        token.address,
+                                        block.block_identifier.index
+                                    );
                                 }
                                 VerifiedBrc20Operation::TokenMint(balance) => {
                                     let Some(token) =
@@ -1002,16 +980,14 @@ pub fn write_brc20_block_operations(
                                         db_tx,
                                         ctx,
                                     );
-                                    ctx.try_log(|logger| {
-                                        info!(
-                                            logger,
-                                            "BRC-20 mint {} {} ({}) at block {}",
-                                            balance.tick,
-                                            balance.amt,
-                                            balance.address,
-                                            block.block_identifier.index
-                                        )
-                                    });
+                                    try_info!(
+                                        ctx,
+                                        "BRC-20 mint {} {} ({}) at block {}",
+                                        balance.tick,
+                                        balance.amt,
+                                        balance.address,
+                                        block.block_identifier.index
+                                    );
                                 }
                                 VerifiedBrc20Operation::TokenTransfer(balance) => {
                                     let Some(token) =
@@ -1038,25 +1014,21 @@ pub fn write_brc20_block_operations(
                                         db_tx,
                                         ctx,
                                     );
-                                    ctx.try_log(|logger| {
-                                        info!(
-                                            logger,
-                                            "BRC-20 transfer {} {} ({}) at block {}",
-                                            balance.tick,
-                                            balance.amt,
-                                            balance.address,
-                                            block.block_identifier.index
-                                        )
-                                    });
+                                    try_info!(
+                                        ctx,
+                                        "BRC-20 transfer {} {} ({}) at block {}",
+                                        balance.tick,
+                                        balance.amt,
+                                        balance.address,
+                                        block.block_identifier.index
+                                    );
                                 }
                                 VerifiedBrc20Operation::TokenTransferSend(_) => {
                                     unreachable!("BRC-20 token transfer send should never be generated on reveal")
                                 }
                             },
                             Err(e) => {
-                                ctx.try_log(|logger| {
-                                    debug!(logger, "Error validating BRC-20 operation {}", e)
-                                });
+                                try_debug!(ctx, "Error validating BRC-20 operation {}", e);
                             }
                         }
                     } else {
@@ -1096,22 +1068,18 @@ pub fn write_brc20_block_operations(
                                 db_tx,
                                 ctx,
                             );
-                            ctx.try_log(|logger| {
-                                info!(
-                                    logger,
-                                    "BRC-20 transfer_send {} {} ({} -> {}) at block {}",
-                                    data.tick,
-                                    data.amt,
-                                    data.sender_address,
-                                    data.receiver_address,
-                                    block.block_identifier.index
-                                )
-                            });
+                            try_info!(
+                                ctx,
+                                "BRC-20 transfer_send {} {} ({} -> {}) at block {}",
+                                data.tick,
+                                data.amt,
+                                data.sender_address,
+                                data.receiver_address,
+                                block.block_identifier.index
+                            );
                         }
                         Err(e) => {
-                            ctx.try_log(|logger| {
-                                debug!(logger, "Error validating BRC-20 transfer {}", e)
-                            });
+                            try_debug!(ctx, "Error validating BRC-20 transfer {}", e);
                         }
                     }
                 }

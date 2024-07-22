@@ -13,6 +13,7 @@ use crate::{
     service::{
         observers::open_readwrite_observers_db_conn_or_panic, update_observer_streaming_enabled,
     },
+    try_error,
 };
 
 pub fn start_bitcoin_scan_runloop(
@@ -39,12 +40,10 @@ pub fn start_bitcoin_scan_runloop(
             match hiro_system_kit::nestable_block_on(op) {
                 Ok(_) => {}
                 Err(e) => {
-                    moved_ctx.try_log(|logger| {
-                        error!(
-                            logger,
-                            "Unable to evaluate predicate on Bitcoin chainstate: {e}",
-                        )
-                    });
+                    try_error!(
+                        moved_ctx,
+                        "Unable to evaluate predicate on Bitcoin chainstate: {e}",
+                    );
 
                     // Update predicate
                     let mut observers_db_conn =

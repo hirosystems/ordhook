@@ -32,6 +32,7 @@ use crate::{
         TransactionBytesCursor, TraversalResult,
     },
     ord::height::Height,
+    try_error, try_info, try_warn,
 };
 
 use std::sync::mpsc::channel;
@@ -84,12 +85,11 @@ pub fn parallelize_inscription_data_computations(
         Context::empty()
     };
 
-    inner_ctx.try_log(|logger| {
-        info!(
-            logger,
-            "Inscriptions data computation for block #{} started", block.block_identifier.index
-        )
-    });
+    try_info!(
+        inner_ctx,
+        "Inscriptions data computation for block #{} started",
+        block.block_identifier.index
+    );
 
     let (transactions_ids, l1_cache_hits) =
         get_transactions_to_process(block, cache_l1, inscriptions_db_tx, ctx);
@@ -170,18 +170,16 @@ pub fn parallelize_inscription_data_computations(
         .map(|b| format!("{}", b.block_identifier.index))
         .collect::<Vec<_>>();
 
-    inner_ctx.try_log(|logger| {
-        info!(
-            logger,
-            "Number of inscriptions in block #{} to process: {} (L1 cache hits: {}, queue: [{}], L1 cache len: {}, L2 cache len: {})",
-            block.block_identifier.index,
-            transactions_ids.len(),
-            l1_cache_hits.len(),
-            next_block_heights.join(", "),
-            cache_l1.len(),
-            cache_l2.len(),
-        )
-    });
+    try_info!(
+        inner_ctx,
+        "Number of inscriptions in block #{} to process: {} (L1 cache hits: {}, queue: [{}], L1 cache len: {}, L2 cache len: {})",
+        block.block_identifier.index,
+        transactions_ids.len(),
+        l1_cache_hits.len(),
+        next_block_heights.join(", "),
+        cache_l1.len(),
+        cache_l2.len(),
+    );
 
     let mut priority_queue = VecDeque::new();
     let mut warmup_queue = VecDeque::new();
@@ -212,18 +210,16 @@ pub fn parallelize_inscription_data_computations(
         }
         match traversal_result {
             Ok((traversal, inscription_pointer, _)) => {
-                inner_ctx.try_log(|logger| {
-                    info!(
-                        logger,
-                        "Completed ordinal number retrieval for Satpoint {}:{}:{} (block: #{}:{}, transfers: {}, progress: {traversals_received}/{expected_traversals}, priority queue: {prioritary}, thread: {thread_index})",
-                        traversal.transaction_identifier_inscription.hash,
-                        traversal.inscription_input_index,
-                        inscription_pointer,
-                        traversal.get_ordinal_coinbase_height(),
-                        traversal.get_ordinal_coinbase_offset(),
-                        traversal.transfers
-                        )
-                });
+                try_info!(
+                    inner_ctx,
+                    "Completed ordinal number retrieval for Satpoint {}:{}:{} (block: #{}:{}, transfers: {}, progress: {traversals_received}/{expected_traversals}, priority queue: {prioritary}, thread: {thread_index})",
+                    traversal.transaction_identifier_inscription.hash,
+                    traversal.inscription_input_index,
+                    inscription_pointer,
+                    traversal.get_ordinal_coinbase_height(),
+                    traversal.get_ordinal_coinbase_offset(),
+                    traversal.transfers
+                );
                 cache_l1.insert(
                     (
                         traversal.transaction_identifier_inscription.clone(),
@@ -234,9 +230,7 @@ pub fn parallelize_inscription_data_computations(
                 );
             }
             Err(e) => {
-                ctx.try_log(|logger| {
-                    error!(logger, "Unable to compute inscription's Satoshi: {e}",)
-                });
+                try_error!(inner_ctx, "Unable to compute inscription's Satoshi: {e}");
             }
         }
 
@@ -254,14 +248,12 @@ pub fn parallelize_inscription_data_computations(
                     let (transactions_ids, _) =
                         get_transactions_to_process(next_block, cache_l1, inscriptions_db_tx, ctx);
 
-                    inner_ctx.try_log(|logger| {
-                        info!(
-                            logger,
-                            "Number of inscriptions in block #{} to pre-process: {}",
-                            block.block_identifier.index,
-                            transactions_ids.len()
-                        )
-                    });
+                    try_info!(
+                        inner_ctx,
+                        "Number of inscriptions in block #{} to pre-process: {}",
+                        block.block_identifier.index,
+                        transactions_ids.len()
+                    );
 
                     for (transaction_id, input_index, inscription_pointer) in
                         transactions_ids.into_iter()
@@ -279,30 +271,27 @@ pub fn parallelize_inscription_data_computations(
             }
         }
     }
-    inner_ctx.try_log(|logger| {
-        info!(
-            logger,
-            "Inscriptions data computation for block #{} collected", block.block_identifier.index
-        )
-    });
+    try_info!(
+        inner_ctx,
+        "Inscriptions data computation for block #{} collected",
+        block.block_identifier.index
+    );
 
     // Collect eventual results for incoming blocks
     for tx in tx_thread_pool.iter() {
         // Empty the queue
         if let Ok((traversal_result, _prioritary, thread_index)) = traversal_rx.try_recv() {
             if let Ok((traversal, inscription_pointer, _)) = traversal_result {
-                inner_ctx.try_log(|logger| {
-                    info!(
-                        logger,
-                        "Completed ordinal number retrieval for Satpoint {}:{}:{} (block: #{}:{}, transfers: {}, pre-retrieval, thread: {thread_index})",
-                        traversal.transaction_identifier_inscription.hash,
-                        traversal.inscription_input_index,
-                        inscription_pointer,
-                        traversal.get_ordinal_coinbase_height(),
-                        traversal.get_ordinal_coinbase_offset(),
-                        traversal.transfers
-                        )
-                    });
+                try_info!(
+                    inner_ctx,
+                    "Completed ordinal number retrieval for Satpoint {}:{}:{} (block: #{}:{}, transfers: {}, pre-retrieval, thread: {thread_index})",
+                    traversal.transaction_identifier_inscription.hash,
+                    traversal.inscription_input_index,
+                    inscription_pointer,
+                    traversal.get_ordinal_coinbase_height(),
+                    traversal.get_ordinal_coinbase_offset(),
+                    traversal.transfers
+                );
                 cache_l1.insert(
                     (
                         traversal.transaction_identifier_inscription.clone(),
@@ -322,12 +311,11 @@ pub fn parallelize_inscription_data_computations(
         }
     });
 
-    inner_ctx.try_log(|logger| {
-        info!(
-            logger,
-            "Inscriptions data computation for block #{} ended", block.block_identifier.index
-        )
-    });
+    try_info!(
+        inner_ctx,
+        "Inscriptions data computation for block #{} ended",
+        block.block_identifier.index
+    );
 
     Ok(has_transactions_to_process)
 }
@@ -657,17 +645,15 @@ pub fn augment_block_with_ordinals_inscriptions_data(
             sequence_cursor.increment_pos_classic(ctx);
         };
 
-        ctx.try_log(|logger| {
-            info!(
-                logger,
-                "Unbound inscription {} (#{}) detected on Satoshi {} (block #{}, {} transfers)",
-                inscription_data.inscription_id,
-                inscription_data.get_inscription_number(),
-                inscription_data.ordinal_number,
-                block.block_identifier.index,
-                inscription_data.transfers_pre_inscription,
-            );
-        });
+        try_info!(
+            ctx,
+            "Unbound inscription {} (#{}) detected on Satoshi {} (block #{}, {} transfers)",
+            inscription_data.inscription_id,
+            inscription_data.get_inscription_number(),
+            inscription_data.ordinal_number,
+            block.block_identifier.index,
+            inscription_data.transfers_pre_inscription,
+        );
     }
     any_event
 }
@@ -726,9 +712,7 @@ fn augment_transaction_with_ordinals_inscriptions_data(
                         "Unable to retrieve backward traversal result for inscription {}",
                         tx.transaction_identifier.hash
                     );
-                    ctx.try_log(|logger| {
-                        error!(logger, "{}", err_msg);
-                    });
+                    try_error!(ctx, "{}", err_msg);
                     std::process::exit(1);
                 }
             };
@@ -742,15 +726,13 @@ fn augment_transaction_with_ordinals_inscriptions_data(
             if let Some(exisiting_inscription_id) =
                 reinscriptions_data.get(&traversal.ordinal_number)
             {
-                ctx.try_log(|logger| {
-                    info!(
-                        logger,
-                        "Satoshi #{} was inscribed with blessed inscription {}, cursing inscription {}",
-                        traversal.ordinal_number,
-                        exisiting_inscription_id,
-                        traversal.get_inscription_id(),
-                    );
-                });
+                try_info!(
+                    ctx,
+                    "Satoshi #{} was inscribed with blessed inscription {}, cursing inscription {}",
+                    traversal.ordinal_number,
+                    exisiting_inscription_id,
+                    traversal.get_inscription_id(),
+                );
 
                 is_cursed = true;
                 inscription_number =
@@ -811,17 +793,15 @@ fn augment_transaction_with_ordinals_inscriptions_data(
             reinscriptions_data.insert(traversal.ordinal_number, traversal.get_inscription_id());
         }
 
-        ctx.try_log(|logger| {
-            info!(
-                logger,
-                "Inscription {} (#{}) detected on Satoshi {} (block #{}, {} transfers)",
-                inscription.inscription_id,
-                inscription.get_inscription_number(),
-                inscription.ordinal_number,
-                block_identifier.index,
-                inscription.transfers_pre_inscription,
-            );
-        });
+        try_info!(
+            ctx,
+            "Inscription {} (#{}) detected on Satoshi {} (block #{}, {} transfers)",
+            inscription.inscription_id,
+            inscription.get_inscription_number(),
+            inscription.ordinal_number,
+            block_identifier.index,
+            inscription.transfers_pre_inscription,
+        );
 
         sequence_cursor.increment_jubilee_number(ctx);
         if is_cursed {
@@ -937,13 +917,11 @@ pub fn consolidate_block_with_pre_computed_ordinals_data(
             find_all_inscriptions_in_block(&block.block_identifier.index, inscriptions_db_tx, ctx);
         // TODO: investigate, sporadically the set returned is empty, and requires a retry.
         if results.len() != expected_inscriptions_count {
-            ctx.try_log(|logger| {
-                warn!(
-                    logger,
-                    "Database retuning {} results instead of the expected {expected_inscriptions_count}",
-                    results.len()
-                );
-            });
+            try_warn!(
+                ctx,
+                "Database retuning {} results instead of the expected {expected_inscriptions_count}",
+                results.len()
+            );
             continue;
         }
         break results;

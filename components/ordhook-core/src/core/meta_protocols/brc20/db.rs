@@ -1,7 +1,11 @@
 use std::{collections::HashMap, path::PathBuf};
 
-use crate::db::{
-    create_or_open_readwrite_db, open_existing_readonly_db, perform_query_one, perform_query_set,
+use crate::{
+    db::{
+        create_or_open_readwrite_db, open_existing_readonly_db, perform_query_one,
+        perform_query_set,
+    },
+    try_warn,
 };
 use chainhook_sdk::{
     types::{
@@ -66,13 +70,13 @@ pub fn initialize_brc20_db(base_dir: Option<&PathBuf>, ctx: &Context) -> Connect
         )",
         [],
     ) {
-        ctx.try_log(|logger| warn!(logger, "Unable to create table tokens: {}", e.to_string()));
+        try_warn!(ctx, "Unable to create table tokens: {}", e.to_string());
     } else {
         if let Err(e) = conn.execute(
             "CREATE INDEX IF NOT EXISTS index_tokens_on_block_height ON tokens(block_height);",
             [],
         ) {
-            ctx.try_log(|logger| warn!(logger, "unable to create brc20.sqlite: {}", e.to_string()));
+            try_warn!(ctx, "unable to create brc20.sqlite: {}", e.to_string());
         }
     }
     if let Err(e) = conn.execute(
@@ -90,37 +94,37 @@ pub fn initialize_brc20_db(base_dir: Option<&PathBuf>, ctx: &Context) -> Connect
         )",
         [],
     ) {
-        ctx.try_log(|logger| warn!(logger, "Unable to create table ledger: {}", e.to_string()));
+        try_warn!(ctx, "Unable to create table ledger: {}", e.to_string());
     } else {
         if let Err(e) = conn.execute(
             "CREATE INDEX IF NOT EXISTS index_ledger_on_tick_address ON ledger(tick, address);",
             [],
         ) {
-            ctx.try_log(|logger| warn!(logger, "unable to create brc20.sqlite: {}", e.to_string()));
+            try_warn!(ctx, "unable to create brc20.sqlite: {}", e.to_string());
         }
         if let Err(e) = conn.execute(
             "CREATE INDEX IF NOT EXISTS index_ledger_on_ordinal_number_operation ON ledger(ordinal_number, operation);",
             [],
         ) {
-            ctx.try_log(|logger| warn!(logger, "unable to create brc20.sqlite: {}", e.to_string()));
+            try_warn!(ctx, "unable to create brc20.sqlite: {}", e.to_string());
         }
         if let Err(e) = conn.execute(
             "CREATE INDEX IF NOT EXISTS index_ledger_on_block_height_operation ON ledger(block_height, operation);",
             [],
         ) {
-            ctx.try_log(|logger| warn!(logger, "unable to create brc20.sqlite: {}", e.to_string()));
+            try_warn!(ctx, "unable to create brc20.sqlite: {}", e.to_string());
         }
         if let Err(e) = conn.execute(
             "CREATE INDEX IF NOT EXISTS index_ledger_on_inscription_id ON ledger(inscription_id);",
             [],
         ) {
-            ctx.try_log(|logger| warn!(logger, "unable to create brc20.sqlite: {}", e.to_string()));
+            try_warn!(ctx, "unable to create brc20.sqlite: {}", e.to_string());
         }
         if let Err(e) = conn.execute(
             "CREATE INDEX IF NOT EXISTS index_ledger_on_inscription_number ON ledger(inscription_number);",
             [],
         ) {
-            ctx.try_log(|logger| warn!(logger, "unable to create brc20.sqlite: {}", e.to_string()));
+            try_warn!(ctx, "unable to create brc20.sqlite: {}", e.to_string());
         }
     }
 
@@ -155,14 +159,14 @@ pub fn delete_activity_in_block_range(
         "DELETE FROM ledger WHERE block_height >= ?1 AND block_height <= ?2",
         rusqlite::params![&start_block, &end_block],
     ) {
-        ctx.try_log(|logger| warn!(logger, "unable to query brc20.sqlite: {}", e.to_string()));
+        try_warn!(ctx, "unable to query brc20.sqlite: {}", e.to_string());
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
     while let Err(e) = db_tx.execute(
         "DELETE FROM tokens WHERE block_height >= ?1 AND block_height <= ?2",
         rusqlite::params![&start_block, &end_block],
     ) {
-        ctx.try_log(|logger| warn!(logger, "unable to query brc20.sqlite: {}", e.to_string()));
+        try_warn!(ctx, "unable to query brc20.sqlite: {}", e.to_string());
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
 }
@@ -277,12 +281,12 @@ pub fn insert_ledger_rows(rows: &Vec<Brc20DbLedgerRow>, db_tx: &Connection, ctx:
                     &row.trans_balance,
                     &row.operation
                 ]) {
-                    ctx.try_log(|logger| warn!(logger, "unable to insert into brc20.sqlite: {}", e.to_string()));
+                    try_warn!(ctx, "unable to insert into brc20.sqlite: {}", e.to_string());
                     std::thread::sleep(std::time::Duration::from_secs(1));
                 }
             }
         },
-        Err(error) => ctx.try_log(|logger| warn!(logger, "unable to prepare statement for brc20.sqlite: {}", error.to_string()))
+        Err(error) => {try_warn!(ctx, "unable to prepare statement for brc20.sqlite: {}", error.to_string());}
     }
 }
 
@@ -305,24 +309,18 @@ pub fn insert_token_rows(rows: &Vec<Brc20DbTokenRow>, db_tx: &Connection, ctx: &
                     &row.address,
                     &row.self_mint,
                 ]) {
-                    ctx.try_log(|logger| {
-                        warn!(
-                            logger,
-                            "unable to insert into brc20.sqlite: {}",
-                            e.to_string()
-                        )
-                    });
+                    try_warn!(ctx, "unable to insert into brc20.sqlite: {}", e.to_string());
                     std::thread::sleep(std::time::Duration::from_secs(1));
                 }
             }
         }
-        Err(error) => ctx.try_log(|logger| {
-            warn!(
-                logger,
+        Err(error) => {
+            try_warn!(
+                ctx,
                 "unable to prepare statement for brc20.sqlite: {}",
                 error.to_string()
-            )
-        }),
+            );
+        }
     }
 }
 
@@ -409,7 +407,10 @@ pub fn augment_transaction_with_brc20_operation_data(
             let Some(receiver_address) =
                 get_transfer_send_receiver_address(entry.ordinal_number, &db_conn, &ctx)
             else {
-                unreachable!("Unable to fetch receiver address for transfer_send operation {:?}", entry);
+                unreachable!(
+                    "Unable to fetch receiver address for transfer_send operation {:?}",
+                    entry
+                );
             };
             tx.metadata.brc20_operation = Some(Brc20Operation::TransferSend(Brc20TransferData {
                 tick: entry.tick.clone(),
@@ -475,13 +476,11 @@ pub fn write_augmented_block_to_brc20_db(
             match brc20_operation {
                 Brc20Operation::Deploy(token) => {
                     let Some(reveal) = find_reveal_in_tx(&token.inscription_id, tx) else {
-                        ctx.try_log(|logger| {
-                            warn!(
-                                logger,
-                                "Could not find BRC-20 deploy inscription in augmented block: {}",
-                                token.inscription_id
-                            )
-                        });
+                        try_warn!(
+                            ctx,
+                            "Could not find BRC-20 deploy inscription in augmented block: {}",
+                            token.inscription_id
+                        );
                         continue;
                     };
                     tokens.push(Brc20DbTokenRow {
@@ -510,13 +509,11 @@ pub fn write_augmented_block_to_brc20_db(
                 }
                 Brc20Operation::Mint(balance) => {
                     let Some(reveal) = find_reveal_in_tx(&balance.inscription_id, tx) else {
-                        ctx.try_log(|logger| {
-                            warn!(
-                                logger,
-                                "Could not find BRC-20 mint inscription in augmented block: {}",
-                                balance.inscription_id
-                            )
-                        });
+                        try_warn!(
+                            ctx,
+                            "Could not find BRC-20 mint inscription in augmented block: {}",
+                            balance.inscription_id
+                        );
                         continue;
                     };
                     ledger_rows.push(Brc20DbLedgerRow {
@@ -534,13 +531,11 @@ pub fn write_augmented_block_to_brc20_db(
                 }
                 Brc20Operation::Transfer(balance) => {
                     let Some(reveal) = find_reveal_in_tx(&balance.inscription_id, tx) else {
-                        ctx.try_log(|logger| {
-                            warn!(
-                                logger,
-                                "Could not find BRC-20 transfer inscription in augmented block: {}",
-                                balance.inscription_id
-                            )
-                        });
+                        try_warn!(
+                            ctx,
+                            "Could not find BRC-20 transfer inscription in augmented block: {}",
+                            balance.inscription_id
+                        );
                         continue;
                     };
                     ledger_rows.push(Brc20DbLedgerRow {
@@ -575,13 +570,11 @@ pub fn write_augmented_block_to_brc20_db(
                         inscription_number = info.0;
                         ordinal_number = info.1;
                     } else {
-                        ctx.try_log(|logger| {
-                            warn!(
-                                logger,
-                                "Could not find BRC-20 transfer inscription in brc20 db: {}",
-                                transfer.inscription_id
-                            )
-                        });
+                        try_warn!(
+                            ctx,
+                            "Could not find BRC-20 transfer inscription in brc20 db: {}",
+                            transfer.inscription_id
+                        );
                         continue;
                     };
                     let amt = transfer.amt.parse::<f64>().unwrap().abs();

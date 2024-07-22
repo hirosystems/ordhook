@@ -12,6 +12,7 @@ use crate::db::{
 
 use crate::db::{TransactionBytesCursor, TraversalResult};
 use crate::ord::height::Height;
+use crate::try_error;
 
 pub fn compute_satoshi_number(
     blocks_db_dir: &PathBuf,
@@ -114,13 +115,11 @@ pub fn compute_satoshi_number(
             }
 
             if sats_in == 0 {
-                ctx.try_log(|logger| {
-                    error!(
-                        logger,
-                        "Transaction {} is originating from a non spending transaction",
-                        transaction_identifier.hash
-                    )
-                });
+                try_error!(
+                    ctx,
+                    "Transaction {} is originating from a non spending transaction",
+                    transaction_identifier.hash
+                );
                 return Ok((
                     TraversalResult {
                         inscription_number: OrdinalInscriptionNumber::zero(),
@@ -215,14 +214,12 @@ pub fn compute_satoshi_number(
             {
                 Some(entry) => entry,
                 None => {
-                    ctx.try_log(|logger| {
-                        error!(
-                            logger,
-                            "fatal: unable to retrieve tx ancestor {} in block {ordinal_block_number} (satpoint {}:{inscription_input_index})",
-                            hex::encode(txid),
-                            transaction_identifier.get_hash_bytes_str(),
-                        )
-                    });
+                    try_error!(
+                        ctx,
+                        "fatal: unable to retrieve tx ancestor {} in block {ordinal_block_number} (satpoint {}:{inscription_input_index})",
+                        hex::encode(txid),
+                        transaction_identifier.get_hash_bytes_str(),
+                    );
                     std::process::exit(1);
                 }
             };
@@ -252,13 +249,11 @@ pub fn compute_satoshi_number(
             }
 
             if sats_in == 0 {
-                ctx.try_log(|logger| {
-                    error!(
-                        logger,
-                        "Transaction {} is originating from a non spending transaction",
-                        transaction_identifier.hash
-                    )
-                });
+                try_error!(
+                    ctx,
+                    "Transaction {} is originating from a non spending transaction",
+                    transaction_identifier.hash
+                );
                 return Ok((
                     TraversalResult {
                         inscription_number: OrdinalInscriptionNumber::zero(),

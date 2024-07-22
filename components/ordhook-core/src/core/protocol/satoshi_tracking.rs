@@ -16,6 +16,7 @@ use crate::{
         insert_ordinal_transfer_in_locations_tx, parse_satpoint_to_watch, OrdinalLocation,
     },
     ord::height::Height,
+    try_info,
 };
 use rusqlite::Transaction;
 
@@ -107,24 +108,20 @@ pub fn compute_satpoint_post_transfer(
                             OrdinalInscriptionTransferDestination::Transferred(address.to_string())
                         }
                         Err(e) => {
-                            ctx.try_log(|logger| {
-                                info!(
-                                    logger,
-                                    "unable to retrieve address from {script_pub_key_hex}: {}",
-                                    e.to_string()
-                                )
-                            });
+                            try_info!(
+                                ctx,
+                                "unable to retrieve address from {script_pub_key_hex}: {}",
+                                e.to_string()
+                            );
                             OrdinalInscriptionTransferDestination::Burnt(script.to_string())
                         }
                     },
                     Err(e) => {
-                        ctx.try_log(|logger| {
-                            info!(
-                                logger,
-                                "unable to retrieve address from {script_pub_key_hex}: {}",
-                                e.to_string()
-                            )
-                        });
+                        try_info!(
+                            ctx,
+                            "unable to retrieve address from {script_pub_key_hex}: {}",
+                            e.to_string()
+                        );
                         OrdinalInscriptionTransferDestination::Burnt(script_pub_key_hex.to_string())
                     }
                 };
@@ -157,9 +154,7 @@ pub fn compute_satpoint_post_transfer(
                 let (output_index, offset) = match post_transfer_data {
                     SatPosition::Output(pos) => pos,
                     _ => {
-                        ctx.try_log(|logger| {
-                            info!(logger, "unable to locate satoshi in coinbase outputs",)
-                        });
+                        try_info!(ctx, "unable to locate satoshi in coinbase outputs");
                         (0, total_offset)
                     }
                 };

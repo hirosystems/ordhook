@@ -1,4 +1,7 @@
-use chainhook_sdk::{bitcoincore_rpc::{Auth, Client, RpcApi}, utils::Context};
+use chainhook_sdk::{
+    bitcoincore_rpc::{Auth, Client, RpcApi},
+    utils::Context,
+};
 
 use crate::{config::Config, try_error};
 
