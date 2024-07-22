@@ -22,9 +22,8 @@ use chainhook_sdk::{
 };
 
 use crate::{
-    config::Config,
     core::{
-        meta_protocols::brc20::db::{delete_activity_in_block_range, open_readwrite_brc20_db_conn},
+        meta_protocols::brc20::db::delete_activity_in_block_range,
         protocol::inscription_parsing::{
             get_inscriptions_revealed_in_block, get_inscriptions_transferred_in_block,
         },

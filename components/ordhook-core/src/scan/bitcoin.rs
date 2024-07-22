@@ -1,5 +1,4 @@
 use crate::config::Config;
-use crate::core::meta_protocols::brc20::brc20_activation_height;
 use crate::core::meta_protocols::brc20::db::open_readonly_brc20_db_conn;
 use crate::core::protocol::inscription_parsing::{
     get_inscriptions_revealed_in_block, get_inscriptions_transferred_in_block,
@@ -11,8 +10,7 @@ use crate::download::download_ordinals_dataset_if_required;
 use crate::service::observers::{
     open_readwrite_observers_db_conn_or_panic, update_observer_progress,
 };
-use chainhook_sdk::bitcoincore_rpc::RpcApi;
-use chainhook_sdk::bitcoincore_rpc::{Auth, Client};
+use crate::utils::bitcoind::bitcoind_get_block_height;
 use chainhook_sdk::chainhooks::bitcoin::{
     evaluate_bitcoin_chainhooks_on_chain_event, handle_bitcoin_hook_action,
     BitcoinChainhookOccurrence, BitcoinTriggerChainhook,
@@ -37,18 +35,6 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
     ctx: &Context,
 ) -> Result<(), String> {
     let _ = download_ordinals_dataset_if_required(config, ctx).await;
-
-    let auth = Auth::UserPass(
-        config.network.bitcoind_rpc_username.clone(),
-        config.network.bitcoind_rpc_password.clone(),
-    );
-
-    let bitcoin_rpc = match Client::new(&config.network.bitcoind_rpc_url, auth) {
-        Ok(con) => con,
-        Err(message) => {
-            return Err(format!("Bitcoin RPC error: {}", message.to_string()));
-        }
-    };
     let mut floating_end_block = false;
 
     let block_heights_to_scan_res = if let Some(ref blocks) = predicate_spec.blocks {
@@ -65,15 +51,7 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
         };
         let (end_block, update_end_block) = match predicate_spec.end_block {
             Some(end_block) => (end_block, false),
-            None => match bitcoin_rpc.get_blockchain_info() {
-                Ok(result) => (result.blocks, true),
-                Err(e) => {
-                    return Err(format!(
-                        "unable to retrieve Bitcoin chain tip ({})",
-                        e.to_string()
-                    ));
-                }
-            },
+            None => (bitcoind_get_block_height(config, ctx), true),
         };
         floating_end_block = update_end_block;
         BlockHeights::BlockRange(start_block, end_block).get_sorted_entries()
@@ -195,20 +173,16 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
             )
         }
         if block_heights_to_scan.is_empty() && floating_end_block {
-            let new_tip = match bitcoin_rpc.get_blockchain_info() {
-                Ok(result) => match predicate_spec.end_block {
-                    Some(end_block) => {
-                        if end_block > result.blocks {
-                            result.blocks
-                        } else {
-                            end_block
-                        }
+            let bitcoind_chain_tip = bitcoind_get_block_height(config, ctx);
+            let new_tip = match predicate_spec.end_block {
+                Some(end_block) => {
+                    if end_block > bitcoind_chain_tip {
+                        bitcoind_chain_tip
+                    } else {
+                        end_block
                     }
-                    None => result.blocks,
-                },
-                Err(_e) => {
-                    continue;
                 }
+                None => bitcoind_chain_tip,
             };
 
             for entry in (current_block_height + 1)..new_tip {
