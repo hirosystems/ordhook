@@ -66,7 +66,6 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
         block_heights_to_scan.len()
     );
     let mut actions_triggered = 0;
-    let mut err_count = 0;
 
     let event_observer_config = match event_observer_config_override {
         Some(config_override) => config_override.clone(),
@@ -156,11 +155,7 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
         .await
         {
             Ok(actions) => actions_triggered += actions,
-            Err(_) => err_count += 1,
-        }
-
-        if err_count >= 3 {
-            return Err(format!("Scan aborted (consecutive action errors >= 3)"));
+            Err(e) => return Err(format!("Scan aborted: {e}")),
         }
         {
             let observers_db_conn =
@@ -233,19 +228,28 @@ pub async fn execute_predicates_action<'a>(
             }
             Ok(action) => {
                 actions_triggered += 1;
-                match action {
+                let result = match action {
                     BitcoinChainhookOccurrence::Http(request, _data) => {
-                        send_request(request, 60, 3, &ctx).await?
+                        send_request(request, 60, 3, &ctx).await
                     }
                     BitcoinChainhookOccurrence::File(path, bytes) => {
-                        file_append(path, bytes, &ctx)?
+                        file_append(path, bytes, &ctx)
                     }
                     BitcoinChainhookOccurrence::Data(payload) => {
                         if let Some(ref tx) = config.data_handler_tx {
-                            let _ = tx.send(DataHandlerEvent::Process(payload));
+                            match tx.send(DataHandlerEvent::Process(payload)) {
+                                Ok(_) => Ok(()),
+                                Err(error) => Err(error.to_string()),
+                            }
+                        } else {
+                            Ok(())
                         }
                     }
                 };
+                match result {
+                    Ok(_) => {},
+                    Err(error) => return Err(error),
+                }
             }
         }
     }
