@@ -1,3 +1,11 @@
+## [2.2.5](https://github.com/hirosystems/ordhook/compare/v2.2.4...v2.2.5) (2024-07-23)
+
+
+### Bug Fixes
+
+* abort scan on predicate action error ([#345](https://github.com/hirosystems/ordhook/issues/345)) ([7ee763a](https://github.com/hirosystems/ordhook/commit/7ee763a263a3cf0202cf8da5f0903cfc94fdc137))
+* validate and wait for bitcoind block height responses ([#340](https://github.com/hirosystems/ordhook/issues/340)) ([b28b92e](https://github.com/hirosystems/ordhook/commit/b28b92ebab149bf40ce102556fe194653cad81c8))
+
 ## [2.2.4](https://github.com/hirosystems/ordhook/compare/v2.2.3...v2.2.4) (2024-06-26)
 
 
