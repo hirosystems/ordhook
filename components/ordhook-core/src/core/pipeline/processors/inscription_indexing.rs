@@ -40,6 +40,7 @@ use crate::{
         open_readonly_ordhook_db_conn,
     },
     service::write_brc20_block_operations,
+    try_error, try_info,
 };
 
 use crate::db::{TransactionBytesCursor, TraversalResult};
@@ -92,9 +93,7 @@ pub fn start_inscription_indexing_processor(
                         TryRecvError::Empty => {
                             empty_cycles += 1;
                             if empty_cycles == 180 {
-                                ctx.try_log(|logger| {
-                                    info!(logger, "Block processor reached expiration")
-                                });
+                                try_info!(ctx, "Block processor reached expiration");
                                 let _ = events_tx.send(PostProcessorEvent::Expired);
                                 break;
                             }
@@ -128,7 +127,7 @@ pub fn start_inscription_indexing_processor(
                     continue;
                 }
 
-                ctx.try_log(|logger| info!(logger, "Processing {} blocks", blocks.len()));
+                try_info!(ctx, "Processing {} blocks", blocks.len());
                 blocks = process_blocks(
                     &mut blocks,
                     &mut sequence_cursor,
@@ -141,12 +140,10 @@ pub fn start_inscription_indexing_processor(
 
                 garbage_collect_nth_block += blocks.len();
                 if garbage_collect_nth_block > garbage_collect_every_n_blocks {
-                    ctx.try_log(|logger| info!(logger, "Performing garbage collecting"));
+                    try_info!(ctx, "Performing garbage collecting");
 
                     // Clear L2 cache on a regular basis
-                    ctx.try_log(|logger| {
-                        info!(logger, "Clearing cache L2 ({} entries)", cache_l2.len())
-                    });
+                    try_info!(ctx, "Clearing cache L2 ({} entries)", cache_l2.len());
                     cache_l2.clear();
 
                     // Recreate sqlite db connection on a regular basis
@@ -230,24 +227,20 @@ pub fn process_blocks(
 
         let inscriptions_transferred = get_inscriptions_transferred_in_block(&block).len();
 
-        ctx.try_log(|logger| {
-            info!(
-                logger,
-                "Block #{} processed, revealed {} inscriptions [{}] and {inscriptions_transferred} transfers",
-                block.block_identifier.index,
-                inscriptions_revealed.len(),
-                inscriptions_revealed.join(", ")
-            )
-        });
+        try_info!(
+            ctx,
+            "Block #{} processed, revealed {} inscriptions [{}] and {inscriptions_transferred} transfers",
+            block.block_identifier.index,
+            inscriptions_revealed.len(),
+            inscriptions_revealed.join(", ")
+        );
 
         if any_existing_activity {
-            ctx.try_log(|logger| {
-                error!(
-                    logger,
-                    "Dropping updates for block #{}, activities present in database",
-                    block.block_identifier.index,
-                )
-            });
+            try_error!(
+                ctx,
+                "Dropping updates for block #{}, activities present in database",
+                block.block_identifier.index,
+            );
             let _ = inscriptions_db_tx.rollback();
             let _ = brc20_db_tx.rollback();
         } else {
@@ -265,14 +258,12 @@ pub fn process_blocks(
                     }
                 },
                 Err(e) => {
-                    ctx.try_log(|logger| {
-                        error!(
-                            logger,
-                            "Unable to update changes in block #{}: {}",
-                            block.block_identifier.index,
-                            e.to_string()
-                        )
-                    });
+                    try_error!(
+                        ctx,
+                        "Unable to update changes in block #{}: {}",
+                        block.block_identifier.index,
+                        e.to_string()
+                    );
                 }
             }
         }

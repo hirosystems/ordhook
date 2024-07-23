@@ -14,6 +14,8 @@ use rocket::serde::json::{json, Json, Value as JsonValue};
 use rocket::State;
 use std::error::Error;
 
+use crate::try_info;
+
 use super::observers::{
     find_all_observers, find_observer_with_uuid, open_readonly_observers_db_conn, ObserverReport,
 };
@@ -71,7 +73,7 @@ pub async fn start_predicate_api_server(
 
 #[get("/ping")]
 fn handle_ping(ctx: &State<Context>) -> Json<JsonValue> {
-    ctx.try_log(|logger| info!(logger, "Handling HTTP GET /ping"));
+    try_info!(ctx, "Handling HTTP GET /ping");
     Json(json!({
         "status": 200,
         "result": "chainhook service up and running",
@@ -83,7 +85,7 @@ fn handle_get_predicates(
     observers_db_dir_path: &State<PathBuf>,
     ctx: &State<Context>,
 ) -> Json<JsonValue> {
-    ctx.try_log(|logger| info!(logger, "Handling HTTP GET /v1/observers"));
+    try_info!(ctx, "Handling HTTP GET /v1/observers");
     match open_readonly_observers_db_conn(observers_db_dir_path, ctx) {
         Ok(mut db_conn) => {
             let observers = find_all_observers(&mut db_conn, &ctx);
@@ -111,7 +113,7 @@ fn handle_create_predicate(
     background_job_tx: &State<Arc<Mutex<Sender<ObserverCommand>>>>,
     ctx: &State<Context>,
 ) -> Json<JsonValue> {
-    ctx.try_log(|logger| info!(logger, "Handling HTTP POST /v1/observers"));
+    try_info!(ctx, "Handling HTTP POST /v1/observers");
     let predicate = predicate.into_inner();
     if let Err(e) = predicate.validate() {
         return Json(json!({
@@ -156,8 +158,7 @@ fn handle_get_predicate(
     observers_db_dir_path: &State<PathBuf>,
     ctx: &State<Context>,
 ) -> Json<JsonValue> {
-    ctx.try_log(|logger| info!(logger, "Handling HTTP GET /v1/observers/{}", predicate_uuid));
-
+    try_info!(ctx, "Handling HTTP GET /v1/observers/{}", predicate_uuid);
     match open_readonly_observers_db_conn(observers_db_dir_path, ctx) {
         Ok(mut predicates_db_conn) => {
             let key: String = format!("{}", ChainhookSpecification::bitcoin_key(&predicate_uuid));
@@ -194,13 +195,7 @@ fn handle_delete_bitcoin_predicate(
     background_job_tx: &State<Arc<Mutex<Sender<ObserverCommand>>>>,
     ctx: &State<Context>,
 ) -> Json<JsonValue> {
-    ctx.try_log(|logger| {
-        info!(
-            logger,
-            "Handling HTTP DELETE /v1/observers/{}", predicate_uuid
-        )
-    });
-
+    try_info!(ctx, "Handling HTTP DELETE /v1/observers/{}", predicate_uuid);
     let background_job_tx = background_job_tx.inner();
     match background_job_tx.lock() {
         Ok(tx) => {

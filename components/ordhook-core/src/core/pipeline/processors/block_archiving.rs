@@ -10,6 +10,7 @@ use crate::{
     config::Config,
     core::pipeline::{PostProcessorCommand, PostProcessorController, PostProcessorEvent},
     db::{insert_entry_in_blocks, open_ordhook_db_conn_rocks_db_loop},
+    try_error, try_info,
 };
 
 pub fn start_block_archiving_processor(
@@ -62,9 +63,7 @@ pub fn start_block_archiving_processor(
             }
 
             if let Err(e) = blocks_db_rw.flush() {
-                ctx.try_log(|logger| {
-                    error!(logger, "{}", e.to_string());
-                });
+                try_error!(ctx, "{}", e.to_string());
             }
         })
         .expect("unable to spawn thread");
@@ -92,14 +91,10 @@ pub fn store_compacted_blocks(
             &blocks_db_rw,
             &ctx,
         );
-        ctx.try_log(|logger| {
-            info!(logger, "Block #{block_height} saved to disk");
-        });
+        try_info!(ctx, "Block #{block_height} saved to disk");
     }
 
     if let Err(e) = blocks_db_rw.flush() {
-        ctx.try_log(|logger| {
-            error!(logger, "{}", e.to_string());
-        });
+        try_error!(ctx, "{}", e.to_string());
     }
 }

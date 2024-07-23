@@ -2,7 +2,6 @@ use crate::config::file::ConfigFile;
 use crate::config::generator::generate_config;
 use clap::{Parser, Subcommand};
 use hiro_system_kit;
-use ordhook::chainhook_sdk::bitcoincore_rpc::{Auth, Client, RpcApi};
 use ordhook::chainhook_sdk::chainhooks::types::{
     BitcoinChainhookSpecification, HttpHook, InscriptionFeedData, OrdinalsMetaProtocol,
 };
@@ -35,6 +34,7 @@ use ordhook::download::download_ordinals_dataset_if_required;
 use ordhook::scan::bitcoin::scan_bitcoin_chainstate_via_rpc_using_predicate;
 use ordhook::service::observers::initialize_observers_db;
 use ordhook::service::{start_observer_forwarding, Service};
+use ordhook::utils::bitcoind::bitcoind_get_block_height;
 use ordhook::{hex, initialize_db};
 use reqwest::Client as HttpClient;
 use std::collections::HashSet;
@@ -553,7 +553,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                     ctx.expect_logger(),
                     "Checking {}...", config.network.bitcoind_rpc_url
                 );
-                let tip = check_bitcoind_connection(&config).await?;
+                let tip = bitcoind_get_block_height(&config, ctx);
                 if let Some(highest_desired) = block_range.pop_back() {
                     if tip < highest_desired {
                         error!(ctx.expect_logger(), "Unable to scan desired block range: underlying bitcoind synchronized until block #{} ", tip);
@@ -1033,29 +1033,6 @@ pub fn build_predicate_from_cli(
     };
 
     Ok(predicate)
-}
-
-pub async fn check_bitcoind_connection(config: &Config) -> Result<u64, String> {
-    let auth = Auth::UserPass(
-        config.network.bitcoind_rpc_username.clone(),
-        config.network.bitcoind_rpc_password.clone(),
-    );
-
-    let bitcoin_rpc = match Client::new(&config.network.bitcoind_rpc_url, auth) {
-        Ok(con) => con,
-        Err(message) => {
-            return Err(format!("unable to connect to bitcoind: {}", message));
-        }
-    };
-
-    let end_block = match bitcoin_rpc.get_blockchain_info() {
-        Ok(result) => result.blocks,
-        Err(e) => {
-            return Err(format!("unable to connect to bitcoind: {}", e));
-        }
-    };
-
-    Ok(end_block)
 }
 
 fn parse_blocks_heights_spec(

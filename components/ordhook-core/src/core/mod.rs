@@ -8,14 +8,12 @@ use std::hash::BuildHasherDefault;
 use std::ops::Div;
 use std::path::PathBuf;
 
-use chainhook_sdk::{
-    bitcoincore_rpc::{Auth, Client, RpcApi},
-    utils::Context,
-};
+use chainhook_sdk::utils::Context;
 
 use crate::{
     config::{Config, LogConfig, MetaProtocolsConfig, ResourcesConfig},
     db::{find_pinned_block_bytes_at_block_height, open_ordhook_db_conn_rocks_db_loop},
+    utils::bitcoind::bitcoind_get_block_height,
 };
 
 use crate::db::{
@@ -144,18 +142,6 @@ pub fn should_sync_ordhook_db(
     config: &Config,
     ctx: &Context,
 ) -> Result<Option<(u64, u64, usize)>, String> {
-    let auth = Auth::UserPass(
-        config.network.bitcoind_rpc_username.clone(),
-        config.network.bitcoind_rpc_password.clone(),
-    );
-
-    let bitcoin_rpc = match Client::new(&config.network.bitcoind_rpc_url, auth) {
-        Ok(con) => con,
-        Err(message) => {
-            return Err(format!("Bitcoin RPC error: {}", message.to_string()));
-        }
-    };
-
     let blocks_db = open_ordhook_db_conn_rocks_db_loop(
         true,
         &config.expected_cache_path(),
@@ -186,17 +172,8 @@ pub fn should_sync_ordhook_db(
         }
     };
 
-    let end_block = match bitcoin_rpc.get_blockchain_info() {
-        Ok(result) => result.blocks,
-        Err(e) => {
-            return Err(format!(
-                "unable to retrieve Bitcoin chain tip ({})",
-                e.to_string()
-            ));
-        }
-    };
-
     // TODO: Gracefully handle Regtest, Testnet and Signet
+    let end_block = bitcoind_get_block_height(config, ctx);
     let (mut end_block, speed) = if start_block < 200_000 {
         (end_block.min(200_000), 10_000)
     } else if start_block < 550_000 {

@@ -16,6 +16,7 @@ use crate::core::meta_protocols::brc20::parser::{parse_brc20_operation, ParsedBr
 use crate::ord::envelope::{Envelope, ParsedEnvelope, RawEnvelope};
 use crate::ord::inscription::Inscription;
 use crate::ord::inscription_id::InscriptionId;
+use crate::try_warn;
 use {chainhook_sdk::bitcoincore_rpc::bitcoin::Witness, std::str};
 
 pub fn parse_inscriptions_from_witness(
@@ -138,9 +139,7 @@ pub fn parse_inscriptions_from_standardized_tx(
                         }
                         Ok(None) => {}
                         Err(e) => {
-                            ctx.try_log(|logger| {
-                                warn!(logger, "Error parsing BRC-20 operation: {}", e)
-                            });
+                            try_warn!(ctx, "Error parsing BRC-20 operation: {}", e);
                         }
                     };
                 }
