@@ -35,7 +35,7 @@ use ordhook::scan::bitcoin::scan_bitcoin_chainstate_via_rpc_using_predicate;
 use ordhook::service::observers::initialize_observers_db;
 use ordhook::service::{start_observer_forwarding, Service};
 use ordhook::utils::bitcoind::bitcoind_get_block_height;
-use ordhook::{hex, initialize_db};
+use ordhook::{hex, initialize_databases};
 use reqwest::Client as HttpClient;
 use std::collections::HashSet;
 use std::io::{BufReader, Read};
@@ -586,7 +586,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 let mut total_inscriptions = 0;
                 let mut total_transfers = 0;
 
-                let db_connections = initialize_db(&config, ctx);
+                let db_connections = initialize_databases(&config, ctx);
                 let inscriptions_db_conn = db_connections.ordhook;
                 while let Some(block_height) = block_range.pop_front() {
                     let inscriptions =
@@ -704,16 +704,12 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
 
                 let config =
                     ConfigFile::default(cmd.regtest, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
-
-                initialize_db(&config, ctx);
-
-                let inscriptions_db_conn =
-                    open_readonly_ordhook_db_conn(&config.expected_cache_path(), ctx)?;
+                let db_connections = initialize_databases(&config, ctx);
 
                 let last_known_block =
-                    find_latest_inscription_block_height(&inscriptions_db_conn, ctx)?;
+                    find_latest_inscription_block_height(&db_connections.ordhook, ctx)?;
                 if last_known_block.is_none() {
-                    // Create DB
+                    // Create rocksdb
                     open_ordhook_db_conn_rocks_db_loop(
                         true,
                         &config.expected_cache_path(),
@@ -746,7 +742,6 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 };
 
                 let mut predicates = vec![];
-
                 for post_to in cmd.post_to.iter() {
                     let predicate = build_predicate_from_cli(
                         &config,
@@ -788,7 +783,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
         Command::Db(OrdhookDbCommand::New(cmd)) => {
             let config = ConfigFile::default(false, false, false, &cmd.config_path)?;
             // Create DB
-            initialize_db(&config, ctx);
+            initialize_databases(&config, ctx);
             open_ordhook_db_conn_rocks_db_loop(
                 true,
                 &config.expected_cache_path(),
@@ -799,7 +794,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
         }
         Command::Db(OrdhookDbCommand::Sync(cmd)) => {
             let config = ConfigFile::default(false, false, false, &cmd.config_path)?;
-            initialize_db(&config, ctx);
+            initialize_databases(&config, ctx);
             let service = Service::new(config, ctx.clone());
             service.update_state(None).await?;
         }

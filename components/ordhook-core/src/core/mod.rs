@@ -13,6 +13,7 @@ use chainhook_sdk::utils::Context;
 use crate::{
     config::{Config, LogConfig, MetaProtocolsConfig, ResourcesConfig},
     db::{find_pinned_block_bytes_at_block_height, open_ordhook_db_conn_rocks_db_loop},
+    initialize_databases,
     utils::bitcoind::bitcoind_get_block_height,
 };
 
@@ -152,7 +153,7 @@ pub fn should_sync_ordhook_db(
     let mut start_block = find_last_block_inserted(&blocks_db) as u64;
 
     if start_block == 0 {
-        let _ = initialize_ordhook_db(&config.expected_cache_path(), &ctx);
+        let _ = initialize_databases(config, ctx);
     }
 
     let inscriptions_db_conn = open_readonly_ordhook_db_conn(&config.expected_cache_path(), &ctx)?;
