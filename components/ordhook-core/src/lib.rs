@@ -36,7 +36,9 @@ pub struct DbConnections {
     pub brc20: Option<Connection>,
 }
 
-pub fn initialize_db(config: &Config, ctx: &Context) -> DbConnections {
+/// Initializes all SQLite databases required for Ordhook operation, depending if they are requested by the current `Config`.
+/// Returns a struct with all the open connections.
+pub fn initialize_databases(config: &Config, ctx: &Context) -> DbConnections {
     DbConnections {
         ordhook: initialize_ordhook_db(&config.expected_cache_path(), ctx),
         brc20: match config.meta_protocols.brc20 {
