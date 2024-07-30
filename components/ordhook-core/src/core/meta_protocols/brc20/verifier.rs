@@ -12,6 +12,7 @@ use super::parser::{amt_has_valid_decimals, ParsedBrc20Operation};
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct VerifiedBrc20TokenDeployData {
     pub tick: String,
+    pub display_tick: String,
     pub max: f64,
     pub lim: f64,
     pub dec: u64,
@@ -75,6 +76,7 @@ pub fn verify_brc20_operation(
             return Ok(VerifiedBrc20Operation::TokenDeploy(
                 VerifiedBrc20TokenDeployData {
                     tick: data.tick.clone(),
+                    display_tick: data.display_tick.clone(),
                     max: data.max,
                     lim: data.lim,
                     dec: data.dec,
@@ -234,6 +236,7 @@ mod test {
     #[test_case(
         ParsedBrc20Operation::Deploy(ParsedBrc20TokenDeployData {
             tick: "pepe".to_string(),
+            display_tick: "pepe".to_string(),
             max: 21000000.0,
             lim: 1000.0,
             dec: 18,
@@ -245,6 +248,7 @@ mod test {
     #[test_case(
         ParsedBrc20Operation::Deploy(ParsedBrc20TokenDeployData {
             tick: "$pepe".to_string(),
+            display_tick: "$pepe".to_string(),
             max: 21000000.0,
             lim: 1000.0,
             dec: 18,
@@ -257,6 +261,7 @@ mod test {
     #[test_case(
         ParsedBrc20Operation::Deploy(ParsedBrc20TokenDeployData {
             tick: "$pepe".to_string(),
+            display_tick: "$pepe".to_string(),
             max: 21000000.0,
             lim: 1000.0,
             dec: 18,
@@ -265,6 +270,7 @@ mod test {
         (Brc20RevealBuilder::new().build(), 840000)
         => Ok(VerifiedBrc20Operation::TokenDeploy(VerifiedBrc20TokenDeployData {
             tick: "$pepe".to_string(),
+            display_tick: "$pepe".to_string(),
             max: 21000000.0,
             lim: 1000.0,
             dec: 18,
@@ -276,6 +282,7 @@ mod test {
     #[test_case(
         ParsedBrc20Operation::Deploy(ParsedBrc20TokenDeployData {
             tick: "pepe".to_string(),
+            display_tick: "pepe".to_string(),
             max: 21000000.0,
             lim: 1000.0,
             dec: 18,
@@ -287,6 +294,7 @@ mod test {
     #[test_case(
         ParsedBrc20Operation::Deploy(ParsedBrc20TokenDeployData {
             tick: "pepe".to_string(),
+            display_tick: "pepe".to_string(),
             max: 21000000.0,
             lim: 1000.0,
             dec: 18,
@@ -298,6 +306,7 @@ mod test {
     #[test_case(
         ParsedBrc20Operation::Deploy(ParsedBrc20TokenDeployData {
             tick: "pepe".to_string(),
+            display_tick: "pepe".to_string(),
             max: 21000000.0,
             lim: 1000.0,
             dec: 18,
@@ -307,6 +316,7 @@ mod test {
         => Ok(
             VerifiedBrc20Operation::TokenDeploy(VerifiedBrc20TokenDeployData {
                 tick: "pepe".to_string(),
+                display_tick: "pepe".to_string(),
                 max: 21000000.0,
                 lim: 1000.0,
                 dec: 18,
@@ -358,6 +368,7 @@ mod test {
     #[test_case(
         ParsedBrc20Operation::Deploy(ParsedBrc20TokenDeployData {
             tick: "pepe".to_string(),
+            display_tick: "pepe".to_string(),
             max: 21000000.0,
             lim: 1000.0,
             dec: 18,
@@ -429,6 +440,7 @@ mod test {
         cache.insert_token_deploy(
             &VerifiedBrc20TokenDeployData {
                 tick: "pepe".to_string(),
+                display_tick: "pepe".to_string(),
                 max: 21000000.0,
                 lim: 1000.0,
                 dec: 18,
@@ -501,6 +513,7 @@ mod test {
         cache.insert_token_deploy(
             &VerifiedBrc20TokenDeployData {
                 tick: "$pepe".to_string(),
+                display_tick: "$pepe".to_string(),
                 max: 21000000.0,
                 lim: 1000.0,
                 dec: 18,
@@ -548,6 +561,7 @@ mod test {
         cache.insert_token_deploy(
             &VerifiedBrc20TokenDeployData {
                 tick: "pepe".to_string(),
+                display_tick: "pepe".to_string(),
                 max: 21000000.0,
                 lim: 1000.0,
                 dec: 18,
@@ -610,6 +624,7 @@ mod test {
         cache.insert_token_deploy(
             &VerifiedBrc20TokenDeployData {
                 tick: "pepe".to_string(),
+                display_tick: "pepe".to_string(),
                 max: 21000000.0,
                 lim: 1000.0,
                 dec: 18,
@@ -733,6 +748,7 @@ mod test {
         cache.insert_token_deploy(
             &VerifiedBrc20TokenDeployData {
                 tick: "pepe".to_string(),
+                display_tick: "pepe".to_string(),
                 max: 21000000.0,
                 lim: 1000.0,
                 dec: 18,
@@ -851,6 +867,7 @@ mod test {
         cache.insert_token_deploy(
             &VerifiedBrc20TokenDeployData {
                 tick: "pepe".to_string(),
+                display_tick: "pepe".to_string(),
                 max: 21000000.0,
                 lim: 1000.0,
                 dec: 18,
@@ -925,6 +942,7 @@ mod test {
         cache.insert_token_deploy(
             &VerifiedBrc20TokenDeployData {
                 tick: "pepe".to_string(),
+                display_tick: "pepe".to_string(),
                 max: 21000000.0,
                 lim: 1000.0,
                 dec: 18,

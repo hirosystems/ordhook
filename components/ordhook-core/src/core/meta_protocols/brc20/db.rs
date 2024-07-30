@@ -23,6 +23,7 @@ pub struct Brc20DbTokenRow {
     pub inscription_number: u64,
     pub block_height: u64,
     pub tick: String,
+    pub display_tick: String,
     pub max: f64,
     pub lim: f64,
     pub dec: u64,
@@ -59,6 +60,7 @@ pub fn initialize_brc20_db(base_dir: Option<&PathBuf>, ctx: &Context) -> Connect
             inscription_number INTEGER NOT NULL,
             block_height INTEGER NOT NULL,
             tick TEXT NOT NULL,
+            display_tick TEXT NOT NULL,
             max REAL NOT NULL,
             lim REAL NOT NULL,
             dec INTEGER NOT NULL,
@@ -174,20 +176,21 @@ pub fn delete_activity_in_block_range(
 pub fn get_token(tick: &str, db_tx: &Connection, ctx: &Context) -> Option<Brc20DbTokenRow> {
     let args: &[&dyn ToSql] = &[&tick.to_sql().unwrap()];
     let query = "
-        SELECT tick, max, lim, dec, address, inscription_id, inscription_number, block_height, self_mint
+        SELECT tick, display_tick, max, lim, dec, address, inscription_id, inscription_number, block_height, self_mint
         FROM tokens
         WHERE tick = ?
     ";
     perform_query_one(query, args, &db_tx, ctx, |row| Brc20DbTokenRow {
         tick: row.get(0).unwrap(),
-        max: row.get(1).unwrap(),
-        lim: row.get(2).unwrap(),
-        dec: row.get(3).unwrap(),
-        address: row.get(4).unwrap(),
-        inscription_id: row.get(5).unwrap(),
-        inscription_number: row.get(6).unwrap(),
-        block_height: row.get(7).unwrap(),
-        self_mint: row.get(8).unwrap(),
+        display_tick: row.get(1).unwrap(),
+        max: row.get(2).unwrap(),
+        lim: row.get(3).unwrap(),
+        dec: row.get(4).unwrap(),
+        address: row.get(5).unwrap(),
+        inscription_id: row.get(6).unwrap(),
+        inscription_number: row.get(7).unwrap(),
+        block_height: row.get(8).unwrap(),
+        self_mint: row.get(9).unwrap(),
     })
 }
 
@@ -293,8 +296,8 @@ pub fn insert_ledger_rows(rows: &Vec<Brc20DbLedgerRow>, db_tx: &Connection, ctx:
 pub fn insert_token_rows(rows: &Vec<Brc20DbTokenRow>, db_tx: &Connection, ctx: &Context) {
     match db_tx.prepare_cached(
         "INSERT INTO tokens
-        (inscription_id, inscription_number, block_height, tick, max, lim, dec, address, self_mint)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (inscription_id, inscription_number, block_height, tick, display_tick, max, lim, dec, address, self_mint)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     ) {
         Ok(mut stmt) => {
             for row in rows.iter() {
@@ -303,6 +306,7 @@ pub fn insert_token_rows(rows: &Vec<Brc20DbTokenRow>, db_tx: &Connection, ctx: &
                     &row.inscription_number,
                     &row.block_height,
                     &row.tick,
+                    &row.display_tick,
                     &row.max,
                     &row.lim,
                     &row.dec,
@@ -355,6 +359,8 @@ pub fn get_brc20_operations_on_block(
     map
 }
 
+/// Searches for the BRC-20 operation happening in this transaction in the `brc20.sqlite` DB and writes it to this transaction
+/// object's metadata if it exists.
 pub fn augment_transaction_with_brc20_operation_data(
     tx: &mut BitcoinTransactionData,
     token_map: &mut HashMap<String, Brc20DbTokenRow>,
@@ -378,7 +384,7 @@ pub fn augment_transaction_with_brc20_operation_data(
     match entry.operation.as_str() {
         "deploy" => {
             tx.metadata.brc20_operation = Some(Brc20Operation::Deploy(Brc20TokenDeployData {
-                tick: token.tick.clone(),
+                tick: token.display_tick.clone(),
                 max: format!("{:.precision$}", token.max, precision = dec),
                 lim: format!("{:.precision$}", token.lim, precision = dec),
                 dec: token.dec.to_string(),
@@ -389,7 +395,7 @@ pub fn augment_transaction_with_brc20_operation_data(
         }
         "mint" => {
             tx.metadata.brc20_operation = Some(Brc20Operation::Mint(Brc20BalanceData {
-                tick: entry.tick.clone(),
+                tick: token.display_tick.clone(),
                 amt: format!("{:.precision$}", entry.avail_balance, precision = dec),
                 address: entry.address.clone(),
                 inscription_id: entry.inscription_id.clone(),
@@ -397,7 +403,7 @@ pub fn augment_transaction_with_brc20_operation_data(
         }
         "transfer" => {
             tx.metadata.brc20_operation = Some(Brc20Operation::Transfer(Brc20BalanceData {
-                tick: entry.tick.clone(),
+                tick: token.display_tick.clone(),
                 amt: format!("{:.precision$}", entry.trans_balance, precision = dec),
                 address: entry.address.clone(),
                 inscription_id: entry.inscription_id.clone(),
@@ -413,7 +419,7 @@ pub fn augment_transaction_with_brc20_operation_data(
                 );
             };
             tx.metadata.brc20_operation = Some(Brc20Operation::TransferSend(Brc20TransferData {
-                tick: entry.tick.clone(),
+                tick: token.display_tick.clone(),
                 amt: format!("{:.precision$}", entry.trans_balance.abs(), precision = dec),
                 sender_address: entry.address.clone(),
                 receiver_address,
@@ -487,7 +493,8 @@ pub fn write_augmented_block_to_brc20_db(
                         inscription_id: token.inscription_id.clone(),
                         inscription_number: reveal.inscription_number.jubilee as u64,
                         block_height: block.block_identifier.index,
-                        tick: token.tick.clone(),
+                        tick: token.tick.to_lowercase(),
+                        display_tick: token.tick.clone(),
                         max: token.max.parse::<f64>().unwrap(),
                         lim: token.lim.parse::<f64>().unwrap(),
                         dec: token.dec.parse::<u64>().unwrap(),

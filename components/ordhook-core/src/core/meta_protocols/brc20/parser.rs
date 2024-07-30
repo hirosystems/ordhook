@@ -6,6 +6,7 @@ use crate::ord::media::{Language, Media};
 #[derive(PartialEq, Debug, Clone)]
 pub struct ParsedBrc20TokenDeployData {
     pub tick: String,
+    pub display_tick: String,
     pub max: f64,
     pub lim: f64,
     pub dec: u64,
@@ -119,6 +120,7 @@ pub fn parse_brc20_operation(
             }
             let mut deploy = ParsedBrc20TokenDeployData {
                 tick: json.tick.to_lowercase(),
+                display_tick: json.tick.clone(),
                 max: 0.0,
                 lim: 0.0,
                 dec: 18,
@@ -263,6 +265,7 @@ mod test {
         InscriptionBuilder::new().build()
         => Ok(Some(ParsedBrc20Operation::Deploy(ParsedBrc20TokenDeployData {
             tick: "pepe".to_string(),
+            display_tick: "pepe".to_string(),
             max: 21000000.0,
             lim: 1000.0,
             dec: 6,
@@ -277,6 +280,7 @@ mod test {
         InscriptionBuilder::new().body(r#"{"p":"brc-20", "op": "deploy", "tick": "PEPE", "max": "21000000", "lim": "1000", "dec": "6"}"#).build()
         => Ok(Some(ParsedBrc20Operation::Deploy(ParsedBrc20TokenDeployData {
             tick: "pepe".to_string(),
+            display_tick: "PEPE".to_string(),
             max: 21000000.0,
             lim: 1000.0,
             dec: 6,
@@ -287,6 +291,7 @@ mod test {
         InscriptionBuilder::new().body(r#"{"p":"brc-20", "op": "deploy", "tick": "pepe", "max": "21000000", "lim": "1000"}"#).build()
         => Ok(Some(ParsedBrc20Operation::Deploy(ParsedBrc20TokenDeployData {
             tick: "pepe".to_string(),
+            display_tick: "pepe".to_string(),
             max: 21000000.0,
             lim: 1000.0,
             dec: 18,
@@ -297,6 +302,7 @@ mod test {
         InscriptionBuilder::new().body(r#"{"p":"brc-20", "op": "deploy", "tick": "pepe", "max": "21000000"}"#).build()
         => Ok(Some(ParsedBrc20Operation::Deploy(ParsedBrc20TokenDeployData {
             tick: "pepe".to_string(),
+            display_tick: "pepe".to_string(),
             max: 21000000.0,
             lim: 21000000.0,
             dec: 18,
@@ -307,6 +313,7 @@ mod test {
         InscriptionBuilder::new().body(r#"{"p":"brc-20", "op": "deploy", "tick": "pepe", "max": "21000000", "dec": "7"}"#).build()
         => Ok(Some(ParsedBrc20Operation::Deploy(ParsedBrc20TokenDeployData {
             tick: "pepe".to_string(),
+            display_tick: "pepe".to_string(),
             max: 21000000.0,
             lim: 21000000.0,
             dec: 7,
@@ -317,6 +324,7 @@ mod test {
         InscriptionBuilder::new().body(r#"{"p":"brc-20", "op": "deploy", "tick": "😉", "max": "21000000", "lim": "1000", "dec": "6"}"#).build()
         => Ok(Some(ParsedBrc20Operation::Deploy(ParsedBrc20TokenDeployData {
             tick: "😉".to_string(),
+            display_tick: "😉".to_string(),
             max: 21000000.0,
             lim: 1000.0,
             dec: 6,
@@ -327,6 +335,7 @@ mod test {
         InscriptionBuilder::new().body(r#"{"p":"brc-20", "op": "deploy", "tick": "a  b", "max": "21000000", "lim": "1000", "dec": "6"}"#).build()
         => Ok(Some(ParsedBrc20Operation::Deploy(ParsedBrc20TokenDeployData {
             tick: "a  b".to_string(),
+            display_tick: "a  b".to_string(),
             max: 21000000.0,
             lim: 1000.0,
             dec: 6,
@@ -337,6 +346,7 @@ mod test {
         InscriptionBuilder::new().body(r#"{"p":"brc-20", "op": "deploy", "tick": "$pepe", "max": "21000000", "lim": "1000", "dec": "6", "self_mint": "true"}"#).build()
         => Ok(Some(ParsedBrc20Operation::Deploy(ParsedBrc20TokenDeployData {
             tick: "$pepe".to_string(),
+            display_tick: "$pepe".to_string(),
             max: 21000000.0,
             lim: 1000.0,
             dec: 6,
@@ -347,6 +357,7 @@ mod test {
         InscriptionBuilder::new().body(r#"{"p":"brc-20", "op": "deploy", "tick": "$pepe", "max": "0", "lim": "1000", "dec": "6", "self_mint": "true"}"#).build()
         => Ok(Some(ParsedBrc20Operation::Deploy(ParsedBrc20TokenDeployData {
             tick: "$pepe".to_string(),
+            display_tick: "$pepe".to_string(),
             max: u64::MAX as f64,
             lim: 1000.0,
             dec: 6,
@@ -361,6 +372,7 @@ mod test {
         InscriptionBuilder::new().body(r#"{"p":"brc-20", "op": "deploy", "tick": "pepe", "max": "21000000", "lim": "1000", "dec": "6", "foo": 99}"#).build()
         => Ok(Some(ParsedBrc20Operation::Deploy(ParsedBrc20TokenDeployData {
             tick: "pepe".to_string(),
+            display_tick: "pepe".to_string(),
             max: 21000000.0,
             lim: 1000.0,
             dec: 6,
@@ -459,6 +471,7 @@ mod test {
         InscriptionBuilder::new().body(r#"{"p":"brc-20", "op": "deploy", "tick": "pepe", "max": "21000000", "lim": "1000", "dec": "0"}"#).build()
         => Ok(Some(ParsedBrc20Operation::Deploy(ParsedBrc20TokenDeployData {
             tick: "pepe".to_string(),
+            display_tick: "pepe".to_string(),
             max: 21000000.0,
             lim: 1000.0,
             dec: 0,

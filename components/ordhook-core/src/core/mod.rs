@@ -18,8 +18,7 @@ use crate::{
 };
 
 use crate::db::{
-    find_last_block_inserted, find_latest_inscription_block_height, initialize_ordhook_db,
-    open_readonly_ordhook_db_conn,
+    find_last_block_inserted, find_latest_inscription_block_height, open_readonly_ordhook_db_conn,
 };
 
 use crate::db::TransactionBytesCursor;
