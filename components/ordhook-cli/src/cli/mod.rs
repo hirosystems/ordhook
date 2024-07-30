@@ -30,12 +30,12 @@ use ordhook::db::{
     open_ordhook_db_conn_rocks_db_loop, open_readonly_ordhook_db_conn,
     open_readonly_ordhook_db_conn_rocks_db, open_readwrite_ordhook_dbs, BlockBytesCursor,
 };
-use ordhook::download::download_ordinals_dataset_if_required;
+use ordhook::download::download_archive_datasets_if_required;
 use ordhook::scan::bitcoin::scan_bitcoin_chainstate_via_rpc_using_predicate;
 use ordhook::service::observers::initialize_observers_db;
 use ordhook::service::{start_observer_forwarding, Service};
 use ordhook::utils::bitcoind::bitcoind_get_block_height;
-use ordhook::{hex, initialize_databases};
+use ordhook::{hex, initialize_databases, try_error, try_info, try_warn};
 use reqwest::Client as HttpClient;
 use std::collections::HashSet;
 use std::io::{BufReader, Read};
@@ -118,6 +118,9 @@ struct ScanBlocksCommand {
         conflicts_with = "regtest"
     )]
     pub config_path: Option<String>,
+    /// Meta protocols
+    #[clap(long = "meta-protocols", conflicts_with = "config-path")]
+    pub meta_protocols: Option<String>,
     /// HTTP Post activity to a URL
     #[clap(long = "post-to")]
     pub post_to: Option<String>,
@@ -535,8 +538,13 @@ pub fn main() {
 async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
     match opts.command {
         Command::Scan(ScanCommand::Blocks(cmd)) => {
-            let config: Config =
-                ConfigFile::default(cmd.regtest, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
+            let config: Config = ConfigFile::default(
+                cmd.regtest,
+                cmd.testnet,
+                cmd.mainnet,
+                &cmd.config_path,
+                &cmd.meta_protocols,
+            )?;
             // Download dataset if required
             // If console:
             // - Replay based on SQLite queries
@@ -548,17 +556,14 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 .map_err(|_e| format!("Block start / end block spec invalid"))?;
 
             if let Some(ref post_to) = cmd.post_to {
-                info!(ctx.expect_logger(), "A fully synchronized bitcoind node is required for retrieving inscriptions content.");
-                info!(
-                    ctx.expect_logger(),
-                    "Checking {}...", config.network.bitcoind_rpc_url
-                );
+                try_info!(ctx, "A fully synchronized bitcoind node is required for retrieving inscriptions content.");
+                try_info!(ctx, "Checking {}...", config.network.bitcoind_rpc_url);
                 let tip = bitcoind_get_block_height(&config, ctx);
                 if let Some(highest_desired) = block_range.pop_back() {
                     if tip < highest_desired {
-                        error!(ctx.expect_logger(), "Unable to scan desired block range: underlying bitcoind synchronized until block #{} ", tip);
+                        try_error!(ctx, "Unable to scan desired block range: underlying bitcoind synchronized until block #{} ", tip);
                     } else {
-                        info!(ctx.expect_logger(), "Starting scan");
+                        try_info!(ctx, "Starting scan");
                     }
                     block_range.push_back(highest_desired);
                 }
@@ -582,7 +587,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 )
                 .await?;
             } else {
-                let _ = download_ordinals_dataset_if_required(&config, ctx).await;
+                download_archive_datasets_if_required(&config, ctx).await;
                 let mut total_inscriptions = 0;
                 let mut total_transfers = 0;
 
@@ -632,15 +637,20 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 if total_transfers == 0 && total_inscriptions == 0 {
                     let db_file_path =
                         get_default_ordhook_db_file_path(&config.expected_cache_path());
-                    warn!(ctx.expect_logger(), "No data available. Check the validity of the range being scanned and the validity of your local database {}", db_file_path.display());
+                    try_warn!(ctx, "No data available. Check the validity of the range being scanned and the validity of your local database {}", db_file_path.display());
                 }
             }
         }
         Command::Scan(ScanCommand::Inscription(cmd)) => {
-            let config: Config =
-                ConfigFile::default(cmd.regtest, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
+            let config: Config = ConfigFile::default(
+                cmd.regtest,
+                cmd.testnet,
+                cmd.mainnet,
+                &cmd.config_path,
+                &None,
+            )?;
 
-            let _ = download_ordinals_dataset_if_required(&config, ctx).await;
+            let _ = download_archive_datasets_if_required(&config, ctx).await;
 
             let inscriptions_db_conn =
                 open_readonly_ordhook_db_conn(&config.expected_cache_path(), ctx)?;
@@ -663,8 +673,13 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
             );
         }
         Command::Scan(ScanCommand::Transaction(cmd)) => {
-            let config: Config =
-                ConfigFile::default(cmd.regtest, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
+            let config: Config = ConfigFile::default(
+                cmd.regtest,
+                cmd.testnet,
+                cmd.mainnet,
+                &cmd.config_path,
+                &None,
+            )?;
             let http_client = build_http_client();
             let block = fetch_and_standardize_block(
                 &http_client,
@@ -702,8 +717,13 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                     sleep(Duration::from_secs(3600 * 24 * 7))
                 }
 
-                let config =
-                    ConfigFile::default(cmd.regtest, cmd.testnet, cmd.mainnet, &cmd.config_path)?;
+                let config = ConfigFile::default(
+                    cmd.regtest,
+                    cmd.testnet,
+                    cmd.mainnet,
+                    &cmd.config_path,
+                    &None,
+                )?;
                 let db_connections = initialize_databases(&config, ctx);
 
                 let last_known_block =
@@ -769,7 +789,8 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
             ConfigCommand::New(cmd) => {
                 use std::fs::File;
                 use std::io::Write;
-                let config = ConfigFile::default(cmd.regtest, cmd.testnet, cmd.mainnet, &None)?;
+                let config =
+                    ConfigFile::default(cmd.regtest, cmd.testnet, cmd.mainnet, &None, &None)?;
                 let config_content = generate_config(&config.network.bitcoin_network);
                 let mut file_path = PathBuf::new();
                 file_path.push("Ordhook.toml");
@@ -781,7 +802,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
             }
         },
         Command::Db(OrdhookDbCommand::New(cmd)) => {
-            let config = ConfigFile::default(false, false, false, &cmd.config_path)?;
+            let config = ConfigFile::default(false, false, false, &cmd.config_path, &None)?;
             // Create DB
             initialize_databases(&config, ctx);
             open_ordhook_db_conn_rocks_db_loop(
@@ -793,14 +814,14 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
             );
         }
         Command::Db(OrdhookDbCommand::Sync(cmd)) => {
-            let config = ConfigFile::default(false, false, false, &cmd.config_path)?;
+            let config = ConfigFile::default(false, false, false, &cmd.config_path, &None)?;
             initialize_databases(&config, ctx);
             let service = Service::new(config, ctx.clone());
             service.update_state(None).await?;
         }
         Command::Db(OrdhookDbCommand::Repair(subcmd)) => match subcmd {
             RepairCommand::Blocks(cmd) => {
-                let config = ConfigFile::default(false, false, false, &cmd.config_path)?;
+                let config = ConfigFile::default(false, false, false, &cmd.config_path, &None)?;
                 let mut ordhook_config = config.get_ordhook_config();
                 if let Some(network_threads) = cmd.network_threads {
                     ordhook_config.resources.bitcoind_rpc_threads = network_threads;
@@ -839,7 +860,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 }
             }
             RepairCommand::Inscriptions(cmd) => {
-                let config = ConfigFile::default(false, false, false, &cmd.config_path)?;
+                let config = ConfigFile::default(false, false, false, &cmd.config_path, &None)?;
                 let mut ordhook_config = config.get_ordhook_config();
                 if let Some(network_threads) = cmd.network_threads {
                     ordhook_config.resources.bitcoind_rpc_threads = network_threads;
@@ -867,7 +888,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 .await?;
             }
             RepairCommand::Transfers(cmd) => {
-                let config = ConfigFile::default(false, false, false, &cmd.config_path)?;
+                let config = ConfigFile::default(false, false, false, &cmd.config_path, &None)?;
                 let block_post_processor = match cmd.repair_observers {
                     Some(true) => {
                         let tx_replayer =
@@ -891,7 +912,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
             }
         },
         Command::Db(OrdhookDbCommand::Check(cmd)) => {
-            let config = ConfigFile::default(false, false, false, &cmd.config_path)?;
+            let config = ConfigFile::default(false, false, false, &cmd.config_path, &None)?;
             {
                 let blocks_db = open_readonly_ordhook_db_conn_rocks_db(
                     &config.expected_cache_path(),
@@ -906,7 +927,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
             }
         }
         Command::Db(OrdhookDbCommand::Drop(cmd)) => {
-            let config = ConfigFile::default(false, false, false, &cmd.config_path)?;
+            let config = ConfigFile::default(false, false, false, &cmd.config_path, &None)?;
 
             println!(
                 "{} blocks will be deleted. Confirm? [Y/n]",

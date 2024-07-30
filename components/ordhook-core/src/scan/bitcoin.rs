@@ -5,7 +5,7 @@ use crate::core::protocol::inscription_parsing::{
 };
 use crate::core::protocol::inscription_sequencing::consolidate_block_with_pre_computed_ordinals_data;
 use crate::db::get_any_entry_in_ordinal_activities;
-use crate::download::download_ordinals_dataset_if_required;
+use crate::download::download_archive_datasets_if_required;
 use crate::initialize_databases;
 use crate::service::observers::{
     open_readwrite_observers_db_conn_or_panic, update_observer_progress,
@@ -34,7 +34,7 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
     event_observer_config_override: Option<&EventObserverConfig>,
     ctx: &Context,
 ) -> Result<(), String> {
-    let _ = download_ordinals_dataset_if_required(config, ctx).await;
+    download_archive_datasets_if_required(config, ctx).await;
     let mut floating_end_block = false;
 
     let block_heights_to_scan_res = if let Some(ref blocks) = predicate_spec.blocks {

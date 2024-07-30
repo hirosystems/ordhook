@@ -8,6 +8,8 @@ use std::path::PathBuf;
 
 const DEFAULT_MAINNET_ORDINALS_SQLITE_ARCHIVE: &str =
     "https://archive.hiro.so/mainnet/ordhook/mainnet-ordhook-sqlite-latest";
+const DEFAULT_MAINNET_BRC20_SQLITE_ARCHIVE: &str =
+    "https://archive.hiro.so/mainnet/ordhook/mainnet-ordhook-brc20-latest";
 
 pub const DEFAULT_INGESTION_PORT: u16 = 20455;
 pub const DEFAULT_CONTROL_PORT: u16 = 20456;
@@ -57,9 +59,15 @@ pub struct PredicatesApiConfig {
 }
 
 #[derive(Clone, Debug)]
+pub struct SnapshotConfigDownloadUrls {
+    pub ordinals: String,
+    pub brc20: Option<String>,
+}
+
+#[derive(Clone, Debug)]
 pub enum SnapshotConfig {
     Build,
-    Download(String),
+    Download(SnapshotConfigDownloadUrls),
 }
 
 #[derive(Clone, Debug)]
@@ -153,21 +161,6 @@ impl Config {
         destination_path
     }
 
-    fn expected_remote_ordinals_sqlite_base_url(&self) -> &str {
-        match &self.snapshot {
-            SnapshotConfig::Build => unreachable!(),
-            SnapshotConfig::Download(url) => &url,
-        }
-    }
-
-    pub fn expected_remote_ordinals_sqlite_sha256(&self) -> String {
-        format!("{}.sha256", self.expected_remote_ordinals_sqlite_base_url())
-    }
-
-    pub fn expected_remote_ordinals_sqlite_url(&self) -> String {
-        format!("{}.tar.gz", self.expected_remote_ordinals_sqlite_base_url())
-    }
-
     pub fn devnet_default() -> Config {
         Config {
             storage: StorageConfig {
@@ -242,7 +235,10 @@ impl Config {
                 working_dir: default_cache_path(),
             },
             http_api: PredicatesApi::Off,
-            snapshot: SnapshotConfig::Download(DEFAULT_MAINNET_ORDINALS_SQLITE_ARCHIVE.to_string()),
+            snapshot: SnapshotConfig::Download(SnapshotConfigDownloadUrls {
+                ordinals: DEFAULT_MAINNET_ORDINALS_SQLITE_ARCHIVE.to_string(),
+                brc20: Some(DEFAULT_MAINNET_BRC20_SQLITE_ARCHIVE.to_string()),
+            }),
             resources: ResourcesConfig {
                 cpu_core_available: num_cpus::get(),
                 memory_available: DEFAULT_MEMORY_AVAILABLE,
