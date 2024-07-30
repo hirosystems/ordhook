@@ -928,7 +928,7 @@ pub fn consolidate_block_with_pre_computed_ordinals_data(
     };
     let mut brc20_token_map = HashMap::new();
     let mut brc20_block_ledger_map = match brc20_db_conn {
-        Some(conn) => get_brc20_operations_on_block(&block.block_identifier, &conn, &ctx),
+        Some(conn) => get_brc20_operations_on_block(block.block_identifier.index, &conn, &ctx),
         None => HashMap::new(),
     };
     for (tx_index, tx) in block.transactions.iter_mut().enumerate() {

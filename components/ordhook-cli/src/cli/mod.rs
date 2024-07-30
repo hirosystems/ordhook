@@ -16,7 +16,9 @@ use ordhook::chainhook_sdk::types::{BitcoinBlockData, TransactionIdentifier};
 use ordhook::chainhook_sdk::utils::BlockHeights;
 use ordhook::chainhook_sdk::utils::Context;
 use ordhook::config::Config;
-use ordhook::core::meta_protocols::brc20::db::open_readwrite_brc20_db_conn;
+use ordhook::core::meta_protocols::brc20::db::{
+    get_brc20_operations_on_block, open_readwrite_brc20_db_conn,
+};
 use ordhook::core::new_traversals_lazy_cache;
 use ordhook::core::pipeline::download_and_pipeline_blocks;
 use ordhook::core::pipeline::processors::block_archiving::start_block_archiving_processor;
@@ -592,12 +594,11 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 let mut total_transfers = 0;
 
                 let db_connections = initialize_databases(&config, ctx);
-                let inscriptions_db_conn = db_connections.ordhook;
                 while let Some(block_height) = block_range.pop_front() {
                     let inscriptions =
-                        find_all_inscriptions_in_block(&block_height, &inscriptions_db_conn, ctx);
+                        find_all_inscriptions_in_block(&block_height, &db_connections.ordhook, ctx);
                     let locations =
-                        find_all_transfers_in_block(&block_height, &inscriptions_db_conn, ctx);
+                        find_all_transfers_in_block(&block_height, &db_connections.ordhook, ctx);
 
                     let mut total_transfers_in_block = 0;
 
@@ -622,6 +623,18 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                                 t.transaction_identifier_location.hash
                             );
                         }
+                    }
+                    match db_connections.brc20 {
+                        Some(ref conn) => {
+                            let activity = get_brc20_operations_on_block(block_height, &conn, ctx);
+                            for (_, row) in activity.iter() {
+                                if row.operation == "transfer_receive" {
+                                    continue;
+                                }
+                                println!("BRC-20 {} {} {}", row.operation, row.tick, row.avail_balance);
+                            }
+                        }
+                        None => todo!(),
                     }
                     if total_transfers_in_block > 0 && !inscriptions.is_empty() {
                         println!(
