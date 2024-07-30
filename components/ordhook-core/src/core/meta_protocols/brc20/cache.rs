@@ -167,6 +167,7 @@ impl Brc20MemoryCache {
             inscription_number: reveal.inscription_number.jubilee as u64,
             block_height: block_identifier.index,
             tick: data.tick.clone(),
+            display_tick: data.display_tick.clone(),
             max: data.max,
             lim: data.lim,
             dec: data.dec,
@@ -365,6 +366,7 @@ mod test {
         cache.insert_token_deploy(
             &VerifiedBrc20TokenDeployData {
                 tick: "pepe".to_string(),
+                display_tick: "pepe".to_string(),
                 max: 21000000.0,
                 lim: 1000.0,
                 dec: 18,
@@ -480,6 +482,7 @@ mod test {
         cache.insert_token_deploy(
             &VerifiedBrc20TokenDeployData {
                 tick: "pepe".to_string(),
+                display_tick: "pepe".to_string(),
                 max: 21000000.0,
                 lim: 1000.0,
                 dec: 18,
