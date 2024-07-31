@@ -5,8 +5,9 @@ use ordhook::chainhook_sdk::types::{
 };
 use ordhook::config::{
     Config, LogConfig, MetaProtocolsConfig, PredicatesApi, PredicatesApiConfig, ResourcesConfig,
-    SnapshotConfig, StorageConfig, DEFAULT_BITCOIND_RPC_THREADS, DEFAULT_BITCOIND_RPC_TIMEOUT,
-    DEFAULT_BRC20_LRU_CACHE_SIZE, DEFAULT_CONTROL_PORT, DEFAULT_MEMORY_AVAILABLE, DEFAULT_ULIMIT,
+    SnapshotConfig, SnapshotConfigDownloadUrls, StorageConfig, DEFAULT_BITCOIND_RPC_THREADS,
+    DEFAULT_BITCOIND_RPC_TIMEOUT, DEFAULT_BRC20_LRU_CACHE_SIZE, DEFAULT_CONTROL_PORT,
+    DEFAULT_MEMORY_AVAILABLE, DEFAULT_ULIMIT,
 };
 use std::fs::File;
 use std::io::{BufReader, Read};
@@ -51,8 +52,11 @@ impl ConfigFile {
         };
 
         let snapshot = match config_file.snapshot {
-            Some(bootstrap) => match bootstrap.download_url {
-                Some(ref url) => SnapshotConfig::Download(url.to_string()),
+            Some(bootstrap) => match bootstrap.ordinals_url {
+                Some(ref url) => SnapshotConfig::Download(SnapshotConfigDownloadUrls {
+                    ordinals: url.to_string(),
+                    brc20: bootstrap.brc20_url,
+                }),
                 None => SnapshotConfig::Build,
             },
             None => SnapshotConfig::Build,
@@ -144,14 +148,21 @@ impl ConfigFile {
         testnet: bool,
         mainnet: bool,
         config_path: &Option<String>,
+        meta_protocols: &Option<String>,
     ) -> Result<Config, String> {
-        let config = match (devnet, testnet, mainnet, config_path) {
+        let mut config = match (devnet, testnet, mainnet, config_path) {
             (true, false, false, _) => Config::devnet_default(),
             (false, true, false, _) => Config::testnet_default(),
             (false, false, true, _) => Config::mainnet_default(),
             (false, false, false, Some(config_path)) => ConfigFile::from_file_path(config_path)?,
             _ => Err("Invalid combination of arguments".to_string())?,
         };
+        if let Some(meta_protocols) = meta_protocols {
+            match meta_protocols.as_str() {
+                "brc20" => config.meta_protocols.brc20 = true,
+                _ => Err("Invalid meta protocol".to_string())?,
+            }
+        }
         Ok(config)
     }
 }
@@ -177,7 +188,8 @@ pub struct PredicatesApiConfigFile {
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct SnapshotConfigFile {
-    pub download_url: Option<String>,
+    pub ordinals_url: Option<String>,
+    pub brc20_url: Option<String>,
 }
 
 #[derive(Deserialize, Debug, Clone)]

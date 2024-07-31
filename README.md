@@ -45,7 +45,7 @@ Inscription 6fb976ab49dcec017f1e201e84395983204ae1a7c2abf7ced0a85d692e442799i0 r
 Inscription 26482871f33f1051f450f2da9af275794c0b5f1c61ebf35e4467fb42c2813403i0 revealed at block #767753 (ordinal_number 727624168684699, inscription_number 1)
 ```
 
-In this command, an interval of blocks to scan (starting at block `767430`, ending at block `767753`) is being provided. `ordhook` will display inscriptions and transfers activities occurring in the range of the specified blocks.
+In this command, an interval of blocks to scan (starting at block `767430`, ending at block `767753`) is being provided. `ordhook` will display inscriptions and transfers activities occurring in the range of the specified blocks. Add the option `--meta_protocols=brc20` if you wish to explore BRC-20 activity as well.
 
 The activity for a given inscription can be retrieved using the following command:
 

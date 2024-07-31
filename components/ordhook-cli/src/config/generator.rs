@@ -37,7 +37,8 @@ expected_observers_count = 1
 # Disable the following section if the state
 # must be built locally
 [snapshot]
-download_url = "https://archive.hiro.so/mainnet/ordhook/mainnet-ordhook-sqlite-latest"
+ordinals_url = "https://archive.hiro.so/mainnet/ordhook/mainnet-ordhook-sqlite-latest"
+brc20_url = "https://archive.hiro.so/mainnet/ordhook/mainnet-ordhook-brc20-latest"
 
 [logs]
 ordinals_internals = true

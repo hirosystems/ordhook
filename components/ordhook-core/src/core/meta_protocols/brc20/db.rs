@@ -329,11 +329,11 @@ pub fn insert_token_rows(rows: &Vec<Brc20DbTokenRow>, db_tx: &Connection, ctx: &
 }
 
 pub fn get_brc20_operations_on_block(
-    block_identifier: &BlockIdentifier,
+    block_height: u64,
     db_tx: &Connection,
     ctx: &Context,
 ) -> HashMap<u64, Brc20DbLedgerRow> {
-    let args: &[&dyn ToSql] = &[&block_identifier.index.to_sql().unwrap()];
+    let args: &[&dyn ToSql] = &[&block_height.to_sql().unwrap()];
     let query = "
         SELECT
             inscription_id, inscription_number, ordinal_number, block_height, tx_index, tick, address, avail_balance, trans_balance, operation

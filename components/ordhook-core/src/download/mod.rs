@@ -1,6 +1,6 @@
-use crate::config::Config;
+use crate::config::{Config, SnapshotConfig};
 use crate::utils::read_file_content_at_path;
-use chainhook_sdk::types::BitcoinNetwork;
+use crate::{try_error, try_info, try_warn};
 use chainhook_sdk::utils::Context;
 use flate2::read::GzDecoder;
 use futures_util::StreamExt;
@@ -12,40 +12,19 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use tar::Archive;
 
-pub fn default_sqlite_file_path(_network: &BitcoinNetwork) -> String {
-    format!("hord.sqlite").to_lowercase()
-}
-
-pub fn default_sqlite_sha_file_path(_network: &BitcoinNetwork) -> String {
-    format!("hord.sqlite.sha256").to_lowercase()
-}
-
-pub async fn download_sqlite_file(config: &Config, ctx: &Context) -> Result<(), String> {
-    let destination_path = config.expected_cache_path();
-    std::fs::create_dir_all(&destination_path).unwrap_or_else(|e| {
-        if ctx.logger.is_some() {
-            println!("{}", e.to_string());
-        }
+/// Downloads and decompresses a remote `tar.gz` file.
+pub async fn download_and_decompress_archive_file(
+    file_url: String,
+    file_name: &str,
+    config: &Config,
+    ctx: &Context,
+) -> Result<(), String> {
+    let destination_dir_path = config.expected_cache_path();
+    std::fs::create_dir_all(&destination_dir_path).unwrap_or_else(|e| {
+        try_error!(ctx, "{e}");
     });
 
-    // let remote_sha_url = config.expected_remote_ordinals_sqlite_sha256();
-    // let res = reqwest::get(&remote_sha_url)
-    //     .await
-    //     .or(Err(format!("Failed to GET from '{}'", &remote_sha_url)))?
-    //     .bytes()
-    //     .await
-    //     .or(Err(format!("Failed to GET from '{}'", &remote_sha_url)))?;
-
-    // let mut local_sha_file_path = destination_path.clone();
-    // local_sha_file_path.push(default_sqlite_sha_file_path(
-    //     &config.network.bitcoin_network,
-    // ));
-    // write_file_content_at_path(&local_sha_file_path, &res.to_vec())?;
-
-    let file_url = config.expected_remote_ordinals_sqlite_url();
-    if ctx.logger.is_some() {
-        println!("=> {file_url}");
-    }
+    try_info!(ctx, "=> {file_url}");
     let res = reqwest::get(&file_url)
         .await
         .or(Err(format!("Failed to GET from '{}'", &file_url)))?;
@@ -54,7 +33,7 @@ pub async fn download_sqlite_file(config: &Config, ctx: &Context) -> Result<(), 
     let (tx, rx) = flume::bounded(0);
     if res.status() == reqwest::StatusCode::OK {
         let limit = res.content_length().unwrap_or(10_000_000_000) as i64;
-        let archive_tmp_file = PathBuf::from("db.tar");
+        let archive_tmp_file = PathBuf::from(format!("{file_name}.tar.gz"));
         let decoder_thread = std::thread::spawn(move || {
             {
                 let input = ChannelRead::new(rx);
@@ -84,7 +63,7 @@ pub async fn download_sqlite_file(config: &Config, ctx: &Context) -> Result<(), 
             }
             let archive_file = File::open(&archive_tmp_file).unwrap();
             let mut archive = Archive::new(archive_file);
-            if let Err(e) = archive.unpack(&destination_path) {
+            if let Err(e) = archive.unpack(&destination_dir_path) {
                 let err = format!("unable to decompress file: {}", e.to_string());
                 return Err(err);
             }
@@ -171,63 +150,78 @@ impl Read for ChannelRead {
     }
 }
 
-pub async fn download_ordinals_dataset_if_required(config: &Config, ctx: &Context) -> bool {
-    if config.should_bootstrap_through_download() {
-        let url = config.expected_remote_ordinals_sqlite_url();
-        let mut sqlite_file_path = config.expected_cache_path();
-        sqlite_file_path.push(default_sqlite_file_path(&config.network.bitcoin_network));
-        let mut sqlite_sha_file_path = config.expected_cache_path();
-        sqlite_sha_file_path.push(default_sqlite_sha_file_path(
-            &config.network.bitcoin_network,
-        ));
+/// Compares the SHA256 of a previous local archive to the latest remote archive and downloads if required.
+async fn validate_or_download_archive_file(
+    snapshot_url: &String,
+    file_name: &str,
+    config: &Config,
+    ctx: &Context,
+) {
+    let remote_archive_url = format!("{snapshot_url}.tar.gz");
+    let remote_sha_url = format!("{snapshot_url}.sha256");
 
-        // Download archive if not already present in cache
-        // Load the local
-        let local_sha_file = read_file_content_at_path(&sqlite_sha_file_path);
-        let sha_url = config.expected_remote_ordinals_sqlite_sha256();
+    let mut local_sqlite_file_path = config.expected_cache_path();
+    local_sqlite_file_path.push(format!("{file_name}.sqlite"));
+    let mut local_sha_file_path = config.expected_cache_path();
+    local_sha_file_path.push(format!("{file_name}.sqlite.sha256"));
 
-        let remote_sha_file = match reqwest::get(&sha_url).await {
-            Ok(response) => response.bytes().await,
-            Err(e) => Err(e),
-        };
-        let should_download = match (local_sha_file, remote_sha_file) {
-            (Ok(local), Ok(remote_response)) => {
-                let cache_not_expired = remote_response.starts_with(&local[0..32]) == false;
-                if cache_not_expired {
-                    info!(ctx.expect_logger(), "More recent hord.sqlite file detected");
-                }
-                cache_not_expired == false
+    // Compare local SHA256 to remote to see if there's a new one available.
+    let local_sha_file = read_file_content_at_path(&local_sha_file_path);
+    let remote_sha_file = match reqwest::get(&remote_sha_url).await {
+        Ok(response) => response.bytes().await,
+        Err(e) => Err(e),
+    };
+    let should_download = match (local_sha_file, remote_sha_file) {
+        (Ok(local), Ok(remote_response)) => {
+            let cache_not_expired = remote_response.starts_with(&local[0..32]) == false;
+            if cache_not_expired {
+                try_info!(ctx, "More recent {file_name}.sqlite file detected");
             }
-            (_, _) => match std::fs::metadata(&sqlite_file_path) {
-                Ok(_) => false,
-                _ => {
-                    info!(
-                        ctx.expect_logger(),
-                        "Unable to retrieve hord.sqlite file locally"
-                    );
-                    true
-                }
-            },
-        };
-        if should_download {
-            info!(ctx.expect_logger(), "Downloading {}", url);
-            match download_sqlite_file(&config, &ctx).await {
-                Ok(_) => {}
-                Err(e) => {
-                    error!(ctx.expect_logger(), "{}", e);
-                    std::process::exit(1);
-                }
-            }
-        } else {
-            info!(
-                ctx.expect_logger(),
-                "Basing ordinals evaluation on database {}",
-                sqlite_file_path.display()
-            );
+            cache_not_expired == false
         }
-        // config.add_local_ordinals_sqlite_source(&sqlite_file_path);
-        true
+        (_, _) => match std::fs::metadata(&local_sqlite_file_path) {
+            Ok(_) => false,
+            _ => {
+                try_info!(ctx, "Unable to retrieve {file_name}.sqlite file locally");
+                true
+            }
+        },
+    };
+
+    if should_download {
+        try_info!(ctx, "Downloading {remote_archive_url}");
+        match download_and_decompress_archive_file(remote_archive_url, file_name, &config, &ctx).await {
+            Ok(_) => {}
+            Err(e) => {
+                try_error!(ctx, "{e}");
+                std::process::exit(1);
+            }
+        }
     } else {
-        false
+        try_info!(
+            ctx,
+            "Basing ordinals evaluation on database {}",
+            local_sqlite_file_path.display()
+        );
+    }
+}
+
+/// Downloads remote SQLite archive datasets.
+pub async fn download_archive_datasets_if_required(config: &Config, ctx: &Context) {
+    if !config.should_bootstrap_through_download() {
+        return;
+    }
+    let snapshot_urls = match &config.snapshot {
+        SnapshotConfig::Build => unreachable!(),
+        SnapshotConfig::Download(url) => url,
+    };
+    validate_or_download_archive_file(&snapshot_urls.ordinals, "hord", config, ctx).await;
+    if config.meta_protocols.brc20 {
+        match &snapshot_urls.brc20 {
+            Some(url) => validate_or_download_archive_file(url, "brc20", config, ctx).await,
+            None => {
+                try_warn!(ctx, "No brc20 snapshot url configured");
+            }
+        }
     }
 }
