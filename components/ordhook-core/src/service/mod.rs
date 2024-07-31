@@ -270,19 +270,20 @@ impl Service {
             .expect("unable to spawn thread");
 
         if let PredicatesApi::On(ref api_config) = self.config.http_api {
-            info!(
-                self.ctx.expect_logger(),
-                "Listening on port {} for chainhook predicate registrations", api_config.http_port
+            try_info!(
+                self.ctx,
+                "Listening on port {} for chainhook predicate registrations",
+                api_config.http_port
             );
             let ctx = self.ctx.clone();
             let api_config = api_config.clone();
             let moved_observer_command_tx = observer_command_tx.clone();
-            let db_dir_path = self.config.expected_cache_path();
+            let observers_db_dir_path = self.config.expected_observers_cache_path();
             // Test and initialize a database connection
             let _ = hiro_system_kit::thread_named("HTTP Predicate API").spawn(move || {
                 let future = start_predicate_api_server(
                     api_config.http_port,
-                    db_dir_path,
+                    observers_db_dir_path,
                     moved_observer_command_tx,
                     ctx,
                 );
@@ -294,8 +295,8 @@ impl Service {
             let event = match observer_event_rx.recv() {
                 Ok(cmd) => cmd,
                 Err(e) => {
-                    error!(
-                        self.ctx.expect_logger(),
+                    try_error!(
+                        self.ctx,
                         "Error: broken channel {}",
                         e.to_string()
                     );

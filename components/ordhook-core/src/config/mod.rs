@@ -44,6 +44,7 @@ pub struct LogConfig {
 #[derive(Clone, Debug)]
 pub struct StorageConfig {
     pub working_dir: String,
+    pub observers_working_dir: String,
 }
 
 #[derive(Clone, Debug)]
@@ -161,10 +162,17 @@ impl Config {
         destination_path
     }
 
+    pub fn expected_observers_cache_path(&self) -> PathBuf {
+        let mut destination_path = PathBuf::new();
+        destination_path.push(&self.storage.observers_working_dir);
+        destination_path
+    }
+
     pub fn devnet_default() -> Config {
         Config {
             storage: StorageConfig {
                 working_dir: default_cache_path(),
+                observers_working_dir: default_observers_cache_path(),
             },
             http_api: PredicatesApi::Off,
             snapshot: SnapshotConfig::Build,
@@ -199,6 +207,7 @@ impl Config {
         Config {
             storage: StorageConfig {
                 working_dir: default_cache_path(),
+                observers_working_dir: default_observers_cache_path(),
             },
             http_api: PredicatesApi::Off,
             snapshot: SnapshotConfig::Build,
@@ -233,6 +242,7 @@ impl Config {
         Config {
             storage: StorageConfig {
                 working_dir: default_cache_path(),
+                observers_working_dir: default_observers_cache_path(),
             },
             http_api: PredicatesApi::Off,
             snapshot: SnapshotConfig::Download(SnapshotConfigDownloadUrls {
@@ -270,5 +280,11 @@ impl Config {
 pub fn default_cache_path() -> String {
     let mut cache_path = std::env::current_dir().expect("unable to get current dir");
     cache_path.push("ordhook");
+    format!("{}", cache_path.display())
+}
+
+pub fn default_observers_cache_path() -> String {
+    let mut cache_path = std::env::current_dir().expect("unable to get current dir");
+    cache_path.push("observers");
     format!("{}", cache_path.display())
 }
