@@ -1,6 +1,5 @@
 use std::{
     net::{IpAddr, Ipv4Addr},
-    path::PathBuf,
     sync::{mpsc::Sender, Arc, Mutex},
 };
 
@@ -14,32 +13,32 @@ use rocket::serde::json::{json, Json, Value as JsonValue};
 use rocket::State;
 use std::error::Error;
 
-use crate::try_info;
+use crate::{config::PredicatesApi, try_info};
 
 use super::observers::{
     find_all_observers, find_observer_with_uuid, open_readonly_observers_db_conn, ObserverReport,
 };
 
 pub async fn start_predicate_api_server(
-    port: u16,
-    observers_db_dir_path: PathBuf,
     observer_commands_tx: Sender<ObserverCommand>,
-    ctx: Context,
+    config: &crate::Config,
+    ctx: &Context,
 ) -> Result<(), Box<dyn Error>> {
-    let log_level = LogLevel::Off;
-
+    let PredicatesApi::On(ref api_config) = config.http_api else {
+        unreachable!();
+    };
     let mut shutdown_config = config::Shutdown::default();
     shutdown_config.ctrlc = false;
     shutdown_config.grace = 1;
     shutdown_config.mercy = 1;
 
     let control_config = Config {
-        port,
+        port: api_config.http_port,
         workers: 1,
         address: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
         keep_alive: 5,
         temp_dir: std::env::temp_dir().into(),
-        log_level,
+        log_level: LogLevel::Off,
         cli_colors: false,
         shutdown: shutdown_config,
         ..Config::default()
@@ -55,12 +54,10 @@ pub async fn start_predicate_api_server(
 
     let background_job_tx_mutex = Arc::new(Mutex::new(observer_commands_tx.clone()));
 
-    let ctx_cloned = ctx.clone();
-
     let ignite = rocket::custom(control_config)
         .manage(background_job_tx_mutex)
-        .manage(observers_db_dir_path)
-        .manage(ctx_cloned)
+        .manage(config.clone())
+        .manage(ctx.clone())
         .mount("/", routes)
         .ignite()
         .await?;
@@ -81,12 +78,9 @@ fn handle_ping(ctx: &State<Context>) -> Json<JsonValue> {
 }
 
 #[get("/v1/observers", format = "application/json")]
-fn handle_get_predicates(
-    observers_db_dir_path: &State<PathBuf>,
-    ctx: &State<Context>,
-) -> Json<JsonValue> {
+fn handle_get_predicates(config: &State<crate::Config>, ctx: &State<Context>) -> Json<JsonValue> {
     try_info!(ctx, "Handling HTTP GET /v1/observers");
-    match open_readonly_observers_db_conn(observers_db_dir_path, ctx) {
+    match open_readonly_observers_db_conn(config, ctx) {
         Ok(mut db_conn) => {
             let observers = find_all_observers(&mut db_conn, &ctx);
             let serialized_predicates = observers
@@ -109,7 +103,7 @@ fn handle_get_predicates(
 #[post("/v1/observers", format = "application/json", data = "<predicate>")]
 fn handle_create_predicate(
     predicate: Json<ChainhookFullSpecification>,
-    observers_db_dir_path: &State<PathBuf>,
+    config: &State<crate::Config>,
     background_job_tx: &State<Arc<Mutex<Sender<ObserverCommand>>>>,
     ctx: &State<Context>,
 ) -> Json<JsonValue> {
@@ -124,8 +118,7 @@ fn handle_create_predicate(
 
     let predicate_uuid = predicate.get_uuid().to_string();
 
-    if let Ok(mut predicates_db_conn) = open_readonly_observers_db_conn(observers_db_dir_path, ctx)
-    {
+    if let Ok(mut predicates_db_conn) = open_readonly_observers_db_conn(config, ctx) {
         let key: String = format!("{}", ChainhookSpecification::bitcoin_key(&predicate_uuid));
         match find_observer_with_uuid(&key, &mut predicates_db_conn, &ctx) {
             Some(_) => {
@@ -155,11 +148,11 @@ fn handle_create_predicate(
 #[get("/v1/observers/<predicate_uuid>", format = "application/json")]
 fn handle_get_predicate(
     predicate_uuid: String,
-    observers_db_dir_path: &State<PathBuf>,
+    config: &State<crate::Config>,
     ctx: &State<Context>,
 ) -> Json<JsonValue> {
     try_info!(ctx, "Handling HTTP GET /v1/observers/{}", predicate_uuid);
-    match open_readonly_observers_db_conn(observers_db_dir_path, ctx) {
+    match open_readonly_observers_db_conn(config, ctx) {
         Ok(mut predicates_db_conn) => {
             let key: String = format!("{}", ChainhookSpecification::bitcoin_key(&predicate_uuid));
             let entry = match find_observer_with_uuid(&key, &mut predicates_db_conn, &ctx) {

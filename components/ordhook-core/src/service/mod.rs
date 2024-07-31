@@ -275,17 +275,14 @@ impl Service {
                 "Listening on port {} for chainhook predicate registrations",
                 api_config.http_port
             );
-            let ctx = self.ctx.clone();
-            let api_config = api_config.clone();
+            let moved_config = self.config.clone();
+            let moved_ctx = self.ctx.clone();
             let moved_observer_command_tx = observer_command_tx.clone();
-            let observers_db_dir_path = self.config.expected_observers_cache_path();
-            // Test and initialize a database connection
             let _ = hiro_system_kit::thread_named("HTTP Predicate API").spawn(move || {
                 let future = start_predicate_api_server(
-                    api_config.http_port,
-                    observers_db_dir_path,
                     moved_observer_command_tx,
-                    ctx,
+                    &moved_config,
+                    &moved_ctx,
                 );
                 let _ = hiro_system_kit::nestable_block_on(future);
             });
@@ -310,7 +307,7 @@ impl Service {
                     // If no start block specified, depending on the nature the hook, we'd like to retrieve:
                     // - contract-id
                     let observers_db_conn = match open_readwrite_observers_db_conn(
-                        &self.config.expected_cache_path(),
+                        &self.config,
                         &self.ctx,
                     ) {
                         Ok(con) => con,
@@ -334,7 +331,7 @@ impl Service {
                 }
                 ObserverEvent::PredicateEnabled(spec) => {
                     let observers_db_conn = match open_readwrite_observers_db_conn(
-                        &self.config.expected_cache_path(),
+                        &self.config,
                         &self.ctx,
                     ) {
                         Ok(con) => con,
@@ -356,7 +353,7 @@ impl Service {
                 }
                 ObserverEvent::PredicateDeregistered(uuid) => {
                     let observers_db_conn = match open_readwrite_observers_db_conn(
-                        &self.config.expected_cache_path(),
+                        &self.config,
                         &self.ctx,
                     ) {
                         Ok(con) => con,
@@ -374,7 +371,7 @@ impl Service {
                 ObserverEvent::BitcoinPredicateTriggered(data) => {
                     if let Some(ref tip) = data.apply.last() {
                         let observers_db_conn = match open_readwrite_observers_db_conn(
-                            &self.config.expected_cache_path(),
+                            &self.config,
                             &self.ctx,
                         ) {
                             Ok(con) => con,

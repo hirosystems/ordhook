@@ -158,7 +158,7 @@ pub async fn scan_bitcoin_chainstate_via_rpc_using_predicate(
         }
         {
             let observers_db_conn =
-                open_readwrite_observers_db_conn_or_panic(&config.expected_cache_path(), &ctx);
+                open_readwrite_observers_db_conn_or_panic(&config, &ctx);
             update_observer_progress(
                 &predicate_spec.uuid,
                 current_block_height,

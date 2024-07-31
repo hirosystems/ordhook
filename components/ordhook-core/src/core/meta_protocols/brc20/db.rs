@@ -9,9 +9,8 @@ use crate::{
 };
 use chainhook_sdk::{
     types::{
-        BitcoinBlockData, BitcoinTransactionData, BlockIdentifier, Brc20BalanceData,
-        Brc20Operation, Brc20TokenDeployData, Brc20TransferData, OrdinalInscriptionRevealData,
-        OrdinalOperation,
+        BitcoinBlockData, BitcoinTransactionData, Brc20BalanceData, Brc20Operation,
+        Brc20TokenDeployData, Brc20TransferData, OrdinalInscriptionRevealData, OrdinalOperation,
     },
     utils::Context,
 };

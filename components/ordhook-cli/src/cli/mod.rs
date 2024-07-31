@@ -579,7 +579,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                     false,
                 )?;
 
-                let _ = initialize_observers_db(&config.expected_cache_path(), ctx);
+                let _ = initialize_observers_db(&config, ctx);
 
                 scan_bitcoin_chainstate_via_rpc_using_predicate(
                     &predicate_spec,
