@@ -631,7 +631,10 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                                 if row.operation == "transfer_receive" {
                                     continue;
                                 }
-                                println!("BRC-20 {} {} {}", row.operation, row.tick, row.avail_balance);
+                                println!(
+                                    "BRC-20 {} {} {}",
+                                    row.operation, row.tick, row.avail_balance
+                                );
                             }
                         }
                         None => todo!(),

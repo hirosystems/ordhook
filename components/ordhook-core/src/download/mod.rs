@@ -190,7 +190,9 @@ async fn validate_or_download_archive_file(
 
     if should_download {
         try_info!(ctx, "Downloading {remote_archive_url}");
-        match download_and_decompress_archive_file(remote_archive_url, file_name, &config, &ctx).await {
+        match download_and_decompress_archive_file(remote_archive_url, file_name, &config, &ctx)
+            .await
+        {
             Ok(_) => {}
             Err(e) => {
                 try_error!(ctx, "{e}");

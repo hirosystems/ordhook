@@ -10,8 +10,8 @@ use threadpool::ThreadPool;
 use crate::{
     config::Config,
     scan::bitcoin::scan_bitcoin_chainstate_via_rpc_using_predicate,
-    service::{
-        observers::open_readwrite_observers_db_conn_or_panic, update_observer_streaming_enabled,
+    service::observers::{
+        open_readwrite_observers_db_conn_or_panic, update_observer_streaming_enabled,
     },
     try_error,
 };
