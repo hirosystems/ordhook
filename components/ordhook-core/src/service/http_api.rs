@@ -10,9 +10,12 @@ use chainhook_sdk::{
     observer::{ObserverCommand, ObserverEvent},
     utils::Context,
 };
-use rocket::{config::{self, Config, LogLevel}, Ignite, Rocket, Shutdown};
 use rocket::serde::json::{json, Json, Value as JsonValue};
 use rocket::State;
+use rocket::{
+    config::{self, Config, LogLevel},
+    Ignite, Rocket, Shutdown,
+};
 
 use crate::{
     config::PredicatesApi,
@@ -300,14 +303,7 @@ fn serialized_predicate_with_status(
     report: &ObserverReport,
 ) -> JsonValue {
     match (predicate, report) {
-        (ChainhookSpecification::Stacks(spec), report) => json!({
-            "chain": "stacks",
-            "uuid": spec.uuid,
-            "network": spec.network,
-            "predicate": spec.predicate,
-            "status": report,
-            "enabled": spec.enabled,
-        }),
+        (ChainhookSpecification::Stacks(_), _) => json!({}),
         (ChainhookSpecification::Bitcoin(spec), report) => json!({
             "chain": "bitcoin",
             "uuid": spec.uuid,
@@ -325,7 +321,8 @@ mod test {
 
     use chainhook_sdk::utils::Context;
     use reqwest::Client;
-    use rocket::Shutdown;
+    use rocket::{form::validate::Len, Shutdown};
+    use serde_json::{json, Value};
 
     use crate::{
         config::{Config, PredicatesApi, PredicatesApiConfig},
@@ -357,7 +354,9 @@ mod test {
             observer_event_rx,
             bitcoin_scan_op_tx,
             &ctx,
-        ).await.expect("start failed");
+        )
+        .await
+        .expect("start failed");
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         shutdown
     }
@@ -377,12 +376,32 @@ mod test {
             .get("http://localhost:20456/v1/observers")
             .send()
             .await
-            .expect("Failed to send request");
+            .unwrap();
 
         assert!(response.status().is_success());
+        let json: Value = response.json().await.unwrap();
+        assert_eq!(json["status"], 200);
+        assert_eq!(json["result"].as_array().len(), 0);
 
-        let body = response.text().await.expect("Failed to read response body");
-        println!("Response body: {}", body);
+        shutdown_server(shutdown);
+    }
+
+    #[tokio::test]
+    async fn rejects_invalid_predicate() {
+        let shutdown = launch_server().await;
+
+        let client = Client::new();
+        let response = client
+            .post("http://localhost:20456/v1/observers")
+            .json(&json!({
+                "id": 1,
+            }))
+            .send()
+            .await
+            .unwrap();
+
+        // TODO: This should be a real error response body instead of a generic rocket error.
+        assert_eq!(response.status(), reqwest::StatusCode::UNPROCESSABLE_ENTITY);
 
         shutdown_server(shutdown);
     }
