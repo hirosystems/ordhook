@@ -129,7 +129,7 @@ pub fn initialize_observers_db(config: &Config, ctx: &Context) -> Connection {
 #[cfg(test)]
 pub fn delete_observers_db(config: &Config) {
     let path = get_default_observers_db_file_path(config);
-    std::fs::remove_file(path).expect("unable to delete observers db");
+    let _ = std::fs::remove_file(path);
 }
 
 #[derive(Default, Clone, Serialize, Deserialize)]

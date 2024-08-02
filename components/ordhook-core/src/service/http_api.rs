@@ -37,31 +37,40 @@ pub async fn start_observers_http_server(
     bitcoin_scan_op_tx: crossbeam_channel::Sender<BitcoinChainhookSpecification>,
     ctx: &Context,
 ) -> Result<Shutdown, String> {
+    // Build and start HTTP server.
     let ignite = build_server(config, observer_commands_tx, ctx).await;
     let shutdown = ignite.shutdown();
-    let _ = hiro_system_kit::thread_named("HTTP Observers API").spawn(move || {
+    let _ = hiro_system_kit::thread_named("observers_api-server").spawn(move || {
         let _ = hiro_system_kit::nestable_block_on(ignite.launch());
     });
 
-    loop {
+    // Spawn predicate observer event tread.
+    let moved_config = config.clone();
+    let moved_ctx = ctx.clone();
+    let _ = hiro_system_kit::thread_named("observers_api-events").spawn(move || loop {
         let event = match observer_event_rx.recv() {
             Ok(cmd) => cmd,
             Err(e) => {
-                try_error!(ctx, "Error: broken channel {}", e.to_string());
+                try_error!(&moved_ctx, "Error: broken channel {}", e.to_string());
                 break;
             }
         };
         match event {
             ObserverEvent::PredicateRegistered(spec) => {
-                let observers_db_conn = match open_readwrite_observers_db_conn(config, ctx) {
-                    Ok(con) => con,
-                    Err(e) => {
-                        try_error!(ctx, "unable to register predicate: {}", e.to_string());
-                        continue;
-                    }
-                };
+                let observers_db_conn =
+                    match open_readwrite_observers_db_conn(&moved_config, &moved_ctx) {
+                        Ok(con) => con,
+                        Err(e) => {
+                            try_error!(
+                                &moved_ctx,
+                                "unable to register predicate: {}",
+                                e.to_string()
+                            );
+                            continue;
+                        }
+                    };
                 let report = ObserverReport::default();
-                insert_entry_in_observers(&spec, &report, &observers_db_conn, ctx);
+                insert_entry_in_observers(&spec, &report, &observers_db_conn, &moved_ctx);
                 match spec {
                     ChainhookSpecification::Bitcoin(predicate_spec) => {
                         let _ = bitcoin_scan_op_tx.send(predicate_spec);
@@ -70,50 +79,67 @@ pub async fn start_observers_http_server(
                 }
             }
             ObserverEvent::PredicateEnabled(spec) => {
-                let observers_db_conn = match open_readwrite_observers_db_conn(&config, &ctx) {
-                    Ok(con) => con,
-                    Err(e) => {
-                        try_error!(ctx, "unable to enable observer: {}", e.to_string());
-                        continue;
-                    }
-                };
-                update_observer_streaming_enabled(&spec.uuid(), true, &observers_db_conn, ctx);
-            }
-            ObserverEvent::PredicateDeregistered(uuid) => {
-                let observers_db_conn = match open_readwrite_observers_db_conn(config, ctx) {
-                    Ok(con) => con,
-                    Err(e) => {
-                        try_error!(ctx, "unable to deregister observer: {}", e.to_string());
-                        continue;
-                    }
-                };
-                remove_entry_from_observers(&uuid, &observers_db_conn, ctx);
-            }
-            ObserverEvent::BitcoinPredicateTriggered(data) => {
-                if let Some(ref tip) = data.apply.last() {
-                    let observers_db_conn = match open_readwrite_observers_db_conn(config, ctx) {
+                let observers_db_conn =
+                    match open_readwrite_observers_db_conn(&moved_config, &moved_ctx) {
                         Ok(con) => con,
                         Err(e) => {
-                            try_error!(ctx, "unable to update observer: {}", e.to_string());
+                            try_error!(&moved_ctx, "unable to enable observer: {}", e.to_string());
                             continue;
                         }
                     };
+                update_observer_streaming_enabled(
+                    &spec.uuid(),
+                    true,
+                    &observers_db_conn,
+                    &moved_ctx,
+                );
+            }
+            ObserverEvent::PredicateDeregistered(uuid) => {
+                let observers_db_conn =
+                    match open_readwrite_observers_db_conn(&moved_config, &moved_ctx) {
+                        Ok(con) => con,
+                        Err(e) => {
+                            try_error!(
+                                &moved_ctx,
+                                "unable to deregister observer: {}",
+                                e.to_string()
+                            );
+                            continue;
+                        }
+                    };
+                remove_entry_from_observers(&uuid, &observers_db_conn, &moved_ctx);
+            }
+            ObserverEvent::BitcoinPredicateTriggered(data) => {
+                if let Some(ref tip) = data.apply.last() {
+                    let observers_db_conn =
+                        match open_readwrite_observers_db_conn(&moved_config, &moved_ctx) {
+                            Ok(con) => con,
+                            Err(e) => {
+                                try_error!(
+                                    &moved_ctx,
+                                    "unable to update observer: {}",
+                                    e.to_string()
+                                );
+                                continue;
+                            }
+                        };
                     let last_block_height_update = tip.block.block_identifier.index;
                     update_observer_progress(
                         &data.chainhook.uuid,
                         last_block_height_update,
                         &observers_db_conn,
-                        ctx,
+                        &moved_ctx,
                     )
                 }
             }
             ObserverEvent::Terminate => {
-                try_info!(ctx, "Terminating runloop");
+                try_info!(&moved_ctx, "Terminating runloop");
                 break;
             }
             _ => {}
         }
-    }
+    });
+
     Ok(shutdown)
 }
 
@@ -319,7 +345,16 @@ fn serialized_predicate_with_status(
 mod test {
     use std::sync::mpsc::channel;
 
-    use chainhook_sdk::utils::Context;
+    use chainhook_sdk::{
+        chainhooks::types::{
+            BitcoinChainhookSpecification, BitcoinPredicateType, ChainhookSpecification,
+            HookAction, HttpHook, InscriptionFeedData, OrdinalOperations,
+        },
+        observer::ObserverEvent,
+        types::BitcoinNetwork,
+        utils::Context,
+    };
+    use crossbeam_channel::{Receiver, Sender};
     use reqwest::Client;
     use rocket::{form::validate::Len, Shutdown};
     use serde_json::{json, Value};
@@ -331,23 +366,18 @@ mod test {
 
     use super::start_observers_http_server;
 
-    fn get_config() -> Config {
+    async fn launch_server(observer_event_rx: Receiver<ObserverEvent>) -> Shutdown {
         let mut config = Config::devnet_default();
         config.http_api = PredicatesApi::On(PredicatesApiConfig {
             http_port: 20456,
             display_logs: true,
         });
         config.storage.observers_working_dir = "tmp".to_string();
-        config
-    }
-
-    async fn launch_server() -> Shutdown {
-        let config = get_config();
         let ctx = Context::empty();
+        delete_observers_db(&config);
         let _ = initialize_observers_db(&config, &ctx);
         let (bitcoin_scan_op_tx, _) = crossbeam_channel::unbounded();
         let (observer_command_tx, _) = channel();
-        let (_, observer_event_rx) = crossbeam_channel::unbounded();
         let shutdown = start_observers_http_server(
             &config,
             &observer_command_tx,
@@ -361,15 +391,15 @@ mod test {
         shutdown
     }
 
-    fn shutdown_server(shutdown: Shutdown) {
-        let config = get_config();
+    fn shutdown_server(observer_event_tx: Sender<ObserverEvent>, shutdown: Shutdown) {
+        let _ = observer_event_tx.send(ObserverEvent::Terminate);
         shutdown.notify();
-        delete_observers_db(&config);
     }
 
     #[tokio::test]
     async fn lists_empty_predicates() {
-        let shutdown = launch_server().await;
+        let (observer_event_tx, observer_event_rx) = crossbeam_channel::unbounded();
+        let shutdown = launch_server(observer_event_rx).await;
 
         let client = Client::new();
         let response = client
@@ -383,12 +413,13 @@ mod test {
         assert_eq!(json["status"], 200);
         assert_eq!(json["result"].as_array().len(), 0);
 
-        shutdown_server(shutdown);
+        shutdown_server(observer_event_tx, shutdown);
     }
 
     #[tokio::test]
     async fn rejects_invalid_predicate() {
-        let shutdown = launch_server().await;
+        let (observer_event_tx, observer_event_rx) = crossbeam_channel::unbounded();
+        let shutdown = launch_server(observer_event_rx).await;
 
         let client = Client::new();
         let response = client
@@ -403,6 +434,90 @@ mod test {
         // TODO: This should be a real error response body instead of a generic rocket error.
         assert_eq!(response.status(), reqwest::StatusCode::UNPROCESSABLE_ENTITY);
 
-        shutdown_server(shutdown);
+        shutdown_server(observer_event_tx, shutdown);
+    }
+
+    #[tokio::test]
+    async fn accepts_valid_predicate() {
+        let (observer_event_tx, observer_event_rx) = crossbeam_channel::unbounded();
+        let shutdown = launch_server(observer_event_rx).await;
+
+        let client = Client::new();
+        let response1 = client
+            .post("http://localhost:20456/v1/observers")
+            .json(&json!({
+                "uuid": "00000001-0001-0001-0001-000000000001",
+                "name": "inscription_feed",
+                "version": 1,
+                "chain": "bitcoin",
+                "networks": {
+                    "mainnet": {
+                        "start_block": 767430,
+                        "if_this": {
+                            "scope": "ordinals_protocol",
+                            "operation": "inscription_feed",
+                        },
+                        "then_that": {
+                            "http_post": {
+                                "url": "http://localhost:3700/payload",
+                                "authorization_header": "Bearer test"
+                            }
+                        }
+                    }
+                }
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response1.status(), reqwest::StatusCode::OK);
+        let json1: Value = response1.json().await.unwrap();
+        assert_eq!(json1["status"], 200);
+        assert_eq!(json1["result"], "00000001-0001-0001-0001-000000000001");
+
+        // Simulate predicate accepted by chainhook-sdk
+        let spec = ChainhookSpecification::Bitcoin(BitcoinChainhookSpecification {
+            uuid: "00000001-0001-0001-0001-000000000001".to_string(),
+            owner_uuid: None,
+            name: "inscription_feed".to_string(),
+            network: BitcoinNetwork::Mainnet,
+            version: 1,
+            blocks: None,
+            start_block: Some(767430),
+            end_block: None,
+            expire_after_occurrence: None,
+            predicate: BitcoinPredicateType::OrdinalsProtocol(OrdinalOperations::InscriptionFeed(
+                InscriptionFeedData {
+                    meta_protocols: None,
+                },
+            )),
+            action: HookAction::HttpPost(HttpHook {
+                url: "http://localhost:3700/payload".to_string(),
+                authorization_header: "Bearer test".to_string(),
+            }),
+            include_proof: false,
+            include_inputs: false,
+            include_outputs: false,
+            include_witness: false,
+            enabled: true,
+            expired_at: None,
+        });
+        let _ = observer_event_tx.send(ObserverEvent::PredicateRegistered(spec.clone()));
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        let _ = observer_event_tx.send(ObserverEvent::PredicateEnabled(spec));
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        let response2 = client
+            .get("http://localhost:20456/v1/observers")
+            .send()
+            .await
+            .unwrap();
+        assert!(response2.status().is_success());
+        let json2: Value = response2.json().await.unwrap();
+        assert_eq!(json2["status"], 200);
+        let results = json2["result"].as_array().unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["uuid"], "00000001-0001-0001-0001-000000000001");
+
+        shutdown_server(observer_event_tx, shutdown);
     }
 }
