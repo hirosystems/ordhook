@@ -10,12 +10,16 @@ use chainhook_sdk::{
     observer::{ObserverCommand, ObserverEvent},
     utils::Context,
 };
-use rocket::serde::json::{json, Json, Value as JsonValue};
-use rocket::State;
 use rocket::{
     config::{self, Config, LogLevel},
     Ignite, Rocket, Shutdown,
 };
+use rocket::{
+    http::Status,
+    response::status,
+    serde::json::{json, Json, Value},
+};
+use rocket::{response::status::Custom, State};
 
 use crate::{
     config::PredicatesApi,
@@ -190,7 +194,7 @@ async fn build_server(
 }
 
 #[get("/ping")]
-fn handle_ping(ctx: &State<Context>) -> Json<JsonValue> {
+fn handle_ping(ctx: &State<Context>) -> Json<Value> {
     try_info!(ctx, "Handling HTTP GET /ping");
     Json(json!({
         "status": 200,
@@ -199,7 +203,10 @@ fn handle_ping(ctx: &State<Context>) -> Json<JsonValue> {
 }
 
 #[get("/v1/observers", format = "application/json")]
-fn handle_get_predicates(config: &State<crate::Config>, ctx: &State<Context>) -> Json<JsonValue> {
+fn handle_get_predicates(
+    config: &State<crate::Config>,
+    ctx: &State<Context>,
+) -> Result<Json<Value>, Custom<Json<Value>>> {
     try_info!(ctx, "Handling HTTP GET /v1/observers");
     match open_readonly_observers_db_conn(config, ctx) {
         Ok(mut db_conn) => {
@@ -208,62 +215,91 @@ fn handle_get_predicates(config: &State<crate::Config>, ctx: &State<Context>) ->
                 .iter()
                 .map(|(p, s)| serialized_predicate_with_status(p, s))
                 .collect::<Vec<_>>();
-
-            Json(json!({
+            Ok(Json(json!({
                 "status": 200,
                 "result": serialized_predicates
-            }))
+            })))
         }
-        Err(e) => Json(json!({
-            "status": 500,
-            "message": e,
-        })),
+        Err(e) => Err(Custom(
+            Status::InternalServerError,
+            Json(json!({
+                "status": 500,
+                "message": e,
+            })),
+        )),
     }
 }
 
 #[post("/v1/observers", format = "application/json", data = "<predicate>")]
 fn handle_create_predicate(
-    predicate: Json<ChainhookFullSpecification>,
+    predicate: Json<Value>,
     config: &State<crate::Config>,
     background_job_tx: &State<Arc<Mutex<Sender<ObserverCommand>>>>,
     ctx: &State<Context>,
-) -> Json<JsonValue> {
+) -> Result<Json<Value>, Custom<Json<Value>>> {
     try_info!(ctx, "Handling HTTP POST /v1/observers");
-    let predicate = predicate.into_inner();
-    if let Err(e) = predicate.validate() {
-        return Json(json!({
-            "status": 422,
-            "error": e,
-        }));
-    }
-
-    let predicate_uuid = predicate.get_uuid().to_string();
-
-    if let Ok(mut predicates_db_conn) = open_readonly_observers_db_conn(config, ctx) {
-        let key: String = format!("{}", ChainhookSpecification::bitcoin_key(&predicate_uuid));
-        match find_observer_with_uuid(&key, &mut predicates_db_conn, &ctx) {
-            Some(_) => {
-                return Json(json!({
-                    "status": 409,
-                    "error": "Predicate uuid already in use",
-                }))
+    let predicate =
+        match serde_json::from_value::<ChainhookFullSpecification>(predicate.into_inner()) {
+            Ok(predicate) => predicate,
+            Err(_) => {
+                return Err(Custom(
+                    Status::UnprocessableEntity,
+                    Json(json!({
+                        "status": 422,
+                        "error": "Invalid predicate JSON",
+                    })),
+                ));
             }
-            _ => {}
-        }
+        };
+    if let Err(e) = predicate.validate() {
+        return Err(Custom(
+            Status::UnprocessableEntity,
+            Json(json!({
+                "status": 422,
+                "error": e,
+            })),
+        ));
     }
-
-    let background_job_tx = background_job_tx.inner();
-    match background_job_tx.lock() {
+    let mut predicates_db_conn = match open_readonly_observers_db_conn(config, ctx) {
+        Ok(conn) => conn,
+        Err(err) => {
+            return Err(Custom(
+                Status::InternalServerError,
+                Json(json!({
+                    "status": 500,
+                    "error": err.to_string(),
+                })),
+            ));
+        }
+    };
+    let predicate_uuid = predicate.get_uuid().to_string();
+    if find_observer_with_uuid(&predicate_uuid, &mut predicates_db_conn, &ctx).is_some() {
+        return Err(status::Custom(
+            Status::Conflict,
+            Json(json!({
+                "status": 409,
+                "error": "Predicate uuid already in use",
+            })),
+        ));
+    }
+    match background_job_tx.inner().lock() {
         Ok(tx) => {
             let _ = tx.send(ObserverCommand::RegisterPredicate(predicate));
         }
-        _ => {}
+        Err(err) => {
+            return Err(Custom(
+                Status::InternalServerError,
+                Json(json!({
+                    "status": 500,
+                    "error": err.to_string(),
+                })),
+            ));
+        }
     };
-
-    Json(json!({
+    Ok(Json(json!({
         "status": 200,
         "result": predicate_uuid,
-    }))
+    })))
 }
 
 #[get("/v1/observers/<predicate_uuid>", format = "application/json")]
@@ -271,63 +307,98 @@ fn handle_get_predicate(
     predicate_uuid: String,
     config: &State<crate::Config>,
     ctx: &State<Context>,
-) -> Json<JsonValue> {
+) -> Result<Json<Value>, Custom<Json<Value>>> {
     try_info!(ctx, "Handling HTTP GET /v1/observers/{}", predicate_uuid);
     match open_readonly_observers_db_conn(config, ctx) {
         Ok(mut predicates_db_conn) => {
-            let key: String = format!("{}", ChainhookSpecification::bitcoin_key(&predicate_uuid));
-            let entry = match find_observer_with_uuid(&key, &mut predicates_db_conn, &ctx) {
-                Some((ChainhookSpecification::Bitcoin(spec), report)) => json!({
-                    "chain": "bitcoin",
-                    "uuid": spec.uuid,
-                    "network": spec.network,
-                    "predicate": spec.predicate,
-                    "status": report,
-                    "enabled": spec.enabled,
-                }),
-                _ => {
-                    return Json(json!({
-                        "status": 404,
-                    }))
-                }
-            };
-            Json(json!({
+            let entry =
+                match find_observer_with_uuid(&predicate_uuid, &mut predicates_db_conn, &ctx) {
+                    Some((ChainhookSpecification::Bitcoin(spec), report)) => json!({
+                        "chain": "bitcoin",
+                        "uuid": spec.uuid,
+                        "network": spec.network,
+                        "predicate": spec.predicate,
+                        "status": report,
+                        "enabled": spec.enabled,
+                    }),
+                    _ => {
+                        return Err(Custom(
+                            Status::NotFound,
+                            Json(json!({
+                                "status": 404,
+                            })),
+                        ))
+                    }
+                };
+            Ok(Json(json!({
                 "status": 200,
                 "result": entry
-            }))
+            })))
         }
-        Err(e) => Json(json!({
-            "status": 500,
-            "message": e,
-        })),
+        Err(e) => Err(Custom(
+            Status::InternalServerError,
+            Json(json!({
+                "status": 500,
+                "message": e,
+            })),
+        )),
     }
 }
 
 #[delete("/v1/observers/<predicate_uuid>", format = "application/json")]
 fn handle_delete_bitcoin_predicate(
     predicate_uuid: String,
+    config: &State<crate::Config>,
     background_job_tx: &State<Arc<Mutex<Sender<ObserverCommand>>>>,
     ctx: &State<Context>,
-) -> Json<JsonValue> {
+) -> Result<Json<Value>, Custom<Json<Value>>> {
     try_info!(ctx, "Handling HTTP DELETE /v1/observers/{}", predicate_uuid);
-    let background_job_tx = background_job_tx.inner();
-    match background_job_tx.lock() {
+    let mut predicates_db_conn = match open_readonly_observers_db_conn(config, ctx) {
+        Ok(conn) => conn,
+        Err(err) => {
+            return Err(Custom(
+                Status::InternalServerError,
+                Json(json!({
+                    "status": 500,
+                    "error": err.to_string(),
+                })),
+            ));
+        }
+    };
+    if find_observer_with_uuid(&predicate_uuid, &mut predicates_db_conn, &ctx).is_none() {
+        return Err(status::Custom(
+            Status::NotFound,
+            Json(json!({
+                "status": 404,
+                "error": "Predicate not found",
+            })),
+        ));
+    }
+    match background_job_tx.inner().lock() {
         Ok(tx) => {
             let _ = tx.send(ObserverCommand::DeregisterBitcoinPredicate(predicate_uuid));
         }
-        _ => {}
+        Err(err) => {
+            return Err(Custom(
+                Status::InternalServerError,
+                Json(json!({
+                    "status": 500,
+                    "error": err.to_string(),
+                })),
+            ));
+        }
     };
 
-    Json(json!({
+    Ok(Json(json!({
         "status": 200,
-        "result": "Ok",
-    }))
+        "result": "Predicate deleted",
+    })))
 }
 
 fn serialized_predicate_with_status(
     predicate: &ChainhookSpecification,
     report: &ObserverReport,
-) -> JsonValue {
+) -> Value {
     match (predicate, report) {
         (ChainhookSpecification::Stacks(_), _) => json!({}),
         (ChainhookSpecification::Bitcoin(spec), report) => json!({
@@ -355,7 +426,7 @@ mod test {
         utils::Context,
     };
     use crossbeam_channel::{Receiver, Sender};
-    use reqwest::Client;
+    use reqwest::{Client, Response};
     use rocket::{form::validate::Len, Shutdown};
     use serde_json::{json, Value};
 
@@ -396,54 +467,11 @@ mod test {
         shutdown.notify();
     }
 
-    #[tokio::test]
-    async fn lists_empty_predicates() {
-        let (observer_event_tx, observer_event_rx) = crossbeam_channel::unbounded();
-        let shutdown = launch_server(observer_event_rx).await;
-
-        let client = Client::new();
+    async fn register_predicate(
+        client: &Client,
+        observer_event_tx: &Sender<ObserverEvent>,
+    ) -> Response {
         let response = client
-            .get("http://localhost:20456/v1/observers")
-            .send()
-            .await
-            .unwrap();
-
-        assert!(response.status().is_success());
-        let json: Value = response.json().await.unwrap();
-        assert_eq!(json["status"], 200);
-        assert_eq!(json["result"].as_array().len(), 0);
-
-        shutdown_server(observer_event_tx, shutdown);
-    }
-
-    #[tokio::test]
-    async fn rejects_invalid_predicate() {
-        let (observer_event_tx, observer_event_rx) = crossbeam_channel::unbounded();
-        let shutdown = launch_server(observer_event_rx).await;
-
-        let client = Client::new();
-        let response = client
-            .post("http://localhost:20456/v1/observers")
-            .json(&json!({
-                "id": 1,
-            }))
-            .send()
-            .await
-            .unwrap();
-
-        // TODO: This should be a real error response body instead of a generic rocket error.
-        assert_eq!(response.status(), reqwest::StatusCode::UNPROCESSABLE_ENTITY);
-
-        shutdown_server(observer_event_tx, shutdown);
-    }
-
-    #[tokio::test]
-    async fn accepts_valid_predicate() {
-        let (observer_event_tx, observer_event_rx) = crossbeam_channel::unbounded();
-        let shutdown = launch_server(observer_event_rx).await;
-
-        let client = Client::new();
-        let response1 = client
             .post("http://localhost:20456/v1/observers")
             .json(&json!({
                 "uuid": "00000001-0001-0001-0001-000000000001",
@@ -469,55 +497,299 @@ mod test {
             .send()
             .await
             .unwrap();
-        assert_eq!(response1.status(), reqwest::StatusCode::OK);
-        let json1: Value = response1.json().await.unwrap();
-        assert_eq!(json1["status"], 200);
-        assert_eq!(json1["result"], "00000001-0001-0001-0001-000000000001");
+        if response.status().is_success() {
+            // Simulate predicate accepted by chainhook-sdk
+            let spec = ChainhookSpecification::Bitcoin(BitcoinChainhookSpecification {
+                uuid: "00000001-0001-0001-0001-000000000001".to_string(),
+                owner_uuid: None,
+                name: "inscription_feed".to_string(),
+                network: BitcoinNetwork::Mainnet,
+                version: 1,
+                blocks: None,
+                start_block: Some(767430),
+                end_block: None,
+                expire_after_occurrence: None,
+                predicate: BitcoinPredicateType::OrdinalsProtocol(
+                    OrdinalOperations::InscriptionFeed(InscriptionFeedData {
+                        meta_protocols: None,
+                    }),
+                ),
+                action: HookAction::HttpPost(HttpHook {
+                    url: "http://localhost:3700/payload".to_string(),
+                    authorization_header: "Bearer test".to_string(),
+                }),
+                include_proof: false,
+                include_inputs: false,
+                include_outputs: false,
+                include_witness: false,
+                enabled: true,
+                expired_at: None,
+            });
+            let _ = observer_event_tx.send(ObserverEvent::PredicateRegistered(spec.clone()));
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            let _ = observer_event_tx.send(ObserverEvent::PredicateEnabled(spec));
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        }
+        response
+    }
 
-        // Simulate predicate accepted by chainhook-sdk
-        let spec = ChainhookSpecification::Bitcoin(BitcoinChainhookSpecification {
-            uuid: "00000001-0001-0001-0001-000000000001".to_string(),
-            owner_uuid: None,
-            name: "inscription_feed".to_string(),
-            network: BitcoinNetwork::Mainnet,
-            version: 1,
-            blocks: None,
-            start_block: Some(767430),
-            end_block: None,
-            expire_after_occurrence: None,
-            predicate: BitcoinPredicateType::OrdinalsProtocol(OrdinalOperations::InscriptionFeed(
-                InscriptionFeedData {
-                    meta_protocols: None,
-                },
-            )),
-            action: HookAction::HttpPost(HttpHook {
-                url: "http://localhost:3700/payload".to_string(),
-                authorization_header: "Bearer test".to_string(),
-            }),
-            include_proof: false,
-            include_inputs: false,
-            include_outputs: false,
-            include_witness: false,
-            enabled: true,
-            expired_at: None,
-        });
-        let _ = observer_event_tx.send(ObserverEvent::PredicateRegistered(spec.clone()));
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-        let _ = observer_event_tx.send(ObserverEvent::PredicateEnabled(spec));
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    async fn delete_predicate(
+        client: &Client,
+        observer_event_tx: &Sender<ObserverEvent>,
+    ) -> Response {
+        let response = client
+            .delete("http://localhost:20456/v1/observers/00000001-0001-0001-0001-000000000001")
+            .header("content-type", "application/json")
+            .send()
+            .await
+            .unwrap();
+        if response.status().is_success() {
+            // Simulate predicate deregistered by chainhook-sdk
+            let _ = observer_event_tx.send(ObserverEvent::PredicateDeregistered(
+                "00000001-0001-0001-0001-000000000001".to_string(),
+            ));
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        }
+        response
+    }
 
-        let response2 = client
+    #[tokio::test]
+    async fn lists_empty_predicates() {
+        let (observer_event_tx, observer_event_rx) = crossbeam_channel::unbounded();
+        let shutdown = launch_server(observer_event_rx).await;
+
+        let client = Client::new();
+        let response = client
             .get("http://localhost:20456/v1/observers")
             .send()
             .await
             .unwrap();
-        assert!(response2.status().is_success());
-        let json2: Value = response2.json().await.unwrap();
+
+        assert!(response.status().is_success());
+        let json: Value = response.json().await.unwrap();
+        assert_eq!(json["status"], 200);
+        assert_eq!(json["result"].as_array().len(), 0);
+
+        shutdown_server(observer_event_tx, shutdown);
+    }
+
+    #[tokio::test]
+    async fn rejects_arbitrary_json() {
+        let (observer_event_tx, observer_event_rx) = crossbeam_channel::unbounded();
+        let shutdown = launch_server(observer_event_rx).await;
+
+        let client = Client::new();
+        let response = client
+            .post("http://localhost:20456/v1/observers")
+            .json(&json!({
+                "id": 1,
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::UNPROCESSABLE_ENTITY);
+        let json: Value = response.json().await.unwrap();
+        assert_eq!(json["status"], 422);
+
+        shutdown_server(observer_event_tx, shutdown);
+    }
+
+    #[tokio::test]
+    async fn rejects_invalid_predicate() {
+        let (observer_event_tx, observer_event_rx) = crossbeam_channel::unbounded();
+        let shutdown = launch_server(observer_event_rx).await;
+
+        let client = Client::new();
+        let response = client
+            .post("http://localhost:20456/v1/observers")
+            .json(&json!({
+                "uuid": "00000001-0001-0001-0001-000000000001",
+                "name": "inscription_feed",
+                "version": 1,
+                "chain": "bitcoin",
+                "networks": {
+                    "mainnet": {
+                        "start_block": 767430,
+                        "end_block": 200, // Invalid
+                        "if_this": {
+                            "scope": "ordinals_protocol",
+                            "operation": "inscription_feed",
+                        },
+                        "then_that": {
+                            "http_post": {
+                                "url": "http://localhost:3700/payload",
+                                "authorization_header": "Bearer test"
+                            }
+                        }
+                    }
+                }
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::UNPROCESSABLE_ENTITY);
+        let json: Value = response.json().await.unwrap();
+        assert_eq!(json["status"], 422);
+        assert_eq!(
+            json["error"],
+            "Chainhook specification field `end_block` should be greater than `start_block`."
+        );
+
+        shutdown_server(observer_event_tx, shutdown);
+    }
+
+    #[tokio::test]
+    async fn accepts_valid_predicate() {
+        let (observer_event_tx, observer_event_rx) = crossbeam_channel::unbounded();
+        let shutdown = launch_server(observer_event_rx).await;
+
+        let client = Client::new();
+        let response = register_predicate(&client, &observer_event_tx).await;
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        let json: Value = response.json().await.unwrap();
+        assert_eq!(json["status"], 200);
+        assert_eq!(json["result"], "00000001-0001-0001-0001-000000000001");
+
+        shutdown_server(observer_event_tx, shutdown);
+    }
+
+    #[tokio::test]
+    async fn lists_predicate() {
+        let (observer_event_tx, observer_event_rx) = crossbeam_channel::unbounded();
+        let shutdown = launch_server(observer_event_rx).await;
+
+        let client = Client::new();
+        let _ = register_predicate(&client, &observer_event_tx).await;
+        let response = client
+            .get("http://localhost:20456/v1/observers")
+            .send()
+            .await
+            .unwrap();
+        assert!(response.status().is_success());
+        let json2: Value = response.json().await.unwrap();
         assert_eq!(json2["status"], 200);
         let results = json2["result"].as_array().unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0]["uuid"], "00000001-0001-0001-0001-000000000001");
 
         shutdown_server(observer_event_tx, shutdown);
+    }
+
+    #[tokio::test]
+    async fn shows_predicate() {
+        let (observer_event_tx, observer_event_rx) = crossbeam_channel::unbounded();
+        let shutdown = launch_server(observer_event_rx).await;
+
+        let client = Client::new();
+        let _ = register_predicate(&client, &observer_event_tx).await;
+        let response = client
+            .get("http://localhost:20456/v1/observers/00000001-0001-0001-0001-000000000001")
+            .send()
+            .await
+            .unwrap();
+        assert!(response.status().is_success());
+        let json: Value = response.json().await.unwrap();
+        assert_eq!(json["status"], 200);
+        assert_eq!(
+            json["result"]["uuid"],
+            "00000001-0001-0001-0001-000000000001"
+        );
+
+        shutdown_server(observer_event_tx, shutdown);
+    }
+
+    #[tokio::test]
+    async fn rejects_duplicate_predicate_uuid() {
+        let (observer_event_tx, observer_event_rx) = crossbeam_channel::unbounded();
+        let shutdown = launch_server(observer_event_rx).await;
+
+        let client = Client::new();
+        let _ = register_predicate(&client, &observer_event_tx).await;
+        let response = client
+            .delete("http://localhost:20456/v1/observers/00000001-0001-0001-0001-000000000001")
+            .send()
+            .await
+            .unwrap();
+        assert!(response.status().is_success());
+        let json: Value = response.json().await.unwrap();
+        assert_eq!(json["status"], 200);
+        assert_eq!(
+            json["result"]["uuid"],
+            "00000001-0001-0001-0001-000000000001"
+        );
+
+        shutdown_server(observer_event_tx, shutdown);
+    }
+
+    #[tokio::test]
+    async fn deletes_registered_predicate() {
+        let (observer_event_tx, observer_event_rx) = crossbeam_channel::unbounded();
+        let shutdown = launch_server(observer_event_rx).await;
+
+        let client = Client::new();
+        let _ = register_predicate(&client, &observer_event_tx).await;
+        let response = delete_predicate(&client, &observer_event_tx).await;
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        let json: Value = response.json().await.unwrap();
+        assert_eq!(json["status"], 200);
+
+        shutdown_server(observer_event_tx, shutdown);
+    }
+
+    #[tokio::test]
+    async fn unlists_deleted_predicate() {
+        let (observer_event_tx, observer_event_rx) = crossbeam_channel::unbounded();
+        let shutdown = launch_server(observer_event_rx).await;
+
+        let client = Client::new();
+        let _ = register_predicate(&client, &observer_event_tx).await;
+        let _ = delete_predicate(&client, &observer_event_tx).await;
+        let response = client
+            .get("http://localhost:20456/v1/observers")
+            .send()
+            .await
+            .unwrap();
+        assert!(response.status().is_success());
+        let json: Value = response.json().await.unwrap();
+        assert_eq!(json["result"].as_array().len(), 0);
+
+        shutdown_server(observer_event_tx, shutdown);
+    }
+
+    #[tokio::test]
+    async fn unshows_deleted_predicate() {
+        let (observer_event_tx, observer_event_rx) = crossbeam_channel::unbounded();
+        let shutdown = launch_server(observer_event_rx).await;
+
+        let client = Client::new();
+        let _ = register_predicate(&client, &observer_event_tx).await;
+        let _ = delete_predicate(&client, &observer_event_tx).await;
+        let response = client
+            .get("http://localhost:20456/v1/observers/00000001-0001-0001-0001-000000000001")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
+
+        shutdown_server(observer_event_tx, shutdown);
+    }
+
+    #[tokio::test]
+    async fn rejects_non_existing_predicate_delete() {
+        let (observer_event_tx, observer_event_rx) = crossbeam_channel::unbounded();
+        let shutdown = launch_server(observer_event_rx).await;
+
+        let client = Client::new();
+        let response = delete_predicate(&client, &observer_event_tx).await;
+        assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
+        let json: Value = response.json().await.unwrap();
+        assert_eq!(json["status"], 404);
+
+        shutdown_server(observer_event_tx, shutdown);
+    }
+
+    #[tokio::test]
+    async fn accepts_ping() {
+        //
     }
 }
