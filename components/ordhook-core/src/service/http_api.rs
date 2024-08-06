@@ -705,18 +705,10 @@ mod test {
 
         let client = Client::new();
         let _ = register_predicate(&client, &observer_event_tx).await;
-        let response = client
-            .delete("http://localhost:20456/v1/observers/00000001-0001-0001-0001-000000000001")
-            .send()
-            .await
-            .unwrap();
-        assert!(response.status().is_success());
+        let response = register_predicate(&client, &observer_event_tx).await;
+        assert_eq!(response.status(), reqwest::StatusCode::CONFLICT);
         let json: Value = response.json().await.unwrap();
-        assert_eq!(json["status"], 200);
-        assert_eq!(
-            json["result"]["uuid"],
-            "00000001-0001-0001-0001-000000000001"
-        );
+        assert_eq!(json["status"], 409);
 
         shutdown_server(observer_event_tx, shutdown);
     }
