@@ -65,6 +65,10 @@ impl ConfigFile {
         let config = Config {
             storage: StorageConfig {
                 working_dir: config_file.storage.working_dir.unwrap_or("ordhook".into()),
+                observers_working_dir: config_file
+                    .storage
+                    .observers_working_dir
+                    .unwrap_or("observers".into()),
             },
             http_api: match config_file.http_api {
                 None => PredicatesApi::Off,
@@ -176,6 +180,7 @@ pub struct LogConfigFile {
 #[derive(Deserialize, Debug, Clone)]
 pub struct StorageConfigFile {
     pub working_dir: Option<String>,
+    pub observers_working_dir: Option<String>,
 }
 
 #[derive(Deserialize, Debug, Clone)]

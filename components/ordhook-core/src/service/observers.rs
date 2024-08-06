@@ -73,32 +73,32 @@ pub fn insert_entry_in_observers(
     }
 }
 
-pub fn get_default_observers_db_file_path(base_dir: &PathBuf) -> PathBuf {
-    let mut destination_path = base_dir.clone();
+fn get_default_observers_db_file_path(config: &Config) -> PathBuf {
+    let mut destination_path = config.expected_observers_cache_path().clone();
     destination_path.push("observers.sqlite");
     destination_path
 }
 
 pub fn open_readonly_observers_db_conn(
-    base_dir: &PathBuf,
+    config: &Config,
     ctx: &Context,
 ) -> Result<Connection, String> {
-    let db_path = get_default_observers_db_file_path(&base_dir);
+    let db_path = get_default_observers_db_file_path(config);
     let conn = open_existing_readonly_db(&db_path, ctx);
     Ok(conn)
 }
 
 pub fn open_readwrite_observers_db_conn(
-    base_dir: &PathBuf,
+    config: &Config,
     ctx: &Context,
 ) -> Result<Connection, String> {
-    let db_path = get_default_observers_db_file_path(&base_dir);
+    let db_path = get_default_observers_db_file_path(config);
     let conn = create_or_open_readwrite_db(Some(&db_path), ctx);
     Ok(conn)
 }
 
-pub fn open_readwrite_observers_db_conn_or_panic(base_dir: &PathBuf, ctx: &Context) -> Connection {
-    let conn = match open_readwrite_observers_db_conn(base_dir, ctx) {
+pub fn open_readwrite_observers_db_conn_or_panic(config: &Config, ctx: &Context) -> Connection {
+    let conn = match open_readwrite_observers_db_conn(config, ctx) {
         Ok(con) => con,
         Err(message) => {
             error!(ctx.expect_logger(), "Storage: {}", message.to_string());
@@ -108,8 +108,8 @@ pub fn open_readwrite_observers_db_conn_or_panic(base_dir: &PathBuf, ctx: &Conte
     conn
 }
 
-pub fn initialize_observers_db(base_dir: &PathBuf, ctx: &Context) -> Connection {
-    let db_path = get_default_observers_db_file_path(&base_dir);
+pub fn initialize_observers_db(config: &Config, ctx: &Context) -> Connection {
+    let db_path = get_default_observers_db_file_path(config);
     let conn = create_or_open_readwrite_db(Some(&db_path), ctx);
     // TODO: introduce initial output
     if let Err(e) = conn.execute(
@@ -124,6 +124,12 @@ pub fn initialize_observers_db(base_dir: &PathBuf, ctx: &Context) -> Connection 
         try_warn!(ctx, "Unable to create table observers: {}", e.to_string());
     }
     conn
+}
+
+#[cfg(test)]
+pub fn delete_observers_db(config: &Config) {
+    let path = get_default_observers_db_file_path(config);
+    let _ = std::fs::remove_file(path);
 }
 
 #[derive(Default, Clone, Serialize, Deserialize)]
@@ -263,7 +269,7 @@ pub fn create_and_consolidate_chainhook_config_with_predicates(
         ));
     }
 
-    let observers_db_conn = initialize_observers_db(&config.expected_cache_path(), ctx);
+    let observers_db_conn = initialize_observers_db(config, ctx);
 
     let mut observers_to_catchup = vec![];
     let mut observers_to_clean_up = vec![];

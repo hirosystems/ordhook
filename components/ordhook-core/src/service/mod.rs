@@ -29,12 +29,7 @@ use crate::db::{
 };
 use crate::db::{find_missing_blocks, run_compaction, update_sequence_metadata_with_block};
 use crate::scan::bitcoin::process_block_with_predicates;
-use crate::service::http_api::start_predicate_api_server;
-use crate::service::observers::{
-    create_and_consolidate_chainhook_config_with_predicates, insert_entry_in_observers,
-    open_readwrite_observers_db_conn, remove_entry_from_observers, update_observer_progress,
-    update_observer_streaming_enabled, ObserverReport,
-};
+use crate::service::observers::create_and_consolidate_chainhook_config_with_predicates;
 use crate::service::runloops::start_bitcoin_scan_runloop;
 use crate::{try_debug, try_error, try_info};
 use chainhook_sdk::chainhooks::bitcoin::BitcoinChainhookOccurrencePayload;
@@ -55,6 +50,7 @@ use crossbeam_channel::unbounded;
 use crossbeam_channel::{select, Sender};
 use dashmap::DashMap;
 use fxhash::FxHasher;
+use http_api::start_observers_http_server;
 use rusqlite::Transaction;
 
 use std::collections::{BTreeMap, HashMap};
@@ -250,7 +246,7 @@ impl Service {
         &self,
         observer_command_tx: &std::sync::mpsc::Sender<ObserverCommand>,
         observer_event_rx: crossbeam_channel::Receiver<ObserverEvent>,
-        predicate_activity_relayer: Option<
+        _predicate_activity_relayer: Option<
             crossbeam_channel::Sender<BitcoinChainhookOccurrencePayload>,
         >,
     ) -> Result<(), String> {
@@ -269,141 +265,19 @@ impl Service {
             })
             .expect("unable to spawn thread");
 
-        if let PredicatesApi::On(ref api_config) = self.config.http_api {
-            info!(
-                self.ctx.expect_logger(),
-                "Listening on port {} for chainhook predicate registrations", api_config.http_port
-            );
-            let ctx = self.ctx.clone();
-            let api_config = api_config.clone();
-            let moved_observer_command_tx = observer_command_tx.clone();
-            let db_dir_path = self.config.expected_cache_path();
-            // Test and initialize a database connection
-            let _ = hiro_system_kit::thread_named("HTTP Predicate API").spawn(move || {
-                let future = start_predicate_api_server(
-                    api_config.http_port,
-                    db_dir_path,
-                    moved_observer_command_tx,
-                    ctx,
-                );
-                let _ = hiro_system_kit::nestable_block_on(future);
+        if let PredicatesApi::On(_) = self.config.http_api {
+            let moved_config = self.config.clone();
+            let moved_ctx = self.ctx.clone();
+            let moved_observer_commands_tx = observer_command_tx.clone();
+            let _ = hiro_system_kit::thread_named("HTTP Observers API").spawn(move || {
+                let _ = hiro_system_kit::nestable_block_on(start_observers_http_server(
+                    &moved_config,
+                    &moved_observer_commands_tx,
+                    observer_event_rx,
+                    bitcoin_scan_op_tx,
+                    &moved_ctx,
+                ));
             });
-        }
-
-        loop {
-            let event = match observer_event_rx.recv() {
-                Ok(cmd) => cmd,
-                Err(e) => {
-                    error!(
-                        self.ctx.expect_logger(),
-                        "Error: broken channel {}",
-                        e.to_string()
-                    );
-                    break;
-                }
-            };
-            match event {
-                ObserverEvent::PredicateRegistered(spec) => {
-                    // ?? That seems weird?
-                    // If start block specified, use it.
-                    // If no start block specified, depending on the nature the hook, we'd like to retrieve:
-                    // - contract-id
-                    let observers_db_conn = match open_readwrite_observers_db_conn(
-                        &self.config.expected_cache_path(),
-                        &self.ctx,
-                    ) {
-                        Ok(con) => con,
-                        Err(e) => {
-                            error!(
-                                self.ctx.expect_logger(),
-                                "unable to register predicate: {}",
-                                e.to_string()
-                            );
-                            continue;
-                        }
-                    };
-                    let report = ObserverReport::default();
-                    insert_entry_in_observers(&spec, &report, &observers_db_conn, &self.ctx);
-                    match spec {
-                        ChainhookSpecification::Stacks(_predicate_spec) => {}
-                        ChainhookSpecification::Bitcoin(predicate_spec) => {
-                            let _ = bitcoin_scan_op_tx.send(predicate_spec);
-                        }
-                    }
-                }
-                ObserverEvent::PredicateEnabled(spec) => {
-                    let observers_db_conn = match open_readwrite_observers_db_conn(
-                        &self.config.expected_cache_path(),
-                        &self.ctx,
-                    ) {
-                        Ok(con) => con,
-                        Err(e) => {
-                            error!(
-                                self.ctx.expect_logger(),
-                                "unable to enable observer: {}",
-                                e.to_string()
-                            );
-                            continue;
-                        }
-                    };
-                    update_observer_streaming_enabled(
-                        &spec.uuid(),
-                        true,
-                        &observers_db_conn,
-                        &self.ctx,
-                    );
-                }
-                ObserverEvent::PredicateDeregistered(uuid) => {
-                    let observers_db_conn = match open_readwrite_observers_db_conn(
-                        &self.config.expected_cache_path(),
-                        &self.ctx,
-                    ) {
-                        Ok(con) => con,
-                        Err(e) => {
-                            error!(
-                                self.ctx.expect_logger(),
-                                "unable to deregister observer: {}",
-                                e.to_string()
-                            );
-                            continue;
-                        }
-                    };
-                    remove_entry_from_observers(&uuid, &observers_db_conn, &self.ctx);
-                }
-                ObserverEvent::BitcoinPredicateTriggered(data) => {
-                    if let Some(ref tip) = data.apply.last() {
-                        let observers_db_conn = match open_readwrite_observers_db_conn(
-                            &self.config.expected_cache_path(),
-                            &self.ctx,
-                        ) {
-                            Ok(con) => con,
-                            Err(e) => {
-                                error!(
-                                    self.ctx.expect_logger(),
-                                    "unable to update observer: {}",
-                                    e.to_string()
-                                );
-                                continue;
-                            }
-                        };
-                        let last_block_height_update = tip.block.block_identifier.index;
-                        update_observer_progress(
-                            &data.chainhook.uuid,
-                            last_block_height_update,
-                            &observers_db_conn,
-                            &self.ctx,
-                        )
-                    }
-                    if let Some(ref tx) = predicate_activity_relayer {
-                        let _ = tx.send(data);
-                    }
-                }
-                ObserverEvent::Terminate => {
-                    info!(self.ctx.expect_logger(), "Terminating runloop");
-                    break;
-                }
-                _ => {}
-            }
         }
 
         Ok(())

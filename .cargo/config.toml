@@ -1,2 +1,5 @@
 [alias]
 ordhook-install = "install --path components/ordhook-cli --locked --force"
+
+[env]
+RUST_TEST_THREADS = "1"
