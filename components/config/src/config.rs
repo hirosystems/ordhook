@@ -10,6 +10,7 @@ pub const DEFAULT_MEMORY_AVAILABLE: usize = 8;
 pub const DEFAULT_BITCOIND_RPC_THREADS: usize = 4;
 pub const DEFAULT_BITCOIND_RPC_TIMEOUT: u32 = 15;
 pub const DEFAULT_LRU_CACHE_SIZE: usize = 50_000;
+pub const DEFAULT_INDEXER_CHANNEL_CAPACITY: usize = 10;
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -84,6 +85,7 @@ pub struct ResourcesConfig {
     pub memory_available: usize,
     pub bitcoind_rpc_threads: usize,
     pub bitcoind_rpc_timeout: u32,
+    pub indexer_channel_capacity: usize,
 }
 
 impl ResourcesConfig {
@@ -117,6 +119,7 @@ impl Config {
                 ulimit: DEFAULT_ULIMIT,
                 bitcoind_rpc_threads: DEFAULT_BITCOIND_RPC_THREADS,
                 bitcoind_rpc_timeout: DEFAULT_BITCOIND_RPC_TIMEOUT,
+                indexer_channel_capacity: DEFAULT_INDEXER_CHANNEL_CAPACITY,
             },
             bitcoind: BitcoindConfig {
                 rpc_url: "http://0.0.0.0:18443".into(),

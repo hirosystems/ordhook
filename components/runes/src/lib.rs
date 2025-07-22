@@ -23,7 +23,8 @@ async fn new_runes_indexer_runloop(
     config: &Config,
     ctx: &Context,
 ) -> Result<Indexer, String> {
-    let (commands_tx, commands_rx) = crossbeam_channel::unbounded::<IndexerCommand>();
+    let (commands_tx, commands_rx) =
+        crossbeam_channel::bounded(config.resources.indexer_channel_capacity);
 
     let config_moved = config.clone();
     let ctx_moved = ctx.clone();

@@ -8,8 +8,8 @@ use bitcoin::Network;
 use crate::{
     BitcoindConfig, Config, MetricsConfig, OrdinalsBrc20Config, OrdinalsConfig,
     OrdinalsMetaProtocolsConfig, PgDatabaseConfig, ResourcesConfig, RunesConfig, StorageConfig,
-    DEFAULT_BITCOIND_RPC_THREADS, DEFAULT_BITCOIND_RPC_TIMEOUT, DEFAULT_LRU_CACHE_SIZE,
-    DEFAULT_MEMORY_AVAILABLE, DEFAULT_ULIMIT, DEFAULT_WORKING_DIR,
+    DEFAULT_BITCOIND_RPC_THREADS, DEFAULT_BITCOIND_RPC_TIMEOUT, DEFAULT_INDEXER_CHANNEL_CAPACITY,
+    DEFAULT_LRU_CACHE_SIZE, DEFAULT_MEMORY_AVAILABLE, DEFAULT_ULIMIT, DEFAULT_WORKING_DIR,
 };
 
 #[derive(Deserialize, Clone, Debug)]
@@ -73,6 +73,7 @@ pub struct ResourcesConfigToml {
     pub memory_available: Option<usize>,
     pub bitcoind_rpc_threads: Option<usize>,
     pub bitcoind_rpc_timeout: Option<u32>,
+    pub indexer_channel_capacity: Option<usize>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -184,6 +185,10 @@ impl ConfigToml {
                     .resources
                     .bitcoind_rpc_timeout
                     .unwrap_or(DEFAULT_BITCOIND_RPC_TIMEOUT),
+                indexer_channel_capacity: toml
+                    .resources
+                    .indexer_channel_capacity
+                    .unwrap_or(DEFAULT_INDEXER_CHANNEL_CAPACITY),
             },
             bitcoind: BitcoindConfig {
                 rpc_url: toml.bitcoind.rpc_url.to_string(),

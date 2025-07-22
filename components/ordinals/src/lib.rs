@@ -57,7 +57,8 @@ async fn new_ordinals_indexer_runloop(
     config: &Config,
     ctx: &Context,
 ) -> Result<Indexer, String> {
-    let (commands_tx, commands_rx) = crossbeam_channel::unbounded::<IndexerCommand>();
+    let (commands_tx, commands_rx) =
+        crossbeam_channel::bounded(config.resources.indexer_channel_capacity);
     let pg_pools = pg_pools(config);
 
     let config_moved = config.clone();

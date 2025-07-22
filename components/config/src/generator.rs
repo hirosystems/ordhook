@@ -48,6 +48,7 @@ cpu_core_available = 6
 memory_available = 16
 bitcoind_rpc_threads = 2
 bitcoind_rpc_timeout = 15
+indexer_channel_capacity = 10
 "#,
         network = network.to_lowercase(),
     );
