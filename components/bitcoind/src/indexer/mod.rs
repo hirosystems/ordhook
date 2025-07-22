@@ -13,13 +13,13 @@ use bitcoin::{
     pipeline::start_block_download_pipeline, standardize_bitcoin_block,
 };
 use config::Config;
-use crossbeam_channel::{Receiver, Sender};
+use crossbeam_channel::{Receiver, Sender, TrySendError};
 use reqwest::Client;
 
 use self::fork_scratch_pad::ForkScratchPad;
 use crate::{
     observer::zmq::start_zeromq_pipeline,
-    try_debug, try_info,
+    try_debug, try_info, try_warn,
     types::{BitcoinBlockData, BitcoinNetwork, BlockIdentifier, BlockchainEvent},
     utils::{
         bitcoind::{bitcoind_get_chain_tip, bitcoind_wait_for_chain_tip},
