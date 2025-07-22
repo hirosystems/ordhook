@@ -65,6 +65,37 @@ pub struct Indexer {
     pub thread_handle: JoinHandle<()>,
 }
 
+/// Helper function to send indexer commands with fullness logging.
+fn send_indexer_command(
+    tx: &crossbeam_channel::Sender<IndexerCommand>,
+    mut cmd: IndexerCommand,
+    config: &Config,
+    ctx: &Context,
+) -> Result<(), String> {
+    let mut logged = false;
+    loop {
+        match tx.try_send(cmd) {
+            Ok(()) => break,
+            Err(TrySendError::Full(returned_cmd)) => {
+                cmd = returned_cmd;
+                if !logged {
+                    try_warn!(
+                        ctx,
+                        "Indexer command channel full, waiting for space (capacity: {})",
+                        config.resources.indexer_channel_capacity
+                    );
+                    logged = true;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            }
+            Err(TrySendError::Disconnected(_)) => {
+                return Err("Indexer command channel disconnected".into())
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Moves our block pool with a newly received standardized block
 async fn advance_block_pool(
     block: BitcoinBlockData,
@@ -104,12 +135,15 @@ async fn advance_block_pool(
                                     block_store_guard.remove(&header.block_identifier).unwrap(),
                                 );
                             }
-                            indexer_commands_tx
-                                .send(IndexerCommand::IndexBlocks {
+                            send_indexer_command(
+                                indexer_commands_tx,
+                                IndexerCommand::IndexBlocks {
                                     apply_blocks,
                                     rollback_block_ids: vec![],
-                                })
-                                .map_err(|e| e.to_string())?;
+                                },
+                                config,
+                                ctx,
+                            )?;
                             (header, true)
                         }
                         BlockchainEvent::BlockchainUpdatedWithReorg(event) => {
@@ -124,12 +158,15 @@ async fn advance_block_pool(
                                 .iter()
                                 .map(|h| h.block_identifier.clone())
                                 .collect();
-                            indexer_commands_tx
-                                .send(IndexerCommand::IndexBlocks {
+                            send_indexer_command(
+                                indexer_commands_tx,
+                                IndexerCommand::IndexBlocks {
                                     apply_blocks,
                                     rollback_block_ids,
-                                })
-                                .map_err(|e| e.to_string())?;
+                                },
+                                config,
+                                ctx,
+                            )?;
                             (header, true)
                         }
                     },
@@ -248,9 +285,12 @@ async fn block_ingestion_runloop(
         };
 
         if !compacted_blocks.is_empty() {
-            indexer_commands_tx
-                .send(IndexerCommand::StoreCompactedBlocks(compacted_blocks))
-                .map_err(|e| e.to_string())?;
+            send_indexer_command(
+                indexer_commands_tx,
+                IndexerCommand::StoreCompactedBlocks(compacted_blocks),
+                config,
+                ctx,
+            )?;
         }
         for block in blocks.into_iter() {
             advance_block_pool(
