@@ -29,6 +29,7 @@ zmq = "0.10.0"
 lazy_static = "1.4.0"
 schemars = { version = "0.8.16", git = "https://github.com/hirosystems/schemars.git", branch = "feat-chainhook-fixes" }
 strum = { version = "0.23.0", features = ["derive"] }
+dhat = { version = "0.3.3", optional = true }
 
 [dev-dependencies]
 assert-json-diff = "2.0.2"
@@ -38,3 +39,4 @@ test-case = "3.1.0"
 default = ["hiro-system-kit/log"]
 debug = ["hiro-system-kit/debug"]
 release = ["hiro-system-kit/release_debug", "hiro-system-kit/full_log_level_prefix"]
+dhat-heap = ["dhat"]

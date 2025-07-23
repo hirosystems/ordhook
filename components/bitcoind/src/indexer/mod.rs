@@ -19,7 +19,7 @@ use reqwest::Client;
 use self::fork_scratch_pad::ForkScratchPad;
 use crate::{
     observer::zmq::start_zeromq_pipeline,
-    try_debug, try_info, try_warn,
+    try_debug, try_info,
     types::{BitcoinBlockData, BitcoinNetwork, BlockIdentifier, BlockchainEvent},
     utils::{
         bitcoind::{bitcoind_get_chain_tip, bitcoind_wait_for_chain_tip},
@@ -79,7 +79,7 @@ fn send_indexer_command(
             Err(TrySendError::Full(returned_cmd)) => {
                 cmd = returned_cmd;
                 if !logged {
-                    try_warn!(
+                    try_debug!(
                         ctx,
                         "Indexer command channel full, waiting for space (capacity: {})",
                         config.resources.indexer_channel_capacity
@@ -264,6 +264,9 @@ async fn block_ingestion_runloop(
     config: &Config,
     ctx: &Context,
 ) -> Result<(), String> {
+    #[cfg(feature = "dhat-heap")]
+    let _profiler = dhat::Profiler::new_heap();
+
     // Before starting the loop, check if the index already has progress. If so, prime the block pool with the current tip.
     if let Some(index_chain_tip) = index_chain_tip {
         if index_chain_tip.index >= sequence_start_block_height {
