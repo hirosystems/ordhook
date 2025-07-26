@@ -3235,6 +3235,7 @@ dependencies = [
  "crossbeam-channel",
  "ctrlc",
  "deadpool-postgres",
+ "dhat",
  "hex",
  "hiro-system-kit",
  "hyper 0.14.27",

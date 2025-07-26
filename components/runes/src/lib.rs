@@ -2,6 +2,7 @@ use std::thread::JoinHandle;
 
 use bitcoind::{
     indexer::{start_bitcoin_indexer, Indexer, IndexerCommand},
+    try_error, try_info, try_warn,
     types::BlockIdentifier,
     utils::{future_block_on, Context},
 };
@@ -18,6 +19,10 @@ extern crate serde;
 pub mod db;
 pub mod utils;
 
+#[cfg(feature = "dhat-heap")]
+#[global_allocator]
+static ALLOC: dhat::Alloc = dhat::Alloc;
+
 async fn new_runes_indexer_runloop(
     prometheus: &PrometheusMonitoring,
     config: &Config,
@@ -32,6 +37,9 @@ async fn new_runes_indexer_runloop(
     let handle: JoinHandle<()> = hiro_system_kit::thread_named("runes_indexer")
         .spawn(move || {
             future_block_on(&ctx_moved.clone(), async move {
+                #[cfg(feature = "dhat-heap")]
+                let _profiler = dhat::Profiler::new_heap();
+
                 let mut index_cache = IndexCache::new(
                     &config_moved,
                     &mut pg_connect(&config_moved, false, &ctx_moved).await,
@@ -42,7 +50,11 @@ async fn new_runes_indexer_runloop(
                     match commands_rx.recv() {
                         Ok(command) => match command {
                             IndexerCommand::StoreCompactedBlocks(_) => {
-                                // No-op
+                                // No-op. The Runes indexer has no need for compacted blocks.
+                                try_warn!(
+                                    ctx_moved,
+                                    "Runes indexer received unexpected StoreCompactedBlocks command"
+                                );
                             }
                             IndexerCommand::IndexBlocks {
                                 mut apply_blocks,
@@ -65,8 +77,19 @@ async fn new_runes_indexer_runloop(
                                     .await;
                                 }
                             }
+                            IndexerCommand::Terminate => {
+                                try_info!(ctx_moved, "Runes indexer received Terminate command");
+                                return Ok(());
+                            }
                         },
-                        Err(_) => todo!(),
+                        Err(error) => {
+                            try_error!(
+                                ctx_moved,
+                                "Runes indexer received invalid command: {}",
+                                error
+                            );
+                            return Err(error.to_string());
+                        }
                     }
                 }
             });
@@ -83,7 +106,7 @@ async fn new_runes_indexer_runloop(
     Ok(Indexer {
         commands_tx,
         chain_tip: Some(chain_tip),
-        thread_handle: handle,
+        thread_handle: Some(handle),
     })
 }
 
@@ -114,7 +137,7 @@ pub async fn start_runes_indexer(
 ) -> Result<(), String> {
     pg_connect(config, true, ctx).await;
     let prometheus = PrometheusMonitoring::new();
-    let indexer = new_runes_indexer_runloop(&prometheus, config, ctx).await?;
+    let mut indexer = new_runes_indexer_runloop(&prometheus, config, ctx).await?;
 
     if let Some(metrics) = &config.metrics {
         if metrics.enabled {
@@ -145,7 +168,7 @@ pub async fn start_runes_indexer(
         .await?;
 
     start_bitcoin_indexer(
-        &indexer,
+        &mut indexer,
         get_rune_genesis_block_height(config.bitcoind.network),
         stream_blocks_at_chain_tip,
         false,

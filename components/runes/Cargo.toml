@@ -28,6 +28,7 @@ num-traits = "0.2.14"
 maplit = "1.0.2"
 prometheus = { workspace = true }
 hyper = { version = "0.14", features = ["full"] }
+dhat = { version = "0.3.3", optional = true }
 
 [dev-dependencies]
 test-case = "3.1.0"
@@ -35,3 +36,4 @@ test-case = "3.1.0"
 [features]
 debug = ["hiro-system-kit/debug"]
 release = ["hiro-system-kit/release"]
+dhat-heap = ["dhat"]

@@ -12,3 +12,7 @@ pub mod indexer;
 pub mod observer;
 pub mod types;
 pub mod utils;
+
+#[cfg(feature = "dhat-heap")]
+#[global_allocator]
+static ALLOC: dhat::Alloc = dhat::Alloc;

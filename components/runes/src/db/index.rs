@@ -34,7 +34,7 @@ fn bitcoin_tx_from_chainhook_tx(
     block: &BitcoinBlockData,
     tx: &BitcoinTransactionData,
 ) -> (Transaction, HashMap<u32, ScriptBuf>, Option<u32>, u32) {
-    let mut outputs = vec![];
+    let mut outputs = Vec::with_capacity(tx.metadata.outputs.len());
     let mut eligible_outputs = HashMap::new();
     let mut first_eligible_output: Option<u32> = None;
     for (i, output) in tx.metadata.outputs.iter().enumerate() {

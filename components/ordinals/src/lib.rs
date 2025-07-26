@@ -12,7 +12,7 @@ use std::{sync::Arc, thread::JoinHandle};
 
 use bitcoind::{
     indexer::{start_bitcoin_indexer, Indexer, IndexerCommand},
-    try_debug,
+    try_debug, try_info,
     types::BlockIdentifier,
     utils::{future_block_on, Context},
 };
@@ -137,6 +137,10 @@ async fn new_ordinals_indexer_runloop(
                                     garbage_collect_nth_block = 0;
                                 }
                             }
+                            IndexerCommand::Terminate => {
+                                try_info!(ctx_moved, "Ordinals indexer received Terminate command");
+                                return Ok(());
+                            }
                         },
                         Err(e) => return Err(format!("ordinals indexer channel error: {e}")),
                     }
@@ -181,7 +185,7 @@ async fn new_ordinals_indexer_runloop(
     Ok(Indexer {
         commands_tx,
         chain_tip,
-        thread_handle: handle,
+        thread_handle: Some(handle),
     })
 }
 
@@ -231,7 +235,7 @@ pub async fn start_ordinals_indexer(
         .initialize(max_inscription_number, chain_tip.index, &pg_pools)
         .await?;
 
-    let indexer = new_ordinals_indexer_runloop(&prometheus, config, ctx).await?;
+    let mut indexer = new_ordinals_indexer_runloop(&prometheus, config, ctx).await?;
 
     if let Some(metrics) = &config.metrics {
         if metrics.enabled {
@@ -249,7 +253,7 @@ pub async fn start_ordinals_indexer(
     }
 
     start_bitcoin_indexer(
-        &indexer,
+        &mut indexer,
         first_inscription_height(config),
         stream_blocks_at_chain_tip,
         true,

@@ -31,7 +31,7 @@ fn new_zmq_socket() -> Socket {
 }
 
 pub async fn start_zeromq_pipeline(
-    blocks_post_processor: &BlockProcessor,
+    block_processor: &mut BlockProcessor,
     start_sequencing_blocks_at_height: u64,
     compress_blocks: bool,
     config: &Config,
@@ -52,6 +52,7 @@ pub async fn start_zeromq_pipeline(
         "zmq: Connected, waiting for ZMQ messages from bitcoind"
     );
 
+    // TODO: Graceful shutdown.
     loop {
         let msg = match socket.recv_multipart(0) {
             Ok(msg) => msg,
@@ -107,7 +108,7 @@ pub async fn start_zeromq_pipeline(
         } else {
             vec![]
         };
-        blocks_post_processor
+        block_processor
             .commands_tx
             .send(BlockProcessorCommand::ProcessBlocks {
                 compacted_blocks,

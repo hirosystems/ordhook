@@ -27,6 +27,7 @@ use crate::{
     },
 };
 
+/// Commands that can be sent to the block processor.
 pub enum BlockProcessorCommand {
     ProcessBlocks {
         compacted_blocks: Vec<(u64, Vec<u8>)>,
@@ -35,24 +36,25 @@ pub enum BlockProcessorCommand {
     Terminate,
 }
 
-pub enum BlockProcessorEvent {
-    Terminated,
-    Expired,
-}
-
 /// Object that will receive any blocks as they come from bitcoind. These messages do not track any canonical chain alterations.
 pub struct BlockProcessor {
+    /// Sender for emitting block processor commands.
     pub commands_tx: crossbeam_channel::Sender<BlockProcessorCommand>,
-    pub events_rx: crossbeam_channel::Receiver<BlockProcessorEvent>,
-    pub thread_handle: JoinHandle<()>,
+    /// Handle for the block processor thread.
+    pub thread_handle: Option<JoinHandle<()>>,
 }
 
+/// Commands that can be sent to the indexer.
 pub enum IndexerCommand {
+    /// Store compacted blocks.
     StoreCompactedBlocks(Vec<(u64, Vec<u8>)>),
+    /// Index standardized blocks into the indexer's database.
     IndexBlocks {
         apply_blocks: Vec<BitcoinBlockData>,
         rollback_block_ids: Vec<BlockIdentifier>,
     },
+    /// Terminate the indexer gracefully.
+    Terminate,
 }
 
 /// Object that will receive standardized blocks ready to be indexer or rolled back. Blocks can come from historical downloads or
@@ -62,7 +64,8 @@ pub struct Indexer {
     pub commands_tx: crossbeam_channel::Sender<IndexerCommand>,
     /// Current index chain tip at launch time.
     pub chain_tip: Option<BlockIdentifier>,
-    pub thread_handle: JoinHandle<()>,
+    /// Handle for the indexer thread.
+    pub thread_handle: Option<JoinHandle<()>>,
 }
 
 /// Helper function to send indexer commands with fullness logging.
@@ -94,6 +97,15 @@ fn send_indexer_command(
         }
     }
     Ok(())
+}
+
+/// Joins a thread handle and returns an error if the thread panics.
+fn wait_for_thread_finish(thread_handle: &mut Option<JoinHandle<()>>) -> Result<(), String> {
+    thread_handle
+        .take()
+        .unwrap()
+        .join()
+        .map_err(|e| format!("Failed to join thread: {:?}", e))
 }
 
 /// Moves our block pool with a newly received standardized block
@@ -256,7 +268,6 @@ async fn block_ingestion_runloop(
     indexer_commands_tx: &Sender<IndexerCommand>,
     index_chain_tip: &Option<BlockIdentifier>,
     block_commands_rx: &Receiver<BlockProcessorCommand>,
-    block_events_tx: &Sender<BlockProcessorEvent>,
     block_pool: &Arc<Mutex<ForkScratchPad>>,
     block_store: &Arc<Mutex<HashMap<BlockIdentifier, BitcoinBlockData>>>,
     http_client: &Client,
@@ -264,9 +275,6 @@ async fn block_ingestion_runloop(
     config: &Config,
     ctx: &Context,
 ) -> Result<(), String> {
-    #[cfg(feature = "dhat-heap")]
-    let _profiler = dhat::Profiler::new_heap();
-
     // Before starting the loop, check if the index already has progress. If so, prime the block pool with the current tip.
     if let Some(index_chain_tip) = index_chain_tip {
         if index_chain_tip.index >= sequence_start_block_height {
@@ -281,7 +289,7 @@ async fn block_ingestion_runloop(
                 blocks,
             }) => (compacted_blocks, blocks),
             Ok(BlockProcessorCommand::Terminate) => {
-                let _ = block_events_tx.send(BlockProcessorEvent::Terminated);
+                try_info!(ctx, "BlockProcessor received Terminate command");
                 return Ok(());
             }
             Err(e) => return Err(format!("block ingestion runloop error: {e}")),
@@ -325,7 +333,6 @@ async fn download_rpc_blocks(
     ctx: &Context,
 ) -> Result<(), String> {
     let (commands_tx, commands_rx) = crossbeam_channel::bounded::<BlockProcessorCommand>(2);
-    let (events_tx, events_rx) = crossbeam_channel::unbounded::<BlockProcessorEvent>();
 
     let ctx_moved = ctx.clone();
     let config_moved = config.clone();
@@ -342,7 +349,6 @@ async fn download_rpc_blocks(
                     &indexer_commands_tx_moved,
                     &index_chain_tip_moved,
                     &commands_rx,
-                    &events_tx,
                     &block_pool_moved,
                     &block_store_moved,
                     &http_client_moved,
@@ -355,10 +361,9 @@ async fn download_rpc_blocks(
         })
         .expect("unable to spawn thread");
 
-    let processor = BlockProcessor {
+    let mut processor = BlockProcessor {
         commands_tx,
-        events_rx,
-        thread_handle: handle,
+        thread_handle: Some(handle),
     };
     let blocks = {
         let block_pool_ref = block_pool.clone();
@@ -381,7 +386,7 @@ async fn download_rpc_blocks(
         blocks.into(),
         sequence_start_block_height,
         compress_blocks,
-        &processor,
+        &mut processor,
         1000,
         ctx,
     )
@@ -402,7 +407,6 @@ async fn stream_zmq_blocks(
     ctx: &Context,
 ) -> Result<(), String> {
     let (commands_tx, commands_rx) = crossbeam_channel::bounded::<BlockProcessorCommand>(2);
-    let (events_tx, events_rx) = crossbeam_channel::unbounded::<BlockProcessorEvent>();
 
     let ctx_moved = ctx.clone();
     let config_moved = config.clone();
@@ -419,7 +423,6 @@ async fn stream_zmq_blocks(
                     &indexer_commands_tx_moved,
                     &index_chain_tip_moved,
                     &commands_rx,
-                    &events_tx,
                     &block_pool_moved,
                     &block_store_moved,
                     &http_client_moved,
@@ -432,13 +435,12 @@ async fn stream_zmq_blocks(
         })
         .expect("unable to spawn thread");
 
-    let processor = BlockProcessor {
+    let mut processor = BlockProcessor {
         commands_tx,
-        events_rx,
-        thread_handle: handle,
+        thread_handle: Some(handle),
     };
     start_zeromq_pipeline(
-        &processor,
+        &mut processor,
         sequence_start_block_height,
         compress_blocks,
         config,
@@ -449,7 +451,7 @@ async fn stream_zmq_blocks(
 
 /// Starts a Bitcoin block indexer pipeline.
 pub async fn start_bitcoin_indexer(
-    indexer: &Indexer,
+    indexer: &mut Indexer,
     sequence_start_block_height: u64,
     stream_blocks_at_chain_tip: bool,
     compress_blocks: bool,
@@ -515,6 +517,10 @@ pub async fn start_bitcoin_indexer(
         )
         .await?;
     }
+
+    // Send a terminate command to the indexer and wait for it to finish.
+    send_indexer_command(&indexer.commands_tx, IndexerCommand::Terminate, config, ctx)?;
+    wait_for_thread_finish(&mut indexer.thread_handle)?;
 
     Ok(())
 }
