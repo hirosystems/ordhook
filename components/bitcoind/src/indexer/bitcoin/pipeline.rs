@@ -1,5 +1,9 @@
 use std::{
     collections::{HashMap, VecDeque},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     thread::sleep,
     time::Duration,
 };
@@ -32,6 +36,7 @@ pub async fn start_block_download_pipeline(
     compress_blocks: bool,
     block_processor: &mut BlockProcessor,
     speed: usize,
+    abort_signal: &Arc<AtomicBool>,
     ctx: &Context,
 ) -> Result<(), String> {
     let number_of_blocks_to_process = block_heights.len() as u64;
@@ -135,6 +140,7 @@ pub async fn start_block_download_pipeline(
     }
 
     let cloned_ctx = ctx.clone();
+    let cloned_abort_signal = abort_signal.clone();
 
     let block_processor_commands_tx = block_processor.commands_tx.clone();
     let storage_thread = hiro_system_kit::thread_named("Block processor dispatcher")
@@ -225,7 +231,7 @@ pub async fn start_block_download_pipeline(
                         });
                 }
 
-                if inbox_cursor > end_block_height {
+                if inbox_cursor > end_block_height || cloned_abort_signal.load(Ordering::SeqCst) {
                     stop_runloop = true;
                 }
             }

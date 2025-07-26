@@ -4,7 +4,10 @@ pub mod fork_scratch_pad;
 
 use std::{
     collections::{HashMap, VecDeque},
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
     thread::JoinHandle,
 };
 
@@ -323,48 +326,16 @@ async fn block_ingestion_runloop(
 /// index chain tip to `target_block_height`.
 async fn download_rpc_blocks(
     indexer: &Indexer,
+    block_processor: &mut BlockProcessor,
     block_pool: &Arc<Mutex<ForkScratchPad>>,
-    block_store: &Arc<Mutex<HashMap<BlockIdentifier, BitcoinBlockData>>>,
     http_client: &Client,
     target_block_height: u64,
     sequence_start_block_height: u64,
     compress_blocks: bool,
+    abort_signal: &Arc<AtomicBool>,
     config: &Config,
     ctx: &Context,
 ) -> Result<(), String> {
-    let (commands_tx, commands_rx) = crossbeam_channel::bounded::<BlockProcessorCommand>(2);
-
-    let ctx_moved = ctx.clone();
-    let config_moved = config.clone();
-    let block_pool_moved = block_pool.clone();
-    let block_store_moved = block_store.clone();
-    let http_client_moved = http_client.clone();
-    let indexer_commands_tx_moved = indexer.commands_tx.clone();
-    let index_chain_tip_moved = indexer.chain_tip.clone();
-
-    let handle: JoinHandle<()> = hiro_system_kit::thread_named("block_download_processor")
-        .spawn(move || {
-            future_block_on(&ctx_moved.clone(), async move {
-                block_ingestion_runloop(
-                    &indexer_commands_tx_moved,
-                    &index_chain_tip_moved,
-                    &commands_rx,
-                    &block_pool_moved,
-                    &block_store_moved,
-                    &http_client_moved,
-                    sequence_start_block_height,
-                    &config_moved,
-                    &ctx_moved,
-                )
-                .await
-            });
-        })
-        .expect("unable to spawn thread");
-
-    let mut processor = BlockProcessor {
-        commands_tx,
-        thread_handle: Some(handle),
-    };
     let blocks = {
         let block_pool_ref = block_pool.clone();
         let pool = block_pool_ref.lock().unwrap();
@@ -386,8 +357,9 @@ async fn download_rpc_blocks(
         blocks.into(),
         sequence_start_block_height,
         compress_blocks,
-        &mut processor,
+        block_processor,
         1000,
+        abort_signal,
         ctx,
     )
     .await
@@ -397,52 +369,18 @@ async fn download_rpc_blocks(
 /// through our block pool. This process will run indefinitely and will make sure our index keeps advancing as new Bitcoin blocks
 /// get mined.
 async fn stream_zmq_blocks(
-    indexer: &Indexer,
-    block_pool: &Arc<Mutex<ForkScratchPad>>,
-    block_store: &Arc<Mutex<HashMap<BlockIdentifier, BitcoinBlockData>>>,
-    http_client: &Client,
+    block_processor: &mut BlockProcessor,
     sequence_start_block_height: u64,
     compress_blocks: bool,
+    abort_signal: &Arc<AtomicBool>,
     config: &Config,
     ctx: &Context,
 ) -> Result<(), String> {
-    let (commands_tx, commands_rx) = crossbeam_channel::bounded::<BlockProcessorCommand>(2);
-
-    let ctx_moved = ctx.clone();
-    let config_moved = config.clone();
-    let block_pool_moved = block_pool.clone();
-    let block_store_moved = block_store.clone();
-    let http_client_moved = http_client.clone();
-    let indexer_commands_tx_moved = indexer.commands_tx.clone();
-    let index_chain_tip_moved = indexer.chain_tip.clone();
-
-    let handle: JoinHandle<()> = hiro_system_kit::thread_named("block_stream_processor")
-        .spawn(move || {
-            future_block_on(&ctx_moved.clone(), async move {
-                block_ingestion_runloop(
-                    &indexer_commands_tx_moved,
-                    &index_chain_tip_moved,
-                    &commands_rx,
-                    &block_pool_moved,
-                    &block_store_moved,
-                    &http_client_moved,
-                    sequence_start_block_height,
-                    &config_moved,
-                    &ctx_moved,
-                )
-                .await
-            });
-        })
-        .expect("unable to spawn thread");
-
-    let mut processor = BlockProcessor {
-        commands_tx,
-        thread_handle: Some(handle),
-    };
     start_zeromq_pipeline(
-        &mut processor,
+        block_processor,
         sequence_start_block_height,
         compress_blocks,
+        abort_signal,
         config,
         ctx,
     )
@@ -472,8 +410,58 @@ pub async fn start_bitcoin_indexer(
     } else {
         try_info!(ctx, "Index is empty");
     }
-    // Sync index until chain tip is reached.
+
+    // Set up the interrupt signal handler. This will be used to gracefully shut down the indexer.
+    let abort_signal = Arc::new(AtomicBool::new(false));
+    let abort_signal_clone = abort_signal.clone();
+    let ctx_moved = ctx.clone();
+    ctrlc::set_handler(move || {
+        try_info!(
+            ctx_moved,
+            "Indexer received interrupt signal, shutting down..."
+        );
+        abort_signal_clone.store(true, Ordering::SeqCst);
+    })
+    .map_err(|e| format!("Index failed to set Ctrl-C handler: {e}"))?;
+
+    // Build the [BlockProcessor] that will be used to ingest and standardize blocks from bitcoind. This processor will then send
+    // blocks to the [Indexer] for indexing.
+    let (commands_tx, commands_rx) = crossbeam_channel::bounded::<BlockProcessorCommand>(2);
+    let ctx_moved = ctx.clone();
+    let config_moved = config.clone();
+    let block_pool_moved = block_pool.clone();
+    let block_store_moved = block_store_arc.clone();
+    let http_client_moved = http_client.clone();
+    let indexer_commands_tx_moved = indexer.commands_tx.clone();
+    let index_chain_tip_moved = indexer.chain_tip.clone();
+    let handle: JoinHandle<()> = hiro_system_kit::thread_named("block_download_processor")
+        .spawn(move || {
+            future_block_on(&ctx_moved.clone(), async move {
+                block_ingestion_runloop(
+                    &indexer_commands_tx_moved,
+                    &index_chain_tip_moved,
+                    &commands_rx,
+                    &block_pool_moved,
+                    &block_store_moved,
+                    &http_client_moved,
+                    sequence_start_block_height,
+                    &config_moved,
+                    &ctx_moved,
+                )
+                .await
+            });
+        })
+        .expect("unable to spawn thread");
+    let mut block_processor = BlockProcessor {
+        commands_tx,
+        thread_handle: Some(handle),
+    };
+
+    // Sync index from bitcoin RPC until chain tip is reached.
     loop {
+        if abort_signal.load(Ordering::SeqCst) {
+            break;
+        }
         {
             let pool = block_pool.lock().unwrap();
             let chain_tip = pool.canonical_chain_tip().or(indexer.chain_tip.as_ref());
@@ -489,12 +477,13 @@ pub async fn start_bitcoin_indexer(
         }
         download_rpc_blocks(
             indexer,
+            &mut block_processor,
             &block_pool_arc,
-            &block_store_arc,
             &http_client,
             bitcoind_chain_tip.index,
             sequence_start_block_height,
             compress_blocks,
+            &abort_signal,
             config,
             ctx,
         )
@@ -503,15 +492,13 @@ pub async fn start_bitcoin_indexer(
         bitcoind_chain_tip = bitcoind_get_chain_tip(&config.bitcoind, ctx);
     }
 
-    // Stream new incoming blocks.
-    if stream_blocks_at_chain_tip {
+    // Stream new incoming blocks from bitcoind's ZeroMQ interface.
+    if stream_blocks_at_chain_tip && !abort_signal.load(Ordering::SeqCst) {
         stream_zmq_blocks(
-            indexer,
-            &block_pool_arc,
-            &block_store_arc,
-            &http_client,
+            &mut block_processor,
             sequence_start_block_height,
             compress_blocks,
+            &abort_signal,
             config,
             ctx,
         )

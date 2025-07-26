@@ -1,3 +1,8 @@
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
+
 use config::Config;
 use zmq::Socket;
 
@@ -34,6 +39,7 @@ pub async fn start_zeromq_pipeline(
     block_processor: &mut BlockProcessor,
     start_sequencing_blocks_at_height: u64,
     compress_blocks: bool,
+    abort_signal: &Arc<AtomicBool>,
     config: &Config,
     ctx: &Context,
 ) -> Result<(), String> {
@@ -52,8 +58,14 @@ pub async fn start_zeromq_pipeline(
         "zmq: Connected, waiting for ZMQ messages from bitcoind"
     );
 
-    // TODO: Graceful shutdown.
     loop {
+        if abort_signal.load(Ordering::SeqCst) {
+            block_processor
+                .commands_tx
+                .send(BlockProcessorCommand::Terminate)
+                .map_err(|e| e.to_string())?;
+            return Ok(());
+        }
         let msg = match socket.recv_multipart(0) {
             Ok(msg) => msg,
             Err(e) => {
