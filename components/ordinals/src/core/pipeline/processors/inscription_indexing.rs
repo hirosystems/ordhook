@@ -1,7 +1,10 @@
 use std::{
     collections::{BTreeMap, HashMap},
     hash::BuildHasherDefault,
-    sync::Arc,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
 };
 
 use bitcoind::{
@@ -46,11 +49,15 @@ pub async fn process_blocks(
     config: &Config,
     pg_pools: &PgConnectionPools,
     ctx: &Context,
+    abort_signal: &Arc<AtomicBool>,
 ) -> Result<Vec<BitcoinBlockData>, String> {
     let mut cache_l1 = BTreeMap::new();
     let mut updated_blocks = vec![];
 
     for _cursor in 0..next_blocks.len() {
+        if abort_signal.load(Ordering::SeqCst) {
+            break;
+        }
         let mut block = next_blocks.remove(0);
 
         index_block(

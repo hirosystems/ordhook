@@ -1,4 +1,13 @@
-use std::{path::PathBuf, process, thread::sleep, time::Duration};
+use std::{
+    path::PathBuf,
+    process,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    thread::sleep,
+    time::Duration,
+};
 
 use bitcoind::{try_error, try_info, types::BlockIdentifier, utils::Context};
 use clap::Parser;
@@ -61,6 +70,19 @@ fn confirm_rollback(
 }
 
 async fn handle_command(opts: Protocol, ctx: &Context) -> Result<(), String> {
+    // Set up the interrupt signal handler.
+    let abort_signal = Arc::new(AtomicBool::new(false));
+    let abort_signal_clone = abort_signal.clone();
+    let ctx_moved = ctx.clone();
+    ctrlc::set_handler(move || {
+        try_info!(
+            ctx_moved,
+            "bitcoin-indexer received interrupt signal, shutting down..."
+        );
+        abort_signal_clone.store(true, Ordering::SeqCst);
+    })
+    .map_err(|e| format!("bitcoin-indexer failed to set Ctrl-C handler: {e}"))?;
+
     match opts {
         Protocol::Ordinals(subcmd) => match subcmd {
             Command::Service(subcmd) => match subcmd {
@@ -68,14 +90,14 @@ async fn handle_command(opts: Protocol, ctx: &Context) -> Result<(), String> {
                     check_maintenance_mode(ctx);
                     let config = Config::from_file_path(&cmd.config_path)?;
                     config.assert_ordinals_config()?;
-                    ordinals::start_ordinals_indexer(true, &config, ctx).await?
+                    ordinals::start_ordinals_indexer(true, &abort_signal, &config, ctx).await?
                 }
             },
             Command::Index(index_command) => match index_command {
                 IndexCommand::Sync(cmd) => {
                     let config = Config::from_file_path(&cmd.config_path)?;
                     config.assert_ordinals_config()?;
-                    ordinals::start_ordinals_indexer(false, &config, ctx).await?
+                    ordinals::start_ordinals_indexer(false, &abort_signal, &config, ctx).await?
                 }
                 IndexCommand::Rollback(cmd) => {
                     let config = Config::from_file_path(&cmd.config_path)?;
@@ -106,14 +128,14 @@ async fn handle_command(opts: Protocol, ctx: &Context) -> Result<(), String> {
                     check_maintenance_mode(ctx);
                     let config = Config::from_file_path(&cmd.config_path)?;
                     config.assert_runes_config()?;
-                    runes::start_runes_indexer(true, &config, ctx).await?
+                    runes::start_runes_indexer(true, &abort_signal, &config, ctx).await?
                 }
             },
             Command::Index(index_command) => match index_command {
                 IndexCommand::Sync(cmd) => {
                     let config = Config::from_file_path(&cmd.config_path)?;
                     config.assert_runes_config()?;
-                    runes::start_runes_indexer(false, &config, ctx).await?
+                    runes::start_runes_indexer(false, &abort_signal, &config, ctx).await?
                 }
                 IndexCommand::Rollback(cmd) => {
                     let config = Config::from_file_path(&cmd.config_path)?;

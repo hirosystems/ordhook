@@ -30,7 +30,6 @@ lazy_static = "1.4.0"
 schemars = { version = "0.8.16", git = "https://github.com/hirosystems/schemars.git", branch = "feat-chainhook-fixes" }
 strum = { version = "0.23.0", features = ["derive"] }
 dhat = { version = "0.3.3", optional = true }
-ctrlc = { version = "3.4", features = ["termination"] }
 
 [dev-dependencies]
 assert-json-diff = "2.0.2"

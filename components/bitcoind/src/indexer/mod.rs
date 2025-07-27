@@ -400,6 +400,7 @@ pub async fn start_bitcoin_indexer(
     sequence_start_block_height: u64,
     stream_blocks_at_chain_tip: bool,
     compress_blocks: bool,
+    abort_signal: &Arc<AtomicBool>,
     config: &Config,
     ctx: &Context,
 ) -> Result<(), String> {
@@ -417,20 +418,6 @@ pub async fn start_bitcoin_indexer(
     } else {
         try_info!(ctx, "Index is empty");
     }
-
-    // Set up the interrupt signal handler. This will be used to gracefully shut down the indexer.
-    // FIXME: Move this to start_runes_indexer
-    let abort_signal = Arc::new(AtomicBool::new(false));
-    let abort_signal_clone = abort_signal.clone();
-    let ctx_moved = ctx.clone();
-    ctrlc::set_handler(move || {
-        try_info!(
-            ctx_moved,
-            "Indexer received interrupt signal, shutting down..."
-        );
-        abort_signal_clone.store(true, Ordering::SeqCst);
-    })
-    .map_err(|e| format!("Index failed to set Ctrl-C handler: {e}"))?;
 
     // Build the [BlockProcessor] that will be used to ingest and standardize blocks from bitcoind. This processor will then send
     // blocks to the [Indexer] for indexing.
@@ -515,8 +502,9 @@ pub async fn start_bitcoin_indexer(
         .await?;
     }
 
-    // Send a terminate command to the indexer and wait for it to finish.
-    send_indexer_command(&indexer.commands_tx, IndexerCommand::Terminate, config, ctx)?;
+    // Send a terminate command to the indexer and wait for it to finish. Absorb the error here in case the indexer is already
+    // terminated from the abort signal.
+    let _ = indexer.commands_tx.send(IndexerCommand::Terminate);
     wait_for_thread_finish(&mut indexer.thread_handle)?;
 
     Ok(())

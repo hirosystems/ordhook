@@ -1,4 +1,10 @@
-use std::thread::JoinHandle;
+use std::{
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    thread::JoinHandle,
+};
 
 use bitcoind::{
     indexer::{start_bitcoin_indexer, Indexer, IndexerCommand},
@@ -25,6 +31,7 @@ static ALLOC: dhat::Alloc = dhat::Alloc;
 
 async fn new_runes_indexer_runloop(
     prometheus: &PrometheusMonitoring,
+    abort_signal: &Arc<AtomicBool>,
     config: &Config,
     ctx: &Context,
 ) -> Result<Indexer, String> {
@@ -34,7 +41,8 @@ async fn new_runes_indexer_runloop(
     let config_moved = config.clone();
     let ctx_moved = ctx.clone();
     let prometheus_moved = prometheus.clone();
-    let handle: JoinHandle<()> = hiro_system_kit::thread_named("runes_indexer")
+    let abort_signal_moved = abort_signal.clone();
+    let handle: JoinHandle<()> = hiro_system_kit::thread_named("RunesIndexer")
         .spawn(move || {
             future_block_on(&ctx_moved.clone(), async move {
                 #[cfg(feature = "dhat-heap")]
@@ -47,6 +55,9 @@ async fn new_runes_indexer_runloop(
                 )
                 .await;
                 loop {
+                    if abort_signal_moved.load(Ordering::SeqCst) {
+                        break;
+                    }
                     match commands_rx.recv() {
                         Ok(command) => match command {
                             IndexerCommand::StoreCompactedBlocks(_) => {
@@ -67,6 +78,9 @@ async fn new_runes_indexer_runloop(
                                         .await;
                                 }
                                 for block in apply_blocks.iter_mut() {
+                                    if abort_signal_moved.load(Ordering::SeqCst) {
+                                        break;
+                                    }
                                     index_block(
                                         &mut pg_client,
                                         &mut index_cache,
@@ -78,8 +92,7 @@ async fn new_runes_indexer_runloop(
                                 }
                             }
                             IndexerCommand::Terminate => {
-                                try_info!(ctx_moved, "Runes indexer received Terminate command");
-                                return Ok(());
+                                break;
                             }
                         },
                         Err(error) => {
@@ -92,6 +105,8 @@ async fn new_runes_indexer_runloop(
                         }
                     }
                 }
+                try_info!(ctx_moved, "RunesIndexer thread complete");
+                Ok(())
             });
         })
         .expect("unable to spawn thread");
@@ -132,12 +147,13 @@ pub async fn rollback_block_range(
 /// and `stream_blocks_at_chain_tip` is set to false.
 pub async fn start_runes_indexer(
     stream_blocks_at_chain_tip: bool,
+    abort_signal: &Arc<AtomicBool>,
     config: &Config,
     ctx: &Context,
 ) -> Result<(), String> {
     pg_connect(config, true, ctx).await;
     let prometheus = PrometheusMonitoring::new();
-    let mut indexer = new_runes_indexer_runloop(&prometheus, config, ctx).await?;
+    let mut indexer = new_runes_indexer_runloop(&prometheus, abort_signal, config, ctx).await?;
 
     if let Some(metrics) = &config.metrics {
         if metrics.enabled {
@@ -172,6 +188,7 @@ pub async fn start_runes_indexer(
         get_rune_genesis_block_height(config.bitcoind.network),
         stream_blocks_at_chain_tip,
         false,
+        abort_signal,
         config,
         ctx,
     )

@@ -8,7 +8,13 @@ use core::{
     },
     protocol::sequence_cursor::SequenceCursor,
 };
-use std::{sync::Arc, thread::JoinHandle};
+use std::{
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    thread::JoinHandle,
+};
 
 use bitcoind::{
     indexer::{start_bitcoin_indexer, Indexer, IndexerCommand},
@@ -54,6 +60,7 @@ fn pg_pools(config: &Config) -> PgConnectionPools {
 
 async fn new_ordinals_indexer_runloop(
     prometheus: &PrometheusMonitoring,
+    abort_signal: &Arc<AtomicBool>,
     config: &Config,
     ctx: &Context,
 ) -> Result<Indexer, String> {
@@ -65,6 +72,7 @@ async fn new_ordinals_indexer_runloop(
     let ctx_moved = ctx.clone();
     let pg_pools_moved = pg_pools.clone();
     let prometheus_moved = prometheus.clone();
+    let abort_signal_moved = abort_signal.clone();
     let handle: JoinHandle<()> = hiro_system_kit::thread_named("ordinals_indexer")
         .spawn(move || {
             future_block_on(&ctx_moved.clone(), async move {
@@ -76,6 +84,9 @@ async fn new_ordinals_indexer_runloop(
                 let mut brc20_cache: Option<core::meta_protocols::brc20::cache::Brc20MemoryCache> =
                     brc20_new_cache(&config_moved);
                 loop {
+                    if abort_signal_moved.load(Ordering::SeqCst) {
+                        break;
+                    }
                     match commands_rx.recv() {
                         Ok(command) => match command {
                             IndexerCommand::StoreCompactedBlocks(blocks) => {
@@ -119,6 +130,7 @@ async fn new_ordinals_indexer_runloop(
                                     &config_moved,
                                     &pg_pools_moved,
                                     &ctx_moved,
+                                    &abort_signal_moved,
                                 )
                                 .await
                                 {
@@ -138,13 +150,14 @@ async fn new_ordinals_indexer_runloop(
                                 }
                             }
                             IndexerCommand::Terminate => {
-                                try_info!(ctx_moved, "Ordinals indexer received Terminate command");
-                                return Ok(());
+                                break;
                             }
                         },
                         Err(e) => return Err(format!("ordinals indexer channel error: {e}")),
                     }
                 }
+                try_info!(ctx_moved, "OrdinalsIndexer thread complete");
+                Ok(())
             });
         })
         .expect("unable to spawn thread");
@@ -216,6 +229,7 @@ pub async fn rollback_block_range(
 /// and `stream_blocks_at_chain_tip` is set to false.
 pub async fn start_ordinals_indexer(
     stream_blocks_at_chain_tip: bool,
+    abort_signal: &Arc<AtomicBool>,
     config: &Config,
     ctx: &Context,
 ) -> Result<(), String> {
@@ -235,7 +249,7 @@ pub async fn start_ordinals_indexer(
         .initialize(max_inscription_number, chain_tip.index, &pg_pools)
         .await?;
 
-    let mut indexer = new_ordinals_indexer_runloop(&prometheus, config, ctx).await?;
+    let mut indexer = new_ordinals_indexer_runloop(&prometheus, abort_signal, config, ctx).await?;
 
     if let Some(metrics) = &config.metrics {
         if metrics.enabled {
@@ -257,6 +271,7 @@ pub async fn start_ordinals_indexer(
         first_inscription_height(config),
         stream_blocks_at_chain_tip,
         true,
+        abort_signal,
         config,
         ctx,
     )

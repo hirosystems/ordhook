@@ -31,6 +31,7 @@ clap = { version = "3.2.23", features = ["derive"], optional = true }
 clap_generate = { version = "3.0.3", optional = true }
 toml = { version = "0.5.6", features = ["preserve_order"], optional = true }
 tcmalloc2 = { version = "0.1.2", optional = true }
+ctrlc = { version = "3.4", features = ["termination"] }
 
 [features]
 default = ["cli"]
