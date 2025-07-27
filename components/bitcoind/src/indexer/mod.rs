@@ -267,7 +267,7 @@ async fn initialize_block_pool(
 
 /// Runloop designed to receive Bitcoin blocks through a [BlockProcessor] and send them to a [ForkScratchPad] so it can advance
 /// the canonical chain.
-async fn block_ingestion_runloop(
+async fn block_processor_runloop(
     indexer_commands_tx: &Sender<IndexerCommand>,
     index_chain_tip: &Option<BlockIdentifier>,
     block_commands_rx: &Receiver<BlockProcessorCommand>,
@@ -275,6 +275,7 @@ async fn block_ingestion_runloop(
     block_store: &Arc<Mutex<HashMap<BlockIdentifier, BitcoinBlockData>>>,
     http_client: &Client,
     sequence_start_block_height: u64,
+    abort_signal: &Arc<AtomicBool>,
     config: &Config,
     ctx: &Context,
 ) -> Result<(), String> {
@@ -286,6 +287,9 @@ async fn block_ingestion_runloop(
     }
 
     loop {
+        if abort_signal.load(Ordering::SeqCst) {
+            return Ok(());
+        }
         let (compacted_blocks, blocks) = match block_commands_rx.recv() {
             Ok(BlockProcessorCommand::ProcessBlocks {
                 compacted_blocks,
@@ -307,6 +311,9 @@ async fn block_ingestion_runloop(
             )?;
         }
         for block in blocks.into_iter() {
+            if abort_signal.load(Ordering::SeqCst) {
+                return Ok(());
+            }
             advance_block_pool(
                 block,
                 block_pool,
@@ -412,6 +419,7 @@ pub async fn start_bitcoin_indexer(
     }
 
     // Set up the interrupt signal handler. This will be used to gracefully shut down the indexer.
+    // FIXME: Move this to start_runes_indexer
     let abort_signal = Arc::new(AtomicBool::new(false));
     let abort_signal_clone = abort_signal.clone();
     let ctx_moved = ctx.clone();
@@ -434,10 +442,11 @@ pub async fn start_bitcoin_indexer(
     let http_client_moved = http_client.clone();
     let indexer_commands_tx_moved = indexer.commands_tx.clone();
     let index_chain_tip_moved = indexer.chain_tip.clone();
+    let abort_signal_moved = abort_signal.clone();
     let handle: JoinHandle<()> = hiro_system_kit::thread_named("block_download_processor")
         .spawn(move || {
             future_block_on(&ctx_moved.clone(), async move {
-                block_ingestion_runloop(
+                block_processor_runloop(
                     &indexer_commands_tx_moved,
                     &index_chain_tip_moved,
                     &commands_rx,
@@ -445,6 +454,7 @@ pub async fn start_bitcoin_indexer(
                     &block_store_moved,
                     &http_client_moved,
                     sequence_start_block_height,
+                    &abort_signal_moved,
                     &config_moved,
                     &ctx_moved,
                 )

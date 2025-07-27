@@ -59,6 +59,7 @@ pub async fn start_zeromq_pipeline(
     );
 
     loop {
+        // Check if the indexer has been interrupted. If so, send a terminate command to the block processor.
         if abort_signal.load(Ordering::SeqCst) {
             block_processor
                 .commands_tx
@@ -66,6 +67,8 @@ pub async fn start_zeromq_pipeline(
                 .map_err(|e| e.to_string())?;
             return Ok(());
         }
+
+        // Receive a new ZMQ message from bitcoind.
         let msg = match socket.recv_multipart(0) {
             Ok(msg) => msg,
             Err(e) => {

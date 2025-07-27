@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use bitcoind::{try_debug, try_info, utils::Context};
+use bitcoind::{try_debug, utils::Context};
 use tokio_postgres::Transaction;
 
 use crate::db::{
@@ -39,7 +39,7 @@ impl DbCache {
 
     /// Insert all data into the DB and clear cache.
     pub async fn flush(&mut self, db_tx: &mut Transaction<'_>, ctx: &Context) {
-        try_info!(ctx, "Flushing DB cache...");
+        try_debug!(ctx, "Flushing DB cache...");
         if !self.runes.is_empty() {
             try_debug!(ctx, "Flushing {} runes", self.runes.len());
             let _ = pg_insert_runes(&self.runes, db_tx, ctx).await;

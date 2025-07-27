@@ -43,12 +43,6 @@ pub async fn start_block_download_pipeline(
 
     let (block_compressed_tx, block_compressed_rx) = crossbeam_channel::bounded(speed);
 
-    let moved_config = config.bitcoind.clone();
-    let moved_ctx = ctx.clone();
-    let moved_http_client = http_client.clone();
-
-    let mut set = JoinSet::new();
-
     let start_block_height = *block_heights.first().expect("no blocks to pipeline");
     let end_block_height = *block_heights.last().expect("no blocks to pipeline");
     let mut block_heights = VecDeque::from(block_heights);
@@ -68,6 +62,17 @@ pub async fn start_block_download_pipeline(
     // Start blocking networking when each worker has a backlog of 8 blocks seems reasonable.
     let worker_queue_size = 2;
 
+    // BitcoinRpc threads.
+    // Responsible for downloading the block bytes from bitcoind's RPC interface.
+    try_info!(
+        ctx,
+        "Pipeline spawning {} BitcoinRpc threads",
+        config.resources.bitcoind_rpc_threads
+    );
+    let mut rpc_handles = JoinSet::new();
+    let moved_config = config.bitcoind.clone();
+    let moved_ctx = ctx.clone();
+    let moved_http_client = http_client.clone();
     for _ in 0..config.resources.bitcoind_rpc_threads {
         if let Some(block_height) = block_heights.pop_front() {
             let config = moved_config.clone();
@@ -75,7 +80,7 @@ pub async fn start_block_download_pipeline(
             let http_client = moved_http_client.clone();
             // We interleave the initial requests to avoid DDOSing bitcoind from the get go.
             sleep(Duration::from_millis(500));
-            set.spawn(try_download_block_bytes_with_retry(
+            rpc_handles.spawn(try_download_block_bytes_with_retry(
                 http_client,
                 block_height,
                 config,
@@ -84,6 +89,13 @@ pub async fn start_block_download_pipeline(
         }
     }
 
+    // BlockCompressor threads.
+    // Responsible for compressing the block bytes received from bitcoind into a compacted and standardized format.
+    try_info!(
+        ctx,
+        "Pipeline spawning {} BlockCompressor threads",
+        thread_pool_network_response_processing_capacity
+    );
     let moved_ctx: Context = ctx.clone();
     let moved_bitcoin_network = config.bitcoind.network;
 
@@ -96,54 +108,58 @@ pub async fn start_block_download_pipeline(
         tx_thread_pool.push(tx);
         rx_thread_pool.push(rx);
     }
-
-    // Download and parse
     for (thread_index, rx) in rx_thread_pool.into_iter().enumerate() {
+        let cloned_abort_signal = abort_signal.clone();
         let block_compressed_tx_moved = block_compressed_tx.clone();
         let moved_ctx: Context = moved_ctx.clone();
-
-        let handle = hiro_system_kit::thread_named("Block data compression")
+        let handle = hiro_system_kit::thread_named("BlockCompressor")
             .spawn(move || {
-                while let Ok(Some(block_bytes)) = rx.recv() {
-                    let raw_block_data =
-                        parse_downloaded_block(block_bytes).expect("unable to parse block");
-                    let compressed_block = if compress_blocks {
-                        Some(
-                            BlockBytesCursor::from_full_block(&raw_block_data)
-                                .expect("unable to compress block"),
-                        )
-                    } else {
-                        None
-                    };
-                    let block_height = raw_block_data.height as u64;
-                    let block_data = if block_height >= start_sequencing_blocks_at_height {
-                        let block = standardize_bitcoin_block(
-                            raw_block_data,
-                            &BitcoinNetwork::from_network(moved_bitcoin_network),
-                            &moved_ctx,
-                        )
-                        .expect("unable to deserialize block");
-                        Some(block)
-                    } else {
-                        None
-                    };
-                    let _ = block_compressed_tx_moved.send(Some((
-                        block_height,
-                        block_data,
-                        compressed_block,
-                    )));
+                loop {
+                    if cloned_abort_signal.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    if let Ok(Some(block_bytes)) = rx.recv() {
+                        let raw_block_data =
+                            parse_downloaded_block(block_bytes).expect("unable to parse block");
+                        let compressed_block = if compress_blocks {
+                            Some(
+                                BlockBytesCursor::from_full_block(&raw_block_data)
+                                    .expect("unable to compress block"),
+                            )
+                        } else {
+                            None
+                        };
+                        let block_height = raw_block_data.height as u64;
+                        let block_data = if block_height >= start_sequencing_blocks_at_height {
+                            let block = standardize_bitcoin_block(
+                                raw_block_data,
+                                &BitcoinNetwork::from_network(moved_bitcoin_network),
+                                &moved_ctx,
+                            )
+                            .expect("unable to deserialize block");
+                            Some(block)
+                        } else {
+                            None
+                        };
+                        let _ = block_compressed_tx_moved.send(Some((
+                            block_height,
+                            block_data,
+                            compressed_block,
+                        )));
+                    }
                 }
-                try_debug!(moved_ctx, "Exiting processing thread {thread_index}");
+                try_info!(moved_ctx, "BlockCompressor thread {thread_index} complete");
             })
             .expect("unable to spawn thread");
         thread_pool_handles.push(handle);
     }
 
+    // BlockDispatcher thread.
+    // Responsible for dispatching sorted and standardized blocks to the [BlockProcessor] for canonicalization.
     let cloned_ctx = ctx.clone();
     let cloned_abort_signal = abort_signal.clone();
-
     let block_processor_commands_tx = block_processor.commands_tx.clone();
-    let storage_thread = hiro_system_kit::thread_named("Block processor dispatcher")
+    let block_dispatcher_thread = hiro_system_kit::thread_named("BlockDispatcher")
         .spawn(move || {
             let mut inbox = HashMap::new();
             let mut inbox_cursor = start_sequencing_blocks_at_height.max(start_block_height);
@@ -152,9 +168,9 @@ pub async fn start_block_download_pipeline(
 
             loop {
                 if stop_runloop {
-                    try_info!(
+                    try_debug!(
                         cloned_ctx,
-                        "#{blocks_processed} blocks successfully sent to processor"
+                        "Pipeline successfully sent {blocks_processed} blocks to processor"
                     );
                     let _ = block_processor_commands_tx.send(BlockProcessorCommand::Terminate);
                     break;
@@ -235,16 +251,24 @@ pub async fn start_block_download_pipeline(
                     stop_runloop = true;
                 }
             }
+            try_info!(cloned_ctx, "BlockDispatcher thread complete");
         })
         .expect("unable to spawn thread");
 
+    // Poll bitcoind RPC thread handles continuously looking for idle threads to send blocks to.
     let mut round_robin_worker_thread_index = 0;
-    while let Some(res) = set.join_next().await {
+    while let Some(res) = rpc_handles.join_next().await {
+        if abort_signal.load(Ordering::SeqCst) {
+            break;
+        }
         let block = res
             .expect("unable to retrieve block")
             .expect("unable to deserialize block");
 
         loop {
+            if abort_signal.load(Ordering::SeqCst) {
+                break;
+            }
             let res = tx_thread_pool[round_robin_worker_thread_index].send(Some(block.clone()));
             round_robin_worker_thread_index = (round_robin_worker_thread_index + 1)
                 % thread_pool_network_response_processing_capacity;
@@ -258,7 +282,7 @@ pub async fn start_block_download_pipeline(
             let config = moved_config.clone();
             let ctx = ctx.clone();
             let http_client = moved_http_client.clone();
-            set.spawn(try_download_block_bytes_with_retry(
+            rpc_handles.spawn(try_download_block_bytes_with_retry(
                 http_client,
                 block_height,
                 config,
@@ -266,13 +290,6 @@ pub async fn start_block_download_pipeline(
             ));
         }
     }
-
-    try_debug!(
-        ctx,
-        "Pipeline successfully fed with sequence of blocks ({} to {})",
-        start_block_height,
-        end_block_height
-    );
 
     for tx in tx_thread_pool.iter() {
         let _ = tx.send(None);
@@ -290,10 +307,10 @@ pub async fn start_block_download_pipeline(
 
     let _ = block_compressed_tx.send(None);
 
-    let _ = storage_thread.join();
-    let _ = set.shutdown().await;
+    let _ = block_dispatcher_thread.join();
+    let _ = rpc_handles.shutdown().await;
 
-    try_info!(
+    try_debug!(
         ctx,
         "Pipeline successfully processed sequence of blocks ({} to {})",
         start_block_height,
