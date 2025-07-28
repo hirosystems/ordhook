@@ -140,7 +140,7 @@ async fn handle_command(opts: Protocol, ctx: &Context) -> Result<(), String> {
                 IndexCommand::Rollback(cmd) => {
                     let config = Config::from_file_path(&cmd.config_path)?;
                     config.assert_runes_config()?;
-                    let chain_tip = runes::get_chain_tip(&config, ctx).await?;
+                    let chain_tip = runes::get_chain_tip(&config).await?;
                     confirm_rollback(&chain_tip, cmd.blocks)?;
                     runes::rollback_block_range(
                         chain_tip.index - cmd.blocks as u64,

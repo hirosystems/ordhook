@@ -3,9 +3,10 @@ use std::{collections::HashMap, num::NonZeroUsize, str::FromStr};
 use bitcoin::{Network, ScriptBuf};
 use bitcoind::{try_debug, try_warn, types::bitcoin::TxIn, utils::Context};
 use config::Config;
+use deadpool_postgres::{Pool, Transaction};
 use lru::LruCache;
 use ordinals_parser::{Cenotaph, Edict, Etching, Rune, RuneId, Runestone};
-use tokio_postgres::{Client, Transaction};
+use postgres::pg_pool_client;
 
 use super::{
     db_cache::DbCache, input_rune_balance::InputRuneBalance, transaction_cache::TransactionCache,
@@ -42,12 +43,13 @@ pub struct IndexCache {
 }
 
 impl IndexCache {
-    pub async fn new(config: &Config, pg_client: &mut Client, ctx: &Context) -> Self {
+    pub async fn new(config: &Config, pg_pool: &Pool) -> Self {
+        let pg_client = pg_pool_client(&pg_pool).await.unwrap();
         let network = config.bitcoind.network;
         let cap = NonZeroUsize::new(config.runes.as_ref().unwrap().lru_cache_size).unwrap();
         IndexCache {
             network,
-            next_rune_number: pg_get_max_rune_number(pg_client, ctx).await + 1,
+            next_rune_number: pg_get_max_rune_number(&pg_client).await + 1,
             rune_cache: LruCache::new(cap),
             rune_total_mints_cache: LruCache::new(cap),
             output_cache: LruCache::new(cap),
@@ -70,8 +72,8 @@ impl IndexCache {
         }
     }
 
-    pub async fn reset_max_rune_number(&mut self, db_tx: &mut Transaction<'_>, ctx: &Context) {
-        self.next_rune_number = pg_get_max_rune_number(db_tx, ctx).await + 1;
+    pub async fn reset_max_rune_number(&mut self, db_tx: &mut Transaction<'_>) {
+        self.next_rune_number = pg_get_max_rune_number(db_tx).await + 1;
     }
 
     /// Creates a fresh transaction index cache.

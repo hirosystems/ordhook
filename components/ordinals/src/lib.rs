@@ -203,7 +203,7 @@ async fn new_ordinals_indexer_runloop(
 }
 
 pub async fn get_chain_tip(config: &Config) -> Result<BlockIdentifier, String> {
-    let pool = pg_pool(&config.ordinals.as_ref().unwrap().db).unwrap();
+    let pool = pg_pool(&config.ordinals.as_ref().unwrap().db)?;
     let ord_client = pg_pool_client(&pool).await?;
     Ok(db::ordinals_pg::get_chain_tip(&ord_client).await?.unwrap())
 }

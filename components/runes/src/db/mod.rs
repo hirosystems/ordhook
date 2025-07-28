@@ -3,6 +3,7 @@ use std::{collections::HashMap, process, str::FromStr};
 use bitcoind::{try_error, try_info, types::BlockIdentifier, utils::Context};
 use cache::input_rune_balance::InputRuneBalance;
 use config::Config;
+use deadpool_postgres::GenericClient;
 use models::{
     db_balance_change::DbBalanceChange, db_ledger_entry::DbLedgerEntry, db_rune::DbRune,
     db_supply_change::DbSupplyChange,
@@ -10,7 +11,7 @@ use models::{
 use ordinals_parser::RuneId;
 use postgres::types::{PgBigIntU32, PgNumericU128, PgNumericU64};
 use refinery::embed_migrations;
-use tokio_postgres::{types::ToSql, Client, Error, GenericClient, NoTls, Transaction};
+use tokio_postgres::{types::ToSql, Client, Error, NoTls, Transaction};
 
 pub mod cache;
 pub mod index;
@@ -361,7 +362,7 @@ pub async fn pg_roll_back_block(block_height: u64, db_tx: &mut Transaction<'_>, 
         .expect("error rolling back runes");
 }
 
-pub async fn pg_get_max_rune_number<T: GenericClient>(client: &T, _ctx: &Context) -> u32 {
+pub async fn pg_get_max_rune_number<T: GenericClient>(client: &T) -> u32 {
     let row = client
         .query_opt("SELECT MAX(number) AS max FROM runes", &[])
         .await
@@ -373,7 +374,7 @@ pub async fn pg_get_max_rune_number<T: GenericClient>(client: &T, _ctx: &Context
     max.0
 }
 
-pub async fn pg_get_block_height(client: &mut Client, _ctx: &Context) -> Option<u64> {
+pub async fn pg_get_block_height<T: GenericClient>(client: &T) -> Option<u64> {
     let row = client
         .query_opt("SELECT MAX(block_height) AS max FROM ledger", &[])
         .await
@@ -382,7 +383,7 @@ pub async fn pg_get_block_height(client: &mut Client, _ctx: &Context) -> Option<
     max.map(|max| max.0)
 }
 
-pub async fn get_chain_tip(client: &mut Client, _ctx: &Context) -> Option<BlockIdentifier> {
+pub async fn get_chain_tip<T: GenericClient>(client: &T) -> Option<BlockIdentifier> {
     let row = client
         .query_opt(
             "SELECT block_height, block_hash

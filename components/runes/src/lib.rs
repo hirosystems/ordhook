@@ -16,8 +16,9 @@ use config::Config;
 use db::{
     cache::index_cache::IndexCache,
     index::{get_rune_genesis_block_height, index_block, roll_back_block},
-    pg_connect,
 };
+use deadpool_postgres::Pool;
+use postgres::{pg_pool, pg_pool_client};
 use utils::monitoring::{start_serving_prometheus_metrics, PrometheusMonitoring};
 
 extern crate serde;
@@ -30,6 +31,7 @@ pub mod utils;
 static ALLOC: dhat::Alloc = dhat::Alloc;
 
 async fn new_runes_indexer_runloop(
+    pg_pool: &Pool,
     prometheus: &PrometheusMonitoring,
     abort_signal: &Arc<AtomicBool>,
     config: &Config,
@@ -42,18 +44,14 @@ async fn new_runes_indexer_runloop(
     let ctx_moved = ctx.clone();
     let prometheus_moved = prometheus.clone();
     let abort_signal_moved = abort_signal.clone();
+    let pg_pool_moved = pg_pool.clone();
     let handle: JoinHandle<()> = hiro_system_kit::thread_named("RunesIndexer")
         .spawn(move || {
             future_block_on(&ctx_moved.clone(), async move {
                 #[cfg(feature = "dhat-heap")]
                 let _profiler = dhat::Profiler::new_heap();
 
-                let mut index_cache = IndexCache::new(
-                    &config_moved,
-                    &mut pg_connect(&config_moved, false, &ctx_moved).await,
-                    &ctx_moved,
-                )
-                .await;
+                let mut index_cache = IndexCache::new(&config_moved, &pg_pool_moved).await;
                 loop {
                     if abort_signal_moved.load(Ordering::SeqCst) {
                         break;
@@ -71,8 +69,7 @@ async fn new_runes_indexer_runloop(
                                 mut apply_blocks,
                                 rollback_block_ids,
                             } => {
-                                let mut pg_client =
-                                    pg_connect(&config_moved, false, &ctx_moved).await;
+                                let mut pg_client = pg_pool_client(&pg_pool_moved).await?;
                                 for block_id in rollback_block_ids.iter() {
                                     roll_back_block(&mut pg_client, block_id.index, &ctx_moved)
                                         .await;
@@ -111,8 +108,8 @@ async fn new_runes_indexer_runloop(
         })
         .expect("unable to spawn thread");
 
-    let mut pg_client = pg_connect(config, false, ctx).await;
-    let chain_tip = db::get_chain_tip(&mut pg_client, ctx)
+    let pg_client = pg_pool_client(&pg_pool).await?;
+    let chain_tip = db::get_chain_tip(&pg_client)
         .await
         .unwrap_or(BlockIdentifier {
             index: get_rune_genesis_block_height(config.bitcoind.network) - 1,
@@ -125,9 +122,10 @@ async fn new_runes_indexer_runloop(
     })
 }
 
-pub async fn get_chain_tip(config: &Config, ctx: &Context) -> Result<BlockIdentifier, String> {
-    let mut pg_client = pg_connect(config, false, ctx).await;
-    Ok(db::get_chain_tip(&mut pg_client, ctx).await.unwrap())
+pub async fn get_chain_tip(config: &Config) -> Result<BlockIdentifier, String> {
+    let pool = pg_pool(&config.runes.as_ref().unwrap().db)?;
+    let pg_client = pg_pool_client(&pool).await?;
+    Ok(db::get_chain_tip(&pg_client).await.unwrap())
 }
 
 pub async fn rollback_block_range(
@@ -136,7 +134,8 @@ pub async fn rollback_block_range(
     config: &Config,
     ctx: &Context,
 ) -> Result<(), String> {
-    let mut pg_client = pg_connect(config, false, ctx).await;
+    let pool = pg_pool(&config.runes.as_ref().unwrap().db)?;
+    let mut pg_client = pg_pool_client(&pool).await?;
     for block_id in start_block..=end_block {
         roll_back_block(&mut pg_client, block_id, ctx).await;
     }
@@ -151,9 +150,11 @@ pub async fn start_runes_indexer(
     config: &Config,
     ctx: &Context,
 ) -> Result<(), String> {
-    pg_connect(config, true, ctx).await;
+    let pool = pg_pool(&config.runes.as_ref().unwrap().db)?;
+
     let prometheus = PrometheusMonitoring::new();
-    let mut indexer = new_runes_indexer_runloop(&prometheus, abort_signal, config, ctx).await?;
+    let mut indexer =
+        new_runes_indexer_runloop(&pool, &prometheus, abort_signal, config, ctx).await?;
 
     if let Some(metrics) = &config.metrics {
         if metrics.enabled {
@@ -171,9 +172,9 @@ pub async fn start_runes_indexer(
     }
 
     // Initialize metrics with current state
-    let mut pg_client = pg_connect(config, false, ctx).await;
-    let max_rune_number = db::pg_get_max_rune_number(&pg_client, ctx).await;
-    let chain_tip = db::get_chain_tip(&mut pg_client, ctx)
+    let pg_client = pg_pool_client(&pool).await?;
+    let max_rune_number = db::pg_get_max_rune_number(&pg_client).await;
+    let chain_tip = db::get_chain_tip(&pg_client)
         .await
         .unwrap_or(BlockIdentifier {
             index: get_rune_genesis_block_height(config.bitcoind.network) - 1,

@@ -10,8 +10,9 @@ use bitcoind::{
     types::{BitcoinBlockData, BitcoinTransactionData},
     utils::Context,
 };
+use deadpool_postgres::Client;
 use ordinals_parser::{Artifact, Runestone};
-use tokio_postgres::Client;
+use postgres::pg_begin;
 
 use super::{cache::index_cache::IndexCache, pg_get_max_rune_number, pg_roll_back_block};
 use crate::{
@@ -85,11 +86,8 @@ pub async fn index_block(
     let mut cenotaph_mint_count: u64 = 0;
     let mut cenotaph_count: u64 = 0;
 
-    let mut db_tx = pg_client
-        .transaction()
-        .await
-        .expect("Unable to begin block processing pg transaction");
-    index_cache.reset_max_rune_number(&mut db_tx, ctx).await;
+    let mut db_tx = pg_begin(pg_client).await.unwrap();
+    index_cache.reset_max_rune_number(&mut db_tx).await;
 
     // Measure parsing time
     let parsing_start = std::time::Instant::now();
@@ -194,7 +192,7 @@ pub async fn index_block(
 
     // Record metrics
     prometheus.metrics_block_indexed(block_height);
-    let current_rune_number = pg_get_max_rune_number(pg_client, ctx).await;
+    let current_rune_number = pg_get_max_rune_number(pg_client).await;
     prometheus.metrics_rune_indexed(current_rune_number as u64);
     prometheus.metrics_record_runes_per_block(etching_count);
 
