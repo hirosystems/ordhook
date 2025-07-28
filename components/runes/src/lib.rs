@@ -108,7 +108,7 @@ async fn new_runes_indexer_runloop(
         })
         .expect("unable to spawn thread");
 
-    let pg_client = pg_pool_client(&pg_pool).await?;
+    let pg_client = pg_pool_client(pg_pool).await?;
     let chain_tip = db::get_chain_tip(&pg_client)
         .await
         .unwrap_or(BlockIdentifier {

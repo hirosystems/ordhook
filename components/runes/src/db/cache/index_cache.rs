@@ -44,7 +44,7 @@ pub struct IndexCache {
 
 impl IndexCache {
     pub async fn new(config: &Config, pg_pool: &Pool) -> Self {
-        let pg_client = pg_pool_client(&pg_pool).await.unwrap();
+        let pg_client = pg_pool_client(pg_pool).await.unwrap();
         let network = config.bitcoind.network;
         let cap = NonZeroUsize::new(config.runes.as_ref().unwrap().lru_cache_size).unwrap();
         IndexCache {
