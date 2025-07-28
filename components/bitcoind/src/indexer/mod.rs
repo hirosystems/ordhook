@@ -331,7 +331,7 @@ async fn block_processor_runloop(
                 block_store,
                 http_client,
                 indexer_commands_tx,
-                &abort_signal,
+                abort_signal,
                 config,
                 ctx,
             )
@@ -493,7 +493,7 @@ pub async fn start_bitcoin_indexer(
             bitcoind_chain_tip.index,
             sequence_start_block_height,
             compress_blocks,
-            &abort_signal,
+            abort_signal,
             config,
             ctx,
         )
@@ -508,7 +508,7 @@ pub async fn start_bitcoin_indexer(
             &mut block_processor,
             sequence_start_block_height,
             compress_blocks,
-            &abort_signal,
+            abort_signal,
             config,
             ctx,
         )
