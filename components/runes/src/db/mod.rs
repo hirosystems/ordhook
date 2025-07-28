@@ -24,17 +24,20 @@ embed_migrations!("../../migrations/runes");
 pub async fn migrate(pg_client: &mut tokio_postgres::Client, ctx: &Context) {
     try_info!(ctx, "RunesDb running postgres migrations...");
     match migrations::runner()
+        .set_abort_divergent(false)
+        .set_abort_missing(false)
         .set_migration_table_name("pgmigrations")
         .run_async(pg_client)
         .await
     {
-        Ok(_) => {}
+        Ok(_) => {
+            try_info!(ctx, "RunesDb postgres migrations complete");
+        }
         Err(e) => {
             try_error!(ctx, "RunesDb error running pg migrations: {e}");
             process::exit(1);
         }
     };
-    try_info!(ctx, "RunesDb postgres migrations complete");
 }
 
 pub async fn run_migrations(config: &Config, ctx: &Context) {
