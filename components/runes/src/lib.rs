@@ -165,12 +165,13 @@ pub async fn start_runes_indexer(
             let registry_moved = prometheus.registry.clone();
             let ctx_cloned = ctx.clone();
             let port = metrics.prometheus_port;
-            // TODO: Shut down gracefully
+            let abort_signal_cloned = abort_signal.clone();
             let _ = std::thread::spawn(move || {
                 hiro_system_kit::nestable_block_on(start_serving_prometheus_metrics(
                     port,
                     registry_moved,
                     ctx_cloned,
+                    abort_signal_cloned,
                 ));
             });
         }

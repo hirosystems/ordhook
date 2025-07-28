@@ -1,3 +1,11 @@
+use std::{
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
+
 use bitcoind::{try_debug, try_info, try_warn, utils::Context};
 use hyper::{
     header::CONTENT_TYPE,
@@ -9,6 +17,7 @@ use prometheus::{
     core::{AtomicU64, GenericGauge},
     Encoder, Histogram, HistogramOpts, Registry, TextEncoder,
 };
+use tokio::time::sleep;
 
 use crate::{db::ordinals_pg, PgConnectionPools};
 
@@ -426,7 +435,12 @@ async fn serve_req(
     }
 }
 
-pub async fn start_serving_prometheus_metrics(port: u16, registry: Registry, ctx: Context) {
+pub async fn start_serving_prometheus_metrics(
+    port: u16,
+    registry: Registry,
+    ctx: Context,
+    abort_signal: Arc<AtomicBool>,
+) {
     let addr = ([0, 0, 0, 0], port).into();
     let ctx_clone = ctx.clone();
     let make_svc = make_service_fn(|_| {
@@ -438,10 +452,22 @@ pub async fn start_serving_prometheus_metrics(port: u16, registry: Registry, ctx
             }))
         }
     });
-    let serve_future = Server::bind(&addr).serve(make_svc);
+    let shutdown_future = async move {
+        loop {
+            if abort_signal.load(Ordering::SeqCst) {
+                break;
+            }
+            sleep(Duration::from_millis(500)).await;
+        }
+    };
+    let serve_future = Server::bind(&addr)
+        .serve(make_svc)
+        .with_graceful_shutdown(shutdown_future);
     try_info!(ctx, "Prometheus monitoring: listening on port {}", port);
     if let Err(err) = serve_future.await {
         try_warn!(ctx, "Prometheus monitoring: server error: {}", err);
+    } else {
+        try_info!(ctx, "Prometheus monitoring: shutdown complete");
     }
 }
 
