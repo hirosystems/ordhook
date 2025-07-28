@@ -156,7 +156,7 @@ async fn handle_command(opts: Protocol, ctx: &Context) -> Result<(), String> {
                 DatabaseCommand::Migrate(cmd) => {
                     let config = Config::from_file_path(&cmd.config_path)?;
                     config.assert_runes_config()?;
-                    runes::db::pg_connect(&config, true, ctx).await;
+                    runes::db::run_migrations(&config, ctx).await;
                 }
             },
         },

@@ -9,18 +9,20 @@ use models::{
     db_supply_change::DbSupplyChange,
 };
 use ordinals_parser::RuneId;
-use postgres::types::{PgBigIntU32, PgNumericU128, PgNumericU64};
+use postgres::{
+    pg_connect_with_retry,
+    types::{PgBigIntU32, PgNumericU128, PgNumericU64},
+};
 use refinery::embed_migrations;
-use tokio_postgres::{types::ToSql, Client, Error, NoTls, Transaction};
+use tokio_postgres::{types::ToSql, Error, Transaction};
 
 pub mod cache;
 pub mod index;
 pub mod models;
 
 embed_migrations!("../../migrations/runes");
-
-async fn pg_run_migrations(pg_client: &mut Client, ctx: &Context) {
-    try_info!(ctx, "Running postgres migrations");
+pub async fn migrate(pg_client: &mut tokio_postgres::Client, ctx: &Context) {
+    try_info!(ctx, "RunesDb running postgres migrations...");
     match migrations::runner()
         .set_migration_table_name("pgmigrations")
         .run_async(pg_client)
@@ -28,55 +30,16 @@ async fn pg_run_migrations(pg_client: &mut Client, ctx: &Context) {
     {
         Ok(_) => {}
         Err(e) => {
-            try_error!(ctx, "Error running pg migrations: {}", e.to_string());
+            try_error!(ctx, "RunesDb error running pg migrations: {e}");
             process::exit(1);
         }
     };
-    try_info!(ctx, "Postgres migrations complete");
+    try_info!(ctx, "RunesDb postgres migrations complete");
 }
 
-// FIXME: Switch to using the postgres pool from the postgres crate.
-pub async fn pg_connect(config: &Config, run_migrations: bool, ctx: &Context) -> Client {
-    let db_config = &config.runes.as_ref().unwrap().db;
-    let mut pg_config = tokio_postgres::Config::new();
-    pg_config
-        .dbname(&db_config.dbname)
-        .host(&db_config.host)
-        .port(db_config.port)
-        .user(&db_config.user);
-    if let Some(password) = db_config.password.as_ref() {
-        pg_config.password(password);
-    }
-
-    try_info!(
-        ctx,
-        "Connecting to postgres at {}:{}",
-        db_config.host,
-        db_config.port
-    );
-    let mut pg_client: Client;
-    loop {
-        match pg_config.connect(NoTls).await {
-            Ok((client, connection)) => {
-                tokio::spawn(async move {
-                    if let Err(e) = connection.await {
-                        eprintln!("Postgres connection error: {}", e);
-                        process::exit(1);
-                    }
-                });
-                pg_client = client;
-                break;
-            }
-            Err(e) => {
-                try_error!(ctx, "Error connecting to postgres: {}", e);
-                std::thread::sleep(std::time::Duration::from_secs(1));
-            }
-        }
-    }
-    if run_migrations {
-        pg_run_migrations(&mut pg_client, ctx).await;
-    }
-    pg_client
+pub async fn run_migrations(config: &Config, ctx: &Context) {
+    let mut pg_client = pg_connect_with_retry(&config.runes.as_ref().unwrap().db).await;
+    migrate(&mut pg_client, ctx).await;
 }
 
 pub async fn pg_insert_runes(
@@ -533,24 +496,29 @@ pub async fn pg_get_input_rune_balances(
 }
 
 #[cfg(test)]
-pub async fn pg_test_client(run_migrations: bool, ctx: &Context) -> Client {
-    let (mut client, connection) =
-        tokio_postgres::connect("host=localhost user=postgres password=postgres", NoTls)
-            .await
-            .unwrap();
-    tokio::spawn(async move {
-        if let Err(e) = connection.await {
-            eprintln!("test connection error: {}", e);
-        }
-    });
-    if run_migrations {
-        pg_run_migrations(&mut client, ctx).await;
+pub fn pg_test_config() -> config::PgDatabaseConfig {
+    config::PgDatabaseConfig {
+        dbname: "postgres".to_string(),
+        host: "localhost".to_string(),
+        port: 5432,
+        user: "postgres".to_string(),
+        password: Some("postgres".to_string()),
+        search_path: None,
+        pool_max_size: None,
     }
-    client
 }
 
 #[cfg(test)]
-pub async fn pg_test_roll_back_migrations(pg_client: &mut Client, ctx: &Context) {
+pub async fn pg_test_client(run_migrations: bool, ctx: &Context) -> tokio_postgres::Client {
+    let mut pg_client = postgres::pg_connect_with_retry(&pg_test_config()).await;
+    if run_migrations {
+        migrate(&mut pg_client, ctx).await;
+    }
+    pg_client
+}
+
+#[cfg(test)]
+pub async fn pg_test_roll_back_migrations(pg_client: &mut tokio_postgres::Client, ctx: &Context) {
     match pg_client
         .batch_execute(
             "

@@ -1,5 +1,4 @@
 use bitcoind::{try_debug, try_info, try_warn, utils::Context};
-use config::Config;
 use hyper::{
     header::CONTENT_TYPE,
     service::{make_service_fn, service_fn},
@@ -9,8 +8,6 @@ use prometheus::{
     core::{AtomicF64, AtomicU64, GenericCounter, GenericGauge},
     Encoder, Histogram, HistogramOpts, Registry, TextEncoder,
 };
-
-use crate::db::pg_connect;
 
 type UInt64Gauge = GenericGauge<AtomicU64>;
 type F64Gauge = GenericGauge<AtomicF64>;
@@ -186,13 +183,7 @@ impl PrometheusMonitoring {
         h
     }
 
-    pub async fn initialize(
-        &self,
-        max_rune_number: u64,
-        block_height: u64,
-        config: &Config,
-        ctx: &Context,
-    ) -> Result<(), String> {
+    pub async fn initialize(&self, max_rune_number: u64, block_height: u64) -> Result<(), String> {
         self.metrics_block_indexed(block_height);
         self.metrics_rune_indexed(max_rune_number);
 
@@ -203,18 +194,6 @@ impl PrometheusMonitoring {
         self.metrics_record_runes_cenotaph_per_block(0);
         self.metrics_record_runes_cenotaph_etching_per_block(0);
         self.metrics_record_runes_cenotaph_mint_per_block(0);
-
-        // Read initial values from the database for Runes
-        let mut runes_client = pg_connect(config, false, ctx).await;
-        let runes_tx = runes_client
-            .transaction()
-            .await
-            .map_err(|e| format!("Failed to begin transaction: {}", e))?;
-
-        runes_tx
-            .commit()
-            .await
-            .map_err(|e| format!("Failed to commit transaction: {}", e))?;
 
         Ok(())
     }

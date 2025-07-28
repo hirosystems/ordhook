@@ -151,6 +151,10 @@ pub async fn start_runes_indexer(
     ctx: &Context,
 ) -> Result<(), String> {
     let pool = pg_pool(&config.runes.as_ref().unwrap().db)?;
+    {
+        let mut pg_client = pg_pool_client(&pool).await?;
+        db::migrate(&mut pg_client, ctx).await;
+    }
 
     let prometheus = PrometheusMonitoring::new();
     let mut indexer =
@@ -161,6 +165,7 @@ pub async fn start_runes_indexer(
             let registry_moved = prometheus.registry.clone();
             let ctx_cloned = ctx.clone();
             let port = metrics.prometheus_port;
+            // TODO: Shut down gracefully
             let _ = std::thread::spawn(move || {
                 hiro_system_kit::nestable_block_on(start_serving_prometheus_metrics(
                     port,
@@ -170,19 +175,20 @@ pub async fn start_runes_indexer(
             });
         }
     }
-
     // Initialize metrics with current state
-    let pg_client = pg_pool_client(&pool).await?;
-    let max_rune_number = db::pg_get_max_rune_number(&pg_client).await;
-    let chain_tip = db::get_chain_tip(&pg_client)
-        .await
-        .unwrap_or(BlockIdentifier {
-            index: get_rune_genesis_block_height(config.bitcoind.network) - 1,
-            hash: "0x0000000000000000000000000000000000000000000000000000000000000000".into(),
-        });
-    prometheus
-        .initialize(max_rune_number as u64, chain_tip.index, config, ctx)
-        .await?;
+    {
+        let pg_client = pg_pool_client(&pool).await?;
+        let max_rune_number = db::pg_get_max_rune_number(&pg_client).await;
+        let chain_tip = db::get_chain_tip(&pg_client)
+            .await
+            .unwrap_or(BlockIdentifier {
+                index: get_rune_genesis_block_height(config.bitcoind.network) - 1,
+                hash: "0x0000000000000000000000000000000000000000000000000000000000000000".into(),
+            });
+        prometheus
+            .initialize(max_rune_number as u64, chain_tip.index)
+            .await?;
+    }
 
     start_bitcoin_indexer(
         &mut indexer,
