@@ -75,6 +75,7 @@ pub struct Indexer {
 fn send_indexer_command(
     tx: &crossbeam_channel::Sender<IndexerCommand>,
     mut cmd: IndexerCommand,
+    abort_signal: &Arc<AtomicBool>,
     config: &Config,
     ctx: &Context,
 ) -> Result<(), String> {
@@ -95,7 +96,10 @@ fn send_indexer_command(
                 std::thread::sleep(std::time::Duration::from_millis(500));
             }
             Err(TrySendError::Disconnected(_)) => {
-                return Err("Indexer command channel disconnected".into())
+                if abort_signal.load(Ordering::SeqCst) {
+                    return Ok(());
+                }
+                return Err("Indexer command channel disconnected".into());
             }
         }
     }
@@ -118,9 +122,13 @@ async fn advance_block_pool(
     block_store: &Arc<Mutex<HashMap<BlockIdentifier, BitcoinBlockData>>>,
     http_client: &Client,
     indexer_commands_tx: &Sender<IndexerCommand>,
+    abort_signal: &Arc<AtomicBool>,
     config: &Config,
     ctx: &Context,
 ) -> Result<(), String> {
+    if abort_signal.load(Ordering::SeqCst) {
+        return Ok(());
+    }
     let network = BitcoinNetwork::from_network(config.bitcoind.network);
     let mut block_ids = VecDeque::new();
     block_ids.push_front(block.block_identifier.clone());
@@ -156,6 +164,7 @@ async fn advance_block_pool(
                                     apply_blocks,
                                     rollback_block_ids: vec![],
                                 },
+                                abort_signal,
                                 config,
                                 ctx,
                             )?;
@@ -179,6 +188,7 @@ async fn advance_block_pool(
                                     apply_blocks,
                                     rollback_block_ids,
                                 },
+                                abort_signal,
                                 config,
                                 ctx,
                             )?;
@@ -306,6 +316,7 @@ async fn block_processor_runloop(
             send_indexer_command(
                 indexer_commands_tx,
                 IndexerCommand::StoreCompactedBlocks(compacted_blocks),
+                abort_signal,
                 config,
                 ctx,
             )?;
@@ -320,6 +331,7 @@ async fn block_processor_runloop(
                 block_store,
                 http_client,
                 indexer_commands_tx,
+                &abort_signal,
                 config,
                 ctx,
             )
@@ -365,7 +377,6 @@ async fn download_rpc_blocks(
         sequence_start_block_height,
         compress_blocks,
         block_processor,
-        1000,
         abort_signal,
         ctx,
     )
@@ -421,7 +432,9 @@ pub async fn start_bitcoin_indexer(
 
     // Build the [BlockProcessor] that will be used to ingest and standardize blocks from bitcoind. This processor will then send
     // blocks to the [Indexer] for indexing.
-    let (commands_tx, commands_rx) = crossbeam_channel::bounded::<BlockProcessorCommand>(2);
+    let (commands_tx, commands_rx) = crossbeam_channel::bounded::<BlockProcessorCommand>(
+        config.resources.indexer_channel_capacity,
+    );
     let ctx_moved = ctx.clone();
     let config_moved = config.clone();
     let block_pool_moved = block_pool.clone();

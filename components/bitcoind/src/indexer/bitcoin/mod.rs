@@ -238,13 +238,13 @@ pub async fn retrieve_block_hash(
     Ok(block_hash)
 }
 
-// not used internally by chainhook; exported for ordinals
 pub async fn try_download_block_bytes_with_retry(
     http_client: HttpClient,
     block_height: u64,
     bitcoin_config: BitcoindConfig,
     ctx: Context,
 ) -> Result<Vec<u8>, String> {
+    crate::try_info!(ctx, "BitcoinRpc downloading block #{}", block_height);
     let block_hash =
         retrieve_block_hash_with_retry(&http_client, &block_height, &bitcoin_config, &ctx)
             .await

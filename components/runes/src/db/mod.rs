@@ -34,6 +34,7 @@ async fn pg_run_migrations(pg_client: &mut Client, ctx: &Context) {
     try_info!(ctx, "Postgres migrations complete");
 }
 
+// FIXME: Switch to using the postgres pool from the postgres crate.
 pub async fn pg_connect(config: &Config, run_migrations: bool, ctx: &Context) -> Client {
     let db_config = &config.runes.as_ref().unwrap().db;
     let mut pg_config = tokio_postgres::Config::new();

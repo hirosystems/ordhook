@@ -81,7 +81,7 @@ async fn handle_command(opts: Protocol, ctx: &Context) -> Result<(), String> {
         );
         abort_signal_clone.store(true, Ordering::SeqCst);
     })
-    .map_err(|e| format!("bitcoin-indexer failed to set Ctrl-C handler: {e}"))?;
+    .map_err(|e| format!("bitcoin-indexer failed to set interrupt signal handler: {e}"))?;
 
     match opts {
         Protocol::Ordinals(subcmd) => match subcmd {
