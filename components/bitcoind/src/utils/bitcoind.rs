@@ -47,6 +47,7 @@ pub fn bitcoind_get_chain_tip(config: &BitcoindConfig, ctx: &Context) -> BlockId
 pub fn bitcoind_wait_for_chain_tip(config: &BitcoindConfig, ctx: &Context) -> BlockIdentifier {
     let bitcoin_rpc = bitcoind_get_client(config, ctx);
     let mut confirmations = 0;
+    let mut logged_info = false;
     loop {
         match bitcoin_rpc.get_blockchain_info() {
             Ok(result) => {
@@ -55,27 +56,23 @@ pub fn bitcoind_wait_for_chain_tip(config: &BitcoindConfig, ctx: &Context) -> Bl
                     // Wait for 10 confirmations before declaring node is at chain tip, just in case it's still connecting to
                     // peers.
                     if confirmations == 10 {
-                        try_info!(ctx, "bitcoind: Chain tip reached");
+                        try_info!(ctx, "bitcoind chain tip is at block #{}", result.blocks);
                         return BlockIdentifier {
                             index: result.blocks,
                             hash: format!("0x{}", result.best_block_hash),
                         };
                     }
-                    try_info!(ctx, "bitcoind: Verifying chain tip");
+                    if !logged_info {
+                        try_info!(ctx, "bitcoind verifying chain tip...");
+                        logged_info = true;
+                    }
                 } else {
                     confirmations = 0;
-                    try_info!(
-                        ctx,
-                        "bitcoind: Node has not reached chain tip, trying again"
-                    );
+                    try_info!(ctx, "bitcoind has not reached chain tip, trying again...");
                 }
             }
             Err(e) => {
-                try_error!(
-                    ctx,
-                    "bitcoind: Unable to check for chain tip: {}",
-                    e.to_string()
-                );
+                try_error!(ctx, "bitcoind error checking for chain tip: {e}");
             }
         };
         sleep(Duration::from_secs(1));
