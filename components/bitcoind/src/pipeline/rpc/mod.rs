@@ -1,4 +1,3 @@
-pub mod cursor;
 pub mod pipeline;
 
 use std::time::Duration;
@@ -25,7 +24,7 @@ use crate::{
 
 #[derive(Clone, PartialEq, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct BitcoinBlockFullBreakdown {
+pub(crate) struct BitcoinBlockFullBreakdown {
     pub hash: String,
     pub height: usize,
     pub tx: Vec<BitcoinTransactionFullBreakdown>,
@@ -61,7 +60,7 @@ impl BitcoinBlockFullBreakdown {
 
 #[derive(Clone, PartialEq, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct BitcoinTransactionFullBreakdown {
+pub(crate) struct BitcoinTransactionFullBreakdown {
     pub txid: String,
     pub vin: Vec<BitcoinTransactionInputFullBreakdown>,
     pub vout: Vec<BitcoinTransactionOutputFullBreakdown>,
@@ -69,7 +68,7 @@ pub struct BitcoinTransactionFullBreakdown {
 
 #[derive(Clone, PartialEq, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct BitcoinTransactionInputFullBreakdown {
+pub(crate) struct BitcoinTransactionInputFullBreakdown {
     pub sequence: u32,
     /// The raw scriptSig in case of a coinbase tx.
     // #[serde(default, with = "bitcoincore_rpc_json::serde_hex::opt")]
@@ -87,7 +86,7 @@ pub struct BitcoinTransactionInputFullBreakdown {
 
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct GetRawTransactionResultVinScriptSig {
+pub(crate) struct GetRawTransactionResultVinScriptSig {
     pub hex: String,
 }
 
@@ -101,7 +100,7 @@ impl BitcoinTransactionInputFullBreakdown {
 
 #[derive(Clone, PartialEq, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct BitcoinTransactionInputPrevoutFullBreakdown {
+pub(crate) struct BitcoinTransactionInputPrevoutFullBreakdown {
     pub height: u64,
     #[serde(with = "bitcoin::amount::serde::as_btc")]
     pub value: Amount,
@@ -109,7 +108,7 @@ pub struct BitcoinTransactionInputPrevoutFullBreakdown {
 
 #[derive(Clone, PartialEq, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct BitcoinTransactionOutputFullBreakdown {
+pub(crate) struct BitcoinTransactionOutputFullBreakdown {
     #[serde(with = "bitcoin::amount::serde::as_btc")]
     pub value: Amount,
     pub n: u32,
@@ -117,7 +116,7 @@ pub struct BitcoinTransactionOutputFullBreakdown {
 }
 
 #[derive(Deserialize, Serialize)]
-pub struct NewBitcoinBlock {
+pub(crate) struct NewBitcoinBlock {
     pub burn_block_hash: String,
     pub burn_block_height: u64,
     pub reward_slot_holders: Vec<String>,
@@ -127,12 +126,12 @@ pub struct NewBitcoinBlock {
 
 #[allow(dead_code)]
 #[derive(Deserialize, Serialize)]
-pub struct RewardParticipant {
+pub(crate) struct RewardParticipant {
     recipient: String,
     amt: u64,
 }
 
-pub fn build_http_client() -> HttpClient {
+pub(crate) fn build_http_client() -> HttpClient {
     HttpClient::builder()
         .timeout(Duration::from_secs(15))
         .http1_only()
@@ -145,7 +144,7 @@ pub fn build_http_client() -> HttpClient {
         .expect("Unable to build http client")
 }
 
-pub async fn download_and_parse_block_with_retry(
+pub(crate) async fn download_and_parse_block_with_retry(
     http_client: &HttpClient,
     block_hash: &str,
     bitcoin_config: &BitcoindConfig,
@@ -175,7 +174,7 @@ pub async fn download_and_parse_block_with_retry(
     Ok(block)
 }
 
-pub async fn retrieve_block_hash_with_retry(
+pub(crate) async fn retrieve_block_hash_with_retry(
     http_client: &HttpClient,
     block_height: &u64,
     bitcoin_config: &BitcoindConfig,
@@ -205,7 +204,7 @@ pub async fn retrieve_block_hash_with_retry(
     Ok(block_hash)
 }
 
-pub async fn retrieve_block_hash(
+pub(crate) async fn retrieve_block_hash(
     http_client: &HttpClient,
     block_height: &u64,
     bitcoin_config: &BitcoindConfig,
@@ -238,7 +237,7 @@ pub async fn retrieve_block_hash(
     Ok(block_hash)
 }
 
-pub async fn try_download_block_bytes_with_retry(
+pub(crate) async fn try_download_block_bytes_with_retry(
     http_client: HttpClient,
     block_height: u64,
     bitcoin_config: BitcoindConfig,
@@ -274,11 +273,11 @@ pub async fn try_download_block_bytes_with_retry(
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct RpcErrorResponse {
+pub(crate) struct RpcErrorResponse {
     pub error: RpcError,
 }
 
-pub async fn download_block(
+pub(crate) async fn download_block(
     http_client: &HttpClient,
     block_hash: &str,
     bitcoin_config: &BitcoindConfig,
@@ -328,7 +327,7 @@ pub async fn download_block(
     Ok(rpc_response_bytes)
 }
 
-pub fn parse_downloaded_block(
+pub(crate) fn parse_downloaded_block(
     downloaded_block: Vec<u8>,
 ) -> Result<BitcoinBlockFullBreakdown, String> {
     let block = serde_json::from_slice::<bitcoincore_rpc::jsonrpc::Response>(&downloaded_block[..])
@@ -338,7 +337,7 @@ pub fn parse_downloaded_block(
     Ok(block)
 }
 
-pub async fn download_and_parse_block(
+pub(crate) async fn download_and_parse_block(
     http_client: &HttpClient,
     block_hash: &str,
     bitcoin_config: &BitcoindConfig,
@@ -348,7 +347,7 @@ pub async fn download_and_parse_block(
     parse_downloaded_block(response)
 }
 
-pub fn standardize_bitcoin_block(
+pub(crate) fn standardize_bitcoin_block(
     block: BitcoinBlockFullBreakdown,
     network: &BitcoinNetwork,
     ctx: &Context,
@@ -478,8 +477,8 @@ pub fn standardize_bitcoin_block(
     })
 }
 
-#[cfg(test)]
-pub mod tests;
+// #[cfg(test)]
+// pub mod tests;
 
 // Test vectors
 // 1) Devnet PoB

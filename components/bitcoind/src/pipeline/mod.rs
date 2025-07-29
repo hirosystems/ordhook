@@ -1,7 +1,3 @@
-pub mod bitcoin;
-pub mod chain_segment;
-pub mod fork_scratch_pad;
-
 use std::{
     collections::{HashMap, VecDeque},
     sync::{
@@ -11,27 +7,30 @@ use std::{
     thread::JoinHandle,
 };
 
-use bitcoin::{
-    build_http_client, download_and_parse_block_with_retry,
-    pipeline::start_block_download_pipeline, standardize_bitcoin_block,
-};
 use config::Config;
 use crossbeam_channel::{Receiver, Sender, TrySendError};
 use reqwest::Client;
 
-use self::fork_scratch_pad::ForkScratchPad;
 use crate::{
-    observer::zmq::start_zeromq_pipeline,
+    block_pool::BlockPool,
+    pipeline::{
+        rpc::{
+            download_and_parse_block_with_retry, pipeline::start_block_download_pipeline,
+            standardize_bitcoin_block,
+        },
+        zmq::start_zeromq_pipeline,
+    },
     try_debug, try_info,
     types::{BitcoinBlockData, BitcoinNetwork, BlockIdentifier, BlockchainEvent},
-    utils::{
-        bitcoind::{bitcoind_get_chain_tip, bitcoind_wait_for_chain_tip},
-        future_block_on, AbstractBlock, BlockHeights, Context,
-    },
+    utils::{AbstractBlock, BlockHeights, Context},
+    Indexer, IndexerCommand,
 };
 
+pub mod rpc;
+pub mod zmq;
+
 /// Commands that can be sent to the block processor.
-pub enum BlockProcessorCommand {
+pub(crate) enum BlockProcessorCommand {
     ProcessBlocks {
         compacted_blocks: Vec<(u64, Vec<u8>)>,
         blocks: Vec<BitcoinBlockData>,
@@ -40,34 +39,10 @@ pub enum BlockProcessorCommand {
 }
 
 /// Object that will receive any blocks as they come from bitcoind. These messages do not track any canonical chain alterations.
-pub struct BlockProcessor {
+pub(crate) struct BlockProcessor {
     /// Sender for emitting block processor commands.
     pub commands_tx: crossbeam_channel::Sender<BlockProcessorCommand>,
     /// Handle for the block processor thread.
-    pub thread_handle: Option<JoinHandle<()>>,
-}
-
-/// Commands that can be sent to the indexer.
-pub enum IndexerCommand {
-    /// Store compacted blocks.
-    StoreCompactedBlocks(Vec<(u64, Vec<u8>)>),
-    /// Index standardized blocks into the indexer's database.
-    IndexBlocks {
-        apply_blocks: Vec<BitcoinBlockData>,
-        rollback_block_ids: Vec<BlockIdentifier>,
-    },
-    /// Terminate the indexer gracefully.
-    Terminate,
-}
-
-/// Object that will receive standardized blocks ready to be indexer or rolled back. Blocks can come from historical downloads or
-/// recent block streams.
-pub struct Indexer {
-    /// Sender for emitting indexer commands.
-    pub commands_tx: crossbeam_channel::Sender<IndexerCommand>,
-    /// Current index chain tip at launch time.
-    pub chain_tip: Option<BlockIdentifier>,
-    /// Handle for the indexer thread.
     pub thread_handle: Option<JoinHandle<()>>,
 }
 
@@ -107,7 +82,9 @@ fn send_indexer_command(
 }
 
 /// Joins a thread handle and returns an error if the thread panics.
-fn wait_for_thread_finish(thread_handle: &mut Option<JoinHandle<()>>) -> Result<(), String> {
+pub(crate) fn wait_for_thread_finish(
+    thread_handle: &mut Option<JoinHandle<()>>,
+) -> Result<(), String> {
     thread_handle
         .take()
         .unwrap()
@@ -118,7 +95,7 @@ fn wait_for_thread_finish(thread_handle: &mut Option<JoinHandle<()>>) -> Result<
 /// Moves our block pool with a newly received standardized block
 async fn advance_block_pool(
     block: BitcoinBlockData,
-    block_pool: &Arc<Mutex<ForkScratchPad>>,
+    block_pool: &Arc<Mutex<BlockPool>>,
     block_store: &Arc<Mutex<HashMap<BlockIdentifier, BitcoinBlockData>>>,
     http_client: &Client,
     indexer_commands_tx: &Sender<IndexerCommand>,
@@ -248,7 +225,7 @@ async fn advance_block_pool(
 /// Initialize our block pool with the current index's last seen block, so we can detect any re-orgs or gaps that may come our
 /// way with the next blocks.
 async fn initialize_block_pool(
-    block_pool: &Arc<Mutex<ForkScratchPad>>,
+    block_pool: &Arc<Mutex<BlockPool>>,
     index_chain_tip: &BlockIdentifier,
     http_client: &Client,
     config: &Config,
@@ -277,11 +254,11 @@ async fn initialize_block_pool(
 
 /// Runloop designed to receive Bitcoin blocks through a [BlockProcessor] and send them to a [ForkScratchPad] so it can advance
 /// the canonical chain.
-async fn block_processor_runloop(
+pub(crate) async fn block_processor_runloop(
     indexer_commands_tx: &Sender<IndexerCommand>,
     index_chain_tip: &Option<BlockIdentifier>,
     block_commands_rx: &Receiver<BlockProcessorCommand>,
-    block_pool: &Arc<Mutex<ForkScratchPad>>,
+    block_pool: &Arc<Mutex<BlockPool>>,
     block_store: &Arc<Mutex<HashMap<BlockIdentifier, BitcoinBlockData>>>,
     http_client: &Client,
     sequence_start_block_height: u64,
@@ -343,10 +320,10 @@ async fn block_processor_runloop(
 /// Starts a bitcoind RPC block download pipeline that will send us all historical bitcoin blocks in a parallel fashion. We will
 /// then stream these blocks into our block pool so they can be fed into the configured [Indexer]. This will eventually bring the
 /// index chain tip to `target_block_height`.
-async fn download_rpc_blocks(
+pub(crate) async fn download_rpc_blocks(
     indexer: &Indexer,
     block_processor: &mut BlockProcessor,
-    block_pool: &Arc<Mutex<ForkScratchPad>>,
+    block_pool: &Arc<Mutex<BlockPool>>,
     http_client: &Client,
     target_block_height: u64,
     sequence_start_block_height: u64,
@@ -386,7 +363,7 @@ async fn download_rpc_blocks(
 /// Streams all upcoming blocks from bitcoind through its ZeroMQ interface and pipes them onto the [Indexer] once processed
 /// through our block pool. This process will run indefinitely and will make sure our index keeps advancing as new Bitcoin blocks
 /// get mined.
-async fn stream_zmq_blocks(
+pub(crate) async fn stream_zmq_blocks(
     block_processor: &mut BlockProcessor,
     sequence_start_block_height: u64,
     compress_blocks: bool,
@@ -404,124 +381,3 @@ async fn stream_zmq_blocks(
     )
     .await
 }
-
-/// Starts a Bitcoin block indexer pipeline.
-pub async fn start_bitcoin_indexer(
-    indexer: &mut Indexer,
-    sequence_start_block_height: u64,
-    stream_blocks_at_chain_tip: bool,
-    compress_blocks: bool,
-    abort_signal: &Arc<AtomicBool>,
-    config: &Config,
-    ctx: &Context,
-) -> Result<(), String> {
-    let mut bitcoind_chain_tip = bitcoind_wait_for_chain_tip(&config.bitcoind, ctx);
-    let http_client = build_http_client();
-
-    // Block pool that will track the canonical chain and detect any reorgs that may happen.
-    let block_pool_arc = Arc::new(Mutex::new(ForkScratchPad::new()));
-    let block_pool = block_pool_arc.clone();
-    // Block cache that will keep block data in memory while it is prepared to be sent to indexers.
-    let block_store_arc = Arc::new(Mutex::new(HashMap::new()));
-
-    if let Some(index_chain_tip) = &indexer.chain_tip {
-        try_info!(ctx, "Index chain tip is at {}", index_chain_tip);
-    } else {
-        try_info!(ctx, "Index is empty");
-    }
-
-    // Build the [BlockProcessor] that will be used to ingest and standardize blocks from bitcoind. This processor will then send
-    // blocks to the [Indexer] for indexing.
-    let (commands_tx, commands_rx) = crossbeam_channel::bounded::<BlockProcessorCommand>(
-        config.resources.indexer_channel_capacity,
-    );
-    let ctx_moved = ctx.clone();
-    let config_moved = config.clone();
-    let block_pool_moved = block_pool.clone();
-    let block_store_moved = block_store_arc.clone();
-    let http_client_moved = http_client.clone();
-    let indexer_commands_tx_moved = indexer.commands_tx.clone();
-    let index_chain_tip_moved = indexer.chain_tip.clone();
-    let abort_signal_moved = abort_signal.clone();
-    let handle: JoinHandle<()> = hiro_system_kit::thread_named("block_download_processor")
-        .spawn(move || {
-            future_block_on(&ctx_moved.clone(), async move {
-                block_processor_runloop(
-                    &indexer_commands_tx_moved,
-                    &index_chain_tip_moved,
-                    &commands_rx,
-                    &block_pool_moved,
-                    &block_store_moved,
-                    &http_client_moved,
-                    sequence_start_block_height,
-                    &abort_signal_moved,
-                    &config_moved,
-                    &ctx_moved,
-                )
-                .await
-            });
-        })
-        .expect("unable to spawn thread");
-    let mut block_processor = BlockProcessor {
-        commands_tx,
-        thread_handle: Some(handle),
-    };
-
-    // Sync index from bitcoin RPC until chain tip is reached.
-    loop {
-        if abort_signal.load(Ordering::SeqCst) {
-            break;
-        }
-        {
-            let pool = block_pool.lock().unwrap();
-            let chain_tip = pool.canonical_chain_tip().or(indexer.chain_tip.as_ref());
-            if let Some(chain_tip) = chain_tip {
-                if bitcoind_chain_tip == *chain_tip {
-                    try_info!(
-                        ctx,
-                        "Index has reached bitcoind chain tip at {bitcoind_chain_tip}"
-                    );
-                    break;
-                }
-            }
-        }
-        download_rpc_blocks(
-            indexer,
-            &mut block_processor,
-            &block_pool_arc,
-            &http_client,
-            bitcoind_chain_tip.index,
-            sequence_start_block_height,
-            compress_blocks,
-            abort_signal,
-            config,
-            ctx,
-        )
-        .await?;
-        // Bitcoind may have advanced while we were indexing, check its chain tip again.
-        bitcoind_chain_tip = bitcoind_get_chain_tip(&config.bitcoind, ctx);
-    }
-
-    // Stream new incoming blocks from bitcoind's ZeroMQ interface.
-    if stream_blocks_at_chain_tip && !abort_signal.load(Ordering::SeqCst) {
-        stream_zmq_blocks(
-            &mut block_processor,
-            sequence_start_block_height,
-            compress_blocks,
-            abort_signal,
-            config,
-            ctx,
-        )
-        .await?;
-    }
-
-    // Send a terminate command to the indexer and wait for it to finish. Absorb the error here in case the indexer is already
-    // terminated from the abort signal.
-    let _ = indexer.commands_tx.send(IndexerCommand::Terminate);
-    wait_for_thread_finish(&mut indexer.thread_handle)?;
-
-    Ok(())
-}
-
-#[cfg(test)]
-pub mod tests;

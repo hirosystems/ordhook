@@ -1,4 +1,23 @@
-use super::super::tests::{helpers, process_bitcoin_blocks_and_check_expectations};
+pub mod helpers;
+use crate::{
+    block_pool::BlockPool,
+    types::{BitcoinBlockData, BlockchainEvent},
+    utils::{AbstractBlock, Context},
+};
+
+pub type BlockchainEventExpectation = Box<dyn Fn(Option<BlockchainEvent>)>;
+
+pub fn process_bitcoin_blocks_and_check_expectations(
+    steps: Vec<(BitcoinBlockData, BlockchainEventExpectation)>,
+) {
+    let mut blocks_processor = BlockPool::new();
+    for (block, check_chain_event_expectations) in steps.into_iter() {
+        let chain_event = blocks_processor
+            .process_header(block.get_header(), &Context::empty())
+            .unwrap();
+        check_chain_event_expectations(chain_event);
+    }
+}
 
 #[test]
 fn test_bitcoin_vector_001() {
@@ -199,8 +218,3 @@ fn test_bitcoin_vector_039() {
 fn test_bitcoin_vector_040() {
     process_bitcoin_blocks_and_check_expectations(helpers::bitcoin_shapes::get_vector_040());
 }
-
-// #[test]
-// fn test_bitcoin_vector_041() {
-//     process_bitcoin_blocks_and_check_expectations(helpers::shapes::get_vector_041());
-// }

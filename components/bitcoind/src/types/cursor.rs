@@ -1,7 +1,6 @@
 use std::io::{Cursor, Read, Write};
 
-use super::BitcoinBlockFullBreakdown;
-use crate::types::BitcoinBlockData;
+use crate::{pipeline::rpc::BitcoinBlockFullBreakdown, types::BitcoinBlockData};
 
 #[derive(Debug)]
 pub struct BlockBytesCursor<'a> {
@@ -188,7 +187,7 @@ impl BlockBytesCursor<'_> {
         TransactionBytesCursorIterator::new(self)
     }
 
-    pub fn from_full_block(block: &BitcoinBlockFullBreakdown) -> std::io::Result<Vec<u8>> {
+    pub(crate) fn from_full_block(block: &BitcoinBlockFullBreakdown) -> std::io::Result<Vec<u8>> {
         let mut buffer = vec![];
         // Number of transactions in the block (not including coinbase)
         let tx_len = block.tx.len() as u16;
@@ -367,7 +366,7 @@ impl Iterator for TransactionBytesCursorIterator<'_> {
 mod tests {
     use super::*;
     use crate::{
-        indexer::bitcoin::{parse_downloaded_block, standardize_bitcoin_block},
+        pipeline::rpc::{parse_downloaded_block, standardize_bitcoin_block},
         types::BitcoinNetwork,
         utils::Context,
     };

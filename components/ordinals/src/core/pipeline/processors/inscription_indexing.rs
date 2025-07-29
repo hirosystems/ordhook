@@ -8,9 +8,8 @@ use std::{
 };
 
 use bitcoind::{
-    indexer::bitcoin::cursor::TransactionBytesCursor,
     try_info, try_warn,
-    types::{BitcoinBlockData, TransactionIdentifier},
+    types::{BitcoinBlockData, TransactionBytesCursor, TransactionIdentifier},
     utils::Context,
 };
 use config::Config;

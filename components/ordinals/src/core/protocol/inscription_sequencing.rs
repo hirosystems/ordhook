@@ -6,12 +6,11 @@ use std::{
 
 use bitcoin::Network;
 use bitcoind::{
-    indexer::bitcoin::cursor::TransactionBytesCursor,
     try_debug, try_error, try_info,
     types::{
         BitcoinBlockData, BitcoinNetwork, BitcoinTransactionData, BlockIdentifier,
         OrdinalInscriptionCurseType, OrdinalInscriptionTransferDestination, OrdinalOperation,
-        TransactionIdentifier,
+        TransactionBytesCursor, TransactionIdentifier,
     },
     utils::Context,
 };

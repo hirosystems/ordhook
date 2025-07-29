@@ -17,10 +17,10 @@ use std::{
 };
 
 use bitcoind::{
-    indexer::{start_bitcoin_indexer, Indexer, IndexerCommand},
-    try_debug, try_info,
+    start_bitcoin_indexer, try_debug, try_info,
     types::BlockIdentifier,
     utils::{future_block_on, Context},
+    Indexer, IndexerCommand,
 };
 use config::Config;
 use db::{

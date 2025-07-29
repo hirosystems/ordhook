@@ -7,7 +7,7 @@ pub mod test_builders;
 use std::{hash::BuildHasherDefault, ops::Div};
 
 use bitcoin::Network;
-use bitcoind::{indexer::bitcoin::cursor::TransactionBytesCursor, utils::Context};
+use bitcoind::{types::TransactionBytesCursor, utils::Context};
 use config::Config;
 use dashmap::DashMap;
 use fxhash::{FxBuildHasher, FxHasher};

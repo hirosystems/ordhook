@@ -1,9 +1,11 @@
+pub mod chain_segment;
+
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use hiro_system_kit::slog;
 
-use super::chain_segment::{ChainSegment, ChainSegmentIncompatibility};
 use crate::{
+    block_pool::chain_segment::{ChainSegment, ChainSegmentIncompatibility},
     try_debug, try_error, try_info, try_warn,
     types::{
         BlockHeader, BlockIdentifier, BlockchainEvent, BlockchainUpdatedWithHeaders,
@@ -12,25 +14,25 @@ use crate::{
     utils::Context,
 };
 
-pub struct ForkScratchPad {
+pub struct BlockPool {
     canonical_fork_id: usize,
     orphans: BTreeSet<BlockIdentifier>,
     forks: BTreeMap<usize, ChainSegment>,
     headers_store: BTreeMap<BlockIdentifier, BlockHeader>,
 }
 pub const CONFIRMED_SEGMENT_MINIMUM_LENGTH: i32 = 7;
-impl Default for ForkScratchPad {
+impl Default for BlockPool {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl ForkScratchPad {
-    pub fn new() -> ForkScratchPad {
+impl BlockPool {
+    pub fn new() -> BlockPool {
         let mut forks = BTreeMap::new();
         forks.insert(0, ChainSegment::new());
         let headers_store = BTreeMap::new();
-        ForkScratchPad {
+        BlockPool {
             canonical_fork_id: 0,
             orphans: BTreeSet::new(),
             forks,
@@ -422,3 +424,6 @@ impl ForkScratchPad {
         Err(ChainSegmentIncompatibility::ParentBlockUnknown)
     }
 }
+
+#[cfg(test)]
+pub mod tests;

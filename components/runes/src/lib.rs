@@ -7,10 +7,10 @@ use std::{
 };
 
 use bitcoind::{
-    indexer::{start_bitcoin_indexer, Indexer, IndexerCommand},
-    try_error, try_info, try_warn,
+    start_bitcoin_indexer, try_error, try_info, try_warn,
     types::BlockIdentifier,
     utils::{future_block_on, Context},
+    Indexer, IndexerCommand,
 };
 use config::Config;
 use db::{

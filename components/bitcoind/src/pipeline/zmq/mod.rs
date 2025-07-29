@@ -7,15 +7,12 @@ use config::Config;
 use zmq::Socket;
 
 use crate::{
-    indexer::{
-        bitcoin::{
-            build_http_client, cursor::BlockBytesCursor, download_and_parse_block_with_retry,
-            standardize_bitcoin_block,
-        },
+    pipeline::{
+        rpc::{build_http_client, download_and_parse_block_with_retry, standardize_bitcoin_block},
         BlockProcessor, BlockProcessorCommand,
     },
     try_info, try_warn,
-    types::BitcoinNetwork,
+    types::{BitcoinNetwork, BlockBytesCursor},
     utils::Context,
 };
 
@@ -35,7 +32,7 @@ fn new_zmq_socket() -> Socket {
     socket
 }
 
-pub async fn start_zeromq_pipeline(
+pub(crate) async fn start_zeromq_pipeline(
     block_processor: &mut BlockProcessor,
     start_sequencing_blocks_at_height: u64,
     compress_blocks: bool,

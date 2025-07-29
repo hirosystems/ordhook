@@ -1,9 +1,11 @@
 use std::{hash::BuildHasherDefault, sync::Arc};
 
 use bitcoind::{
-    indexer::bitcoin::cursor::{BlockBytesCursor, TransactionBytesCursor},
     try_error,
-    types::{BlockIdentifier, OrdinalInscriptionNumber, TransactionIdentifier},
+    types::{
+        BlockBytesCursor, BlockIdentifier, OrdinalInscriptionNumber, TransactionBytesCursor,
+        TransactionIdentifier,
+    },
     utils::Context,
 };
 use config::Config;
@@ -304,8 +306,10 @@ mod test {
     use std::{hash::BuildHasherDefault, sync::Arc};
 
     use bitcoind::{
-        indexer::bitcoin::cursor::{TransactionBytesCursor, TransactionInputBytesCursor},
-        types::{bitcoin::TxOut, BlockIdentifier, TransactionIdentifier},
+        types::{
+            bitcoin::TxOut, BlockIdentifier, TransactionBytesCursor, TransactionIdentifier,
+            TransactionInputBytesCursor,
+        },
         utils::Context,
     };
     use config::Config;
