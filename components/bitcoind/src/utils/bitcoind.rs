@@ -1,11 +1,15 @@
 use std::{thread::sleep, time::Duration};
 
-use bitcoincore_rpc::{Auth, Client, RpcApi};
+use bitcoincore_rpc::{
+    bitcoin::{BlockHash, Txid},
+    Auth, Client, RpcApi,
+};
+use bitcoincore_rpc_json::GetRawTransactionResult;
 use config::BitcoindConfig;
 
 use crate::{try_error, try_info, types::BlockIdentifier, utils::Context};
 
-fn bitcoind_get_client(config: &BitcoindConfig, ctx: &Context) -> Client {
+pub fn bitcoind_get_client(config: &BitcoindConfig, ctx: &Context) -> Client {
     loop {
         let auth = Auth::UserPass(config.rpc_username.clone(), config.rpc_password.clone());
         match Client::new(&config.rpc_url, auth) {
@@ -35,6 +39,57 @@ pub fn bitcoind_get_chain_tip(config: &BitcoindConfig, ctx: &Context) -> BlockId
                 try_error!(
                     ctx,
                     "bitcoind: Unable to get block height: {}",
+                    e.to_string()
+                );
+                sleep(Duration::from_secs(1));
+            }
+        };
+    }
+}
+
+/// Retrieves the block_height for a given blockhash.
+pub fn bitcoind_get_block_height(
+    bitcoin_rpc: &Client,
+    ctx: &Context,
+    blockhash: &BlockHash,
+) -> u32 {
+    loop {
+        match bitcoin_rpc.get_block_header_info(blockhash) {
+            Ok(result) => {
+                return result.height.try_into().unwrap();
+            }
+            Err(e) => {
+                try_error!(
+                    ctx,
+                    "bitcoind: Unable to get block header info: {}",
+                    e.to_string()
+                );
+                sleep(Duration::from_secs(1));
+            }
+        };
+    }
+}
+
+/// Retrieves the raw transaction for a given txid.
+pub fn bitcoin_get_raw_transaction(
+    bitcoin_rpc: &Client,
+    ctx: &Context,
+    txid: &Txid,
+) -> Option<GetRawTransactionResult> {
+    let mut tries = 0;
+    loop {
+        match bitcoin_rpc.get_raw_transaction_info(txid, None) {
+            Ok(result) => {
+                return Some(result);
+            }
+            Err(e) => {
+                tries += 1;
+                if tries > 10 {
+                    return None;
+                }
+                try_error!(
+                    ctx,
+                    "bitcoind: Unable to get raw transaction: {}",
                     e.to_string()
                 );
                 sleep(Duration::from_secs(1));

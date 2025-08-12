@@ -1,8 +1,13 @@
 use std::{collections::HashMap, num::NonZeroUsize, str::FromStr};
 
 use bitcoin::{Network, ScriptBuf};
-use bitcoind::{try_debug, try_warn, types::bitcoin::TxIn, utils::Context};
-use config::Config;
+use bitcoind::{
+    bitcoincore_rpc::Client as BitcoinRPCClient,
+    try_debug, try_warn,
+    types::bitcoin::TxIn,
+    utils::{bitcoind::bitcoind_get_client, Context},
+};
+use config::{BitcoindConfig, Config};
 use deadpool_postgres::{Pool, Transaction};
 use lru::LruCache;
 use ordinals_parser::{Cenotaph, Edict, Etching, Rune, RuneId, Runestone};
@@ -13,7 +18,10 @@ use super::{
     transaction_location::TransactionLocation, utils::move_block_output_cache_to_output_cache,
 };
 use crate::db::{
-    cache::utils::input_rune_balances_from_tx_inputs,
+    cache::{
+        rune_validation::rune_etching_has_valid_commit_with_reconnect,
+        utils::input_rune_balances_from_tx_inputs,
+    },
     models::{
         db_balance_change::DbBalanceChange, db_ledger_entry::DbLedgerEntry,
         db_ledger_operation::DbLedgerOperation, db_rune::DbRune, db_supply_change::DbSupplyChange,
@@ -40,13 +48,18 @@ pub struct IndexCache {
     tx_cache: TransactionCache,
     /// Keeps rows that have not yet been inserted in the DB.
     pub db_cache: DbCache,
+    /// Bitcoin RPC client used to validate rune commitments.
+    pub bitcoin_client: BitcoinRPCClient,
+    /// Bitcoin RPC client configuration.
+    bitcoin_client_config: BitcoindConfig,
 }
 
 impl IndexCache {
-    pub async fn new(config: &Config, pg_pool: &Pool) -> Self {
+    pub async fn new(config: &Config, pg_pool: &Pool, ctx: &Context) -> Self {
         let pg_client = pg_pool_client(pg_pool).await.unwrap();
         let network = config.bitcoind.network;
         let cap = NonZeroUsize::new(config.runes.as_ref().unwrap().lru_cache_size).unwrap();
+        let bitcoin_client = bitcoind_get_client(&config.bitcoind, ctx);
         IndexCache {
             network,
             next_rune_number: pg_get_max_rune_number(&pg_client).await + 1,
@@ -69,6 +82,8 @@ impl IndexCache {
                 0,
             ),
             db_cache: DbCache::new(),
+            bitcoin_client,
+            bitcoin_client_config: config.bitcoind.clone(),
         }
     }
 
@@ -160,8 +175,50 @@ impl IndexCache {
         _db_tx: &mut Transaction<'_>,
         ctx: &Context,
         etchings_counter: &mut u64,
+        bitcoin_tx: &bitcoin::Transaction,
+        inputs_counter: &mut u64,
     ) {
         let (rune_id, db_rune, entry) = self.tx_cache.apply_etching(etching, self.next_rune_number);
+
+        // Get the rune from the etching
+        let rune = etching.rune.unwrap_or_else(|| {
+            // If no rune name is provided, generate the rune's reserved name
+            Rune::reserved(
+                self.tx_cache.location.block_height,
+                self.tx_cache.location.tx_index,
+            )
+        });
+
+        // Only check if rune name is reserved when a rune name is explicitly provided
+        if let Some(provided_rune) = etching.rune {
+            if provided_rune.is_reserved() {
+                try_debug!(
+                    ctx,
+                    "Invalid rune for etching, reserved rune {}",
+                    provided_rune
+                );
+                return;
+            }
+        }
+
+        // Validate rune commitment
+        let is_valid_commitment = rune_etching_has_valid_commit_with_reconnect(
+            &mut self.bitcoin_client,
+            &self.bitcoin_client_config,
+            ctx,
+            bitcoin_tx,
+            &rune,
+            self.tx_cache.location.block_height as u32,
+            inputs_counter,
+        )
+        .await
+        .unwrap_or(false);
+
+        if !is_valid_commitment {
+            try_debug!(ctx, "Invalid rune commitment for etching {}", rune);
+            return; // Skip invalid etchings
+        }
+
         try_debug!(
             ctx,
             "Etching {spaced_name} ({id}) {location}",

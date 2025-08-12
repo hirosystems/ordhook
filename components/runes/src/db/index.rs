@@ -85,6 +85,7 @@ pub async fn index_block(
     let mut cenotaph_etching_count: u64 = 0;
     let mut cenotaph_mint_count: u64 = 0;
     let mut cenotaph_count: u64 = 0;
+    let mut inputs_count: u64 = 0;
 
     let mut db_tx = pg_begin(pg_client).await.unwrap();
     index_cache.reset_max_rune_number(&mut db_tx).await;
@@ -124,7 +125,14 @@ pub async fn index_block(
                         .await;
                     if let Some(etching) = runestone.etching {
                         index_cache
-                            .apply_etching(&etching, &mut db_tx, ctx, &mut etching_count)
+                            .apply_etching(
+                                &etching,
+                                &mut db_tx,
+                                ctx,
+                                &mut etching_count,
+                                &transaction,
+                                &mut inputs_count,
+                            )
                             .await;
                     }
                     if let Some(mint_rune_id) = runestone.mint {
@@ -189,7 +197,7 @@ pub async fn index_block(
     prometheus.metrics_record_runes_cenotaph_per_block(cenotaph_count);
     prometheus.metrics_record_runes_cenotaph_etching_per_block(cenotaph_etching_count);
     prometheus.metrics_record_runes_cenotaph_mint_per_block(cenotaph_mint_count);
-
+    prometheus.metrics_record_runes_etching_inputs_checked_per_block(inputs_count);
     // Record metrics
     prometheus.metrics_block_indexed(block_height);
     let current_rune_number = pg_get_max_rune_number(pg_client).await;

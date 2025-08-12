@@ -51,7 +51,8 @@ async fn new_runes_indexer_runloop(
                 #[cfg(feature = "dhat-heap")]
                 let _profiler = dhat::Profiler::new_heap();
 
-                let mut index_cache = IndexCache::new(&config_moved, &pg_pool_moved).await;
+                let mut index_cache =
+                    IndexCache::new(&config_moved, &pg_pool_moved, &ctx_moved).await;
                 loop {
                     if abort_signal_moved.load(Ordering::SeqCst) {
                         break;
