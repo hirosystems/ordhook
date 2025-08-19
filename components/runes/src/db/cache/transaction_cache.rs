@@ -452,6 +452,35 @@ mod test {
     }
 
     #[test]
+    fn etches_rune_with_omitted_name_generates_reserved() {
+        let location = TransactionLocation::dummy();
+        let mut cache = TransactionCache::empty(location.clone());
+        let etching = Etching {
+            divisibility: Some(2),
+            premine: Some(1000),
+            rune: None, // Omitted name → should allocate reserved rune
+            spacers: None,
+            symbol: Some('x'),
+            terms: Some(Terms {
+                amount: Some(1000),
+                cap: None,
+                height: (None, None),
+                offset: (None, None),
+            }),
+            turbo: true,
+        };
+
+        let (_rune_id, db_rune, db_ledger_entry) = cache.apply_etching(&etching, 1);
+
+        // Expected reserved rune string for this location
+        let expected_reserved_name =
+            Rune::reserved(location.block_height, location.tx_index).to_string();
+
+        assert_eq!(db_rune.name, expected_reserved_name);
+        assert_eq!(db_ledger_entry.operation, DbLedgerOperation::Etching);
+    }
+
+    #[test]
     // TODO add cenotaph field to DbRune before filling this in
     fn etches_cenotaph_rune() {
         let location = TransactionLocation::dummy();

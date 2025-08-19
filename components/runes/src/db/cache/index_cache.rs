@@ -2,7 +2,7 @@ use std::{collections::HashMap, num::NonZeroUsize, str::FromStr};
 
 use bitcoin::{Network, ScriptBuf};
 use bitcoind::{
-    bitcoincore_rpc::Client as BitcoinRPCClient,
+    bitcoincore_rpc::Client as BitcoinRpcClient,
     try_debug, try_warn,
     types::bitcoin::TxIn,
     utils::{bitcoind::bitcoind_get_client, Context},
@@ -49,7 +49,7 @@ pub struct IndexCache {
     /// Keeps rows that have not yet been inserted in the DB.
     pub db_cache: DbCache,
     /// Bitcoin RPC client used to validate rune commitments.
-    pub bitcoin_client: BitcoinRPCClient,
+    pub bitcoin_client: BitcoinRpcClient,
     /// Bitcoin RPC client configuration.
     bitcoin_client_config: BitcoindConfig,
 }
@@ -180,43 +180,62 @@ impl IndexCache {
     ) {
         let (rune_id, db_rune, entry) = self.tx_cache.apply_etching(etching, self.next_rune_number);
 
-        // Get the rune from the etching
-        let rune = etching.rune.unwrap_or_else(|| {
-            // If no rune name is provided, generate the rune's reserved name
+        // Determine rune and validation path via explicit match for clarity
+        let provided_rune = etching.rune;
+        let rune = provided_rune.unwrap_or_else(|| {
             Rune::reserved(
                 self.tx_cache.location.block_height,
                 self.tx_cache.location.tx_index,
             )
         });
 
-        // Only check if rune name is reserved when a rune name is explicitly provided
-        if let Some(provided_rune) = etching.rune {
-            if provided_rune.is_reserved() {
-                try_debug!(
-                    ctx,
-                    "Invalid rune for etching, reserved rune {}",
-                    provided_rune
-                );
+        match provided_rune {
+            // Explicitly reserved names are rejected
+            Some(r) if r.is_reserved() => {
+                try_debug!(ctx, "Skipping etching with explicitly reserved rune {}", r);
                 return;
             }
-        }
+            // Explicit non-reserved names require commit validation
+            Some(_) => {
+                try_debug!(
+                    ctx,
+                    "Attempting to validate rune commitment for non-reserved rune {} at block height {}",
+                    rune,
+                    self.tx_cache.location.block_height
+                );
 
-        // Validate rune commitment
-        let is_valid_commitment = rune_etching_has_valid_commit_with_reconnect(
-            &mut self.bitcoin_client,
-            &self.bitcoin_client_config,
-            ctx,
-            bitcoin_tx,
-            &rune,
-            self.tx_cache.location.block_height as u32,
-            inputs_counter,
-        )
-        .await
-        .unwrap_or(false);
+                let is_valid_commitment = rune_etching_has_valid_commit_with_reconnect(
+                    &mut self.bitcoin_client,
+                    &self.bitcoin_client_config,
+                    ctx,
+                    bitcoin_tx,
+                    &rune,
+                    self.tx_cache.location.block_height as u32,
+                    inputs_counter,
+                )
+                .await
+                .unwrap_or(false);
 
-        if !is_valid_commitment {
-            try_debug!(ctx, "Invalid rune commitment for etching {}", rune);
-            return; // Skip invalid etchings
+                try_debug!(
+                    ctx,
+                    "Rune commitment validation result for {}: {}",
+                    rune,
+                    is_valid_commitment
+                );
+
+                if !is_valid_commitment {
+                    try_debug!(ctx, "Invalid rune commitment for etching {}", rune);
+                    return; // Skip invalid etchings
+                }
+            }
+            // Omitted name (reserved allocation) → skip commitment validation
+            None => {
+                try_debug!(
+                    ctx,
+                    "Skipping commitment validation for rune {} (reserved allocation)",
+                    rune
+                );
+            }
         }
 
         try_debug!(

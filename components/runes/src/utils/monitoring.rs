@@ -761,5 +761,32 @@ mod tests {
         );
     }
 
-    // TODO: add test for runes_etching_inputs_checked_per_block
+    #[test]
+    fn test_runes_etching_inputs_checked_per_block_metric() {
+        let monitoring = PrometheusMonitoring::new();
+
+        // Record inputs checked for different blocks
+        monitoring.metrics_record_runes_etching_inputs_checked_per_block(5);
+        monitoring.metrics_record_runes_etching_inputs_checked_per_block(10);
+        monitoring.metrics_record_runes_etching_inputs_checked_per_block(3);
+
+        // Get the gauge values using the registry
+        let metrics = monitoring.registry.gather();
+
+        // Find the runes_etching_inputs_checked_per_block metric
+        let metric_family = metrics
+            .iter()
+            .find(|mf| mf.get_name() == "runes_etching_inputs_checked_per_block")
+            .expect("Should find runes_etching_inputs_checked_per_block metric");
+
+        let metric = metric_family.get_metric().first().unwrap();
+        let gauge = metric.get_gauge();
+
+        // Verify the gauge value (should be the last value set)
+        assert_eq!(
+            gauge.get_value(),
+            3.0,
+            "Should have recorded 3 as the last value"
+        );
+    }
 }
