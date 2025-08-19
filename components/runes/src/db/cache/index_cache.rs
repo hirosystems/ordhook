@@ -178,8 +178,6 @@ impl IndexCache {
         bitcoin_tx: &bitcoin::Transaction,
         inputs_counter: &mut u64,
     ) {
-        let (rune_id, db_rune, entry) = self.tx_cache.apply_etching(etching, self.next_rune_number);
-
         // Determine rune and validation path via explicit match for clarity
         let provided_rune = etching.rune;
         let rune = provided_rune.unwrap_or_else(|| {
@@ -237,6 +235,9 @@ impl IndexCache {
                 );
             }
         }
+
+        // Only mutate cache and collect DB rows after validation succeeds or is skipped
+        let (rune_id, db_rune, entry) = self.tx_cache.apply_etching(etching, self.next_rune_number);
 
         try_debug!(
             ctx,
