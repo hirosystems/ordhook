@@ -3,13 +3,11 @@ use std::str::FromStr;
 use bitcoin::{Script, Transaction, Witness};
 use bitcoind::{
     bitcoincore_rpc::{self, Client as BitcoinRPCClient},
-    try_info, try_warn,
     utils::{
-        bitcoind::{bitcoin_get_raw_transaction, bitcoind_get_block_height, bitcoind_get_client},
+        bitcoind::{bitcoin_get_raw_transaction, bitcoind_get_block_height},
         Context,
     },
 };
-use config::BitcoindConfig;
 use ordinals_parser::{Rune, Runestone};
 
 fn unversioned_leaf_script_from_witness(witness: &Witness) -> Option<&Script> {

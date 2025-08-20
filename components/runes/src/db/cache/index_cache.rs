@@ -207,7 +207,7 @@ impl IndexCache {
                 );
 
                 let is_valid_commitment = rune_etching_has_valid_commit(
-                    &mut self.bitcoin_client,
+                    &self.bitcoin_client,
                     ctx,
                     bitcoin_tx,
                     &rune,
