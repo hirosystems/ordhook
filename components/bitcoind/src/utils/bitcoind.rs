@@ -52,22 +52,18 @@ pub fn bitcoind_get_block_height(
     bitcoin_rpc: &Client,
     ctx: &Context,
     blockhash: &BlockHash,
-) -> u32 {
-    loop {
-        match bitcoin_rpc.get_block_header_info(blockhash) {
-            Ok(result) => {
-                return result.height.try_into().unwrap();
-            }
-            Err(e) => {
-                try_error!(
-                    ctx,
-                    "bitcoind: Unable to get block header info: {}",
-                    e.to_string()
-                );
-                sleep(Duration::from_secs(1));
-            }
-        };
-    }
+) -> Result<u32, String> {
+    bitcoin_rpc
+        .get_block_header_info(blockhash)
+        .map(|result| result.height.try_into().unwrap())
+        .map_err(|e| {
+            try_error!(
+                ctx,
+                "bitcoind: Unable to get block header info: {}",
+                e.to_string()
+            );
+            e.to_string()
+        })
 }
 
 /// Retrieves the raw transaction for a given txid.

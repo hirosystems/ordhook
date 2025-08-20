@@ -6,7 +6,7 @@ use bitcoin::{
     Amount, Network, ScriptBuf, Transaction,
 };
 use bitcoind::{
-    try_info,
+    try_error, try_info, try_warn,
     types::{BitcoinBlockData, BitcoinTransactionData},
     utils::Context,
 };
@@ -16,7 +16,8 @@ use postgres::pg_begin;
 
 use super::{cache::index_cache::IndexCache, pg_get_max_rune_number, pg_roll_back_block};
 use crate::{
-    db::cache::transaction_location::TransactionLocation, utils::monitoring::PrometheusMonitoring,
+    db::cache::{rune_validation::is_connection_error, transaction_location::TransactionLocation},
+    utils::monitoring::PrometheusMonitoring,
 };
 
 pub fn get_rune_genesis_block_height(network: Network) -> u64 {
@@ -124,7 +125,7 @@ pub async fn index_block(
                         .apply_runestone(&runestone, &mut db_tx, ctx)
                         .await;
                     if let Some(etching) = runestone.etching {
-                        index_cache
+                        if let Err(err) = index_cache
                             .apply_etching(
                                 &etching,
                                 &mut db_tx,
@@ -133,7 +134,34 @@ pub async fn index_block(
                                 &transaction,
                                 &mut inputs_count,
                             )
-                            .await;
+                            .await
+                        {
+                            // Only reconnect and retry on connection-related errors
+                            if is_connection_error(&err) {
+                                try_warn!(ctx, "Bitcoin RPC connection error detected: {}", err);
+                                index_cache.reconnect_bitcoin_client(ctx);
+                                if let Err(err) = index_cache
+                                    .apply_etching(
+                                        &etching,
+                                        &mut db_tx,
+                                        ctx,
+                                        &mut etching_count,
+                                        &transaction,
+                                        &mut inputs_count,
+                                    )
+                                    .await
+                                {
+                                    try_error!(
+                                        ctx,
+                                        "apply_etching failed twice after reconnect: {}",
+                                        err
+                                    );
+                                }
+                            } else {
+                                // Non-connection errors: propagate error
+                                try_error!(ctx, "apply_etching failed: {}", err);
+                            }
+                        }
                     }
                     if let Some(mint_rune_id) = runestone.mint {
                         index_cache

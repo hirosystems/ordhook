@@ -54,7 +54,7 @@ pub fn is_reserved(rune: &Rune) -> bool {
 /// - The spent output must be a P2TR (taproot) output
 /// - At least 6 block confirmations between commit and reveal
 /// - Commitment bytes must exactly match `rune.commitment()`
-async fn rune_etching_has_valid_commit(
+pub async fn rune_etching_has_valid_commit(
     bitcoin_client: &BitcoinRPCClient,
     ctx: &Context,
     tx: &Transaction,
@@ -112,7 +112,7 @@ async fn rune_etching_has_valid_commit(
 
             // Get commit transaction's block height to check confirmation count
             let commit_tx_height =
-                bitcoind_get_block_height(bitcoin_client, ctx, &commit_tx_info.blockhash.unwrap());
+                bitcoind_get_block_height(bitcoin_client, ctx, &commit_tx_info.blockhash.unwrap())?;
 
             // Calculate confirmations and check minimum requirement (6 blocks)
             let confirmations = reveal_block_height.checked_sub(commit_tx_height).unwrap() + 1;
@@ -125,64 +125,9 @@ async fn rune_etching_has_valid_commit(
     Ok(false)
 }
 
-/// Validates that a rune etching transaction has a proper commitment transaction with automatic reconnection.
-///
-/// This function wraps the core validation logic with connection error handling. If a connection
-/// error is detected, it will attempt to reconnect the Bitcoin RPC client and retry the validation.
-pub async fn rune_etching_has_valid_commit_with_reconnect(
-    bitcoin_client: &mut BitcoinRPCClient,
-    config: &BitcoindConfig,
-    ctx: &Context,
-    tx: &Transaction,
-    rune: &Rune,
-    reveal_block_height: u32,
-    inputs_counter: &mut u64,
-) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-    match rune_etching_has_valid_commit(
-        bitcoin_client,
-        ctx,
-        tx,
-        rune,
-        reveal_block_height,
-        inputs_counter,
-    )
-    .await
-    {
-        Ok(result) => Ok(result),
-        Err(error) => {
-            // Check if this is a connection error
-            if is_connection_error(&error) {
-                try_warn!(ctx, "Bitcoin RPC connection error detected: {}", error);
-                try_info!(ctx, "Attempting to reconnect Bitcoin RPC client...");
-
-                // Create a new client connection
-                *bitcoin_client = bitcoind_get_client(config, ctx);
-                try_info!(
-                    ctx,
-                    "Bitcoin RPC client reconnected, retrying validation..."
-                );
-
-                // Retry the validation with the new connection
-                rune_etching_has_valid_commit(
-                    bitcoin_client,
-                    ctx,
-                    tx,
-                    rune,
-                    reveal_block_height,
-                    inputs_counter,
-                )
-                .await
-            } else {
-                // Not a connection error, propagate the original error
-                Err(error)
-            }
-        }
-    }
-}
-
 /// Checks if an error indicates a connection issue that requires reconnection
 #[allow(clippy::borrowed_box)]
-fn is_connection_error(error: &Box<dyn std::error::Error + Send + Sync>) -> bool {
+pub fn is_connection_error(error: &Box<dyn std::error::Error + Send + Sync>) -> bool {
     let error_msg = error.to_string().to_lowercase();
 
     // Check for common connection-related error patterns

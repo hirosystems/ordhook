@@ -19,8 +19,7 @@ use super::{
 };
 use crate::db::{
     cache::{
-        rune_validation::rune_etching_has_valid_commit_with_reconnect,
-        utils::input_rune_balances_from_tx_inputs,
+        rune_validation::rune_etching_has_valid_commit, utils::input_rune_balances_from_tx_inputs,
     },
     models::{
         db_balance_change::DbBalanceChange, db_ledger_entry::DbLedgerEntry,
@@ -85,6 +84,11 @@ impl IndexCache {
             bitcoin_client,
             bitcoin_client_config: config.bitcoind.clone(),
         }
+    }
+
+    /// Recreate and replace the internal Bitcoin RPC client
+    pub fn reconnect_bitcoin_client(&mut self, ctx: &Context) {
+        self.bitcoin_client = bitcoind_get_client(&self.bitcoin_client_config, ctx);
     }
 
     pub async fn reset_max_rune_number(&mut self, db_tx: &mut Transaction<'_>) {
@@ -177,7 +181,7 @@ impl IndexCache {
         etchings_counter: &mut u64,
         bitcoin_tx: &bitcoin::Transaction,
         inputs_counter: &mut u64,
-    ) {
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Determine rune and validation path via explicit match for clarity
         let provided_rune = etching.rune;
         let rune = provided_rune.unwrap_or_else(|| {
@@ -191,7 +195,7 @@ impl IndexCache {
             // Explicitly reserved names are rejected
             Some(r) if r.is_reserved() => {
                 try_debug!(ctx, "Skipping etching with explicitly reserved rune {}", r);
-                return;
+                return Ok(());
             }
             // Explicit non-reserved names require commit validation
             Some(_) => {
@@ -202,17 +206,15 @@ impl IndexCache {
                     self.tx_cache.location.block_height
                 );
 
-                let is_valid_commitment = rune_etching_has_valid_commit_with_reconnect(
+                let is_valid_commitment = rune_etching_has_valid_commit(
                     &mut self.bitcoin_client,
-                    &self.bitcoin_client_config,
                     ctx,
                     bitcoin_tx,
                     &rune,
                     self.tx_cache.location.block_height as u32,
                     inputs_counter,
                 )
-                .await
-                .unwrap_or(false);
+                .await?;
 
                 try_debug!(
                     ctx,
@@ -223,7 +225,7 @@ impl IndexCache {
 
                 if !is_valid_commitment {
                     try_debug!(ctx, "Invalid rune commitment for etching {}", rune);
-                    return; // Skip invalid etchings
+                    return Ok(()); // Skip invalid etchings
                 }
             }
             // Omitted name (reserved allocation) → skip commitment validation
@@ -251,6 +253,7 @@ impl IndexCache {
         self.add_ledger_entries_to_db_cache(&vec![entry]);
         self.next_rune_number += 1;
         *etchings_counter += 1;
+        Ok(())
     }
 
     pub async fn apply_cenotaph_etching(
