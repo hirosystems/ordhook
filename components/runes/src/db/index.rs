@@ -1,23 +1,24 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, str::FromStr};
 
 use bitcoin::{
     absolute::LockTime,
-    transaction::{TxOut, Version},
-    Amount, Network, ScriptBuf, Transaction,
+    blockdata::witness::Witness,
+    transaction::{OutPoint, Sequence, TxIn, TxOut, Version},
+    Amount, Network, ScriptBuf, Transaction, Txid,
 };
 use bitcoind::{
-    try_error, try_info, try_warn,
+    try_info,
     types::{BitcoinBlockData, BitcoinTransactionData},
     utils::Context,
 };
 use deadpool_postgres::Client;
+use hex;
 use ordinals_parser::{Artifact, Runestone};
 use postgres::pg_begin;
 
 use super::{cache::index_cache::IndexCache, pg_get_max_rune_number, pg_roll_back_block};
 use crate::{
-    db::cache::{rune_validation::is_connection_error, transaction_location::TransactionLocation},
-    utils::monitoring::PrometheusMonitoring,
+    db::cache::transaction_location::TransactionLocation, utils::monitoring::PrometheusMonitoring,
 };
 
 pub fn get_rune_genesis_block_height(network: Network) -> u64 {
@@ -36,6 +37,7 @@ fn bitcoin_tx_from_chainhook_tx(
     block: &BitcoinBlockData,
     tx: &BitcoinTransactionData,
 ) -> (Transaction, HashMap<u32, ScriptBuf>, Option<u32>, u32) {
+    let mut inputs = Vec::with_capacity(tx.metadata.inputs.len());
     let mut outputs = Vec::with_capacity(tx.metadata.outputs.len());
     let mut eligible_outputs = HashMap::new();
     let mut first_eligible_output: Option<u32> = None;
@@ -52,12 +54,37 @@ fn bitcoin_tx_from_chainhook_tx(
             script_pubkey: script,
         });
     }
+    for input in tx.metadata.inputs.iter() {
+        // Convert hex strings to bytes for witness data
+        let witness_bytes: Vec<Vec<u8>> = input
+            .witness
+            .iter()
+            .map(|hex_str| {
+                // Remove "0x" prefix and decode hex string to bytes
+                let clean_hex = if hex_str.starts_with("0x") {
+                    &hex_str[2..]
+                } else {
+                    hex_str
+                };
+                hex::decode(clean_hex).unwrap_or_default()
+            })
+            .collect();
+
+        inputs.push(TxIn {
+            previous_output: OutPoint {
+                txid: Txid::from_str(&input.previous_output.txid.hash[2..]).unwrap(),
+                vout: input.previous_output.vout,
+            },
+            script_sig: ScriptBuf::new(), // Unused
+            sequence: Sequence(input.sequence),
+            witness: Witness::from_slice(&witness_bytes),
+        });
+    }
     (
         Transaction {
             version: Version::TWO,
             lock_time: LockTime::from_time(block.timestamp).unwrap(),
-            // Inputs don't matter for Runestone parsing.
-            input: vec![],
+            input: inputs,
             output: outputs,
         },
         eligible_outputs,
@@ -73,7 +100,7 @@ pub async fn index_block(
     block: &mut BitcoinBlockData,
     prometheus: &PrometheusMonitoring,
     ctx: &Context,
-) {
+) -> Result<(), String> {
     let stopwatch = std::time::Instant::now();
     let block_hash = &block.block_identifier.hash;
     let block_height = block.block_identifier.index;
@@ -125,7 +152,7 @@ pub async fn index_block(
                         .apply_runestone(&runestone, &mut db_tx, ctx)
                         .await;
                     if let Some(etching) = runestone.etching {
-                        if let Err(err) = index_cache
+                        index_cache
                             .apply_etching(
                                 &etching,
                                 &mut db_tx,
@@ -134,34 +161,7 @@ pub async fn index_block(
                                 &transaction,
                                 &mut inputs_count,
                             )
-                            .await
-                        {
-                            // Only reconnect and retry on connection-related errors
-                            if is_connection_error(&err) {
-                                try_warn!(ctx, "Bitcoin RPC connection error detected: {}", err);
-                                index_cache.reconnect_bitcoin_client(ctx);
-                                if let Err(err) = index_cache
-                                    .apply_etching(
-                                        &etching,
-                                        &mut db_tx,
-                                        ctx,
-                                        &mut etching_count,
-                                        &transaction,
-                                        &mut inputs_count,
-                                    )
-                                    .await
-                                {
-                                    try_error!(
-                                        ctx,
-                                        "apply_etching failed twice after reconnect: {}",
-                                        err
-                                    );
-                                }
-                            } else {
-                                // Non-connection errors: propagate error
-                                try_error!(ctx, "apply_etching failed: {}", err);
-                            }
-                        }
+                            .await?;
                     }
                     if let Some(mint_rune_id) = runestone.mint {
                         index_cache
@@ -240,6 +240,8 @@ pub async fn index_block(
         "RunesIndexer indexed block #{block_height}: {etching_count} etchings, {mint_count} mints, {edict_count} edicts, {cenotaph_count} cenotaphs ({cenotaph_etching_count} etchings, {cenotaph_mint_count} mints) in {}s",
         elapsed.as_secs_f32()
     );
+
+    Ok(())
 }
 
 /// Roll back a Bitcoin block because of a re-org.

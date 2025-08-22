@@ -71,27 +71,13 @@ pub fn bitcoin_get_raw_transaction(
     bitcoin_rpc: &Client,
     ctx: &Context,
     txid: &Txid,
-) -> Option<GetRawTransactionResult> {
-    let mut tries = 0;
-    loop {
-        match bitcoin_rpc.get_raw_transaction_info(txid, None) {
-            Ok(result) => {
-                return Some(result);
-            }
-            Err(e) => {
-                tries += 1;
-                if tries > 10 {
-                    return None;
-                }
-                try_error!(
-                    ctx,
-                    "bitcoind: Unable to get raw transaction: {}",
-                    e.to_string()
-                );
-                sleep(Duration::from_secs(1));
-            }
-        };
-    }
+) -> Result<GetRawTransactionResult, String> {
+    bitcoin_rpc
+        .get_raw_transaction_info(txid, None)
+        .map_err(|e| {
+            try_error!(ctx, "bitcoind: Unable to get raw transaction: {e}",);
+            e.to_string()
+        })
 }
 
 /// Checks if bitcoind is still synchronizing blocks and waits until it's finished if that is the case.

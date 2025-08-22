@@ -86,7 +86,7 @@ async fn new_runes_indexer_runloop(
                                         &prometheus_moved,
                                         &ctx_moved,
                                     )
-                                    .await;
+                                    .await?;
                                 }
                             }
                             IndexerCommand::Terminate => {

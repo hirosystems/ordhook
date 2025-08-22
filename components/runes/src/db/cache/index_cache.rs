@@ -3,7 +3,7 @@ use std::{collections::HashMap, num::NonZeroUsize, str::FromStr};
 use bitcoin::{Network, ScriptBuf};
 use bitcoind::{
     bitcoincore_rpc::Client as BitcoinRpcClient,
-    try_debug, try_warn,
+    try_debug, try_error, try_warn,
     types::bitcoin::TxIn,
     utils::{bitcoind::bitcoind_get_client, Context},
 };
@@ -181,32 +181,20 @@ impl IndexCache {
         etchings_counter: &mut u64,
         bitcoin_tx: &bitcoin::Transaction,
         inputs_counter: &mut u64,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Determine rune and validation path via explicit match for clarity
-        let provided_rune = etching.rune;
-        let rune = provided_rune.unwrap_or_else(|| {
-            Rune::reserved(
-                self.tx_cache.location.block_height,
-                self.tx_cache.location.tx_index,
-            )
-        });
-
-        match provided_rune {
+    ) -> Result<(), String> {
+        match etching.rune {
             // Explicitly reserved names are rejected
-            Some(r) if r.is_reserved() => {
-                try_debug!(ctx, "Skipping etching with explicitly reserved rune {}", r);
+            Some(rune) if rune.is_reserved() => {
+                try_debug!(
+                    ctx,
+                    "Skipping etching with explicitly reserved rune {}",
+                    rune
+                );
                 return Ok(());
             }
             // Explicit non-reserved names require commit validation
-            Some(_) => {
-                try_debug!(
-                    ctx,
-                    "Attempting to validate rune commitment for non-reserved rune {} at block height {}",
-                    rune,
-                    self.tx_cache.location.block_height
-                );
-
-                let is_valid_commitment = rune_etching_has_valid_commit(
+            Some(rune) => {
+                if !rune_etching_has_valid_commit(
                     &self.bitcoin_client,
                     ctx,
                     bitcoin_tx,
@@ -214,31 +202,15 @@ impl IndexCache {
                     self.tx_cache.location.block_height as u32,
                     inputs_counter,
                 )
-                .await?;
-
-                try_debug!(
-                    ctx,
-                    "Rune commitment validation result for {}: {}",
-                    rune,
-                    is_valid_commitment
-                );
-
-                if !is_valid_commitment {
-                    try_debug!(ctx, "Invalid rune commitment for etching {}", rune);
-                    return Ok(()); // Skip invalid etchings
+                .await?
+                {
+                    try_error!(ctx, "Invalid rune commitment for etching {rune}");
+                    return Ok(());
                 }
             }
-            // Omitted name (reserved allocation) → skip commitment validation
-            None => {
-                try_debug!(
-                    ctx,
-                    "Skipping commitment validation for rune {} (reserved allocation)",
-                    rune
-                );
-            }
+            None => {}
         }
 
-        // Only mutate cache and collect DB rows after validation succeeds or is skipped
         let (rune_id, db_rune, entry) = self.tx_cache.apply_etching(etching, self.next_rune_number);
 
         try_debug!(

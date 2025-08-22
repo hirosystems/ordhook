@@ -15,14 +15,6 @@ fn unversioned_leaf_script_from_witness(witness: &Witness) -> Option<&Script> {
     witness.tapscript()
 }
 
-/// Reserved runes cannot be etched because they serve as a fallback mechanism for failed etchings
-/// and prevent namespace collision in the Bitcoin Runes protocol. When an etching transaction fails
-/// to specify a valid rune name or the etching is malformed, the protocol automatically assigns a
-/// "reserved" rune name using a deterministic formula to maintain protocol integrity.
-pub fn is_reserved(rune: &Rune) -> bool {
-    rune.0 >= Rune::RESERVED
-}
-
 /// Validates that a rune etching transaction has a proper commitment transaction.
 ///
 /// The Bitcoin Runes protocol requires a two-step "commit-reveal" process for etching new runes:
@@ -59,7 +51,7 @@ pub async fn rune_etching_has_valid_commit(
     rune: &Rune,
     reveal_block_height: u32,
     inputs_counter: &mut u64,
-) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<bool, String> {
     let commitment = rune.commitment();
 
     // Check each input for valid commitment (the commitment could be in any input)
@@ -70,38 +62,30 @@ pub async fn rune_etching_has_valid_commit(
             continue;
         };
 
+        // From ord docs: A commitment consists of a data push of the rune name, encoded as a little-endian integer with trailing
+        // zero bytes elided, present in an input witness tapscript where the output being spent has at least six confirmations.
         for instruction in tapscript.instructions() {
-            // Skip invalid script instructions
             let Ok(instruction) = instruction else {
                 break;
             };
-
             let Some(pushbytes) = instruction.push_bytes() else {
                 continue;
             };
-
-            // Check if this instruction pushes the expected commitment bytes
             if pushbytes.as_bytes() != commitment {
                 continue;
             }
 
+            // Fetch the commit transaction to validate taproot output and get block height
             let txid =
                 bitcoincore_rpc::bitcoin::Txid::from_str(&input.previous_output.txid.to_string())
                     .unwrap();
-
-            // Fetch the commit transaction to validate taproot output and get block height
-            let Some(commit_tx_info) = bitcoin_get_raw_transaction(bitcoin_client, ctx, &txid)
-            else {
-                panic!(
-                    "can't get input transaction: {}",
-                    input.previous_output.txid
-                );
-            };
+            let commit_tx_info = bitcoin_get_raw_transaction(bitcoin_client, ctx, &txid)?;
 
             // Verify the spent output is a taproot (P2TR) output
             let taproot = commit_tx_info.vout[input.previous_output.vout as usize]
                 .script_pub_key
-                .script()?
+                .script()
+                .map_err(|e| format!("can't get script: {e}"))?
                 .is_p2tr();
 
             if !taproot {
@@ -121,32 +105,6 @@ pub async fn rune_etching_has_valid_commit(
     }
 
     Ok(false)
-}
-
-/// Checks if an error indicates a connection issue that requires reconnection
-#[allow(clippy::borrowed_box)]
-pub fn is_connection_error(error: &Box<dyn std::error::Error + Send + Sync>) -> bool {
-    let error_msg = error.to_string().to_lowercase();
-
-    // Check for common connection-related error patterns
-    error_msg.contains("connection refused") ||
-    error_msg.contains("connection reset") ||
-    error_msg.contains("connection closed") ||
-    error_msg.contains("connection timeout") ||
-    error_msg.contains("connection aborted") ||
-    error_msg.contains("broken pipe") ||
-    error_msg.contains("network unreachable") ||
-    error_msg.contains("host unreachable") ||
-    error_msg.contains("timed out") ||
-    error_msg.contains("could not connect") ||
-    error_msg.contains("transport error") ||
-    error_msg.contains("rpc_client_not_connected") ||
-    error_msg.contains("no connection available") ||
-    error_msg.contains("io error") ||
-    error_msg.contains("transport is disconnected") ||
-    // Bitcoin Core specific RPC errors
-    error_msg.contains("rpc_client_not_connected") ||
-    error_msg.contains("work queue depth exceeded")
 }
 
 #[cfg(test)]
@@ -248,9 +206,9 @@ mod tests {
         // Additional reserved runes for testing
         let reserved_rune2 = Rune(6402364363415443603228541259936211926);
         let reserved_rune3 = Rune(6402364363415443603228541259936211927);
-        assert!(is_reserved(&reserved_rune));
-        assert!(is_reserved(&reserved_rune2));
-        assert!(is_reserved(&reserved_rune3));
+        assert!(reserved_rune.is_reserved());
+        assert!(reserved_rune2.is_reserved());
+        assert!(reserved_rune3.is_reserved());
     }
 
     /// Tests that non-reserved runes are not incorrectly flagged as reserved
@@ -258,7 +216,7 @@ mod tests {
     #[test]
     fn test_is_reserved_returns_false_for_non_reserved_rune() {
         let non_reserved_rune = Rune(1000); // Well below RESERVED threshold
-        assert!(!is_reserved(&non_reserved_rune));
+        assert!(!non_reserved_rune.is_reserved());
     }
 
     /// Tests that transactions without witness data fail commitment validation
@@ -658,11 +616,11 @@ mod tests {
         // here we check the underlying rule: reserved detection works and commitment bytes
         // are still generated deterministically (not used for validation in reserved path).
         let reserved = Rune::reserved(840000, 0);
-        assert!(super::is_reserved(&reserved));
+        assert!(reserved.is_reserved());
 
         // Named non-reserved like SUPERDOME must not be reserved
         let named = SpacedRune::from_str("SUPERDOME").unwrap().rune;
-        assert!(!super::is_reserved(&named));
+        assert!(!named.is_reserved());
     }
 
     // Helper function to create a mock config for testing
