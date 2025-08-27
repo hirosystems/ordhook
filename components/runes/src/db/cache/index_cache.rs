@@ -10,7 +10,7 @@ use bitcoind::{
 use config::{BitcoindConfig, Config};
 use deadpool_postgres::{Pool, Transaction};
 use lru::LruCache;
-use ordinals_parser::{Cenotaph, Edict, Etching, Rune, RuneId, Runestone};
+use ordinals_parser::{Cenotaph, Edict, Etching, Height, Rune, RuneId, Runestone};
 use postgres::pg_pool_client;
 
 use super::{
@@ -51,6 +51,8 @@ pub struct IndexCache {
     pub bitcoin_client: BitcoinRpcClient,
     /// Bitcoin RPC client configuration.
     bitcoin_client_config: BitcoindConfig,
+    /// Current minimum unlocked rune name threshold for explicit names.
+    minimum_rune: Rune,
 }
 
 impl IndexCache {
@@ -83,6 +85,7 @@ impl IndexCache {
             db_cache: DbCache::new(),
             bitcoin_client,
             bitcoin_client_config: config.bitcoind.clone(),
+            minimum_rune: Rune(0),
         }
     }
 
@@ -106,6 +109,10 @@ impl IndexCache {
         db_tx: &mut Transaction<'_>,
         ctx: &Context,
     ) {
+        // Update the dynamic minimum name threshold based on current block height.
+        self.minimum_rune =
+            Rune::minimum_at_height(self.network, Height(location.block_height as u32));
+
         let input_runes = input_rune_balances_from_tx_inputs(
             tx_inputs,
             &self.block_output_cache,
@@ -189,6 +196,17 @@ impl IndexCache {
                     ctx,
                     "Skipping etching with explicitly reserved rune {}",
                     rune
+                );
+                return Ok(());
+            }
+            // Reject explicit names that are below the currently unlocked minimum.
+            Some(rune) if rune < self.minimum_rune => {
+                try_debug!(
+                    ctx,
+                    "Skipping etching with name {} below minimum {} at {}",
+                    rune,
+                    self.minimum_rune,
+                    self.tx_cache.location.to_string()
                 );
                 return Ok(());
             }
@@ -501,5 +519,132 @@ impl IndexCache {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bitcoin::{absolute::LockTime, transaction::Version, Transaction};
+    use bitcoind::utils::Context;
+    use config::{Config, PgDatabaseConfig};
+    use ordinals_parser::Rune;
+    use postgres::{pg_begin, pg_pool, pg_pool_client};
+
+    use super::*;
+
+    #[tokio::test]
+    async fn apply_etching_skips_with_early_returns() {
+        // Minimal IndexCache without hitting DB in constructor
+        let ctx = Context::empty();
+        let network = bitcoin::Network::Bitcoin;
+        let cap = std::num::NonZeroUsize::new(1).unwrap();
+        let mut index = IndexCache {
+            network,
+            next_rune_number: 1,
+            rune_cache: lru::LruCache::new(cap),
+            rune_total_mints_cache: lru::LruCache::new(cap),
+            output_cache: lru::LruCache::new(cap),
+            block_output_cache: HashMap::new(),
+            tx_cache: TransactionCache::new(
+                TransactionLocation {
+                    network,
+                    block_hash: "".to_string(),
+                    block_height: 840_000,
+                    timestamp: 0,
+                    tx_index: 0,
+                    tx_id: "".to_string(),
+                },
+                HashMap::new(),
+                HashMap::new(),
+                None,
+                0,
+            ),
+            db_cache: DbCache::new(),
+            bitcoin_client: bitcoind::utils::bitcoind::bitcoind_get_client(
+                &Config::test_default().bitcoind,
+                &ctx,
+            ),
+            bitcoin_client_config: Config::test_default().bitcoind,
+            minimum_rune: Rune::minimum_at_height(network, Height(840_000)),
+        };
+
+        let start_n = index.next_rune_number;
+
+        // Deadpool transaction to satisfy signature (won't be used due to early returns)
+        let pool = pg_pool(&PgDatabaseConfig {
+            dbname: "postgres".to_string(),
+            host: "localhost".to_string(),
+            port: 5432,
+            user: "postgres".to_string(),
+            password: Some("postgres".to_string()),
+            search_path: None,
+            pool_max_size: Some(1),
+        })
+        .expect("pool");
+        let mut client = pg_pool_client(&pool).await.expect("client");
+        let mut db_tx = pg_begin(&mut client).await.expect("tx");
+
+        // Create an empty tx
+        let tx = Transaction {
+            version: Version::TWO,
+            lock_time: LockTime::ZERO,
+            input: vec![],
+            output: vec![],
+        };
+        let mut inputs_counter = 0;
+
+        // Reserved explicit name
+        let etching_reserved = Etching {
+            rune: Some(Rune::reserved(840_000, 0)),
+            ..Default::default()
+        };
+        let res_reserved = index
+            .apply_etching(
+                &etching_reserved,
+                &mut db_tx,
+                &ctx,
+                &mut 0u64,
+                &tx,
+                &mut inputs_counter,
+            )
+            .await;
+        assert!(res_reserved.is_ok());
+        assert_eq!(index.next_rune_number, start_n);
+
+        // Lexicographically above max name
+        let etching_above_max = Etching {
+            rune: Some("DOGDOGDOGDOGDOGDOGDOGDOG".parse().unwrap()),
+            ..Default::default()
+        };
+        let res_above = index
+            .apply_etching(
+                &etching_above_max,
+                &mut db_tx,
+                &ctx,
+                &mut 0u64,
+                &tx,
+                &mut inputs_counter,
+            )
+            .await;
+        assert!(res_above.is_ok());
+        assert_eq!(index.next_rune_number, start_n);
+
+        // Below minimum should also be skipped; choose a small rune 'A'
+        let etching_below_min = Etching {
+            rune: Some("A".parse().unwrap()),
+            ..Default::default()
+        };
+        let res_below = index
+            .apply_etching(
+                &etching_below_min,
+                &mut db_tx,
+                &ctx,
+                &mut 0u64,
+                &tx,
+                &mut inputs_counter,
+            )
+            .await;
+        assert!(res_below.is_ok());
+        assert_eq!(index.next_rune_number, start_n);
     }
 }

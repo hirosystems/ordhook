@@ -61,11 +61,7 @@ fn bitcoin_tx_from_chainhook_tx(
             .iter()
             .map(|hex_str| {
                 // Remove "0x" prefix and decode hex string to bytes
-                let clean_hex = if hex_str.starts_with("0x") {
-                    &hex_str[2..]
-                } else {
-                    hex_str
-                };
+                let clean_hex = hex_str.strip_prefix("0x").unwrap_or(hex_str.as_str());
                 hex::decode(clean_hex).unwrap_or_default()
             })
             .collect();
