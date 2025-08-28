@@ -56,14 +56,13 @@ pub async fn pg_insert_runes(
         let mut params: Vec<&(dyn ToSql + Sync)> = vec![];
         for row in chunk.iter() {
             arg_str.push('(');
-            for i in 0..19 {
+            for i in 0..18 {
                 arg_str.push_str(format!("${},", arg_num + i).as_str());
             }
             arg_str.pop();
             arg_str.push_str("),");
-            arg_num += 19;
+            arg_num += 18;
             params.push(&row.id);
-            params.push(&row.number);
             params.push(&row.name);
             params.push(&row.spaced_name);
             params.push(&row.block_hash);
@@ -83,13 +82,16 @@ pub async fn pg_insert_runes(
             params.push(&row.timestamp);
         }
         arg_str.pop();
+
         match db_tx
             .query(
-                &format!("INSERT INTO runes
+            " INSERT INTO runes 
                     (id, number, name, spaced_name, block_hash, block_height, tx_index, tx_id, divisibility, premine, symbol,
                     terms_amount, terms_cap, terms_height_start, terms_height_end, terms_offset_start, terms_offset_end, turbo,
-                    timestamp) VALUES {}
-                    ON CONFLICT (name) DO NOTHING", arg_str),
+                    timestamp) VALUES 
+                        ($1, (SELECT COALESCE(MAX(number), 0) + 1 FROM runes), $2, $3, $4, $5, $6, $7, $8, $9, $10,
+                        $11, $12, $13, $14, $15, $16, $17, $18)
+                    ON CONFLICT (name) DO NOTHING",
                 &params,
             )
             .await
