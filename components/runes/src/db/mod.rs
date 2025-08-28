@@ -50,58 +50,45 @@ pub async fn pg_insert_runes(
     db_tx: &mut Transaction<'_>,
     ctx: &Context,
 ) -> Result<bool, Error> {
-    for chunk in rows.chunks(500) {
-        let mut arg_num = 1;
-        let mut arg_str = String::new();
-        let mut params: Vec<&(dyn ToSql + Sync)> = vec![];
-        for row in chunk.iter() {
-            arg_str.push('(');
-            for i in 0..18 {
-                arg_str.push_str(format!("${},", arg_num + i).as_str());
-            }
-            arg_str.pop();
-            arg_str.push_str("),");
-            arg_num += 18;
-            params.push(&row.id);
-            params.push(&row.name);
-            params.push(&row.spaced_name);
-            params.push(&row.block_hash);
-            params.push(&row.block_height);
-            params.push(&row.tx_index);
-            params.push(&row.tx_id);
-            params.push(&row.divisibility);
-            params.push(&row.premine);
-            params.push(&row.symbol);
-            params.push(&row.terms_amount);
-            params.push(&row.terms_cap);
-            params.push(&row.terms_height_start);
-            params.push(&row.terms_height_end);
-            params.push(&row.terms_offset_start);
-            params.push(&row.terms_offset_end);
-            params.push(&row.turbo);
-            params.push(&row.timestamp);
-        }
-        arg_str.pop();
+    for row in rows.iter() {
+        let params: Vec<&(dyn ToSql + Sync)> = vec![
+            &row.id,
+            &row.name,
+            &row.spaced_name,
+            &row.block_hash,
+            &row.block_height,
+            &row.tx_index,
+            &row.tx_id,
+            &row.divisibility,
+            &row.premine,
+            &row.symbol,
+            &row.terms_amount,
+            &row.terms_cap,
+            &row.terms_height_start,
+            &row.terms_height_end,
+            &row.terms_offset_start,
+            &row.terms_offset_end,
+            &row.turbo,
+            &row.timestamp,
+        ];
 
-        match db_tx
+        if let Err(e) = db_tx
             .query(
-            " INSERT INTO runes 
-                    (id, number, name, spaced_name, block_hash, block_height, tx_index, tx_id, divisibility, premine, symbol,
-                    terms_amount, terms_cap, terms_height_start, terms_height_end, terms_offset_start, terms_offset_end, turbo,
-                    timestamp) VALUES 
-                        ($1, (SELECT COALESCE(MAX(number), 0) + 1 FROM runes), $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                        $11, $12, $13, $14, $15, $16, $17, $18)
-                    ON CONFLICT (name) DO NOTHING",
+                "INSERT INTO runes \
+                   (id, number, name, spaced_name, block_hash, block_height, tx_index, tx_id, divisibility, premine, symbol, \
+                    terms_amount, terms_cap, terms_height_start, terms_height_end, terms_offset_start, terms_offset_end, turbo, timestamp) \
+                 SELECT \
+                   $1, (SELECT COALESCE(MAX(number), 0) + 1 FROM runes), $2, $3, $4, $5, $6, $7, $8, $9, $10, \
+                   $11, $12, $13, $14, $15, $16, $17, $18 \
+                 WHERE NOT EXISTS (SELECT 1 FROM runes WHERE name = $2) \
+                 ON CONFLICT (name) DO NOTHING",
                 &params,
             )
             .await
         {
-            Ok(_) => {}
-            Err(e) => {
-                try_error!(ctx, "Error inserting runes: {:?}", e);
-                process::exit(1);
-            }
-        };
+            try_error!(ctx, "Error inserting rune: {:?}", e);
+            process::exit(1);
+        }
     }
     Ok(true)
 }
