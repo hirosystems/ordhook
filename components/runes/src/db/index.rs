@@ -495,6 +495,69 @@ mod tests {
         }
     }
 
+    fn build_rune_wrong_flaw_tx() -> BitcoinTransactionData {
+        // txid: 8bf9d4ec8ed69ae7bac256285b06ae6566cec4679dcfb45b5671a323c2f18c3c
+        let prevout = RosettaOutPoint {
+            txid: TransactionIdentifier {
+                hash: "0xbd546ac9aa0e275a7f06a960a54db0a9c0de634ad71805cb2d10418b3befc8e8"
+                    .to_string(),
+            },
+            vout: 0,
+            value: 437_000,
+            block_height: 840_020,
+        };
+
+        let inputs = vec![RosettaTxIn {
+            previous_output: prevout,
+            script_sig: "".to_string(),
+            sequence: 4_294_967_293,
+            witness: vec![
+                "059b4e426c21d39a438c0f047c3c724f3bfb69ecfcbc223746cd03a35cdfaf7ea5e4266b6b14153620f8493a4a52a8fef4a9487b86fd1c5d2afca2e93b32573f".to_string(),
+                "200ffc1a61f24b4b064ce03abebdd8de737d1afb5172831315982a3463e37528e9ac00630925d6f33e24da21141068".to_string(),
+                "c1481061324ba36899de17e82ce812d32aa9fd94dd9381afc4fcb7d486b09d2228".to_string(),
+            ],
+        }];
+
+        let outputs = vec![
+            RosettaTxOut {
+                // vout 0 - OP_RETURN runestone
+                script_pubkey:
+                    "0x6a5d20020304a5accff7c3c4f6909420010003a00405b84106a096800ae8070888a401"
+                        .to_string(),
+                value: 0,
+            },
+            RosettaTxOut {
+                // vout 1 - p2tr
+                script_pubkey:
+                    "0x51202b35c0d80bce33fe2036479ab82a4ea60dd760fe2310a433427cc4199da59b8a"
+                        .to_string(),
+                value: 546,
+            },
+            RosettaTxOut {
+                // vout 2 - p2wpkh
+                script_pubkey: "0x00143d71d44fc31fec24a6e3c1e7955e9d388c5ef312".to_string(),
+                value: 22_454,
+            },
+        ];
+
+        BitcoinTransactionData {
+            transaction_identifier: TransactionIdentifier {
+                hash: "0x8bf9d4ec8ed69ae7bac256285b06ae6566cec4679dcfb45b5671a323c2f18c3c"
+                    .to_string(),
+            },
+            operations: vec![],
+            metadata: BitcoinTransactionMetadata {
+                inputs,
+                outputs,
+                ordinal_operations: vec![],
+                brc20_operation: None,
+                proof: None,
+                fee: 414_000,
+                index: 3,
+            },
+        }
+    }
+
     #[test]
     fn valid_and_invalid_etch_output_selection_and_parsing() {
         // Common block context from the provided fixtures
@@ -654,10 +717,12 @@ mod tests {
         let mut tx_valid = build_valid_tx();
         let mut tx_invalid = build_invalid_tx();
         let mut tx_no_commit = build_no_commit_tx();
+        let mut tx_rune_wrong_flaw = build_rune_wrong_flaw_tx();
         tx_valid.metadata.index = 0;
         tx_invalid.metadata.index = 1;
         tx_no_commit.metadata.index = 2;
-        block.transactions = vec![tx_valid, tx_invalid, tx_no_commit];
+        tx_rune_wrong_flaw.metadata.index = 3;
+        block.transactions = vec![tx_valid, tx_invalid, tx_no_commit, tx_rune_wrong_flaw];
 
         // Index the block
         let result =
@@ -670,9 +735,12 @@ mod tests {
         let valid_id = RuneId::from_str("840021:0").unwrap();
         let invalid_id = RuneId::from_str("840021:1").unwrap();
         let no_commit_id = RuneId::from_str("840021:2").unwrap();
+        let rune_wrong_flaw_id = RuneId::from_str("840021:3").unwrap();
         let valid = crate::db::pg_get_rune_by_id(&valid_id, &mut db_tx, &ctx).await;
         let invalid = crate::db::pg_get_rune_by_id(&invalid_id, &mut db_tx, &ctx).await;
         let no_commit = crate::db::pg_get_rune_by_id(&no_commit_id, &mut db_tx, &ctx).await;
+        let rune_wrong_flaw =
+            crate::db::pg_get_rune_by_id(&rune_wrong_flaw_id, &mut db_tx, &ctx).await;
         assert!(valid.is_some(), "valid etch should be inserted into DB");
         assert!(
             invalid.is_none(),
@@ -681,6 +749,10 @@ mod tests {
         assert!(
             no_commit.is_none(),
             "no-commit etch should not be inserted into DB"
+        );
+        assert!(
+            rune_wrong_flaw.is_some(),
+            "cenotaph rune etch should be inserted into DB"
         );
         db_tx.commit().await.unwrap();
     }
