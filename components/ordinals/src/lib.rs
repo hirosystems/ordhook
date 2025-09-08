@@ -19,7 +19,7 @@ use std::{
 use bitcoind::{
     start_bitcoin_indexer, try_debug, try_info,
     types::BlockIdentifier,
-    utils::{future_block_on, Context},
+    utils::{future_block_on, redis_notifier::RedisNotifier, Context},
     Indexer, IndexerCommand,
 };
 use config::Config;
@@ -83,6 +83,13 @@ async fn new_ordinals_indexer_runloop(
                 let mut sequence_cursor = SequenceCursor::new();
                 let mut brc20_cache: Option<core::meta_protocols::brc20::cache::Brc20MemoryCache> =
                     brc20_new_cache(&config_moved);
+
+                let redis_notifier = if let Some(redis_cfg) = &config_moved.redis {
+                    Some(RedisNotifier::new(redis_cfg)?)
+                } else {
+                    None
+                };
+
                 loop {
                     if abort_signal_moved.load(Ordering::SeqCst) {
                         break;
@@ -147,6 +154,22 @@ async fn new_ordinals_indexer_runloop(
                                     );
                                     cache_l2.clear();
                                     garbage_collect_nth_block = 0;
+                                }
+                                // Notify redis with both apply and rollback blocks, if enabled
+                                if let Some(notifier) = &redis_notifier {
+                                    let apply_refs: Vec<BlockIdentifier> = apply_blocks
+                                        .iter()
+                                        .map(|b| b.block_identifier.clone())
+                                        .collect();
+                                    let rollback_refs = rollback_block_ids.to_vec();
+                                    notifier
+                                        .notify(
+                                            "ordinals",
+                                            &config_moved.bitcoind,
+                                            &apply_refs,
+                                            &rollback_refs,
+                                        )
+                                        .await?;
                                 }
                             }
                             IndexerCommand::Terminate => {

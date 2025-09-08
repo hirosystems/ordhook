@@ -9,7 +9,7 @@ use std::{
 use bitcoind::{
     start_bitcoin_indexer, try_error, try_info, try_warn,
     types::BlockIdentifier,
-    utils::{future_block_on, Context},
+    utils::{future_block_on, redis_notifier::RedisNotifier, Context},
     Indexer, IndexerCommand,
 };
 use config::Config;
@@ -52,6 +52,13 @@ async fn new_runes_indexer_runloop(
                 let _profiler = dhat::Profiler::new_heap();
 
                 let mut index_cache = IndexCache::new(&config_moved, &pg_pool_moved).await;
+
+                let redis_notifier = if let Some(redis_cfg) = &config_moved.redis {
+                    Some(RedisNotifier::new(redis_cfg)?)
+                } else {
+                    None
+                };
+
                 loop {
                     if abort_signal_moved.load(Ordering::SeqCst) {
                         break;
@@ -86,6 +93,22 @@ async fn new_runes_indexer_runloop(
                                         &ctx_moved,
                                     )
                                     .await;
+                                }
+                                // Notify redis with both apply and rollback blocks, if enabled
+                                if let Some(notifier) = &redis_notifier {
+                                    let apply_refs: Vec<BlockIdentifier> = apply_blocks
+                                        .iter()
+                                        .map(|b| b.block_identifier.clone())
+                                        .collect();
+                                    let rollback_refs = rollback_block_ids.to_vec();
+                                    notifier
+                                        .notify(
+                                            "runes",
+                                            &config_moved.bitcoind,
+                                            &apply_refs,
+                                            &rollback_refs,
+                                        )
+                                        .await?;
                                 }
                             }
                             IndexerCommand::Terminate => {

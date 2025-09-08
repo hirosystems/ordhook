@@ -22,7 +22,7 @@ use crate::{
 pub fn get_rune_genesis_block_height(network: Network) -> u64 {
     match network {
         Network::Bitcoin => 840_000,
-        Network::Testnet => todo!(),
+        Network::Testnet => 0,
         Network::Signet => todo!(),
         Network::Regtest => todo!(),
         _ => todo!(),

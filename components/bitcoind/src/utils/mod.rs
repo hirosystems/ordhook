@@ -1,4 +1,5 @@
 pub mod bitcoind;
+pub mod redis_notifier;
 
 use std::{
     collections::{BTreeSet, VecDeque},

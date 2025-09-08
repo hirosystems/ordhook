@@ -7,9 +7,10 @@ use bitcoin::Network;
 
 use crate::{
     BitcoindConfig, Config, MetricsConfig, OrdinalsBrc20Config, OrdinalsConfig,
-    OrdinalsMetaProtocolsConfig, PgDatabaseConfig, ResourcesConfig, RunesConfig, StorageConfig,
-    DEFAULT_BITCOIND_RPC_THREADS, DEFAULT_BITCOIND_RPC_TIMEOUT, DEFAULT_INDEXER_CHANNEL_CAPACITY,
-    DEFAULT_LRU_CACHE_SIZE, DEFAULT_MEMORY_AVAILABLE, DEFAULT_ULIMIT, DEFAULT_WORKING_DIR,
+    OrdinalsMetaProtocolsConfig, PgDatabaseConfig, RedisConfig, ResourcesConfig, RunesConfig,
+    StorageConfig, DEFAULT_BITCOIND_RPC_THREADS, DEFAULT_BITCOIND_RPC_TIMEOUT,
+    DEFAULT_INDEXER_CHANNEL_CAPACITY, DEFAULT_LRU_CACHE_SIZE, DEFAULT_MEMORY_AVAILABLE,
+    DEFAULT_ULIMIT, DEFAULT_WORKING_DIR,
 };
 
 #[derive(Deserialize, Clone, Debug)]
@@ -92,6 +93,23 @@ pub struct MetricsConfigToml {
 }
 
 #[derive(Deserialize, Debug, Clone)]
+pub struct RedisConfigToml {
+    pub enabled: bool,
+    pub url: String,
+    pub queue: String,
+    pub database: Option<u8>,                 // Redis database number (0-15)
+    pub cluster_nodes: Option<Vec<String>>,   // e.g. ["redis://host1:6379", "redis://host2:6379"]
+    pub sentinel_nodes: Option<Vec<String>>, // e.g. ["redis://sentinel1:26379", "redis://sentinel2:26379"]
+    pub sentinel_master_name: Option<String>, // e.g. "mymaster"
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub retry_attempts: Option<u32>,
+    pub retry_backoff_ms: Option<u64>,
+    pub connection_timeout_ms: Option<u64>,
+    pub command_timeout_ms: Option<u64>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
 pub struct ConfigToml {
     pub storage: StorageConfigToml,
     pub ordinals: Option<OrdinalsConfigToml>,
@@ -99,6 +117,7 @@ pub struct ConfigToml {
     pub bitcoind: BitcoindConfigToml,
     pub resources: ResourcesConfigToml,
     pub metrics: Option<MetricsConfigToml>,
+    pub redis: Option<RedisConfigToml>,
 }
 
 impl ConfigToml {
@@ -160,6 +179,24 @@ impl ConfigToml {
             enabled: metrics.enabled,
             prometheus_port: metrics.prometheus_port,
         });
+        let redis = match toml.redis {
+            Some(redis) => Some(RedisConfig {
+                enabled: true,
+                url: redis.url,
+                queue: redis.queue,
+                database: redis.database,
+                cluster_nodes: redis.cluster_nodes,
+                sentinel_nodes: redis.sentinel_nodes,
+                sentinel_master_name: redis.sentinel_master_name,
+                username: redis.username,
+                password: redis.password,
+                retry_attempts: redis.retry_attempts,
+                retry_backoff_ms: redis.retry_backoff_ms,
+                connection_timeout_ms: redis.connection_timeout_ms,
+                command_timeout_ms: redis.command_timeout_ms,
+            }),
+            None => None,
+        };
 
         let config = Config {
             storage: StorageConfig {
@@ -198,6 +235,7 @@ impl ConfigToml {
                 zmq_url: toml.bitcoind.zmq_url,
             },
             metrics,
+            redis,
         };
         Ok(config)
     }
