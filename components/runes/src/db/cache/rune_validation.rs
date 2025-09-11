@@ -93,11 +93,22 @@ pub async fn rune_etching_has_valid_commit(
             }
 
             // Get commit transaction's block height to check confirmation count
-            let commit_tx_height =
-                bitcoind_get_block_height(bitcoin_client, ctx, &commit_tx_info.blockhash.unwrap())?;
+            let Some(blockhash) = commit_tx_info.blockhash else {
+                // Commit transaction not in a block (unconfirmed) - invalid
+                continue;
+            };
+            let commit_tx_height = match bitcoind_get_block_height(bitcoin_client, ctx, &blockhash)
+            {
+                Ok(height) => height,
+                Err(_) => continue,
+            };
 
             // Calculate confirmations and check minimum requirement (6 blocks)
-            let confirmations = reveal_block_height.checked_sub(commit_tx_height).unwrap() + 1;
+            let Some(height_diff) = reveal_block_height.checked_sub(commit_tx_height) else {
+                // Commit transaction is in same block or later than reveal - invalid
+                continue;
+            };
+            let confirmations = height_diff + 1;
             if confirmations >= u32::from(Runestone::COMMIT_CONFIRMATIONS) {
                 return Ok(true);
             }

@@ -175,9 +175,7 @@ pub async fn index_block(
                         .apply_cenotaph(&cenotaph, &mut db_tx, ctx, &mut cenotaph_count)
                         .await;
 
-                    if cenotaph.flaw != Some(Flaw::Varint)
-                        && cenotaph.flaw != Some(Flaw::TruncatedField)
-                    {
+                    if cenotaph.flaw != Some(Flaw::Varint) {
                         if let Some(etching) = cenotaph.etching {
                             index_cache
                                 .apply_cenotaph_etching(
@@ -185,8 +183,10 @@ pub async fn index_block(
                                     &mut db_tx,
                                     ctx,
                                     &mut cenotaph_etching_count,
+                                    &transaction,
+                                    &mut inputs_count,
                                 )
-                                .await;
+                                .await?;
                         }
                         if let Some(mint_rune_id) = cenotaph.mint {
                             index_cache
@@ -558,6 +558,192 @@ mod tests {
         }
     }
 
+    fn build_internetgold_tx() -> BitcoinTransactionData {
+        // txid: 66d084fe5e206c7183293d1e379caa2011e7750018c65dfd2fd3174ea9f298fc
+        // This is the INTERNETGOLD transaction with truncated LEB128 field
+        let prevout = RosettaOutPoint {
+            txid: TransactionIdentifier {
+                hash: "0x871fb5e4042dca1549326da5848bd2257d6e609984a0cfb867e4ff24a56806d0"
+                    .to_string(),
+            },
+            vout: 0,
+            value: 300_000,
+            block_height: 840_020,
+        };
+
+        let inputs = vec![RosettaTxIn {
+            previous_output: prevout,
+            script_sig: "".to_string(),
+            sequence: 4_294_967_293,
+            witness: vec![
+                "558699007abc57d8b87d8ba02a553f08d5b90758a0985fb5c237521dbb0d00e2c66250926de035235078a78aabeb496e087cdfc7553afb43d546fdd9d718dc7c".to_string(),
+                "20ab1fce37e4777d107690082ec5ee6213a2f008ed26602b8c23e49de911ba8b0dac0063074f9a9045bfc47c68".to_string(),
+                "c15976bfaf05d5b1cfbb8927abe2c93cf293edd2cdd408c2ba1ce484eb5621e980".to_string(),
+            ],
+        }];
+
+        let outputs = vec![
+            RosettaTxOut {
+                // vout 0 - OP_RETURN runestone with truncated LEB128
+                script_pubkey: "0x6a5d1b020304cfb4c2acf497b13e0380068094ebdc030a8094ebdc030801"
+                    .to_string(),
+                value: 0,
+            },
+            RosettaTxOut {
+                // vout 1 - p2wpkh
+                script_pubkey: "0x0014f32b49757996ef8db8d3d029b3dc997560e77d12".to_string(),
+                value: 546,
+            },
+            RosettaTxOut {
+                // vout 2 - p2wpkh
+                script_pubkey: "0x001459966e46ce78b8bf4a54827b84144c82ea21811c".to_string(),
+                value: 15_765,
+            },
+        ];
+
+        BitcoinTransactionData {
+            transaction_identifier: TransactionIdentifier {
+                hash: "0x66d084fe5e206c7183293d1e379caa2011e7750018c65dfd2fd3174ea9f298fc"
+                    .to_string(),
+            },
+            operations: vec![],
+            metadata: BitcoinTransactionMetadata {
+                inputs,
+                outputs,
+                ordinal_operations: vec![],
+                brc20_operation: None,
+                proof: None,
+                fee: 283_689,
+                index: 3,
+            },
+        }
+    }
+
+    fn build_elonmuskdoge_tx() -> BitcoinTransactionData {
+        // txid: 89e8149d38f8b702621fa18310b10794e541c0b52478466b85f156f5622b8fe3
+        // This is the ELONMUSKDOGE transaction
+        let prevout = RosettaOutPoint {
+            txid: TransactionIdentifier {
+                hash: "0xde6c56ecf9212e8946c71267108cce91ccc71d378b55aa6a1f41a3d93a82e8cb"
+                    .to_string(),
+            },
+            vout: 0,
+            value: 407_000,
+            block_height: 840_020,
+        };
+
+        let inputs = vec![RosettaTxIn {
+            previous_output: prevout,
+            script_sig: "".to_string(),
+            sequence: 4_294_967_293,
+            witness: vec![
+                "ee500cbe575753f98e50b67c20d53226daa08a12b81e4ec4fb47931b036b41238d586965080356f57ee7526f80774050056dd0bb09fc1d4169151d895d30802a".to_string(),
+                "20f06ac7775ba12c567125ad1378251e934aa8d3411a9221f6b2c6c1cb6cfa3a3fac00630746f33f8d50844768".to_string(),
+                "c1695fa445b5b9df8ba12a08a6afc6e6dac5bd962f8df317da08c57142d7c8f41b".to_string(),
+            ],
+        }];
+
+        let outputs = vec![
+            RosettaTxOut {
+                // vout 0 - OP_RETURN runestone
+                script_pubkey:
+                    "0x6a5d1f020304c6e6ffe9888ae1230300054506a096800ac0de810a08e80710f2a233"
+                        .to_string(),
+                value: 0,
+            },
+            RosettaTxOut {
+                // vout 1 - p2wpkh
+                script_pubkey: "0x001426909c2c3de5de4b6eccb8c0f65ab209fe6f4720".to_string(),
+                value: 546,
+            },
+            RosettaTxOut {
+                // vout 2 - p2wpkh
+                script_pubkey: "0x001406f10a8f6a0aec21e97e02913f0b39f9aa477bbf".to_string(),
+                value: 20_454,
+            },
+        ];
+
+        BitcoinTransactionData {
+            transaction_identifier: TransactionIdentifier {
+                hash: "0x89e8149d38f8b702621fa18310b10794e541c0b52478466b85f156f5622b8fe3"
+                    .to_string(),
+            },
+            operations: vec![],
+            metadata: BitcoinTransactionMetadata {
+                inputs,
+                outputs,
+                ordinal_operations: vec![],
+                brc20_operation: None,
+                proof: None,
+                fee: 386_000,
+                index: 4,
+            },
+        }
+    }
+
+    fn build_whataremfers_tx() -> BitcoinTransactionData {
+        // txid: c075c5eba59ca77c40085fc417c8adafa9d2c9970158c7311d60fb24e00d4b45
+        // This is the WHATAREMFERS transaction
+        let prevout = RosettaOutPoint {
+            txid: TransactionIdentifier {
+                hash: "0xee637d9afdaabd9d5fb64fb8bb0396b69b12c6d1f150a00a9692f3bc09c5f6e5"
+                    .to_string(),
+            },
+            vout: 0,
+            value: 304_000,
+            block_height: 840_020,
+        };
+
+        let inputs = vec![RosettaTxIn {
+            previous_output: prevout,
+            script_sig: "".to_string(),
+            sequence: 4_294_967_293,
+            witness: vec![
+                "541ffd18ea22d83e45332caaf82b4bcfc28117fd97f9430caacf3553306e77df600fd2f439380d53ce848e2d6f9c22cf3ef5729ef557f8d2ba28c8dafe3a8e8c".to_string(),
+                "20df9be78e98eaac880ca35fea0f4311832c7a03ad6a2fb1224075a1802267f1f9ac006308fae3bd5c87f52f0168".to_string(),
+                "c0553bd58d975c1a22280e79d06fd5e7fc8618ef46dc56c43f777da6f8800cbb62".to_string(),
+            ],
+        }];
+
+        let outputs = vec![
+            RosettaTxOut {
+                // vout 0 - OP_RETURN runestone
+                script_pubkey: "0x6a5d24020304fac7f7e5f5b0fd97010348054d06a096800a904e0880b191640ca089310ec0843d"
+                    .to_string(),
+                value: 0,
+            },
+            RosettaTxOut {
+                // vout 1 - p2tr
+                script_pubkey: "0x512078a95794567c472013bfac2ecf3e8090e847f7bfd69748613bc0bf6c28be1549"
+                    .to_string(),
+                value: 546,
+            },
+            RosettaTxOut {
+                // vout 2 - p2wpkh
+                script_pubkey: "0x0014a4c6356a3723f8cc900f9b6cbe761f8937917af5"
+                    .to_string(),
+                value: 16_283,
+            },
+        ];
+
+        BitcoinTransactionData {
+            transaction_identifier: TransactionIdentifier {
+                hash: "0xc075c5eba59ca77c40085fc417c8adafa9d2c9970158c7311d60fb24e00d4b45"
+                    .to_string(),
+            },
+            operations: vec![],
+            metadata: BitcoinTransactionMetadata {
+                inputs,
+                outputs,
+                ordinal_operations: vec![],
+                brc20_operation: None,
+                proof: None,
+                fee: 287_171,
+                index: 5,
+            },
+        }
+    }
+
     #[test]
     fn valid_and_invalid_etch_output_selection_and_parsing() {
         // Common block context from the provided fixtures
@@ -718,11 +904,25 @@ mod tests {
         let mut tx_invalid = build_invalid_tx();
         let mut tx_no_commit = build_no_commit_tx();
         let mut tx_rune_wrong_flaw = build_rune_wrong_flaw_tx();
+        let mut tx_internetgold = build_internetgold_tx();
+        let mut tx_elonmuskdoge = build_elonmuskdoge_tx();
+        let mut tx_whataremfers = build_whataremfers_tx();
         tx_valid.metadata.index = 0;
         tx_invalid.metadata.index = 1;
         tx_no_commit.metadata.index = 2;
         tx_rune_wrong_flaw.metadata.index = 3;
-        block.transactions = vec![tx_valid, tx_invalid, tx_no_commit, tx_rune_wrong_flaw];
+        tx_internetgold.metadata.index = 4;
+        tx_elonmuskdoge.metadata.index = 5;
+        tx_whataremfers.metadata.index = 6;
+        block.transactions = vec![
+            tx_valid,
+            tx_invalid,
+            tx_no_commit,
+            tx_rune_wrong_flaw,
+            tx_internetgold,
+            tx_elonmuskdoge,
+            tx_whataremfers,
+        ];
 
         // Index the block
         let result =
@@ -736,11 +936,17 @@ mod tests {
         let invalid_id = RuneId::from_str("840021:1").unwrap();
         let no_commit_id = RuneId::from_str("840021:2").unwrap();
         let rune_wrong_flaw_id = RuneId::from_str("840021:3").unwrap();
+        let internetgold_id = RuneId::from_str("840021:4").unwrap();
+        let elonmuskdoge_id = RuneId::from_str("840021:5").unwrap();
+        let whataremfers_id = RuneId::from_str("840021:6").unwrap();
         let valid = crate::db::pg_get_rune_by_id(&valid_id, &mut db_tx, &ctx).await;
         let invalid = crate::db::pg_get_rune_by_id(&invalid_id, &mut db_tx, &ctx).await;
         let no_commit = crate::db::pg_get_rune_by_id(&no_commit_id, &mut db_tx, &ctx).await;
         let rune_wrong_flaw =
             crate::db::pg_get_rune_by_id(&rune_wrong_flaw_id, &mut db_tx, &ctx).await;
+        let internetgold = crate::db::pg_get_rune_by_id(&internetgold_id, &mut db_tx, &ctx).await;
+        let elonmuskdoge = crate::db::pg_get_rune_by_id(&elonmuskdoge_id, &mut db_tx, &ctx).await;
+        let whataremfers = crate::db::pg_get_rune_by_id(&whataremfers_id, &mut db_tx, &ctx).await;
         assert!(valid.is_some(), "valid etch should be inserted into DB");
         assert!(
             invalid.is_none(),
@@ -753,6 +959,18 @@ mod tests {
         assert!(
             rune_wrong_flaw.is_some(),
             "cenotaph rune etch should be inserted into DB"
+        );
+        assert!(
+            internetgold.is_none(),
+            "INTERNETGOLD etch should not be inserted into DB"
+        );
+        assert!(
+            elonmuskdoge.is_none(),
+            "ELONMUSKDOGE etch should not be inserted into DB"
+        );
+        assert!(
+            whataremfers.is_none(),
+            "WHATAREMFERS etch should not be inserted into DB"
         );
         db_tx.commit().await.unwrap();
     }

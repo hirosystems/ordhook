@@ -252,7 +252,46 @@ impl IndexCache {
         _db_tx: &mut Transaction<'_>,
         ctx: &Context,
         cenotaph_etchings_counter: &mut u64,
-    ) {
+        bitcoin_tx: &bitcoin::Transaction,
+        inputs_counter: &mut u64,
+    ) -> Result<(), String> {
+        // Explicitly reserved names are rejected
+        if rune.is_reserved() {
+            try_debug!(
+                ctx,
+                "Skipping cenotaph etching with explicitly reserved rune {}",
+                rune
+            );
+            return Ok(());
+        }
+
+        // Reject names that are below the currently unlocked minimum
+        if *rune < self.minimum_rune {
+            try_debug!(
+                ctx,
+                "Skipping cenotaph etching with name {} below minimum {} at {}",
+                rune,
+                self.minimum_rune,
+                self.tx_cache.location.to_string()
+            );
+            return Ok(());
+        }
+
+        // Validate commit for cenotaph etchings as well
+        if !rune_etching_has_valid_commit(
+            &self.bitcoin_client,
+            ctx,
+            bitcoin_tx,
+            rune,
+            self.tx_cache.location.block_height as u32,
+            inputs_counter,
+        )
+        .await?
+        {
+            try_error!(ctx, "Invalid rune commitment for cenotaph etching {rune}");
+            return Ok(());
+        }
+
         let (rune_id, db_rune, entry) = self
             .tx_cache
             .apply_cenotaph_etching(rune, self.next_rune_number);
@@ -268,6 +307,7 @@ impl IndexCache {
         self.add_ledger_entries_to_db_cache(&vec![entry]);
         self.next_rune_number += 1;
         *cenotaph_etchings_counter += 1;
+        Ok(())
     }
 
     pub async fn apply_mint(
