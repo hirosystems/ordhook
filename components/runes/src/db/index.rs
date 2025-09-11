@@ -849,6 +849,7 @@ mod tests {
 
     // TODO: add condition to run only if postgres and bitcoind are running
     #[tokio::test]
+    #[ignore]
     async fn index_block_writes_valid_rune_and_rejects_invalid() {
         use config::Config;
         use ordinals_parser::RuneId;
