@@ -218,6 +218,7 @@ pub async fn index_block(
         .commit()
         .await
         .expect("Unable to commit pg transaction");
+    index_cache.clear_consumed_utxos_from_cache(ctx);
     prometheus.metrics_record_rune_db_write_time(rune_db_write_start.elapsed().as_millis() as f64);
 
     prometheus.metrics_record_runes_etching_per_block(etching_count);

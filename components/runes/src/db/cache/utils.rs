@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use bitcoin::{Address, ScriptBuf};
 use bitcoind::{try_debug, try_warn, types::bitcoin::TxIn, utils::Context};
@@ -22,12 +22,14 @@ use crate::db::{
 /// * `inputs` - Raw transaction inputs
 /// * `block_output_cache` - Cache with output balances produced by the current block
 /// * `output_cache` - LRU cache with output balances
+/// * `consumed_utxos` - HashSet to track UTXOs consumed from output_cache for later cleanup
 /// * `db_tx` - DB transaction
 /// * `ctx` - Context
 pub async fn input_rune_balances_from_tx_inputs(
     inputs: &Vec<TxIn>,
     block_output_cache: &HashMap<(String, u32), HashMap<RuneId, Vec<InputRuneBalance>>>,
     output_cache: &mut LruCache<(String, u32), HashMap<RuneId, Vec<InputRuneBalance>>>,
+    consumed_utxos: &mut HashSet<(String, u32)>,
     db_tx: &mut Transaction<'_>,
     ctx: &Context,
 ) -> HashMap<RuneId, VecDeque<InputRuneBalance>> {
@@ -42,8 +44,12 @@ pub async fn input_rune_balances_from_tx_inputs(
         let k = (tx_id.clone(), vout);
         if let Some(map) = block_output_cache.get(&k) {
             indexed_input_runes.insert(i as u32, map.clone());
+            // Track block cache UTXO for removal from LRU after successful commit
+            consumed_utxos.insert(k);
         } else if let Some(map) = output_cache.get(&k) {
             indexed_input_runes.insert(i as u32, map.clone());
+            // Track LRU cache UTXO for removal after successful commit
+            consumed_utxos.insert(k);
         } else {
             cache_misses.push((i as u32, tx_id, vout));
         }
@@ -666,7 +672,7 @@ mod test {
     }
 
     mod input_balances {
-        use std::num::NonZeroUsize;
+        use std::{collections::HashSet, num::NonZeroUsize};
 
         use bitcoind::{
             types::{
@@ -711,6 +717,7 @@ mod test {
                             }
             };
             let mut output_cache = LruCache::new(NonZeroUsize::new(1).unwrap());
+            let mut consumed_utxos = HashSet::new();
             let ctx = Context::empty();
 
             let mut pg_client = pg_test_client(true, &ctx).await;
@@ -719,6 +726,7 @@ mod test {
                 &inputs,
                 &block_output_cache,
                 &mut output_cache,
+                &mut consumed_utxos,
                 &mut db_tx,
                 &ctx,
             )
@@ -762,6 +770,7 @@ mod test {
                     rune_id => vec![InputRuneBalance { address: None, amount: 2000 }]
                 },
             );
+            let mut consumed_utxos = HashSet::new();
             let ctx = Context::empty();
 
             let mut pg_client = pg_test_client(true, &ctx).await;
@@ -770,6 +779,7 @@ mod test {
                 &inputs,
                 &block_output_cache,
                 &mut output_cache,
+                &mut consumed_utxos,
                 &mut db_tx,
                 &ctx,
             )
@@ -804,6 +814,7 @@ mod test {
             let rune_id = RuneId::new(840000, 25).unwrap();
             let block_output_cache = hashmap! {};
             let mut output_cache = LruCache::new(NonZeroUsize::new(1).unwrap());
+            let mut consumed_utxos = HashSet::new();
             let ctx = Context::empty();
 
             let mut pg_client = pg_test_client(true, &ctx).await;
@@ -829,6 +840,7 @@ mod test {
                 &inputs,
                 &block_output_cache,
                 &mut output_cache,
+                &mut consumed_utxos,
                 &mut db_tx,
                 &ctx,
             )
@@ -862,6 +874,7 @@ mod test {
             }];
             let block_output_cache = hashmap! {};
             let mut output_cache = LruCache::new(NonZeroUsize::new(1).unwrap());
+            let mut consumed_utxos = HashSet::new();
             let ctx = Context::empty();
 
             let mut pg_client = pg_test_client(true, &ctx).await;
@@ -870,6 +883,7 @@ mod test {
                 &inputs,
                 &block_output_cache,
                 &mut output_cache,
+                &mut consumed_utxos,
                 &mut db_tx,
                 &ctx,
             )

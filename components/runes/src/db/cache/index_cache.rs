@@ -1,4 +1,8 @@
-use std::{collections::HashMap, num::NonZeroUsize, str::FromStr};
+use std::{
+    collections::{HashMap, HashSet},
+    num::NonZeroUsize,
+    str::FromStr,
+};
 
 use bitcoin::{Network, ScriptBuf};
 use bitcoind::{
@@ -43,6 +47,8 @@ pub struct IndexCache {
     /// Same as above but only for the current block. We use a `HashMap` instead of an LRU cache to make sure we keep all outputs
     /// in memory while we index this block. Must be cleared every time a new block is processed.
     block_output_cache: HashMap<(String, u32), HashMap<RuneId, Vec<InputRuneBalance>>>,
+    /// Tracks UTXOs consumed from output_cache during this block. These will be removed after successful commit.
+    consumed_utxos: HashSet<(String, u32)>,
     /// Holds a single transaction's rune cache. Must be cleared every time a new transaction is processed.
     tx_cache: TransactionCache,
     /// Keeps rows that have not yet been inserted in the DB.
@@ -68,6 +74,7 @@ impl IndexCache {
             rune_total_mints_cache: LruCache::new(cap),
             output_cache: LruCache::new(cap),
             block_output_cache: HashMap::new(),
+            consumed_utxos: HashSet::new(),
             tx_cache: TransactionCache::new(
                 TransactionLocation {
                     network,
@@ -117,6 +124,7 @@ impl IndexCache {
             tx_inputs,
             &self.block_output_cache,
             &mut self.output_cache,
+            &mut self.consumed_utxos,
             db_tx,
             ctx,
         )
@@ -153,6 +161,22 @@ impl IndexCache {
             &mut self.block_output_cache,
             &mut self.output_cache,
         );
+    }
+
+    /// Removes all consumed UTXOs from the output LRU cache.
+    pub fn clear_consumed_utxos_from_cache(&mut self, ctx: &Context) {
+        let removed_count = self.consumed_utxos.len();
+        for utxo_key in self.consumed_utxos.drain() {
+            // Remove from LRU cache
+            self.output_cache.pop(&utxo_key);
+        }
+        if removed_count > 0 {
+            try_debug!(
+                ctx,
+                "Cleaned {} spent UTXOs from output cache",
+                removed_count
+            );
+        }
     }
 
     pub async fn apply_runestone(
