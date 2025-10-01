@@ -167,7 +167,7 @@ async fn new_ordinals_indexer_runloop(
         db::ordinals_pg::get_chain_tip(&ord_client).await?
     };
     let blocks_chain_tip = {
-        let blocks_db = open_blocks_db_with_retry(false, config, ctx);
+        let blocks_db = open_blocks_db_with_retry(true, config, ctx);
         let height = find_last_block_inserted(&blocks_db);
         // Blocks DB does not have the hash available.
         if height > 0 {
@@ -205,7 +205,35 @@ async fn new_ordinals_indexer_runloop(
 pub async fn get_chain_tip(config: &Config) -> Result<BlockIdentifier, String> {
     let pool = pg_pool(&config.ordinals.as_ref().unwrap().db)?;
     let ord_client = pg_pool_client(&pool).await?;
-    Ok(db::ordinals_pg::get_chain_tip(&ord_client).await?.unwrap())
+    let pg_chain_tip = db::ordinals_pg::get_chain_tip(&ord_client).await?;
+    match pg_chain_tip {
+        Some(tip) => Ok(tip),
+        None => {
+            // Database chain_tip table exists but has NULL values, initialize it
+            let initial_tip = BlockIdentifier {
+                index: first_inscription_height(config) - 1,
+                hash: "0000000000000000000000000000000000000000000000000000000000000000"
+                    .to_string(),
+            };
+
+            // Initialize the chain tip in the database (without 0x prefix for storage)
+            ord_client
+                .query(
+                    "UPDATE chain_tip SET block_height = $1, block_hash = $2",
+                    &[
+                        &postgres::types::PgNumericU64(initial_tip.index),
+                        &initial_tip.hash,
+                    ],
+                )
+                .await
+                .map_err(|e| format!("Failed to initialize chain_tip: {e}"))?;
+
+            Ok(BlockIdentifier {
+                index: initial_tip.index,
+                hash: format!("0x{}", initial_tip.hash),
+            })
+        }
+    }
 }
 
 pub async fn rollback_block_range(
