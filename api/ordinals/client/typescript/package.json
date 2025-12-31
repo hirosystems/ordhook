@@ -32,7 +32,7 @@
     "@types/node": "^13.13.0",
     "@types/babel__core": "7.1.18",
     "@types/babel__traverse": "7.14.2",
-    "jest": "^25.4.0",
+    "jest": "^30.2.0",
     "ts-jest": "^25.4.0",
     "typescript": "^3.8.3"
   },
