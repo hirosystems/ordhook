@@ -69,6 +69,6 @@
     "fastify-metrics": "^10.2.0",
     "pino": "^8.10.0",
     "postgres": "^3.3.4",
-    "undici": "^5.29.0"
+    "undici": "^6.23.0"
   }
 }
