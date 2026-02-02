@@ -58,7 +58,7 @@
     "@types/node": "^18.13.0",
     "bignumber.js": "^9.1.2",
     "env-schema": "^5.2.1",
-    "fastify": "4.15.0",
+    "fastify": "5.7.3",
     "fastify-metrics": "10.2.0",
     "pino": "^8.10.0",
     "postgres": "^3.3.4"
